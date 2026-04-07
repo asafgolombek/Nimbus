@@ -44,7 +44,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libsecret-tools
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -127,7 +128,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libsecret-tools
 
       - name: Setup Rust
         if: matrix.os == 'ubuntu-22.04'
