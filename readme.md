@@ -4,7 +4,7 @@
 
 ### The Local-First Digital Lieutenant.
 
-*Autonomous AI orchestration across your cloud services — on your terms, from your machine.*
+*Autonomous AI orchestration across your cloud services, repositories, pipelines, and infrastructure — on your terms, from your machine.*
 
 [![Built with Bun](https://img.shields.io/badge/runtime-Bun_1.2+-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript_6.x-3178C6?logo=typescript)](https://typescriptlang.org)
@@ -17,7 +17,7 @@
 
 ---
 
-Nimbus is an open-source, local-first AI agent framework that bridges the gap between your machine and your personal cloud services. A headless **Nimbus Gateway** runs as a background process, maintaining a private local index of your data across Google Drive, Gmail, Google Photos, OneDrive, Outlook, and your local filesystem. The Nimbus agent — powered by [Mastra](https://mastra.ai) and Claude — reasons over this index and executes multi-step workflows on your behalf. Every destructive or outgoing action is gated by an explicit Human-in-the-Loop consent step.
+Nimbus is an open-source, local-first AI agent framework that bridges the gap between your machine and every service you work across. A headless **Nimbus Gateway** runs as a background process, maintaining a private local index of your data across cloud storage (Google Drive, OneDrive), communication (Gmail, Outlook), source control and CI/CD (GitHub, GitLab, Bitbucket, Jenkins, GitHub Actions), cloud infrastructure (AWS, Azure, GCP), monitoring (Datadog, Grafana, PagerDuty), and your local filesystem. The Nimbus agent — powered by [Mastra](https://mastra.ai) and Claude — reasons over this unified index and executes multi-step workflows on your behalf. Every destructive or outgoing action is gated by an explicit Human-in-the-Loop consent step.
 
 Your data never passes through a Nimbus server. There is no Nimbus server.
 
@@ -51,6 +51,12 @@ A first-class extension system lets third-party developers publish new connector
 ### 🧠 Agent-Grade Reasoning
 
 Nimbus understands intent, decomposes multi-step tasks, executes them across services, and streams structured results. Ask it in plain English — it plans, confirms where necessary, and acts.
+
+### 🔧 DevOps Intelligence — Not Another Dashboard
+
+Your pull request, its CI pipeline, its deployment, and the monitoring alert it triggered all live in different systems. Nimbus indexes them all locally and lets you query across them in plain English: *"Which of my open PRs have failing CI?"*, *"What changed between the image running in prod and the one in staging?"*, *"Which Lambda functions started erroring after yesterday's deploy?"*
+
+Write operations — merging a PR, triggering a Jenkins build, applying a Terraform plan, acknowledging a PagerDuty alert — go through the same consent-gated executor as every other Nimbus action. The agent proposes; you approve. No silent infrastructure mutations.
 
 ---
 
@@ -116,9 +122,25 @@ nimbus connector list             # Shows all connectors + sync status
 ### Query
 
 ```bash
+# Document and communication queries
 nimbus ask "Find all PDFs I received by email last month that I haven't opened"
 nimbus search --service google_drive --type pdf --since 30d
 nimbus sync all
+
+# Developer and DevOps queries
+nimbus ask "Which of my open PRs have failing CI?"
+nimbus ask "What changed between the image running in prod and the one in staging?"
+nimbus ask "Show me all Jenkins jobs that failed after yesterday's deploy"
+nimbus ask "Which Lambda functions started erroring in the last hour?"
+```
+
+### Authenticate DevOps Services
+
+```bash
+nimbus connector auth github         # GitHub PAT via OAuth — stored in OS keystore
+nimbus connector auth gitlab         # GitLab PAT
+nimbus connector auth aws            # AWS credentials — stored in OS keystore, never in ~/.aws in plaintext
+nimbus connector list                # Shows all connectors + sync status
 ```
 
 ### Install a Community Extension
@@ -128,7 +150,7 @@ nimbus extension install @community/nimbus-notion
 nimbus extension list
 ```
 
-### Example Agent Session
+### Example Agent Sessions
 
 ```
 $ nimbus ask "Summarize the Zurich project emails this week and draft a status update for my manager"
@@ -151,6 +173,33 @@ $ nimbus ask "Summarize the Zurich project emails this week and draft a status u
    Send? [y/n]: y
 
 ✅  Sent.
+```
+
+```
+$ nimbus ask "The payment-service alert just fired — what deployed recently and what changed?"
+
+🔍 Querying PagerDuty: active alerts for payment-service...
+   Alert: P1 — Error rate 4.2% (threshold: 1%) — fired 8 minutes ago.
+
+🔍 Querying deployment history (last 2 hours)...
+   Last deploy: payment-service v2.14.1 — 23 minutes ago
+   Triggered by: Jenkins job #4821 → commit a3f9c12 (branch: main)
+
+🔍 Querying GitHub: diff between v2.14.0 and v2.14.1...
+   3 files changed — src/billing/retry.ts most significant.
+   PR #312 "Increase retry backoff" — merged by @elena 41 minutes ago.
+
+📝 Incident summary ready.
+
+⚠️  CONSENT REQUIRED — This action will post to #incidents Slack channel.
+   Post? [y/n]: y
+
+✅  Posted. Suggested next step: rollback to v2.14.0?
+
+⚠️  CONSENT REQUIRED — This action will trigger a Jenkins rollback job.
+   Rollback payment-service to v2.14.0? [y/n]: n
+
+   Aborted. No changes made.
 ```
 
 ---
@@ -253,35 +302,43 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 ### Q2 2026 — The Bridge
 
-**Goal:** Connect the cloud; unify the index.
+**Goal:** Connect the cloud and developer tooling; unify the index.
 
 - Google Drive, Gmail, Google Photos MCP connectors (OAuth PKCE)
 - OneDrive, Outlook MCP connectors (Microsoft Graph, first-party)
+- **GitHub, GitLab, Bitbucket MCP connectors** — repositories, pull requests, issues, CI status
 - Delta sync scheduler — configurable per-connector intervals
-- Unified metadata index across all services
+- Unified metadata index across all services (documents, emails, PRs, issues)
 - `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`
 - E2E CLI test suite with mock MCP servers
 
-**Milestone:** `nimbus ask "find all documents I've touched across Drive and OneDrive this quarter"` returns merged, ranked results from both services in under 200ms using the local index.
+**Milestone:** `nimbus ask "find all documents and PRs I've touched across Drive, OneDrive, and GitHub this quarter"` returns merged, ranked results from all services in under 200ms using the local index.
 
 ---
 
 ### Q3 2026 — Intelligence
 
-**Goal:** Make Nimbus proactive and semantically aware.
+**Goal:** Make Nimbus proactive and semantically aware. Extend into CI/CD and cloud infrastructure.
 
 - Embedding pipeline: chunk → embed → `sqlite-vec` (`@xenova/transformers`, local)
 - Hybrid search: BM25 keyword + vector reranking
 - RAG-based conversational memory across sessions
 - **Extension Registry v1** — `@nimbus-dev/sdk`, manifest schema, `nimbus scaffold`
 - `nimbus extension install/list/disable/remove` CLI commands
+- **CI/CD connectors** — Jenkins, GitHub Actions, CircleCI, GitLab CI: pipeline runs, job status, artefacts, failure summaries
+- **Cloud infrastructure connectors** — AWS (CloudWatch, ECS, Lambda, EC2, S3, Cost Explorer), Azure (Monitor, App Service, AKS), GCP (Cloud Run, GKE, Cloud Monitoring)
+- **IaC awareness** — Terraform state, CloudFormation stacks, Pulumi outputs: indexed resource state + drift detection
+- **Kubernetes connector** — pod status, events, recent restarts, rollout history (kubectl-compatible clusters)
+- **Monitoring & incident connectors** — Datadog, Grafana, Sentry, PagerDuty, New Relic: alert indexing, cross-service incident correlation
 - **Watcher system** — ambient monitors that fire on conditions:
   - "Alert me when I receive an email matching this pattern"
   - "Summarize new files added to this Drive folder"
   - "Notify me if the Zurich project folder hasn't changed in 3 days"
+  - "Alert me when a production deployment fails CI"
+  - "Summarize all failing Jenkins jobs every morning at 09:00"
 - `nimbus watch` CLI: `create`, `list`, `pause`, `delete`
 
-**Milestone:** A community developer publishes a working Nimbus extension for Notion in under a day using the SDK scaffold. Nimbus proactively surfaces a relevant document based on a watcher rule without being asked.
+**Milestone:** A community developer publishes a working Nimbus extension for Notion in under a day using the SDK scaffold. `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, the GitHub PR, the Jenkins run, and the CloudWatch error spike into a single local answer — without leaving the terminal.
 
 ---
 

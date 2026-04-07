@@ -1,6 +1,6 @@
 # Nimbus Architecture
 
-**Version:** 0.3
+**Version:** 0.4
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
 **Status:** Active Design
 
@@ -125,12 +125,21 @@ flowchart TD
         GPHOTOS["Google Photos"]
         ONEDRIVE["OneDrive"]
         OUTLOOK["Outlook"]
+        GITHUB["GitHub / GitLab / Bitbucket"]
+        CICD["Jenkins / GitHub Actions / CircleCI"]
+        CLOUD_INFRA["AWS / Azure / GCP"]
+        K8S["Kubernetes / ArgoCD"]
+        MONITORING["Datadog / Grafana / PagerDuty"]
         EXT_MCP["3rd-Party Extensions"]
     end
 
     subgraph CLOUD ["Cloud APIs"]
         GOOGLE_API["Google APIs"]
         MS_GRAPH["Microsoft Graph"]
+        GIT_APIS["GitHub / GitLab / Bitbucket APIs"]
+        CICD_APIS["Jenkins / Actions / CircleCI APIs"]
+        CLOUD_APIS["AWS / Azure / GCP APIs"]
+        MONITOR_APIS["Datadog / Grafana / PagerDuty APIs"]
         THIRD_PARTY["3rd-Party APIs"]
     end
 
@@ -232,6 +241,11 @@ type IntentClass =
   | "email_read"  | "email_send"              // email_send → HITL
   | "calendar_query" | "calendar_mutate"      // mutate → HITL
   | "photo_search"
+  | "repo_query" | "repo_mutate"             // repo_mutate → HITL (PR merge, branch delete, tag create)
+  | "pipeline_query" | "pipeline_trigger"    // pipeline_trigger → HITL
+  | "deployment_query" | "deployment_apply"  // deployment_apply → HITL
+  | "infra_query" | "infra_apply"            // infra_apply → HITL (terraform apply, stack update)
+  | "monitoring_query" | "incident_action"   // incident_action → HITL (acknowledge, escalate, silence)
   | "cross_service_query"
   | "ambient_monitoring"
   | "extension_query"
@@ -259,11 +273,26 @@ The HITL gate is the most security-critical component. Its invariants are enforc
 
 // Frozen at module load — cannot be mutated at runtime
 const HITL_REQUIRED: ReadonlySet<string> = Object.freeze(new Set([
+  // Cloud storage & communication
   "file.delete", "file.move", "file.rename",
   "email.send", "email.draft.send",
   "calendar.event.create", "calendar.event.delete",
   "photo.delete",
   "onedrive.delete", "onedrive.move",
+  // Source control
+  "repo.pr.merge", "repo.pr.close",
+  "repo.branch.delete", "repo.tag.create",
+  "repo.commit.push",
+  // CI/CD
+  "pipeline.trigger", "pipeline.cancel", "pipeline.rerun",
+  // Deployments & infrastructure
+  "deployment.apply", "deployment.rollback",
+  "infra.apply", "infra.destroy",
+  "k8s.apply", "k8s.delete", "k8s.rollout.restart",
+  "cloud.resource.scale", "cloud.resource.stop",
+  // Monitoring & incidents
+  "alert.acknowledge", "alert.silence",
+  "incident.escalate", "incident.resolve",
 ]));
 
 export class ToolExecutor {
@@ -354,6 +383,50 @@ export async function buildConnectorMesh(): Promise<MCPClient> {
         args: ["nimbus-mcp-outlook"],
         env: { OUTLOOK_TOKEN: await vault.get("microsoft.oauth.token") },
       },
+      // Source control
+      github: {
+        command: "bunx",
+        args: ["nimbus-mcp-github"],
+        env: { GITHUB_TOKEN: await vault.get("github.pat") },
+      },
+      gitlab: {
+        command: "bunx",
+        args: ["nimbus-mcp-gitlab"],
+        env: { GITLAB_TOKEN: await vault.get("gitlab.pat") },
+      },
+      // CI/CD
+      jenkins: {
+        command: "bunx",
+        args: ["nimbus-mcp-jenkins"],
+        env: {
+          JENKINS_URL:   await vault.get("jenkins.url"),
+          JENKINS_TOKEN: await vault.get("jenkins.api_token"),
+        },
+      },
+      // Cloud infrastructure
+      aws: {
+        command: "bunx",
+        args: ["nimbus-mcp-aws"],
+        env: {
+          AWS_ACCESS_KEY_ID:     await vault.get("aws.access_key_id"),
+          AWS_SECRET_ACCESS_KEY: await vault.get("aws.secret_access_key"),
+          AWS_REGION:            await vault.get("aws.region"),
+        },
+      },
+      // Monitoring
+      datadog: {
+        command: "bunx",
+        args: ["nimbus-mcp-datadog"],
+        env: {
+          DD_API_KEY: await vault.get("datadog.api_key"),
+          DD_APP_KEY: await vault.get("datadog.app_key"),
+        },
+      },
+      pagerduty: {
+        command: "bunx",
+        args: ["nimbus-mcp-pagerduty"],
+        env: { PD_TOKEN: await vault.get("pagerduty.api_token") },
+      },
     },
   });
 }
@@ -372,6 +445,66 @@ Every first-party connector must expose this minimum tool surface:
 | `update` | Conditional |
 | `move` | **Always** |
 | `delete` | **Always** |
+
+### DevOps and Infrastructure Connectors
+
+DevOps connectors follow the same MCP contract as cloud storage connectors but expose domain-specific tool surfaces and index domain-specific item types.
+
+#### Source Control (GitHub, GitLab, Bitbucket)
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `repo.list` / `repo.get` | No | — |
+| `pr.list` / `pr.get` | No | `pr` |
+| `issue.list` / `issue.get` | No | `issue` |
+| `pr.merge` | **Always** | — |
+| `pr.close` | **Always** | — |
+| `repo.branch.delete` | **Always** | — |
+| `repo.tag.create` | **Always** | — |
+
+Pull requests and issues are indexed with: `repo`, `number`, `title`, `state`, `author`, `ci_status`, `target_branch`, `created_at`, `updated_at`, `url`.
+
+#### CI/CD (Jenkins, GitHub Actions, CircleCI, GitLab CI)
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `pipeline.list` / `pipeline.get` | No | `pipeline_run` |
+| `pipeline.getLogs` | No | — |
+| `pipeline.trigger` | **Always** | — |
+| `pipeline.cancel` | **Always** | — |
+| `pipeline.rerun` | **Always** | — |
+
+Pipeline runs are indexed with: `job_name`, `status`, `branch`, `commit_sha`, `triggered_by`, `duration_ms`, `started_at`, `finished_at`, `artefact_urls`.
+
+#### Cloud Infrastructure (AWS, Azure, GCP)
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `infra.resource.list` / `infra.resource.get` | No | `infra_resource` |
+| `infra.metrics.query` | No | — |
+| `infra.deployment.list` | No | `deployment` |
+| `infra.apply` | **Always** | — |
+| `infra.destroy` | **Always** | — |
+| `cloud.resource.scale` | **Always** | — |
+| `cloud.resource.stop` | **Always** | — |
+| `k8s.apply` / `k8s.delete` | **Always** | — |
+| `k8s.rollout.restart` | **Always** | — |
+
+Infrastructure resources are indexed with: `provider`, `service`, `resource_type`, `resource_id`, `region`, `state`, `tags`, `last_modified_at`.
+
+#### Monitoring and Incidents (Datadog, Grafana, PagerDuty, Sentry)
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `alert.list` / `alert.get` | No | `alert` |
+| `incident.list` / `incident.get` | No | `incident` |
+| `metrics.query` | No | — |
+| `alert.acknowledge` | **Always** | — |
+| `alert.silence` | **Always** | — |
+| `incident.escalate` | **Always** | — |
+| `incident.resolve` | **Always** | — |
+
+Alerts are indexed with: `monitor_name`, `severity`, `status`, `service`, `fired_at`, `resolved_at`, `url`. Cross-service correlation (alert → deployment → PR → commit) is performed by the Memory Layer's hybrid search over indexed items from multiple connectors.
 
 ### Delta Sync
 
@@ -629,6 +762,8 @@ CREATE TABLE indexed_items (
     id          TEXT PRIMARY KEY,   -- "<service>:<native_id>"
     service     TEXT NOT NULL,      -- "google_drive" | "gmail" | "filesystem" | ...
     item_type   TEXT NOT NULL,      -- "file" | "email" | "event" | "photo" | "task"
+                                    -- "pr" | "issue" | "pipeline_run" | "deployment"
+                                    -- "alert" | "incident" | "infra_resource"
     name        TEXT NOT NULL,
     mime_type   TEXT,
     size_bytes  INTEGER,
@@ -792,4 +927,4 @@ nimbus/
 
 ---
 
-*Nimbus Architecture v0.3 — Cross-platform. Security-hardened. Extension-ready.*
+*Nimbus Architecture v0.4 — Cross-platform. Security-hardened. DevOps-aware. Extension-ready.*
