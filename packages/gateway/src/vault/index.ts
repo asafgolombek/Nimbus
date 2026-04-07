@@ -25,4 +25,15 @@ export interface NimbusVault {
   listKeys(prefix?: string): Promise<string[]>;
 }
 
+/**
+ * Validates documented vault key shape (`<segment>.<segment>`) for API boundaries.
+ * PAL implementations remain authoritative; this is a shared guard for callers.
+ */
+export function isWellFormedVaultKey(key: string): boolean {
+  if (key.length === 0 || key.length > 256) {
+    return false;
+  }
+  return /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/i.test(key);
+}
+
 // TODO Q1: Export platform vault implementations resolved via PAL

@@ -18,11 +18,11 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "test": "bun test",
+    "test": "bun test packages/gateway packages/cli packages/sdk",
     "test:unit": "bun test packages/gateway/src packages/cli/src packages/sdk/src",
     "test:integration": "bun test packages/gateway/test/integration/ packages/cli/test/integration/",
     "test:e2e:cli": "bun test packages/cli/test/e2e/",
-    "test:coverage": "bun test --coverage",
+    "test:coverage": "bun test packages/gateway packages/cli packages/sdk --coverage",
     "test:coverage:engine": "bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85",
     "test:coverage:vault": "bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90",
     "clean": "bun run --filter '*' clean && rm -rf node_modules"

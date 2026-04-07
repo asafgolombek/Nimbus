@@ -12,4 +12,6 @@
  */
 
 // TODO Q1: Export nimbusAgent, IntentRouter, TaskPlanner, ToolExecutor, MemoryLayer
-export {};
+
+/** Subsystem marker for health checks and integration wiring. */
+export const ENGINE_SUBSYSTEM_ID = "nimbus-engine" as const;

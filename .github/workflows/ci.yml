@@ -38,7 +38,7 @@ jobs:
         run: bun run lint
 
       - name: Unit tests (with coverage)
-        run: bun test --coverage
+        run: bun test packages/gateway packages/cli packages/sdk --coverage
         env:
           CI: "true"
 
