@@ -4,7 +4,7 @@
 
 Nimbus is a **local-first AI agent framework** — a headless Bun Gateway process that maintains a private SQLite index of the user's data across cloud services (Google Drive, Gmail, OneDrive, Outlook, Google Photos) and executes multi-step agentic workflows on their behalf. Clients (CLI and Tauri 2.0 desktop app) communicate with the Gateway exclusively over JSON-RPC 2.0 IPC.
 
-**Runtime:** Bun v1.2+ / TypeScript 5.x strict
+**Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
 **Status:** Q1 2026 — Foundation phase (greenfield)

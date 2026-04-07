@@ -1,7 +1,7 @@
 # Nimbus Architecture
 
 **Version:** 0.3
-**Runtime:** Bun v1.2+ / TypeScript 5.x (strict)
+**Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
 **Status:** Active Design
 
 ---
