@@ -7,7 +7,7 @@
 *Autonomous AI orchestration across your cloud services — on your terms, from your machine.*
 
 [![Built with Bun](https://img.shields.io/badge/runtime-Bun_1.2+-black?logo=bun)](https://bun.sh)
-[![TypeScript](https://img.shields.io/badge/language-TypeScript_5.x-3178C6?logo=typescript)](https://typescriptlang.org)
+[![TypeScript](https://img.shields.io/badge/language-TypeScript_6.x-3178C6?logo=typescript)](https://typescriptlang.org)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
 [![Platforms](https://img.shields.io/badge/platforms-Windows_%7C_macOS_%7C_Linux-blue)]()
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
@@ -59,7 +59,7 @@ Nimbus understands intent, decomposes multi-step tasks, executes them across ser
 | Layer | Technology | Rationale |
 |---|---|---|
 | **Runtime** | [Bun v1.2+](https://bun.sh) | Native TypeScript, fast startup, built-in SQLite, FFI for native bindings |
-| **Language** | TypeScript 5.x strict mode | Type safety, IDE tooling, Mastra-native |
+| **Language** | TypeScript 6.x strict mode | Type safety, IDE tooling, Mastra-native |
 | **Agent Framework** | [Mastra](https://mastra.ai) | Structured agents, tool registration, workflow orchestration, observability |
 | **Integration Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) | Vendor-neutral connector standard; first-class Mastra support |
 | **Local Database** | `bun:sqlite` + [sqlite-vec](https://github.com/asg017/sqlite-vec) | Zero-dependency metadata index + vector search |

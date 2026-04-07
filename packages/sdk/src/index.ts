@@ -13,5 +13,5 @@
  */
 
 export { NimbusExtensionServer } from "./server";
-export type { NimbusItem, ExtensionManifest } from "./types";
 export { MockGateway } from "./testing/index";
+export type { ExtensionManifest, NimbusItem } from "./types";
