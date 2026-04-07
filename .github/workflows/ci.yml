@@ -38,6 +38,14 @@ jobs:
       - name: Build all packages
         run: bun run build
 
+      # Tauri Linux deps — required so cargo clippy can link gdk-sys / webkit
+      - name: Install Linux libs for Tauri (Rust)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -112,6 +120,14 @@ jobs:
 
       - name: Build all packages
         run: bun run build
+
+      - name: Install Linux libs for Tauri (Rust)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
 
       - name: Setup Rust
         if: matrix.os == 'ubuntu-22.04'
