@@ -11,17 +11,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: CI — ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-13, windows-2022]
+  # Fast PR feedback — single OS (see plan: Option B)
+  pr-quality:
+    name: PR quality — ubuntu-22.04
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -34,8 +32,102 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Lint
+      - name: Lint + format (Biome)
         run: bun run lint
+
+      - name: Build all packages
+        run: bun run build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rustfmt (Tauri)
+        working-directory: packages/ui/src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (Tauri)
+        working-directory: packages/ui/src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Unit tests (with coverage)
+        run: bun test packages/gateway packages/cli packages/sdk --coverage
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Engine (≥85%)
+        run: bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Vault (≥90%)
+        run: bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+        env:
+          CI: "true"
+
+      - name: Integration tests
+        run: bun test packages/gateway/test/integration/ packages/cli/test/integration/
+        env:
+          CI: "true"
+
+      - name: E2E CLI tests
+        run: bun test packages/cli/test/e2e/
+        env:
+          CI: "true"
+
+      - name: UI component tests (Vitest)
+        run: cd packages/ui && bunx vitest run --coverage
+        env:
+          CI: "true"
+
+  # Full cross-platform matrix — pushes only
+  ci:
+    name: CI — ${{ matrix.os }}
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-13 retired Dec 2025 — macOS 14 (Apple Silicon) for CI parity
+        os: [ubuntu-22.04, macos-14, windows-2022]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint + format (Biome)
+        run: bun run lint
+
+      - name: Build all packages
+        run: bun run build
+
+      - name: Setup Rust
+        if: matrix.os == 'ubuntu-22.04'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rustfmt (Tauri)
+        if: matrix.os == 'ubuntu-22.04'
+        working-directory: packages/ui/src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (Tauri)
+        if: matrix.os == 'ubuntu-22.04'
+        working-directory: packages/ui/src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Unit tests (with coverage)
         run: bun test packages/gateway packages/cli packages/sdk --coverage
@@ -76,11 +168,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-13, windows-2022]
+        os: [ubuntu-22.04, macos-14, windows-2022]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

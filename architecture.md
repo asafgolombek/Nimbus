@@ -21,7 +21,7 @@ Nimbus is composed of four primary subsystems, all hosted inside a single headle
 
 ## Cross-Platform Architecture
 
-Nimbus treats Windows 10+, macOS 13+, and Ubuntu 22.04+ as equally supported, first-class targets. "First-class" has a precise definition: every feature works on every platform, CI gates every PR on all three in parallel, and platform-specific code never leaks into business logic.
+Nimbus treats Windows 10+, macOS 13+, and Ubuntu 22.04+ as equally supported, first-class targets. "First-class" has a precise definition: every feature works on every platform, CI runs a full **Ubuntu** gate on every PR (`pr-quality`: typecheck, Biome, build, tests, Vitest, Rust fmt/clippy for Tauri) and runs the **three-platform matrix** on every **push** to `main`/`develop`; platform-specific code never leaks into business logic.
 
 ### Platform Abstraction Layer (PAL)
 
@@ -61,7 +61,7 @@ export async function createPlatformServices(): Promise<PlatformServices> {
 | **Extensions dir** | `%LOCALAPPDATA%\Nimbus\extensions` | `~/Library/Application Support/Nimbus/extensions` | `~/.local/share/nimbus/extensions` |
 | **Notifications** | Win32 Toast API (via Tauri plugin) | `NSUserNotification` (via Tauri plugin) | `libnotify` via D-Bus |
 | **Shell setup** | PowerShell profile + `$PATH` | `~/.zshrc` / `~/.bashrc` | `~/.bashrc` / `~/.zshrc` / fish config |
-| **CI runner** | `windows-2022` | `macos-13` | `ubuntu-22.04` |
+| **CI runner** | `windows-2022` | `macos-14` | `ubuntu-22.04` |
 | **Release artifact** | `.exe` (signed) | `.dmg` / `.app` (signed + notarized) | `.deb` + AppImage |
 
 ### Platform Path API
@@ -700,26 +700,25 @@ Nimbus uses a five-layer testing pyramid calibrated to the Bun/Tauri hybrid stac
 | **UI Component** | Vitest + `@testing-library/react` | Vitest integrates with Vite's transform pipeline — the same pipeline Tauri uses for the WebView frontend. `bun test` does not support jsdom. |
 | **E2E Desktop** | Playwright + Tauri WebDriver | Only tool with first-class Tauri WebDriver support across all three platforms. Covers onboarding, marketplace, HITL dialogs. Runs on `push` to `main` only. |
 
-### CI Matrix
+### CI (PR vs push)
+
+**Pull requests** — job `pr-quality` on `ubuntu-22.04` only: `bun install --frozen-lockfile`, `bun run typecheck`, `bun run lint` (Biome = lint + format check), `bun run build`, `cargo fmt` / `cargo clippy -D warnings` in `packages/ui/src-tauri`, scoped `bun test` + engine/vault coverage gates, integration + CLI e2e, Vitest in `packages/ui`.
+
+**Pushes to `main` / `develop`** — job `ci` with matrix:
 
 ```yaml
-# .github/workflows/ci.yml
+# .github/workflows/ci.yml (matrix job — push only)
 strategy:
   matrix:
-    os: [ubuntu-22.04, macos-13, windows-2022]
-
-steps:
-  - run: bun install --frozen-lockfile
-  - run: bun run typecheck
-  - run: bun run lint
-  - run: bun test --coverage                              # Unit
-  - run: bun test packages/*/test/integration/           # Integration
-  - run: bun test packages/cli/test/e2e/                 # E2E CLI
-  - run: cd packages/ui && bunx vitest run --coverage    # UI components
-  # E2E Desktop (Playwright) runs on push to main only
+    os: [ubuntu-22.04, macos-14, windows-2022]
+# Same steps as pr-quality; Rust fmt/clippy runs on the Ubuntu matrix leg only.
 ```
 
-Coverage gates: unit tests must maintain ≥85% line coverage on the Engine, ≥90% on the Vault. PRs that drop below threshold are blocked.
+**E2E Desktop** (Tauri + Playwright): push to `main` only, after matrix `ci` succeeds.
+
+Other automation: [`.github/workflows/security.yml`](.github/workflows/security.yml) (`bun audit`, Trivy), [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml), [`.github/dependabot.yml`](.github/dependabot.yml).
+
+Coverage gates: unit tests must maintain ≥85% line coverage on the Engine, ≥90% on the Vault. PRs that drop below threshold are blocked when checks are required.
 
 ---
 
@@ -779,10 +778,13 @@ nimbus/
 │           └── testing/        ← MockGateway for extension unit tests
 │
 ├── .github/
-│   └── workflows/
-│       ├── ci.yml              ← 3-platform matrix on every PR
-│       ├── security.yml        ← bun audit + trivy (PRs + nightly)
-│       └── release.yml         ← bun build --compile → signed binaries
+│   ├── workflows/
+│   │   ├── ci.yml              ← pr-quality (PR) + matrix on push
+│   │   ├── security.yml        ← bun audit + trivy (PRs + nightly)
+│   │   ├── codeql.yml          ← CodeQL JavaScript/TypeScript
+│   │   └── release.yml         ← bun build --compile → signed binaries
+│   ├── dependabot.yml
+│   └── BRANCH_PROTECTION.md    ← required checks (manual GitHub settings)
 │
 ├── bunfig.toml
 └── package.json                ← Bun workspace root

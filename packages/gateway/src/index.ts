@@ -21,7 +21,7 @@ import { createPlatformServices } from "./platform/index.ts";
 
 async function main(): Promise<void> {
   // TODO Q1: Implement full startup sequence
-  const _platform = await createPlatformServices();
+  await createPlatformServices();
   process.stdout.write("Nimbus Gateway starting...\n");
 }
 

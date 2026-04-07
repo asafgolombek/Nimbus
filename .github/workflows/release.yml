@@ -20,8 +20,9 @@ jobs:
             runner: ubuntu-22.04
             artifact: nimbus-gateway-linux-x64
             ext: ""
+          # Intel/x64 image — matches nimbus-gateway-macos-x64 (macos-13 retired)
           - os: macos
-            runner: macos-13
+            runner: macos-15-intel
             artifact: nimbus-gateway-macos-x64
             ext: ""
           - os: windows
@@ -31,7 +32,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -85,7 +86,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4

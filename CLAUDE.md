@@ -21,7 +21,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | 2 | **HITL is structural** | Consent gate is in the executor, not the prompt; cannot be bypassed or configured away |
 | 3 | **No plaintext credentials** | Vault only (DPAPI/Keychain/libsecret); never in logs/IPC/config |
 | 4 | **MCP as connector standard** | Engine never calls cloud APIs directly |
-| 5 | **Platform equality** | Windows/macOS/Linux are equally supported; CI gates all three |
+| 5 | **Platform equality** | Windows/macOS/Linux are equally supported; PRs gate on Ubuntu (`pr-quality`); pushes run the full 3-OS matrix |
 | 6 | **AGPL-3.0 core / MIT SDK** | Dual license is intentional; do not change license fields |
 | 7 | **No `any`** | Use `unknown` for external data; TypeScript strict mode is non-negotiable |
 

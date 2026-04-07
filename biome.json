@@ -36,11 +36,11 @@
         "noGlobalEval": "error"
       },
       "suspicious": {
-        "noExplicitAny": "warn",
-        "noConsoleLog": "warn"
+        "noExplicitAny": "error",
+        "noConsoleLog": "error"
       },
       "style": {
-        "noNonNullAssertion": "warn",
+        "noNonNullAssertion": "error",
         "useConst": "error"
       }
     }

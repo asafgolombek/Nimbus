@@ -42,7 +42,7 @@ Most queries never touch the network. Nimbus maintains a local SQLite metadata i
 
 ### 🌍 True Cross-Platform
 
-Windows, macOS, and Linux are equally supported — not "also works on." CI runs in parallel on all three for every pull request. Platform-specific code (IPC transport, secrets, autostart, notifications) is isolated behind a typed abstraction layer. A feature that works on macOS and "probably works" on Windows is a bug.
+Windows, macOS, and Linux are equally supported — not "also works on." Every pull request runs a fast **PR quality** job on Ubuntu (typecheck, Biome, build, tests, Vitest, Rust fmt/clippy for Tauri); pushes to `main`/`develop` run the **full three-platform matrix** in parallel. Platform-specific code (IPC transport, secrets, autostart, notifications) is isolated behind a typed abstraction layer. A feature that works on macOS and "probably works" on Windows is a bug.
 
 ### 🧩 Extensible by Design
 
@@ -75,8 +75,8 @@ Nimbus understands intent, decomposes multi-step tasks, executes them across ser
 | **Testing — Gateway/CLI** | `bun test` | In-toolchain, zero config, fastest feedback loop |
 | **Testing — UI** | Vitest + `@testing-library/react` | Integrates with Vite/Tauri transform pipeline; jsdom support |
 | **Testing — E2E Desktop** | Playwright + Tauri WebDriver | Only tool with cross-platform native app automation |
-| **Security Scanning** | `bun audit` + `trivy` | Dependency CVE scanning on every PR and nightly |
-| **CI** | GitHub Actions — 3-platform matrix | `ubuntu-22.04`, `macos-13`, `windows-2022` on every PR |
+| **Security Scanning** | `bun audit` + `trivy` + CodeQL | Dependency and static analysis on PRs; Dependabot for updates |
+| **CI** | GitHub Actions | **PR:** Ubuntu-only `pr-quality` (build + tests + Vitest + Rust checks). **Push:** full matrix on `ubuntu-22.04`, `macos-14`, `windows-2022` |
 | **Release** | `bun build --compile` + code signing | Single binary per platform; signed + notarized on macOS |
 
 ---
@@ -165,10 +165,10 @@ $ nimbus ask "Summarize the Zurich project emails this week and draft a status u
 | **Notifications** | Win32 Toast | NSUserNotification | libnotify/D-Bus |
 | **Config dir** | `%APPDATA%\Nimbus` | `~/Library/…/Nimbus` | `~/.config/nimbus` |
 | **Desktop UI** | WebView2 | WKWebView | WebKitGTK |
-| **CI runner** | `windows-2022` | `macos-13` | `ubuntu-22.04` |
+| **CI runner** | `windows-2022` | `macos-14` | `ubuntu-22.04` |
 | **Release** | `.exe` (signed) | `.dmg` (notarized) | `.deb` + AppImage |
 
-Every PR must pass the full test suite on all three platforms before it can merge. Platform-specific code is isolated behind the `PlatformServices` interface — business logic is never aware of which OS it runs on.
+Every PR must pass the full test suite on Ubuntu before merge; after merge, pushes run the same suite on all three CI runners. Platform-specific code is isolated behind the `PlatformServices` interface — business logic is never aware of which OS it runs on. See [`.github/BRANCH_PROTECTION.md`](./.github/BRANCH_PROTECTION.md) for required checks.
 
 ---
 
@@ -227,7 +227,7 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 **Layer 5 — E2E Desktop (Playwright + Tauri WebDriver):** Full desktop app flows on all three platforms. Runs on push to `main` and on release tags — not on every PR, due to native runner requirements.
 
-**Security scans:** `bun audit` and `trivy` on every PR and nightly. A PR that introduces a HIGH or CRITICAL CVE is blocked.
+**Security scans:** `bun audit`, `trivy`, and CodeQL on PRs and scheduled runs; Dependabot opens update PRs. HIGH/CRITICAL issues from configured tools block merges when checks are required.
 
 ---
 
@@ -237,7 +237,7 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 **Goal:** Make the Gateway real and the security model provable.
 
-- Bun workspace monorepo + CI matrix (3 platforms, every PR)
+- Bun workspace monorepo + CI (`pr-quality` on PRs; 3-platform matrix on push)
 - Nimbus Gateway process with JSON-RPC 2.0 IPC
 - Platform Abstraction Layer — `PlatformServices` interface + all three implementations
 - Secure Vault — DPAPI, Keychain, libsecret
@@ -334,10 +334,13 @@ nimbus/
 │   └── sdk/                  # @nimbus-dev/sdk (published to npm)
 │
 ├── .github/
-│   └── workflows/
-│       ├── ci.yml            # 3-platform matrix on every PR
-│       ├── security.yml      # bun audit + trivy (PR + nightly)
-│       └── release.yml       # signed binary distribution
+│   ├── workflows/
+│   │   ├── ci.yml            # pr-quality (PR) + 3-platform matrix (push)
+│   │   ├── security.yml      # bun audit + trivy (PR + nightly)
+│   │   ├── codeql.yml        # CodeQL JS/TS
+│   │   └── release.yml       # signed binary distribution
+│   ├── dependabot.yml
+│   └── BRANCH_PROTECTION.md  # how to require checks in GitHub settings
 │
 ├── bunfig.toml
 └── package.json              # Bun workspace root
