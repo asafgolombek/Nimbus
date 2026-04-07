@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -7,14 +7,15 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "ignore": [
-      ".claude/**",
-      "dist/**",
-      "build/**",
-      "coverage/**",
-      "node_modules/**",
-      "src-tauri/**",
-      "**/*.d.ts"
+    "includes": [
+      "**",
+      "!**/.claude",
+      "!**/dist",
+      "!**/build",
+      "!**/coverage",
+      "!**/node_modules",
+      "!**/src-tauri",
+      "!**/*.d.ts"
     ]
   },
   "formatter": {
@@ -37,7 +38,7 @@
       },
       "suspicious": {
         "noExplicitAny": "error",
-        "noConsoleLog": "error"
+        "noConsole": "error"
       },
       "style": {
         "noNonNullAssertion": "error",
@@ -54,11 +55,21 @@
   },
   "overrides": [
     {
-      "include": ["**/*.test.ts", "**/*.spec.ts", "**/*.test.tsx"],
+      "includes": ["**/*.test.ts", "**/*.spec.ts", "**/*.test.tsx"],
       "linter": {
         "rules": {
           "suspicious": {
-            "noConsoleLog": "off"
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/packages/gateway/src/index.ts", "**/packages/cli/src/index.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
           }
         }
       }

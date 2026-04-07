@@ -15,7 +15,9 @@
       "types": "./src/testing/index.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "tsc --project tsconfig.build.json",
