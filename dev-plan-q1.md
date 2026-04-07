@@ -75,9 +75,38 @@ export interface PlatformServices {
 }
 ```
 
-Define the `AutostartManager` and `NotificationService` interfaces at minimum as stubs — implement only what is needed for Q1 (autostart can be minimal: enable/disable; notifications can be no-op stubs for now).
+`AutostartManager` and `NotificationService` are stub interfaces for Q1 — implement enable/disable only; notifications are no-ops until Tauri (Q4).
 
-### 1.2 Implement `PlatformPaths` per platform
+### 1.2 Factory resilience
+
+`createPlatformServices()` must fail fast and clearly. Wrap the platform-specific `create()` call:
+
+```typescript
+export async function createPlatformServices(): Promise<PlatformServices> {
+  const p = platform();
+  try {
+    switch (p) {
+      case "win32":  return (await import("./win32.ts")).create();
+      case "darwin": return (await import("./darwin.ts")).create();
+      case "linux":  return (await import("./linux.ts")).create();
+      default:       throw new Error(`Unsupported platform: ${p}`);
+    }
+  } catch (err) {
+    throw new PlatformInitError(
+      `Failed to initialize platform services on ${p}. ` +
+      `Ensure all OS dependencies are available. Cause: ${String(err)}`
+    );
+  }
+}
+```
+
+Each platform `create()` performs a **dependency probe** before returning — e.g., the Linux vault probes for `secret-tool` via `which secret-tool`. If a probe fails, throw `PlatformInitError` with a human-readable install hint. The Gateway must not start in a degraded state.
+
+### 1.3 Async initialization model
+
+`createPlatformServices()` is the single async factory — all async setup (directory creation, socket binding, dependency probing) happens inside it before it resolves. Individual services do **not** have a separate `.init()` method. Callers receive a fully-ready `PlatformServices` object or an error.
+
+### 1.4 Implement `PlatformPaths` per platform
 
 | Platform | `configDir` | `dataDir` | `socketPath` |
 |---|---|---|---|
@@ -85,11 +114,14 @@ Define the `AutostartManager` and `NotificationService` interfaces at minimum as
 | darwin | `~/Library/Application Support/Nimbus` | same | `$TMPDIR/nimbus-gateway.sock` |
 | linux | `$XDG_CONFIG_HOME/nimbus` or `~/.config/nimbus` | `$XDG_DATA_HOME/nimbus` | `$XDG_RUNTIME_DIR/nimbus-gateway.sock` |
 
-### 1.3 Write PAL unit tests
+All directories are created on first use inside `create()` — never lazily.
+
+### 1.5 Write PAL unit tests
 
 `packages/gateway/src/platform/platform.test.ts` already exists as a stub. Add tests that:
 - Verify `createPlatformServices()` returns the correct implementation for the current platform
 - Verify `PlatformPaths` values are non-empty strings on each platform (run in CI matrix)
+- Verify `PlatformInitError` is thrown (not a generic error) when a dependency is missing
 
 ---
 
@@ -104,38 +136,68 @@ Define the `AutostartManager` and `NotificationService` interfaces at minimum as
 3. `listKeys()` returns key names only — never values
 4. Keys are namespaced `<service>.<type>` (validated by `isWellFormedVaultKey`)
 
-### 2.2 Windows — DPAPI via `ffi-napi` or Bun FFI
+### 2.2 Encoding strategy (all platforms)
 
-Use Bun's native FFI to call `CryptProtectData` / `CryptUnprotectData` from `crypt32.dll`. Store encrypted blobs in `%APPDATA%\Nimbus\vault\<key>.bin`. The blob is DPAPI-encrypted with `CRYPTPROTECT_LOCAL_MACHINE=false` (user scope — fails on different accounts).
+OS-native vaults return binary blobs. The `NimbusVault` interface uses `string`. The encoding contract is:
+
+- **`set(key, value)`:** UTF-8 encode the string → pass bytes to OS API → store the returned encrypted blob as **Base64** on disk / in the keystore
+- **`get(key)`:** retrieve raw blob → Base64-decode → pass to OS decrypt API → UTF-8 decode result → return string
+
+This is internal to each implementation. Callers always see plain strings.
+
+### 2.3 OS-level namespacing
+
+All implementations must namespace keys at the OS level to avoid colliding with other applications:
+
+| Platform | Namespace mechanism |
+|---|---|
+| Windows | Store blobs under `%APPDATA%\Nimbus\vault\` — directory itself is the namespace |
+| macOS | Keychain service name = `"dev.nimbus"`, account = vault key |
+| Linux | `secret-tool` attribute `nimbus-key=<key>` and label `"Nimbus: <key>"` |
+
+### 2.4 Windows — DPAPI via Bun FFI
+
+Use Bun's native FFI (`bun:ffi`) to call `CryptProtectData` / `CryptUnprotectData` from `crypt32.dll`. The blob is DPAPI-encrypted with `CRYPTPROTECT_LOCAL_MACHINE=false` (user scope — fails on other accounts and machines).
 
 ```typescript
 // vault/win32.ts
-import { dlopen, FFIType, suffix } from "bun:ffi";
-
+import { dlopen, FFIType } from "bun:ffi";
 // Call CryptProtectData(DATA_BLOB pDataIn, ...) -> BOOL
-// Store encrypted blob to configDir/vault/<key>.enc
+// Base64-encode the encrypted blob → write to configDir/vault/<key>.enc
 ```
 
-Key points:
-- Create the vault directory on first use (`mkdir -p`)
-- On `set`: encrypt → write to file
-- On `get`: read file → decrypt → return string (or null if file missing)
-- On `delete`: unlink file (no-op if missing)
-- On `listKeys`: list files in vault dir, strip `.enc` suffix
+- Vault directory is created by the factory (`createPlatformServices`), not lazily
+- `get`: read `.enc` file → Base64-decode → DPAPI-decrypt → return UTF-8 string (or `null` if file missing)
+- `delete`: unlink file; no-op if missing
+- `listKeys`: list `*.enc` files in vault dir, strip suffix
 
-### 2.3 macOS — Keychain Services via Bun FFI
+### 2.5 macOS — Keychain Services via Bun FFI
 
-Call `SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete` from `Security.framework`. Service name: `"dev.nimbus"`, account = vault key.
+Call `SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete` from `Security.framework`. Service = `"dev.nimbus"`, account = vault key. Base64-encode blobs as the `kSecValueData` attribute.
 
-### 2.4 Linux — libsecret via D-Bus
+### 2.6 Linux — `secret-tool` subprocess
 
-Use `@homebridge/dbus-native` or call `secret-tool` as a subprocess (simpler, no native binding needed for Q1). Schema: `org.gnome.keyring.NetworkPassword`, attribute `nimbus-key`.
+Call `secret-tool store/lookup/clear` as a subprocess (no native binding needed for Q1). If `secret-tool` is not found during the dependency probe in `create()`, throw `PlatformInitError` with the message:
 
-Subprocess approach is acceptable for Q1; replace with direct D-Bus bindings if performance is needed.
+> `"secret-tool not found. Install libsecret-tools (Debian/Ubuntu) or libsecret (Fedora/Arch) to use Nimbus on Linux."`
 
-### 2.5 Vault contract tests
+**No fallback to file-based encryption.** A degraded vault would silently weaken the security model. Hard-fail is correct.
 
-`packages/gateway/src/vault/vault.test.ts` must achieve **≥90% coverage** (CI gate). Tests must cover:
+### 2.7 `MockVault` for CI
+
+Add `packages/gateway/src/vault/mock.ts` — an in-memory `NimbusVault` implementation used only in tests. The contract tests in `vault.test.ts` run against `MockVault` on all platforms (fast, no OS dependency). Real vault integration tests (using actual DPAPI/Keychain/libsecret) run only on their matching platform in the CI matrix.
+
+```typescript
+// vault/mock.ts
+export class MockVault implements NimbusVault {
+  private store = new Map<string, string>();
+  // ... implements NimbusVault fully in-memory
+}
+```
+
+### 2.8 Vault contract tests
+
+`packages/gateway/src/vault/vault.test.ts` must achieve **≥90% coverage** (CI gate). Tests run against `MockVault` on all platforms:
 
 - [ ] `set` + `get` round-trip returns original value
 - [ ] `get` on missing key returns `null` (never throws)
@@ -145,6 +207,7 @@ Subprocess approach is acceptable for Q1; replace with direct D-Bus bindings if 
 - [ ] `listKeys(prefix)` filters correctly
 - [ ] Invalid key format: `isWellFormedVaultKey` rejects empty, too-long, bad-pattern keys
 - [ ] Secret value does not appear in any thrown error message
+- [ ] Real vault smoke test (1 set + get + delete round-trip) runs on the matching CI platform only
 
 ---
 
@@ -158,7 +221,7 @@ JSON-RPC 2.0 over:
 - **Windows:** Named Pipe `\\.\pipe\nimbus-gateway`
 - **macOS/Linux:** Unix Domain Socket at `platformPaths.socketPath`
 
-Message framing: newline-delimited JSON (one JSON object per line).
+**Message framing:** Newline-delimited JSON (one JSON object per line). Vault values are short credential strings, not large blobs, so there is no payload size risk that would justify length-prefixed headers in Q1. Add a 1MB per-message hard limit in the parser as a guard.
 
 ### 3.2 Gateway IPC Server
 
@@ -171,13 +234,18 @@ Implement `IPCServer` with these methods for Q1:
 | `consent.respond` | Client → Gateway | User's approve/reject decision for HITL |
 | `consent.request` | Gateway → Client | Push consent request to client (reverse channel) |
 | `vault.set` | Client → Gateway | Store a secret |
-| `vault.get` | Client → Gateway | Retrieve a key (by name only — value returned encrypted in transit is fine for IPC) |
+| `vault.get` | Client → Gateway | Retrieve key value |
 | `vault.delete` | Client → Gateway | Remove a key |
 | `vault.listKeys` | Client → Gateway | List key names |
+| `audit.list` | Client → Gateway | Query recent audit log entries |
 
 **Security:** The socket/pipe is created with permissions `0600` (user-only) on Unix. On Windows, the named pipe uses default ACL (current user only).
 
-### 3.3 IPC Client (CLI)
+### 3.3 Multi-client concurrency
+
+The IPC server assigns each connection a `clientId` at connect time. When `agent.invoke` is called, the Gateway records the `clientId` of the initiating client on the active request context. `consent.request` notifications are sent **only to the initiating client** — never broadcast to all connected clients. This prevents a second terminal from seeing (or hijacking) a consent prompt belonging to a different session.
+
+### 3.4 IPC Client (CLI)
 
 Implement `IPCClient` in `packages/cli/src/ipc-client/index.ts`:
 
@@ -191,15 +259,17 @@ export class IPCClient {
 }
 ```
 
-### 3.4 Consent channel
+### 3.5 Consent channel + zombie prevention
 
 The consent channel is a reverse-direction IPC notification. When the executor needs HITL:
-1. Gateway sends `consent.request` notification to the connected client with a `requestId` + formatted prompt
+1. Gateway sends `consent.request` notification to the initiating client with a `requestId` + formatted prompt
 2. Client displays the prompt (`@clack/prompts` confirm dialog)
 3. Client sends `consent.respond` with `{ requestId, approved: boolean }`
 4. Gateway executor unblocks and proceeds
 
-The executor `await`s a `Promise` that resolves when `consent.respond` arrives with the matching `requestId`.
+The executor `await`s a `Promise` that resolves when `consent.respond` arrives.
+
+**Zombie prevention:** The `ToolExecutor` subscribes to IPC disconnect events. If the initiating client disconnects while consent is pending, the pending `Promise` is **immediately rejected** (treated as user rejection), the audit log records `"rejected"` with reason `"client disconnected"`, and the Gateway does not hang. There is no auto-approve timer — the architecture.md invariant ("synchronous block, no timeout") applies only to the happy path.
 
 ---
 
@@ -208,6 +278,8 @@ The executor `await`s a `Promise` that resolves when `consent.respond` arrives w
 **Files:** `packages/gateway/src/index/index.ts`, `packages/gateway/src/index/schema.ts`
 
 ### 4.1 Schema
+
+Use **FTS5** from day one for the `name` field. `LIKE` is too slow on large item sets and FTS5 is built into `bun:sqlite` at no extra cost.
 
 ```sql
 -- Core items table
@@ -222,13 +294,31 @@ CREATE TABLE IF NOT EXISTS items (
   modified_at INTEGER,
   url         TEXT,
   parent_id   TEXT,
-  raw_meta    TEXT  -- JSON blob
+  raw_meta    TEXT  -- JSON blob; enforced max 65536 bytes in LocalIndex.upsert()
 );
+
+-- FTS5 virtual table for name-based full-text search
+CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+  name,
+  content=items,
+  content_rowid=rowid
+);
+
+-- Keep FTS5 in sync via triggers
+CREATE TRIGGER IF NOT EXISTS items_fts_insert AFTER INSERT ON items BEGIN
+  INSERT INTO items_fts(rowid, name) VALUES (new.rowid, new.name);
+END;
+CREATE TRIGGER IF NOT EXISTS items_fts_delete AFTER DELETE ON items BEGIN
+  INSERT INTO items_fts(items_fts, rowid, name) VALUES ('delete', old.rowid, old.name);
+END;
+CREATE TRIGGER IF NOT EXISTS items_fts_update AFTER UPDATE ON items BEGIN
+  INSERT INTO items_fts(items_fts, rowid, name) VALUES ('delete', old.rowid, old.name);
+  INSERT INTO items_fts(rowid, name) VALUES (new.rowid, new.name);
+END;
 
 CREATE INDEX IF NOT EXISTS idx_items_service       ON items(service);
 CREATE INDEX IF NOT EXISTS idx_items_type          ON items(item_type);
 CREATE INDEX IF NOT EXISTS idx_items_modified_at   ON items(modified_at);
-CREATE INDEX IF NOT EXISTS idx_items_name          ON items(name);
 
 -- Sync state per connector
 CREATE TABLE IF NOT EXISTS sync_state (
@@ -250,17 +340,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
 ### 4.2 `LocalIndex` class
 
 ```typescript
+const RAW_META_MAX_BYTES = 65_536; // 64 KB per item — enforced in upsert()
+
 export class LocalIndex {
   constructor(db: Database) {}
-  upsert(item: NimbusItem): void {}
+  upsert(item: NimbusItem): void {
+    // Validate raw_meta size before write
+    const meta = JSON.stringify(item.rawMeta ?? {});
+    if (Buffer.byteLength(meta) > RAW_META_MAX_BYTES) {
+      throw new Error(`raw_meta for item "${item.id}" exceeds 64 KB limit`);
+    }
+    // ... upsert into items table
+  }
   delete(id: string): void {}
   search(query: { service?: string; itemType?: string; name?: string; limit?: number }): NimbusItem[] {}
   recordSync(connectorId: string, token: string): void {}
   getLastSyncToken(connectorId: string): string | null {}
+  listAudit(limit: number): AuditEntry[] {} // for nimbus audit command
 }
 ```
 
-Keep it simple for Q1 — no embeddings (that's Q3). Just fast exact/prefix text search via SQLite FTS5 or `LIKE`.
+Name search uses `items_fts` (FTS5 `MATCH`) when `name` is provided; other filters apply as SQL predicates on `items`. No embeddings in Q1 (that's Q3).
 
 ---
 
@@ -321,6 +421,7 @@ export class ToolExecutor {
 - [ ] `not_required` → connector is called without asking; audit shows `"not_required"`
 - [ ] Audit record is written BEFORE the connector call (verify ordering with a spy)
 - [ ] `HITL_REQUIRED` set cannot be mutated at runtime (attempt `HITL_REQUIRED.add(...)` → throws or is ignored)
+- [ ] If IPC client disconnects mid-consent, pending action is rejected and audit records `"rejected"` with `reason: "client disconnected"`
 
 ---
 
@@ -328,9 +429,23 @@ export class ToolExecutor {
 
 **Files:** `packages/gateway/src/engine/router.ts`, `packages/gateway/src/engine/planner.ts`, `packages/gateway/src/engine/agent.ts`
 
-### 6.1 Intent Router
+### 6.1 Model configuration
 
-Uses a single cheap LLM call to classify the user's input into one of the `IntentClass` values defined in `architecture.md`. Returns `ClassifiedIntent`:
+Never hardcode model IDs. Use a `config.ts` with env-var overrides:
+
+```typescript
+// packages/gateway/src/config.ts
+export const Config = {
+  agentModel:      process.env.NIMBUS_AGENT_MODEL      ?? "claude-sonnet-4-6",
+  classifierModel: process.env.NIMBUS_CLASSIFIER_MODEL ?? "claude-haiku-4-5-20251001",
+};
+```
+
+This lets model IDs be bumped without code changes and lets CI override them if needed.
+
+### 6.2 Intent Router
+
+Uses a single cheap LLM call (`Config.classifierModel`) to classify the user's input. Returns `ClassifiedIntent`:
 
 ```typescript
 interface ClassifiedIntent {
@@ -341,9 +456,13 @@ interface ClassifiedIntent {
 }
 ```
 
-Model: `claude-haiku-4-5-20251001` for the classification call (fast, cheap).
+**Offline / LLM failure handling:** The Intent Router is only invoked by `nimbus ask`. Structured CLI commands (`vault`, `status`, `start`, `stop`, `audit`) go directly through IPC without touching the LLM. If the `ask` router call fails (network error, API error), the Gateway returns a `GatewayError` to the CLI:
 
-### 6.2 Task Planner
+> `"Agent unavailable — check your network connection and API key."`
+
+No regex fallback. The structured commands are what users need when offline; natural-language queries are inherently online.
+
+### 6.3 Task Planner
 
 Converts a `ClassifiedIntent` into an ordered `PlannedAction[]`. For Q1, this only needs to handle:
 - `file_search` — call `filesystem.search`
@@ -352,9 +471,9 @@ Converts a `ClassifiedIntent` into an ordered `PlannedAction[]`. For Q1, this on
 
 Full multi-service planning is Q2+.
 
-### 6.3 Mastra Agent
+### 6.4 Mastra Agent
 
-Wire up `nimbusAgent` as specified in `architecture.md §Agent Definition`. Use `claude-sonnet-4-6` (latest available). Register the three Q1 tools:
+Wire up `nimbusAgent` as specified in `architecture.md §Agent Definition`. Use `Config.agentModel`. Register the three Q1 tools:
 - `searchLocalIndex`
 - `listConnectors`
 - `getAuditLog`
@@ -394,7 +513,7 @@ This is intentionally minimal. All cloud connectors are Q2.
 
 | Command | Description |
 |---|---|
-| `nimbus start` | Launch the Gateway as a background process; print socket path |
+| `nimbus start` | Daemonize the Gateway; print socket path |
 | `nimbus stop` | Send shutdown signal to the Gateway |
 | `nimbus status` | Ping the Gateway; print version, uptime, connector health |
 | `nimbus ask <query>` | Submit a natural-language query; stream the response |
@@ -402,6 +521,7 @@ This is intentionally minimal. All cloud connectors are Q2.
 | `nimbus vault get <key>` | Retrieve a key (confirm user understands it will be shown) |
 | `nimbus vault delete <key>` | Remove a key |
 | `nimbus vault list [prefix]` | List key names |
+| `nimbus audit [--limit N]` | Print recent audit log entries (HITL decisions) |
 
 Each command lives in `packages/cli/src/commands/<name>.ts` and exports a `run(args: string[], client: IPCClient): Promise<void>` function.
 
@@ -409,6 +529,40 @@ Use `@clack/prompts` for:
 - Consent gate prompts (`confirm`)
 - Spinner during Gateway startup (`spinner`)
 - Error formatting
+
+### Daemonization (`nimbus start`)
+
+Use `Bun.spawn` with `detached: true` to launch the Gateway process and then detach:
+
+```typescript
+const logFile = Bun.file(path.join(platformPaths.logDir, "gateway.log"));
+const proc = Bun.spawn(["bun", "run", gatewayEntryPoint], {
+  detached: true,
+  stdio: ["ignore", logFile, logFile],
+});
+proc.unref(); // allow CLI process to exit
+
+// Write PID file for nimbus stop
+await Bun.write(
+  path.join(platformPaths.dataDir, "gateway.pid"),
+  String(proc.pid)
+);
+```
+
+`nimbus stop` reads `gateway.pid`, sends `SIGTERM`, and removes the PID file.
+
+### `nimbus audit` command
+
+Calls `audit.list` IPC method (see Stage 3). Displays a table of recent HITL decisions:
+
+```
+Timestamp            Action Type       Status        Reason
+-------------------  ----------------  ------------  --------------------------
+2026-04-07 14:23:01  file.delete       rejected      User declined consent gate.
+2026-04-07 14:22:55  filesystem.search not_required  —
+```
+
+This is essential during development to verify the HITL gate is firing correctly.
 
 ### HITL consent prompt (CLI)
 
@@ -428,11 +582,11 @@ When the Gateway sends a `consent.request` notification:
 
 ---
 
-## Stage 9 — Gateway Entry Point
+## Stage 9 — Gateway Entry Point + Graceful Shutdown
 
 **File:** `packages/gateway/src/index.ts`
 
-Wire everything together:
+Wire everything together and register shutdown handlers:
 
 ```typescript
 import { createPlatformServices } from "./platform/index.ts";
@@ -444,18 +598,41 @@ import { TaskPlanner } from "./engine/planner.ts";
 import { Database } from "bun:sqlite";
 
 async function main(): Promise<void> {
-  const platform = await createPlatformServices();
+  const platform = await createPlatformServices(); // throws PlatformInitError if deps missing
   const db = new Database(path.join(platform.paths.dataDir, "nimbus.db"));
   const index = new LocalIndex(db);
   const connectors = await buildConnectorMesh(platform.paths);
-  const executor = new ToolExecutor(platform.ipc.consentChannel, auditLog, connectors);
+  const executor = new ToolExecutor(platform.ipc.consentChannel, index, connectors);
   const router = new IntentRouter();
   const planner = new TaskPlanner();
+
+  // Graceful shutdown
+  const shutdown = async (signal: string) => {
+    console.log(`[gateway] ${signal} received — shutting down`);
+    await platform.ipc.close();   // stop accepting new connections
+    connectors.disconnect();      // terminate MCP child processes
+    db.close();                   // flush SQLite WAL
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT",  () => shutdown("SIGINT"));
+
   await platform.ipc.listen();
 }
 
-main().catch(console.error);
+main().catch((err: unknown) => {
+  console.error("[gateway] fatal:", err);
+  process.exit(1);
+});
 ```
+
+**Shutdown contract:**
+1. IPC server stops accepting new connections immediately
+2. In-flight requests complete (or time out after 5 seconds)
+3. Any pending consent requests are rejected with `"Gateway shutting down"`
+4. MCP connector subprocesses receive SIGTERM
+5. SQLite database is closed cleanly (WAL checkpoint)
+6. Process exits 0
 
 ---
 
@@ -466,11 +643,15 @@ main().catch(console.error);
 | Engine | `engine/**` | ≥85% |
 | Vault | `vault/**` | ≥90% |
 
-Run locally:
+Coverage is measured with `bun test --coverage` per package. Run from the package root or via the workspace scripts:
+
 ```bash
-bun run test:coverage:engine
-bun run test:coverage:vault
+# From repo root
+bun run test:coverage:engine   # runs inside packages/gateway
+bun run test:coverage:vault    # runs inside packages/gateway
 ```
+
+Coverage thresholds are enforced by passing `--coverage-threshold` in the script. Vault tests run against `MockVault` on all platforms — the real vault integration test is gated by a platform check (`if (process.platform === "win32")`) so it only executes on the matching CI runner.
 
 ---
 
@@ -484,9 +665,13 @@ bun run test:coverage:vault
 - [ ] `bun run test:integration` passes (real SQLite, real Bun subprocess)
 - [ ] `bun run test:e2e:cli` passes (real Gateway subprocess + mock filesystem MCP)
 - [ ] CI matrix green on Ubuntu, macOS, Windows
-- [ ] `nimbus start` / `nimbus ask "list my files"` / `nimbus stop` works end-to-end on the dev machine
+- [ ] `nimbus start` / `nimbus ask "list my files"` / `nimbus stop` works end-to-end on dev machine
+- [ ] `nimbus audit` shows HITL decisions from the session
 - [ ] Secrets never appear in `bun run test` output, logs, or IPC traces
 - [ ] HITL gate fires for every action type in the whitelist — verified by unit test
+- [ ] Gateway shuts down cleanly on `SIGTERM`/`SIGINT` with no socket hang or DB corruption
+- [ ] `PlatformInitError` is thrown (not a crash) when a vault OS dependency is missing
+- [ ] Multi-client IPC: consent prompt goes only to the initiating client
 
 ---
 
