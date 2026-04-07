@@ -1,0 +1,72 @@
+# ============================================================
+# Nimbus — .gitattributes
+# Enforces LF line endings across all platforms.
+# Binary markers prevent diff corruption.
+# ============================================================
+
+# Default — normalize all text files to LF
+* text=auto eol=lf
+
+# Explicitly text files
+*.ts          text eol=lf
+*.tsx         text eol=lf
+*.js          text eol=lf
+*.jsx         text eol=lf
+*.mjs         text eol=lf
+*.cjs         text eol=lf
+*.json        text eol=lf
+*.jsonc       text eol=lf
+*.toml        text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.md          text eol=lf
+*.mdx         text eol=lf
+*.mdc         text eol=lf
+*.html        text eol=lf
+*.css         text eol=lf
+*.sh          text eol=lf
+*.bash        text eol=lf
+*.zsh         text eol=lf
+*.fish        text eol=lf
+*.rs          text eol=lf
+*.lock        text eol=lf
+Makefile      text eol=lf
+Dockerfile    text eol=lf
+.editorconfig text eol=lf
+.gitignore    text eol=lf
+.gitattributes text eol=lf
+LICENSE       text eol=lf
+
+# Windows-specific scripts keep CRLF
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# Binary — no diff, no merge
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.svg         binary
+*.woff        binary
+*.woff2       binary
+*.ttf         binary
+*.otf         binary
+*.eot         binary
+bun.lockb     binary
+*.sqlite      binary
+*.sqlite3     binary
+*.db          binary
+*.rlib        binary
+*.rmeta       binary
+*.so          binary
+*.dylib       binary
+*.dll         binary
+*.exe         binary
+*.dmg         binary
+*.deb         binary
+*.AppImage    binary
+*.zip         binary
+*.tar.gz      binary
+*.node        binary

@@ -1,0 +1,24 @@
+{
+  "name": "@nimbus/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "nimbus": "./dist/nimbus"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --target bun --compile --outfile dist/nimbus",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "test": "bun test",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

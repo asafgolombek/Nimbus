@@ -1,0 +1,34 @@
+{
+  "name": "nimbus",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/gateway",
+    "packages/cli",
+    "packages/ui",
+    "packages/sdk",
+    "packages/mcp-connectors/onedrive",
+    "packages/mcp-connectors/outlook",
+    "packages/mcp-connectors/google-photos"
+  ],
+  "scripts": {
+    "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",
+    "build": "bun run --filter '*' build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "bun test",
+    "test:unit": "bun test packages/gateway/src packages/cli/src packages/sdk/src",
+    "test:integration": "bun test packages/gateway/test/integration/ packages/cli/test/integration/",
+    "test:e2e:cli": "bun test packages/cli/test/e2e/",
+    "test:coverage": "bun test --coverage",
+    "test:coverage:engine": "bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85",
+    "test:coverage:vault": "bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90",
+    "clean": "bun run --filter '*' clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "typescript": "^5.7.0"
+  }
+}

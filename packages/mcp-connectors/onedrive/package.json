@@ -1,0 +1,24 @@
+{
+  "name": "nimbus-mcp-onedrive",
+  "version": "0.1.0",
+  "private": false,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "nimbus-mcp-onedrive": "./dist/server.js"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/server.ts",
+    "build": "bun build src/server.ts --target bun --compile --outfile dist/nimbus-mcp-onedrive",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "test": "bun test",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@nimbus-dev/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

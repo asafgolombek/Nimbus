@@ -1,0 +1,22 @@
+# ============================================================
+# Nimbus — bunfig.toml
+# Bun runtime, install, and test configuration
+# ============================================================
+
+[install]
+exact = false
+production = false
+
+[install.scopes]
+"@nimbus-dev" = { registry = "https://registry.npmjs.org/" }
+
+[test]
+timeout = 30000
+smol = false
+coverage = false
+
+[test.coverageThreshold]
+lines = 80
+
+[run]
+bun = true

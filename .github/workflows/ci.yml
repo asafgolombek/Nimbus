@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: CI — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-13, windows-2022]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests (with coverage)
+        run: bun test --coverage
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Engine (≥85%)
+        run: bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Vault (≥90%)
+        run: bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+        env:
+          CI: "true"
+
+      - name: Integration tests
+        run: bun test packages/gateway/test/integration/ packages/cli/test/integration/
+        env:
+          CI: "true"
+
+      - name: E2E CLI tests
+        run: bun test packages/cli/test/e2e/
+        env:
+          CI: "true"
+
+      - name: UI component tests (Vitest)
+        run: cd packages/ui && bunx vitest run --coverage
+        env:
+          CI: "true"
+
+  # E2E Desktop (Playwright + Tauri WebDriver) — push to main only
+  e2e-desktop:
+    name: E2E Desktop — ${{ matrix.os }}
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: ci
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-13, windows-2022]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Tauri app
+        run: cd packages/ui && bunx tauri build
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run E2E desktop tests
+        run: bun test packages/ui/test/e2e/
+        env:
+          CI: "true"

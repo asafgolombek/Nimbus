@@ -1,0 +1,108 @@
+# ============================================================
+# Nimbus — .gitignore
+# Bun / Node / TypeScript / OS / Tauri / Rust artifacts
+# ============================================================
+
+# --- Bun / Node ---
+node_modules/
+.bun-cache/
+*.bun
+
+# --- Build outputs ---
+dist/
+build/
+out/
+.turbo/
+
+# --- TypeScript ---
+*.tsbuildinfo
+*.d.ts.map
+
+# --- Coverage ---
+coverage/
+.nyc_output/
+lcov.info
+*.lcov
+
+# --- Logs ---
+*.log
+logs/
+pino-*.log
+
+# --- Environment & secrets (NEVER commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+*.cer
+nimbus.toml
+
+# --- OS ---
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# --- Editors ---
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# --- Tauri / Rust ---
+src-tauri/target/
+src-tauri/WixTools/
+*.dmg
+*.deb
+*.AppImage
+*.app/
+gen/
+
+# --- Tauri WebView caches ---
+.webview2/
+WebView2Loader.dll
+
+# --- SQLite (runtime databases) ---
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# --- Test artifacts ---
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+*.snap
+
+# --- Release binaries ---
+nimbus-*.exe
+nimbus-*.dmg
+nimbus-*.deb
+nimbus-*.AppImage
+nimbus

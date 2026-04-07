@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  build-gateway:
+    name: Build Gateway — ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - os: linux
+            runner: ubuntu-22.04
+            artifact: nimbus-gateway-linux-x64
+            ext: ""
+          - os: macos
+            runner: macos-13
+            artifact: nimbus-gateway-macos-x64
+            ext: ""
+          - os: windows
+            runner: windows-2022
+            artifact: nimbus-gateway-windows-x64
+            ext: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build Gateway binary
+        run: |
+          cd packages/gateway
+          bun build src/index.ts --compile --outfile ../../dist/${{ matrix.target.artifact }}${{ matrix.target.ext }} --target bun
+
+      - name: Sign binary (macOS)
+        if: matrix.target.os == 'macos'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+        run: |
+          # TODO: Add codesign + notarytool steps when Apple Developer account is configured
+          echo "macOS signing: configure MACOS_CERTIFICATE and related secrets in GitHub repo settings"
+
+      - name: Sign binary (Windows)
+        if: matrix.target.os == 'windows'
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+        run: |
+          # TODO: Add signtool.exe steps when Windows code signing cert is configured
+          echo "Windows signing: configure WINDOWS_CERTIFICATE secret in GitHub repo settings"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target.artifact }}
+          path: dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-gateway
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

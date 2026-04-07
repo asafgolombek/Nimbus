@@ -1,0 +1,159 @@
+---
+description: Nimbus project rules — local-first AI agent framework. Apply to all TypeScript, config, and workflow files.
+globs: ["**/*.ts", "**/*.tsx", "**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"]
+alwaysApply: true
+---
+
+# Nimbus — Cursor Rules
+
+## Project Identity
+
+Nimbus is a local-first AI agent framework. The machine is the source of truth. Cloud providers are connectors — useful, but never primary and never unconditionally trusted.
+
+Every design decision is evaluated against one question: **Does this return agency to the user, or does it erode it?**
+
+---
+
+## Non-Negotiables — Reject any suggestion that violates these
+
+### 1. Local-First Principle
+- The local SQLite index is the authoritative catalog
+- Cloud APIs are called only when freshness is required
+- No user data or credentials leave the machine without explicit user action
+- No Nimbus cloud service, no Nimbus relay, no telemetry by default
+
+### 2. HITL Consent Gate — Structural Enforcement
+- The consent gate lives in `packages/gateway/src/engine/executor.ts`
+- `HITL_REQUIRED` is a `ReadonlySet<string>` frozen at module load — `Object.freeze(new Set([...]))`
+- It is not a prompt instruction. It is not configurable at runtime. It cannot be bypassed.
+- Any suggestion to "skip" or "bypass" or "configure" the consent gate is invalid
+- HITL-required actions: `file.delete`, `file.move`, `file.rename`, `email.send`, `email.draft.send`, `calendar.event.create`, `calendar.event.delete`, `photo.delete`, `onedrive.delete`, `onedrive.move`
+- Audit log is written BEFORE execution, not after
+
+### 3. No Plaintext Credentials
+- OAuth tokens, API keys, and secrets go into the OS-native Vault ONLY
+- Vault implementations: Windows DPAPI, macOS Keychain, Linux libsecret
+- `NimbusVault.get()` returns `string | null` — never throws on absence
+- Pino logger MUST have `redact` config covering `*.token`, `*.secret`, `oauth.*`, `*.password`, `*.key`
+- No credential in: logs, IPC responses, error messages, config files, or plaintext env vars (only injected into extension child processes)
+
+### 4. MCP as the Connector Standard
+- The Engine (Mastra agent) is an MCP client — it never calls cloud APIs directly
+- Every external service integration is an MCP server process
+- This makes connectors independently replaceable and every tool call auditable
+- Never add a direct API call from `packages/gateway/src/engine/`
+
+### 5. Platform Equality
+- Windows 10+, macOS 13+, Ubuntu 22.04+ are equally first-class
+- Platform-specific code lives exclusively in `packages/gateway/src/platform/`
+- `PlatformServices` interface is the only abstraction boundary
+- Business logic must never import from `./win32`, `./darwin`, or `./linux` directly
+- A feature that works on macOS and "probably works" on Windows is a defect
+
+### 6. AGPL-3.0 / MIT Dual License
+- All packages except `packages/sdk/` are `"license": "AGPL-3.0-only"`
+- `packages/sdk/` (`@nimbus-dev/sdk`) is `"license": "MIT"` — this is intentional and load-bearing
+- Never change the `license` field in gateway, cli, or mcp-connectors package.json
+- Any contribution to core packages must be AGPL-3.0 compatible
+
+---
+
+## Architecture Patterns
+
+### Package Boundaries (dependency rules)
+```
+packages/gateway/          ← @nimbus/gateway — AGPL — never import from cli or ui
+packages/cli/              ← @nimbus/cli — AGPL — IPC only, no direct gateway source imports
+packages/ui/               ← @nimbus/ui — AGPL — IPC only, no direct gateway source imports
+packages/sdk/              ← @nimbus-dev/sdk — MIT — no imports from gateway/cli/ui
+packages/mcp-connectors/*  ← AGPL — depend on @nimbus-dev/sdk only
+```
+
+The CLI and UI communicate with the Gateway exclusively over JSON-RPC 2.0 IPC (domain socket on Unix, named pipe on Windows). They do not import gateway TypeScript source.
+
+### Subsystem Locations
+| Component | Path |
+|---|---|
+| HITL gate | `packages/gateway/src/engine/executor.ts` |
+| PAL entry | `packages/gateway/src/platform/index.ts` |
+| Vault interface | `packages/gateway/src/vault/index.ts` |
+| Local index | `packages/gateway/src/index/` |
+| Connector mesh | `packages/gateway/src/connectors/` |
+| Extension registry | `packages/gateway/src/extensions/` |
+| IPC server | `packages/gateway/src/ipc/` |
+| CLI commands | `packages/cli/src/commands/` |
+| IPC client | `packages/cli/src/ipc-client/` |
+
+### Extension Security Model
+- Extensions are child processes — `Bun.spawn` with explicit env
+- Extensions receive credentials ONLY for their declared service (env injection from Vault)
+- Extensions cannot access `NimbusVault` directly — no Vault API exposed across process boundary
+- Extension manifests are SHA-256 verified on every Gateway startup
+- Tampered manifest → extension disabled before it can run, user notified
+- `nimbus.extension.json` permissions are immutable at runtime
+
+---
+
+## TypeScript Discipline
+
+- `strict: true`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`
+- No `any` without explicit comment explaining the specific reason
+- No non-null assertion (`!`) without a comment proving the value cannot be null
+- `unknown` over `any` for external data: IPC messages, API responses, DB results, MCP tool outputs
+- All async functions must have explicit return types
+- `moduleResolution: "bundler"` — this is correct for Bun; do not change to `"node16"`
+- Use `.ts` extensions in local imports (Bun requires them)
+
+---
+
+## Database
+
+- `bun:sqlite` for metadata — raw parameterized SQL, no ORM
+- `sqlite-vec` for vector embeddings (float[1536] virtual table)
+- **All SQL is parameterized** — no string interpolation or template literals in queries
+- Migrations are numbered and append-only: `001_initial.sql`, `002_add_sync_state.sql`, etc.
+- SQLite stores metadata only — never raw file content or email bodies
+
+---
+
+## Logging
+
+- Pino only — structured JSON logs
+- Log levels: `error`, `warn`, `info`, `debug`, `trace`
+- `console.log` is forbidden in production code (Biome enforces `noConsoleLog: warn`)
+- Redact config is mandatory and must cover: `["*.token", "*.secret", "oauth.*", "*.password", "*.key"]`
+
+---
+
+## Testing Requirements
+
+### Coverage Gates (enforced in CI)
+- Engine (`packages/gateway/src/engine/`): **≥85% line coverage**
+- Vault (`packages/gateway/src/vault/`): **≥90% line coverage**
+- All other packages: ≥80% line coverage
+
+### Test Co-location
+- Unit tests: `src/**/*.test.ts` co-located with source
+- Integration tests: `test/integration/` (real SQLite, real subprocesses, fresh temp dir per test)
+- E2E CLI tests: `test/e2e/` (real Gateway subprocess + mock MCP servers)
+- UI component tests: `src/**/*.test.tsx` (Vitest + jsdom, NOT bun test)
+
+### HITL Tests — Required
+Every action type in `HITL_REQUIRED` must have a unit test that:
+1. Proves consent is requested BEFORE any connector is called
+2. Proves a rejected consent results in no connector call
+3. Proves a rejected consent writes an audit log entry with `hitlStatus: "rejected"`
+
+### Vault Tests — Required
+Vault tests must prove:
+1. `get()` returns `null` for missing keys (never throws)
+2. Secret values never appear in any error message or thrown exception
+3. `listKeys()` returns only key names, never values
+
+---
+
+## What Nimbus Is Not
+- Not a SaaS product — no Nimbus cloud, no Nimbus account, no Nimbus server
+- Not a consumer app — built for technically literate users
+- Not a prototype — every interface is held to production standards
+- Not a macOS-first app — platform equality is mechanically enforced by CI
