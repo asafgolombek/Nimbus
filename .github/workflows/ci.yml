@@ -61,7 +61,14 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Unit tests (with coverage)
-        run: bun test packages/gateway packages/cli packages/sdk --coverage
+        shell: bash
+        run: |
+          set -e
+          if [ "$(uname -s)" = "Linux" ] && command -v dbus-run-session >/dev/null 2>&1; then
+            dbus-run-session -- bun test packages/gateway packages/cli packages/sdk --coverage
+          else
+            bun test packages/gateway packages/cli packages/sdk --coverage
+          fi
         env:
           CI: "true"
 
@@ -71,7 +78,14 @@ jobs:
           CI: "true"
 
       - name: Coverage gate — Vault (≥90%)
-        run: bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+        shell: bash
+        run: |
+          set -e
+          if [ "$(uname -s)" = "Linux" ] && command -v dbus-run-session >/dev/null 2>&1; then
+            dbus-run-session -- bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+          else
+            bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+          fi
         env:
           CI: "true"
 
@@ -148,7 +162,14 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Unit tests (with coverage)
-        run: bun test packages/gateway packages/cli packages/sdk --coverage
+        shell: bash
+        run: |
+          set -e
+          if [ "$(uname -s)" = "Linux" ] && command -v dbus-run-session >/dev/null 2>&1; then
+            dbus-run-session -- bun test packages/gateway packages/cli packages/sdk --coverage
+          else
+            bun test packages/gateway packages/cli packages/sdk --coverage
+          fi
         env:
           CI: "true"
 
@@ -158,7 +179,14 @@ jobs:
           CI: "true"
 
       - name: Coverage gate — Vault (≥90%)
-        run: bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+        shell: bash
+        run: |
+          set -e
+          if [ "$(uname -s)" = "Linux" ] && command -v dbus-run-session >/dev/null 2>&1; then
+            dbus-run-session -- bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+          else
+            bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
+          fi
         env:
           CI: "true"
 

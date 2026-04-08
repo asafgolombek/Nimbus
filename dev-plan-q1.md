@@ -199,15 +199,15 @@ export class MockVault implements NimbusVault {
 
 `packages/gateway/src/vault/vault.test.ts` must achieve **≥90% coverage** (CI gate). Tests run against `MockVault` on all platforms:
 
-- [ ] `set` + `get` round-trip returns original value
-- [ ] `get` on missing key returns `null` (never throws)
-- [ ] `delete` removes key; subsequent `get` returns `null`
-- [ ] `delete` on missing key is a no-op (no throw)
-- [ ] `listKeys()` never returns secret values
-- [ ] `listKeys(prefix)` filters correctly
-- [ ] Invalid key format: `isWellFormedVaultKey` rejects empty, too-long, bad-pattern keys
-- [ ] Secret value does not appear in any thrown error message
-- [ ] Real vault smoke test (1 set + get + delete round-trip) runs on the matching CI platform only
+- [x] `set` + `get` round-trip returns original value
+- [x] `get` on missing key returns `null` (never throws)
+- [x] `delete` removes key; subsequent `get` returns `null`
+- [x] `delete` on missing key is a no-op (no throw)
+- [x] `listKeys()` never returns secret values
+- [x] `listKeys(prefix)` filters correctly
+- [x] Invalid key format: `isWellFormedVaultKey` rejects empty, too-long, bad-pattern keys
+- [x] Secret value does not appear in any thrown error message
+- [x] Real vault smoke test (1 set + get + delete round-trip) runs on the matching CI platform only
 
 ---
 
@@ -651,7 +651,7 @@ bun run test:coverage:engine   # runs inside packages/gateway
 bun run test:coverage:vault    # runs inside packages/gateway
 ```
 
-Coverage thresholds are enforced by passing `--coverage-threshold` in the script. Vault tests run against `MockVault` on all platforms — the real vault integration test is gated by a platform check (`if (process.platform === "win32")`) so it only executes on the matching CI runner.
+Coverage thresholds are enforced by passing `--coverage-threshold` in the script. Vault contract tests use `MockVault` on every OS; OS-specific smoke tests in `vault.test.ts` run only when `process.platform` matches (`win32` / `darwin` / `linux`). On Linux CI, tests that use `secret-tool` run under `dbus-run-session` so the Secret Service is available.
 
 ---
 

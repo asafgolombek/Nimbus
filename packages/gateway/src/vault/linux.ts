@@ -8,10 +8,14 @@ import { spawn } from "node:child_process";
 import { compareVaultKeysAlphabetically, validateVaultKeyOrThrow } from "./key-format.ts";
 import type { NimbusVault } from "./nimbus-vault.ts";
 
-/** Installed by libsecret-tools on Debian/Ubuntu and typical Fedora/Arch packages. */
-const SECRET_TOOL_EXECUTABLE = "/usr/bin/secret-tool";
+/** FHS path when `secret-tool` is not on `PATH` (e.g. minimal systemd environments). */
+const SECRET_TOOL_FALLBACK = "/usr/bin/secret-tool";
 
 const LABEL_PREFIX = "Nimbus: ";
+
+function secretToolExecutable(): string {
+  return Bun.which("secret-tool") ?? SECRET_TOOL_FALLBACK;
+}
 
 function nimbusLabel(key: string): string {
   return `${LABEL_PREFIX}${key}`;
@@ -19,7 +23,7 @@ function nimbusLabel(key: string): string {
 
 function runSecretTool(args: string[], stdin?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(SECRET_TOOL_EXECUTABLE, args, { stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(secretToolExecutable(), args, { stdio: ["pipe", "pipe", "ignore"] });
     let out = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (c: string) => {
