@@ -201,22 +201,21 @@ export class DarwinKeychainVault implements NimbusVault {
     }
   }
 
-  /** Delete keychain item if present; ignores not-found. */
-  private async deleteKeychainOnly(key: string): Promise<void> {
-    const { status, passwordLengthBuf, passwordDataOutBuf, itemRefBuf } =
-      this.keychainFindGenericPassword(key);
+  private isSecItemNotFoundStatus(status: number): boolean {
+    return status === ERR_SEC_ITEM_NOT_FOUND;
+  }
 
-    if (status === ERR_SEC_ITEM_NOT_FOUND) {
-      return;
-    }
+  private throwIfDeleteLookupFailed(status: number): void {
     if (status !== 0) {
       throw new Error("Vault delete lookup failed");
     }
+  }
 
-    const pwdLen = passwordLengthBuf.readUInt32LE(0);
-    const pwdPtr = passwordDataOutBuf.readBigUInt64LE(0);
-    const itemRef = itemRefBuf.readBigUInt64LE(0);
-
+  private performKeychainDeleteAfterSuccessfulLookup(
+    pwdLen: number,
+    pwdPtr: bigint,
+    itemRef: bigint,
+  ): void {
     try {
       this.freePasswordDataIfPresent(pwdLen, pwdPtr);
       this.deleteKeychainItemAndRelease(itemRef);
@@ -224,6 +223,22 @@ export class DarwinKeychainVault implements NimbusVault {
       this.bestEffortReleaseItemRef(itemRef);
       throw err;
     }
+  }
+
+  /** Delete keychain item if present; ignores not-found. */
+  private async deleteKeychainOnly(key: string): Promise<void> {
+    const { status, passwordLengthBuf, passwordDataOutBuf, itemRefBuf } =
+      this.keychainFindGenericPassword(key);
+
+    if (this.isSecItemNotFoundStatus(status)) {
+      return;
+    }
+    this.throwIfDeleteLookupFailed(status);
+
+    const pwdLen = passwordLengthBuf.readUInt32LE(0);
+    const pwdPtr = passwordDataOutBuf.readBigUInt64LE(0);
+    const itemRef = itemRefBuf.readBigUInt64LE(0);
+    this.performKeychainDeleteAfterSuccessfulLookup(pwdLen, pwdPtr, itemRef);
   }
 
   async set(key: string, value: string): Promise<void> {
