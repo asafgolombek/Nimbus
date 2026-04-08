@@ -5,7 +5,10 @@
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { runCiTestSuite } from "./lib/ci-tests.ts";
 import { REPO_ROOT, run } from "./lib/root.ts";
+
+runCiTestSuite();
 
 mkdirSync(join(REPO_ROOT, "dist"), { recursive: true });
 mkdirSync(join(REPO_ROOT, "packages/cli/dist"), { recursive: true });
