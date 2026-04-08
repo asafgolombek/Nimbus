@@ -1,4 +1,4 @@
-import { createStubIpcServer } from "../ipc/index.ts";
+import { createIpcServer } from "../ipc/index.ts";
 import { createNimbusVault } from "../vault/factory.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
 import type { PlatformPaths } from "./paths.ts";
@@ -22,9 +22,14 @@ function createStubNotifications(): NotificationService {
 
 export async function assemblePlatformServices(paths: PlatformPaths): Promise<PlatformServices> {
   await ensurePlatformDirectories(paths);
+  const vault = await createNimbusVault(paths);
   return {
-    vault: await createNimbusVault(paths),
-    ipc: createStubIpcServer(paths.socketPath),
+    vault,
+    ipc: createIpcServer({
+      listenPath: paths.socketPath,
+      vault,
+      version: "0.1.0",
+    }),
     paths,
     autostart: createStubAutostart(),
     notifications: createStubNotifications(),
