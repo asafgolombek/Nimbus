@@ -15,3 +15,8 @@ export function validateVaultKeyOrThrow(key: string): void {
     throw new Error("Invalid vault key format");
   }
 }
+
+/** Stable lexicographic order for vault key lists across environments. */
+export function compareVaultKeysAlphabetically(a: string, b: string): number {
+  return a.localeCompare(b);
+}

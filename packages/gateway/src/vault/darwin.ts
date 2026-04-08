@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import type { PlatformPaths } from "../platform/paths.ts";
 import { addressAsPointer } from "./ffi-ptr.ts";
-import { validateVaultKeyOrThrow } from "./key-format.ts";
+import { compareVaultKeysAlphabetically, validateVaultKeyOrThrow } from "./key-format.ts";
 import type { NimbusVault } from "./nimbus-vault.ts";
 
 const SERVICE = "dev.nimbus";
@@ -85,14 +85,14 @@ export class DarwinKeychainVault implements NimbusVault {
           keys.push(x);
         }
       }
-      return keys.sort();
+      return keys.sort(compareVaultKeysAlphabetically);
     } catch {
       return [];
     }
   }
 
   private async writeIndex(keys: string[]): Promise<void> {
-    const unique = [...new Set(keys)].sort();
+    const unique = [...new Set(keys)].sort(compareVaultKeysAlphabetically);
     await writeFile(this.indexPath, `${JSON.stringify(unique)}\n`, "utf8");
   }
 
@@ -107,6 +107,34 @@ export class DarwinKeychainVault implements NimbusVault {
       keys.push(key);
     }
     await this.writeIndex(keys);
+  }
+
+  private freePasswordDataIfPresent(pwdLen: number, pwdPtr: bigint): void {
+    if (pwdLen > 0 && pwdPtr !== 0n) {
+      security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
+    }
+  }
+
+  private deleteKeychainItemAndRelease(itemRef: bigint): void {
+    if (itemRef === 0n) {
+      return;
+    }
+    const delStatus = security.symbols.SecKeychainItemDelete(addressAsPointer(itemRef));
+    if (delStatus !== 0) {
+      throw new Error("Vault delete failed");
+    }
+    coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
+  }
+
+  private bestEffortReleaseItemRef(itemRef: bigint): void {
+    if (itemRef === 0n) {
+      return;
+    }
+    try {
+      coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
+    } catch {
+      /* best-effort */
+    }
   }
 
   /** Delete keychain item if present; ignores not-found. */
@@ -142,24 +170,10 @@ export class DarwinKeychainVault implements NimbusVault {
     const itemRef = itemRefBuf.readBigUInt64LE(0);
 
     try {
-      if (pwdLen > 0 && pwdPtr !== 0n) {
-        security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
-      }
-      if (itemRef !== 0n) {
-        const delStatus = security.symbols.SecKeychainItemDelete(addressAsPointer(itemRef));
-        if (delStatus !== 0) {
-          throw new Error("Vault delete failed");
-        }
-        coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
-      }
+      this.freePasswordDataIfPresent(pwdLen, pwdPtr);
+      this.deleteKeychainItemAndRelease(itemRef);
     } catch (err) {
-      if (itemRef !== 0n) {
-        try {
-          coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
-        } catch {
-          /* best-effort */
-        }
-      }
+      this.bestEffortReleaseItemRef(itemRef);
       throw err;
     }
   }

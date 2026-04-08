@@ -45,7 +45,9 @@ describe("Platform Abstraction Layer", () => {
     const { paths } = await createPlatformServices();
     const os = platform();
     if (os === "win32") {
-      expect(paths.socketPath.toLowerCase()).toBe("\\\\.\\pipe\\nimbus-gateway");
+      expect(paths.socketPath.toLowerCase()).toBe(
+        String.raw`\\.\pipe\nimbus-gateway`.toLowerCase(),
+      );
     } else {
       expect(paths.socketPath).toContain("nimbus-gateway.sock");
     }

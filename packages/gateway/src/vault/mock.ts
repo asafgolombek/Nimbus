@@ -1,4 +1,4 @@
-import { validateVaultKeyOrThrow } from "./key-format.ts";
+import { compareVaultKeysAlphabetically, validateVaultKeyOrThrow } from "./key-format.ts";
 import type { NimbusVault } from "./nimbus-vault.ts";
 
 /**
@@ -24,7 +24,7 @@ export class MockVault implements NimbusVault {
   }
 
   async listKeys(prefix?: string): Promise<string[]> {
-    const keys = [...this.store.keys()].sort();
+    const keys = [...this.store.keys()].sort(compareVaultKeysAlphabetically);
     if (prefix === undefined || prefix.length === 0) {
       return keys;
     }

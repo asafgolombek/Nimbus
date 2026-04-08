@@ -16,7 +16,7 @@ export async function createNimbusVault(paths: PlatformPaths): Promise<NimbusVau
     case "darwin":
       return new (await import("./darwin.ts")).DarwinKeychainVault(paths);
     case "linux":
-      return new (await import("./linux.ts")).LinuxSecretToolVault(paths);
+      return new (await import("./linux.ts")).LinuxSecretToolVault();
     default:
       throw new PlatformInitError(`Unsupported platform for vault: ${p}`);
   }

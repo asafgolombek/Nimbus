@@ -35,7 +35,7 @@ export function createWindowsPaths(): PlatformPaths {
     configDir,
     dataDir,
     logDir: join(dataDir, "logs"),
-    socketPath: "\\\\.\\pipe\\nimbus-gateway",
+    socketPath: String.raw`\\.\pipe\nimbus-gateway`,
     extensionsDir: join(localAppData, "Nimbus", "extensions"),
     tempDir: join(tmpdir(), "nimbus"),
   };

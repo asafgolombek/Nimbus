@@ -69,7 +69,7 @@ describe("DpapiVault (Windows)", () => {
       configDir: root,
       dataDir: join(root, "data"),
       logDir: join(root, "logs"),
-      socketPath: "\\\\.\\pipe\\nimbus-vault-test",
+      socketPath: String.raw`\\.\pipe\nimbus-vault-test`,
       extensionsDir: join(root, "ext"),
       tempDir: join(root, "tmp"),
     };

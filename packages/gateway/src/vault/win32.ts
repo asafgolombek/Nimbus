@@ -3,13 +3,16 @@
  */
 
 import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
-import { constants as fsConstants } from "node:fs";
-import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { PlatformPaths } from "../platform/paths.ts";
 import { addressAsPointer } from "./ffi-ptr.ts";
-import { isWellFormedVaultKey, validateVaultKeyOrThrow } from "./key-format.ts";
+import {
+  compareVaultKeysAlphabetically,
+  isWellFormedVaultKey,
+  validateVaultKeyOrThrow,
+} from "./key-format.ts";
 import type { NimbusVault } from "./nimbus-vault.ts";
 
 const crypt32 = dlopen("crypt32.dll", {
@@ -128,12 +131,19 @@ export class DpapiVault implements NimbusVault {
   async get(key: string): Promise<string | null> {
     validateVaultKeyOrThrow(key);
     const path = this.encPath(key);
+    let b64: string;
     try {
-      await access(path, fsConstants.R_OK);
-    } catch {
-      return null;
+      b64 = await readFile(path, "utf8");
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? (err as NodeJS.ErrnoException).code
+          : undefined;
+      if (code === "ENOENT") {
+        return null;
+      }
+      throw err;
     }
-    const b64 = await readFile(path, "utf8");
     let encrypted: Buffer;
     try {
       encrypted = Buffer.from(b64, "base64");
@@ -207,7 +217,7 @@ export class DpapiVault implements NimbusVault {
       .filter((n) => n.endsWith(".enc"))
       .map((n) => n.slice(0, -".enc".length))
       .filter((k) => isWellFormedVaultKey(k))
-      .sort();
+      .sort(compareVaultKeysAlphabetically);
     if (prefix === undefined || prefix.length === 0) {
       return keys;
     }

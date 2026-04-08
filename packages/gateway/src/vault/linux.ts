@@ -4,8 +4,7 @@
 
 import { spawn } from "node:child_process";
 
-import type { PlatformPaths } from "../platform/paths.ts";
-import { validateVaultKeyOrThrow } from "./key-format.ts";
+import { compareVaultKeysAlphabetically, validateVaultKeyOrThrow } from "./key-format.ts";
 import type { NimbusVault } from "./nimbus-vault.ts";
 
 const LABEL_PREFIX = "Nimbus: ";
@@ -16,16 +15,11 @@ function nimbusLabel(key: string): string {
 
 function runSecretTool(args: string[], stdin?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("secret-tool", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("secret-tool", args, { stdio: ["pipe", "pipe", "ignore"] });
     let out = "";
-    let err = "";
     child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
     child.stdout.on("data", (c: string) => {
       out += c;
-    });
-    child.stderr.on("data", (c: string) => {
-      err += c;
     });
     child.on("error", reject);
     child.on("close", (code) => {
@@ -33,7 +27,6 @@ function runSecretTool(args: string[], stdin?: string): Promise<string> {
         resolve(out);
         return;
       }
-      void err;
       reject(new Error("Vault operation failed"));
     });
     if (stdin !== undefined) {
@@ -44,10 +37,6 @@ function runSecretTool(args: string[], stdin?: string): Promise<string> {
 }
 
 export class LinuxSecretToolVault implements NimbusVault {
-  constructor(private readonly _paths: PlatformPaths) {
-    void this._paths;
-  }
-
   async set(key: string, value: string): Promise<void> {
     validateVaultKeyOrThrow(key);
     await runSecretTool(
@@ -88,7 +77,7 @@ export class LinuxSecretToolVault implements NimbusVault {
       .filter((line) => line.startsWith(LABEL_PREFIX))
       .map((line) => line.slice(LABEL_PREFIX.length))
       .filter((k) => k.length > 0)
-      .sort();
+      .sort(compareVaultKeysAlphabetically);
     if (prefix === undefined || prefix.length === 0) {
       return keys;
     }
