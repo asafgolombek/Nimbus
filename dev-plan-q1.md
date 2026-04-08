@@ -2,13 +2,13 @@
 
 **Period:** Q1 2026 (Active)  
 **Theme:** Gateway, PAL, Vault, Filesystem Connector, HITL Gate, CLI, CI  
-**Status:** **In progress** — PAL, vault, IPC (including consent), and local SQLite index are implemented and tested; engine, connector mesh, CLI commands, and full Gateway bootstrap are still outstanding.
+**Status:** **In progress** — PAL, vault, IPC (including consent), local SQLite index, **Stage 5 (HITL + `ToolExecutor`)**, and **Stage 7 (filesystem MCP factory + dispatcher adapter)** are in code and tested. Still outstanding: **Stage 6** (router / planner / Mastra agent + real `agent.invoke`), **Stage 8** (CLI), **Stage 9** (gateway entry wiring + shutdown), and deeper integration/E2E.
 
 ---
 
 ## Current State
 
-The monorepo is past “scaffold only”: **Stages 1–4 and most of Stage 3** are reflected in working code under `packages/gateway`. The **Engine (Stage 5–6), filesystem MCP wiring (Stage 7), CLI (Stage 8), and full Gateway entry + shutdown (Stage 9)** are not finished; several files still carry `// TODO Q1` markers.
+The monorepo is past “scaffold only”: **Stages 1–5, 7 (minimal), and most of Stage 3** are reflected in working code under `packages/gateway`. **Stage 6** (intent router, task planner, Mastra agent), **Stage 8** (CLI commands), and **Stage 9** (full gateway bootstrap: IPC start, mesh + executor wiring, graceful shutdown) remain; `packages/gateway/src/index.ts` and `engine/index.ts` still carry `// TODO Q1` markers for those layers.
 
 ### Implemented (verified in tree)
 
@@ -20,14 +20,15 @@ The monorepo is past “scaffold only”: **Stages 1–4 and most of Stage 3** a
 | 3 — Methods | `gateway.ping`, `vault.*`, `audit.list` (when `LocalIndex` passed in), `consent.respond`; **`agent.invoke` is a stub** (echo / placeholder text until the engine exists) | `packages/gateway/src/ipc/server.ts` |
 | 3 — Consent | `ConsentCoordinatorImpl`: consent tied to `clientId`; pending requests reject on disconnect (`ConsentDisconnectedError`) | `packages/gateway/src/ipc/consent.ts` |
 | 4 — Index | FTS5 schema, triggers, `sync_state`, `audit_log`; `LocalIndex` upsert/search/sync/audit APIs | `packages/gateway/src/index/` |
+| 5 — Engine (HITL + executor) | `HITL_REQUIRED` (architecture whitelist), `ToolExecutor`, `bindConsentChannel`, `formatConsentPrompt`; audit **before** connector; `ConsentDisconnectedError` → rejected + audit | `packages/gateway/src/engine/executor.ts`, `types.ts`, `engine.test.ts` |
+| 7 — Connectors (Q1) | `buildConnectorMesh` (filesystem via `bunx` MCP server), `createConnectorDispatcher` for `MCPClient.listTools()` namespaced tool ids | `packages/gateway/src/connectors/registry.ts`, `registry.test.ts` |
 
 **Assembly note:** `PlatformServices` in code includes **`localIndex`** (opened in `platform/assemble.ts`) in addition to `vault`, `ipc`, `paths`, `autostart`, and `notifications`. That is a deliberate convenience so IPC can serve `audit.list` without a separate index handle.
 
 ### Not implemented yet
 
-- **`packages/gateway/src/engine/`** — No `executor.ts`, HITL frozen set, router, planner, or Mastra agent; only `ENGINE_SUBSYSTEM_ID` and a minimal test.
-- **`packages/gateway/src/connectors/`** — No `buildConnectorMesh` export; connector mesh is still a stub comment (marked TODO Q2 in file).
-- **`packages/gateway/src/index.ts`** — Gateway entry only calls `createPlatformServices()`; it does **not** call `ipc.start()`, wire MCP, or run the Stage 9 shutdown sequence.
+- **`packages/gateway/src/engine/`** — `router.ts`, `planner.ts`, `agent.ts`, and **`agent.invoke` path** (IPC still stubs natural-language invoke).
+- **`packages/gateway/src/index.ts`** — Gateway entry only calls `createPlatformServices()` and prints; it does **not** call `ipc.start()`, construct `MCPClient` / `createConnectorDispatcher`, wire `ToolExecutor`, or run the Stage 9 shutdown sequence.
 - **`packages/cli/src/index.ts`** + **`commands/index.ts`** — No command router or `start` / `stop` / `ask` / `vault` / `audit` handlers.
 
 ### Tests (workspace scripts)
@@ -36,7 +37,7 @@ The monorepo is past “scaffold only”: **Stages 1–4 and most of Stage 3** a
 |--------|----------------|
 | `bun run test` | Gateway + CLI + SDK unit tests (includes IPC integration tests, vault, PAL, `LocalIndex`) — **green** |
 | `bun run test:coverage:vault` | **Green**; real vault smoke runs per OS where applicable |
-| `bun run test:coverage:engine` | **Green** on current tiny engine surface — **not** yet a meaningful gate for HITL/tool execution (no `ToolExecutor` code) |
+| `bun run test:coverage:engine` | **Green** (≥85% lines); **`ToolExecutor` + HITL tests** in `engine.test.ts` |
 | `bun run test:integration` | **Passes**; tests are still **smoke** (e.g. PAL module loads), not “real SQLite + subprocess” depth described in older comments |
 | `bun run test:e2e:cli` | **Passes**; **placeholder** (imports command module only), not a live Gateway subprocess harness yet |
 | `bun run lint` | Run locally; Biome may report issues until the repo is lint-clean |
@@ -44,7 +45,7 @@ The monorepo is past “scaffold only”: **Stages 1–4 and most of Stage 3** a
 ### `TODO Q1` grep anchors (for contributors)
 
 - `packages/gateway/src/index.ts` — full startup sequence  
-- `packages/gateway/src/engine/index.ts` — export engine components  
+- `packages/gateway/src/engine/index.ts` — router / planner / agent (executor already exported)  
 - `packages/cli/src/index.ts` — command router  
 - `packages/cli/src/commands/index.ts` — command handlers  
 
@@ -410,64 +411,32 @@ Name search uses `items_fts` (FTS5 `MATCH`) when `name` is provided; other filte
 
 **Files:** `packages/gateway/src/engine/executor.ts`
 
-**Status:** **Not started** — `executor.ts` and related engine modules are absent; `packages/gateway/src/engine/index.ts` is still a placeholder.
+**Status:** **Done** (`executor.ts`, `types.ts`, `engine.test.ts`, exports in `engine/index.ts`).
 
-This is the most security-critical file. Implement it exactly as specified in `architecture.md`:
+This is the most security-critical file. Implemented per `architecture.md` with one **runtime note**: some engines still allow `Set.prototype.add` on `Object.freeze(new Set())`, so the export is an **`Object.freeze`’d `ReadonlySet` facade** over a private backing `Set` (immutability verified in tests).
 
 ### 5.1 `HITL_REQUIRED` frozen set
 
-Copy the exact set from `architecture.md §HITL Consent Gate`. It is `Object.freeze(new Set([...]))` — a module-level constant. It must not be modifiable at runtime.
+Member list matches `architecture.md §HITL Consent Gate`. Exposed as `ReadonlySet<string>`; must not be modifiable at runtime (see facade note above).
 
 ### 5.2 `ToolExecutor.execute()`
 
-```typescript
-export class ToolExecutor {
-  constructor(
-    private readonly consentChannel: ConsentChannel,
-    private readonly auditLog: AuditLog,
-    private readonly connectorMesh: MCPClient,
-  ) {}
-
-  async execute(action: PlannedAction): Promise<ActionResult> {
-    const requiresHITL = HITL_REQUIRED.has(action.type);
-
-    let hitlStatus: "approved" | "rejected" | "not_required";
-
-    if (requiresHITL) {
-      const approved = await this.consentChannel.requestApproval(
-        formatConsentPrompt(action)
-      );
-      hitlStatus = approved ? "approved" : "rejected";
-    } else {
-      hitlStatus = "not_required";
-    }
-
-    // ALWAYS write audit record BEFORE any action is taken
-    await this.auditLog.record({ action, hitlStatus, timestamp: Date.now() });
-
-    if (hitlStatus === "rejected") {
-      return { status: "rejected", reason: "User declined consent gate." };
-    }
-
-    return this.dispatchToConnector(action);
-  }
-}
-```
+**As implemented:** constructor takes `ConsentChannel`, `AuditSink` (e.g. `LocalIndex.recordAudit`), and `ConnectorDispatcher` (e.g. from `createConnectorDispatcher(mcpClient)`). `ConsentDisconnectedError` is handled as **rejected** with audit payload `hitlRejectReason: "client disconnected"`. Audit uses **sync** `recordAudit` (not `await`), still strictly **before** `connectors.dispatch`.
 
 ### 5.3 HITL unit tests
 
-`packages/gateway/src/engine/engine.test.ts` must achieve **≥85% coverage** (CI gate):
+`packages/gateway/src/engine/engine.test.ts` achieves **≥85% coverage** (CI gate). Checklist:
 
-- [ ] Every action type in `HITL_REQUIRED` triggers the consent channel
-- [ ] Action types NOT in `HITL_REQUIRED` do NOT call the consent channel
-- [ ] `rejected` response → connector is NOT called; audit record shows `"rejected"`
-- [ ] `approved` response → connector IS called; audit record shows `"approved"`
-- [ ] `not_required` → connector is called without asking; audit shows `"not_required"`
-- [ ] Audit record is written BEFORE the connector call (verify ordering with a spy)
-- [ ] `HITL_REQUIRED` set cannot be mutated at runtime (attempt `HITL_REQUIRED.add(...)` → throws or is ignored)
-- [ ] If IPC client disconnects mid-consent, pending action is rejected and audit records `"rejected"` with `reason: "client disconnected"`
+- [x] Every action type in `HITL_REQUIRED` triggers the consent channel
+- [x] Action types NOT in `HITL_REQUIRED` do NOT call the consent channel
+- [x] `rejected` response → connector is NOT called; audit record shows `"rejected"`
+- [x] `approved` response → connector IS called; audit record shows `"approved"`
+- [x] `not_required` → connector is called without asking; audit shows `"not_required"`
+- [x] Audit record is written BEFORE the connector call (ordering spy)
+- [x] `HITL_REQUIRED` cannot be mutated via `Set.prototype.add` on the export (throws — export is not a real `Set`)
+- [x] `ConsentDisconnectedError` → no connector call; audit `"rejected"` with disconnect metadata
 
-**Partial coverage today:** `packages/gateway/src/ipc/ipc.test.ts` exercises JSON-RPC consent respond + **disconnect rejects pending consent** at the IPC layer; it does not replace executor-level HITL tests above.
+**Also:** `packages/gateway/src/ipc/ipc.test.ts` exercises JSON-RPC consent respond + **disconnect rejects pending consent** at the IPC layer (complements executor tests).
 
 ---
 
@@ -530,28 +499,11 @@ Wire up `nimbusAgent` as specified in `architecture.md §Agent Definition`. Use 
 
 ## Stage 7 — Filesystem MCP Connector
 
-**Files:** `packages/gateway/src/connectors/index.ts` (add `registry.ts` or equivalent when implementing)
+**Files:** `packages/gateway/src/connectors/registry.ts`, `registry.test.ts`, `connectors/index.ts`
 
-**Status:** **Not started** — `connectors/index.ts` is still a stub (see also Q2 TODO in that file).
+**Status:** **Minimal done (Q1 filesystem)** — `buildConnectorMesh(paths)` returns `@mastra/mcp` `MCPClient` with stdio `bunx @modelcontextprotocol/server-filesystem` rooted at `paths.dataDir`. **`createConnectorDispatcher(client)`** adapts `MCPClient` (or any `McpToolListingClient`) to engine **`ConnectorDispatcher`**: tool id = `payload.mcpToolId` or `action.type` (must match Mastra namespaced ids from `listTools()`, e.g. `filesystem_list_directory`). Optional `payload.input` passes through as tool arguments.
 
-For Q1, the only connector wired in is the filesystem connector:
-
-```typescript
-import { MCPClient } from "@mastra/mcp";
-
-export async function buildConnectorMesh(paths: PlatformPaths): Promise<MCPClient> {
-  return new MCPClient({
-    servers: {
-      filesystem: {
-        command: "bunx",
-        args: ["@modelcontextprotocol/server-filesystem", paths.dataDir],
-      },
-    },
-  });
-}
-```
-
-This is intentionally minimal. All cloud connectors are Q2.
+**Not done yet:** Gateway startup does not call `buildConnectorMesh` / dispatcher (Stage 9). **Q2+:** additional servers, sync handlers, etc.
 
 ---
 
@@ -638,40 +590,32 @@ When the Gateway sends a `consent.request` notification:
 
 **File:** `packages/gateway/src/index.ts`
 
-**Status:** **Not started** — current entry only calls `createPlatformServices()` and prints a line; it does not open IPC or the full lifecycle below.
+**Status:** **Not started** — current entry only calls `createPlatformServices()` and prints a line; it does not start IPC, MCP, or the executor.
 
-Wire everything together and register shutdown handlers:
+Wire everything together and register shutdown handlers. **PAL already opens SQLite + `LocalIndex` inside `createPlatformServices()`** — reuse `platform.localIndex` (do not open a second DB unless intentionally split). **IPC API in code:** `IPCServer.start()` / `stop()` (not `listen` / `close`). **Consent:** pass `bindConsentChannel(platform.ipc.consent, clientId)` per active `agent.invoke` session when wiring the executor (not a field named `consentChannel` on `IPCServer`).
 
 ```typescript
-import { createPlatformServices } from "./platform/index.ts";
-import { LocalIndex } from "./index/index.ts";
-import { buildConnectorMesh } from "./connectors/registry.ts";
+import { buildConnectorMesh, createConnectorDispatcher } from "./connectors/index.ts";
 import { ToolExecutor } from "./engine/executor.ts";
-import { IntentRouter } from "./engine/router.ts";
-import { TaskPlanner } from "./engine/planner.ts";
-import { Database } from "bun:sqlite";
+import { createPlatformServices } from "./platform/index.ts";
 
 async function main(): Promise<void> {
-  const platform = await createPlatformServices(); // throws PlatformInitError if deps missing
-  const db = new Database(path.join(platform.paths.dataDir, "nimbus.db"));
-  const index = new LocalIndex(db);
-  const connectors = await buildConnectorMesh(platform.paths);
-  const executor = new ToolExecutor(platform.ipc.consentChannel, index, connectors);
-  const router = new IntentRouter();
-  const planner = new TaskPlanner();
+  const platform = await createPlatformServices();
+  const mcp = await buildConnectorMesh(platform.paths);
+  const dispatcher = createConnectorDispatcher(mcp);
+  // Executor needs a ConsentChannel bound per client when handling agent.invoke:
+  // const executor = new ToolExecutor(bindConsentChannel(platform.ipc.consent, clientId), platform.localIndex, dispatcher);
 
-  // Graceful shutdown
   const shutdown = async (signal: string) => {
-    console.log(`[gateway] ${signal} received — shutting down`);
-    await platform.ipc.close();   // stop accepting new connections
-    connectors.disconnect();      // terminate MCP child processes
-    db.close();                   // flush SQLite WAL
+    process.stdout.write(`[gateway] ${signal} — shutting down\n`);
+    await platform.ipc.stop();
+    await mcp.disconnect();
     process.exit(0);
   };
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT",  () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  await platform.ipc.listen();
+  await platform.ipc.start();
 }
 
 main().catch((err: unknown) => {
@@ -716,7 +660,7 @@ Use this as the **exit checklist** for Q1. Items reflect **intent**; current rep
 - [x] `bun run typecheck` passes with zero errors *(verified on dev machine; CI should mirror all three platforms)*
 - [ ] `bun run lint` passes (Biome — no errors/warnings) *(may still be failing until Biome is clean)*
 - [x] `bun run test` passes for gateway + cli + sdk *(root `package.json` script — does not include UI Vitest suite)*
-- [ ] `bun run test:coverage:engine` ≥85% with **meaningful** engine tests *(script currently passes on minimal `engine/` code only — tighten once `ToolExecutor` lands)*
+- [x] `bun run test:coverage:engine` ≥85% with **meaningful** engine tests *(`ToolExecutor` + HITL suite in `engine.test.ts`)*
 - [x] `bun run test:coverage:vault` ≥90%
 - [ ] `bun run test:integration` — **deep** integration *(script is green today with smoke tests only; replace with real SQLite + subprocess scenarios per plan)*
 - [ ] `bun run test:e2e:cli` — **real E2E** *(script is green today with placeholder import test only; add Gateway subprocess + mock filesystem MCP)*
@@ -724,7 +668,7 @@ Use this as the **exit checklist** for Q1. Items reflect **intent**; current rep
 - [ ] `nimbus start` / `nimbus ask "list my files"` / `nimbus stop` works end-to-end on dev machine
 - [ ] `nimbus audit` shows HITL decisions from the session
 - [ ] Secrets never appear in `bun run test` output, logs, or IPC traces *(vault tests assert non-leak; broaden as IPC/engine grow)*
-- [ ] HITL gate fires for every action type in the whitelist — verified by unit test
+- [x] HITL gate fires for every action type in the whitelist — verified by unit test *(loop over `HITL_REQUIRED` in `engine.test.ts`)*
 - [ ] Gateway shuts down cleanly on `SIGTERM`/`SIGINT` with no socket hang or DB corruption
 - [x] `PlatformInitError` is thrown (not a crash) when a vault OS dependency is missing *(Linux probe + Windows path tests)*
 - [x] Multi-client IPC: consent prompt goes only to the initiating client *(pending map is per `requestId` + `clientId`; foreign `consent.respond` rejected — extend with explicit multi-connection tests as needed)*
@@ -762,14 +706,14 @@ Do not implement any of these in Q1 code.
 - Verify `nimbus start` launches the process and `nimbus stop` kills it **(blocked on Stage 8–9)**
 
 ### Week 5–6: Engine core
-- Stage 5 (HITL Gate + Tool Executor) — with full tests first (TDD) **(not started)**
+- Stage 5 (HITL Gate + Tool Executor) — with full tests **(done)**
 - Stage 6 (Intent Router + Task Planner) — minimal for `file_search` and `file_organize` **(not started)**
 
 ### Week 7–8: CLI + E2E
-- Stage 7 (Filesystem connector wiring) **(not started)**
+- Stage 7 (Filesystem connector wiring — factory + dispatcher) **(minimal done; not wired in gateway entry)**
 - Stage 8 (CLI commands) **(not started)**
 - Integration and E2E tests **(smoke/placeholder only today)**
-- Coverage gates **(vault real; engine gate superficial until Stage 5)**
+- Coverage gates **(vault + engine thresholds enforced on real suites)**
 - CI matrix green
 
 ---

@@ -4,16 +4,13 @@
  * The Engine is an MCP client. It never calls cloud APIs directly.
  * Every connector is an MCP server process.
  *
- * First-party connectors:
- * - filesystem (@modelcontextprotocol/server-filesystem)
- * - google_drive (@modelcontextprotocol/server-gdrive)
- * - gmail (@modelcontextprotocol/server-gmail)
- * - onedrive (nimbus-mcp-onedrive)
- * - outlook (nimbus-mcp-outlook)
- * - google_photos (nimbus-mcp-google-photos)
+ * Q1: filesystem only via {@link buildConnectorMesh}. Cloud connectors are Q2+.
  *
  * See architecture.md §Subsystem 2: The MCP Connector Mesh
  */
 
-// TODO Q2: Export buildConnectorMesh(), ConnectorSyncHandler, SyncResult
-export {};
+export {
+  buildConnectorMesh,
+  createConnectorDispatcher,
+  type McpToolListingClient,
+} from "./registry.ts";
