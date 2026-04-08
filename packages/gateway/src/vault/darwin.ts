@@ -175,32 +175,29 @@ export class DarwinKeychainVault implements NimbusVault {
     return { status, passwordLengthBuf, passwordDataOutBuf, itemRefBuf };
   }
 
-  private invokeKeychainRelease(bestEffort: boolean, fn: () => void): void {
-    if (bestEffort) {
-      try {
-        fn();
-      } catch {
-        /* best-effort */
-      }
-    } else {
-      fn();
+  private releaseFindGenericPasswordOutputs(pwdPtr: bigint, itemRef: bigint): void {
+    if (pwdPtr !== 0n) {
+      security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
+    }
+    if (itemRef !== 0n) {
+      coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
     }
   }
 
-  private releaseFindGenericPasswordOutputs(
-    pwdPtr: bigint,
-    itemRef: bigint,
-    bestEffort: boolean,
-  ): void {
+  private bestEffortReleaseFindGenericPasswordOutputs(pwdPtr: bigint, itemRef: bigint): void {
     if (pwdPtr !== 0n) {
-      this.invokeKeychainRelease(bestEffort, () => {
+      try {
         security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
-      });
+      } catch {
+        /* best-effort */
+      }
     }
     if (itemRef !== 0n) {
-      this.invokeKeychainRelease(bestEffort, () => {
+      try {
         coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
-      });
+      } catch {
+        /* best-effort */
+      }
     }
   }
 
@@ -270,9 +267,9 @@ export class DarwinKeychainVault implements NimbusVault {
     let plain: string;
     try {
       plain = this.readPlainPasswordFromKeychainPointer(pwdLen, pwdPtr);
-      this.releaseFindGenericPasswordOutputs(pwdPtr, itemRef, false);
+      this.releaseFindGenericPasswordOutputs(pwdPtr, itemRef);
     } catch (err) {
-      this.releaseFindGenericPasswordOutputs(pwdPtr, itemRef, true);
+      this.bestEffortReleaseFindGenericPasswordOutputs(pwdPtr, itemRef);
       throw err;
     }
 
