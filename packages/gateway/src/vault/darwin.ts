@@ -137,6 +137,39 @@ export class DarwinKeychainVault implements NimbusVault {
     }
   }
 
+  private readPlainPasswordFromKeychainPointer(pwdLen: number, pwdPtr: bigint): string {
+    if (pwdLen === 0 || pwdPtr === 0n) {
+      return "";
+    }
+    return Buffer.from(toArrayBuffer(addressAsPointer(pwdPtr), 0, pwdLen)).toString("utf8");
+  }
+
+  private releaseFindGenericPasswordOutputs(pwdPtr: bigint, itemRef: bigint): void {
+    if (pwdPtr !== 0n) {
+      security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
+    }
+    if (itemRef !== 0n) {
+      coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
+    }
+  }
+
+  private bestEffortReleaseFindGenericPasswordOutputs(pwdPtr: bigint, itemRef: bigint): void {
+    if (pwdPtr !== 0n) {
+      try {
+        security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
+      } catch {
+        /* best-effort */
+      }
+    }
+    if (itemRef !== 0n) {
+      try {
+        coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
   /** Delete keychain item if present; ignores not-found. */
   private async deleteKeychainOnly(key: string): Promise<void> {
     const svcBuf = Buffer.from(SERVICE);
@@ -235,32 +268,10 @@ export class DarwinKeychainVault implements NimbusVault {
 
     let plain: string;
     try {
-      if (pwdLen === 0 || pwdPtr === 0n) {
-        plain = "";
-      } else {
-        plain = Buffer.from(toArrayBuffer(addressAsPointer(pwdPtr), 0, pwdLen)).toString("utf8");
-      }
-      if (pwdPtr !== 0n) {
-        security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
-      }
-      if (itemRef !== 0n) {
-        coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
-      }
+      plain = this.readPlainPasswordFromKeychainPointer(pwdLen, pwdPtr);
+      this.releaseFindGenericPasswordOutputs(pwdPtr, itemRef);
     } catch (err) {
-      if (pwdPtr !== 0n) {
-        try {
-          security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
-        } catch {
-          /* best-effort */
-        }
-      }
-      if (itemRef !== 0n) {
-        try {
-          coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
-        } catch {
-          /* best-effort */
-        }
-      }
+      this.bestEffortReleaseFindGenericPasswordOutputs(pwdPtr, itemRef);
       throw err;
     }
 
