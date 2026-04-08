@@ -17,7 +17,7 @@ export async function buildConnectorMesh(paths: PlatformPaths): Promise<MCPClien
   });
 }
 
-/** Minimal surface needed to dispatch tools (MCPClient satisfies this). */
+/** Minimal surface needed to dispatch tools (MCPClient satisfies this at runtime). */
 export type McpToolListingClient = {
   listTools(): Promise<
     Record<

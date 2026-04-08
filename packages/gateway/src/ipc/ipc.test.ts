@@ -1,27 +1,23 @@
+import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
-import { platform } from "node:os";
 import net from "node:net";
-
+import { platform, tmpdir } from "node:os";
+import { join } from "node:path";
+import { MockVault } from "../vault/mock.ts";
 import { ConsentDisconnectedError } from "./consent.ts";
 import {
+  encodeLine,
   IPC_MAX_LINE_BYTES,
   JsonRpcParseError,
   NdjsonLineReader,
-  encodeLine,
   parseJsonRpcLine,
 } from "./jsonrpc.ts";
 import { createIpcServer } from "./server.ts";
-import { MockVault } from "../vault/mock.ts";
 
 describe("ipc jsonrpc", () => {
   test("parseJsonRpcLine accepts request with id", () => {
-    const msg = parseJsonRpcLine(
-      '{"jsonrpc":"2.0","id":"1","method":"gateway.ping"}',
-    );
+    const msg = parseJsonRpcLine('{"jsonrpc":"2.0","id":"1","method":"gateway.ping"}');
     expect(msg).toEqual({
       jsonrpc: "2.0",
       id: "1",
@@ -30,9 +26,7 @@ describe("ipc jsonrpc", () => {
   });
 
   test("parseJsonRpcLine accepts notification without id", () => {
-    const msg = parseJsonRpcLine(
-      '{"jsonrpc":"2.0","method":"consent.request","params":{"x":1}}',
-    );
+    const msg = parseJsonRpcLine('{"jsonrpc":"2.0","method":"consent.request","params":{"x":1}}');
     expect(msg).toEqual({
       jsonrpc: "2.0",
       method: "consent.request",
@@ -43,9 +37,7 @@ describe("ipc jsonrpc", () => {
   test("NdjsonLineReader rejects line over 1MB", () => {
     const r = new NdjsonLineReader();
     const huge = `${"x".repeat(IPC_MAX_LINE_BYTES + 1)}\n`;
-    expect(() => r.push(new TextEncoder().encode(huge))).toThrow(
-      JsonRpcParseError,
-    );
+    expect(() => r.push(new TextEncoder().encode(huge))).toThrow(JsonRpcParseError);
   });
 
   test("encodeLine produces valid NDJSON", () => {
@@ -251,6 +243,68 @@ describe("ipc server integration", () => {
         await expect(consentP).resolves.toBe(true);
         sock.end();
       }
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("agent.invoke uses registered handler", async () => {
+    const listenPath = testListenPath();
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+    });
+    server.setAgentInvokeHandler(async () => ({ reply: "from-handler" }));
+    await server.start();
+    try {
+      const req = `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "agent.invoke",
+        params: { input: "hi", stream: false },
+      })}\n`;
+      const line = await new Promise<string>((resolve, reject) => {
+        if (platform() === "win32") {
+          let buf = "";
+          const sock = net.createConnection(listenPath);
+          sock.on("connect", () => {
+            sock.write(req);
+          });
+          sock.on("data", (b: Buffer) => {
+            buf += b.toString("utf8");
+            const i = buf.indexOf("\n");
+            if (i >= 0) {
+              resolve(buf.slice(0, i));
+              sock.end();
+            }
+          });
+          sock.on("error", reject);
+        } else {
+          let buf = "";
+          Bun.connect({
+            unix: listenPath,
+            socket: {
+              open(socket) {
+                socket.write(req);
+              },
+              data(socket, chunk: Uint8Array) {
+                buf += new TextDecoder().decode(chunk);
+                const i = buf.indexOf("\n");
+                if (i >= 0) {
+                  resolve(buf.slice(0, i));
+                  socket.end();
+                }
+              },
+              error() {
+                reject(new Error("socket error"));
+              },
+            },
+          }).catch(reject);
+        }
+      });
+      const res = JSON.parse(line) as { result?: { reply?: string } };
+      expect(res.result?.reply).toBe("from-handler");
     } finally {
       await server.stop();
     }

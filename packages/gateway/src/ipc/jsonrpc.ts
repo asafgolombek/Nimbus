@@ -137,9 +137,7 @@ export function parseJsonRpcLine(line: string): JsonRpcRequest | JsonRpcNotifica
   };
 }
 
-export function isRequest(
-  msg: JsonRpcRequest | JsonRpcNotification,
-): msg is JsonRpcRequest {
+export function isRequest(msg: JsonRpcRequest | JsonRpcNotification): msg is JsonRpcRequest {
   return Object.hasOwn(msg, "id");
 }
 

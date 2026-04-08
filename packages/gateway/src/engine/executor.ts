@@ -131,8 +131,8 @@ export class ToolExecutor {
     } catch (e) {
       if (e instanceof ConsentDisconnectedError) {
         hitlStatus = "rejected";
-        rejectReason = "client disconnected";
-        auditExtras = { hitlRejectReason: "client disconnected" };
+        rejectReason = e.message;
+        auditExtras = { hitlRejectReason: e.hitlAuditReason };
       } else {
         throw e;
       }

@@ -6,9 +6,12 @@ import type { JsonRpcNotification } from "./jsonrpc.ts";
  */
 export class ConsentDisconnectedError extends Error {
   readonly code = "CONSENT_CLIENT_DISCONNECTED" as const;
+  /** Value for audit `hitlRejectReason` when consent ends without user approval. */
+  readonly hitlAuditReason: string;
   override readonly name = "ConsentDisconnectedError";
-  constructor(message = "client disconnected") {
+  constructor(message = "client disconnected", hitlAuditReason: string = "client disconnected") {
     super(message);
+    this.hitlAuditReason = hitlAuditReason;
   }
 }
 
@@ -21,6 +24,11 @@ export interface ConsentCoordinator {
     clientId: string,
     params: { requestId: string; prompt: string; details?: unknown },
   ): Promise<boolean>;
+  /**
+   * Reject every pending consent (e.g. gateway shutdown). Uses {@link ConsentDisconnectedError}
+   * so {@link ToolExecutor} records a rejected HITL audit entry.
+   */
+  rejectAllPending(message: string, hitlAuditReason: string): void;
 }
 
 type PendingConsent = {
@@ -37,9 +45,7 @@ export type ConsentSessionWriter = (notification: JsonRpcNotification) => void;
 export class ConsentCoordinatorImpl implements ConsentCoordinator {
   private readonly pending = new Map<string, PendingConsent>();
 
-  constructor(
-    private readonly getWriter: (clientId: string) => ConsentSessionWriter | undefined,
-  ) {}
+  constructor(private readonly getWriter: (clientId: string) => ConsentSessionWriter | undefined) {}
 
   requestConsent(
     clientId: string,
@@ -56,10 +62,7 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
       const notif: JsonRpcNotification = {
         jsonrpc: "2.0",
         method: "consent.request",
-        params:
-          details === undefined
-            ? { requestId, prompt }
-            : { requestId, prompt, details },
+        params: details === undefined ? { requestId, prompt } : { requestId, prompt, details },
       };
       write(notif);
     });
@@ -68,10 +71,7 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
   /**
    * @returns Error body for JSON-RPC response, or null if handled successfully.
    */
-  handleRespond(
-    clientId: string,
-    params: unknown,
-  ): { code: number; message: string } | null {
+  handleRespond(clientId: string, params: unknown): { code: number; message: string } | null {
     if (typeof params !== "object" || params === null || Array.isArray(params)) {
       return { code: -32602, message: "Invalid params" };
     }
@@ -92,8 +92,16 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
     for (const [requestId, entry] of [...this.pending.entries()]) {
       if (entry.clientId === clientId) {
         this.pending.delete(requestId);
-        entry.reject(new ConsentDisconnectedError("client disconnected"));
+        entry.reject(new ConsentDisconnectedError());
       }
+    }
+  }
+
+  rejectAllPending(message: string, hitlAuditReason: string): void {
+    const err = new ConsentDisconnectedError(message, hitlAuditReason);
+    for (const [requestId, entry] of [...this.pending.entries()]) {
+      this.pending.delete(requestId);
+      entry.reject(err);
     }
   }
 }

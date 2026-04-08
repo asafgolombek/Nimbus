@@ -3,9 +3,11 @@ import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
 
+import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import type { AgentInvokeHandler } from "./agent-invoke.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
 import {
   encodeLine,
@@ -148,6 +150,8 @@ export type CreateIpcServerOptions = {
   localIndex?: LocalIndex;
   /** Monotonic gateway start time (ms) for ping.uptime */
   startedAtMs?: number;
+  /** Initial `agent.invoke` handler; may be replaced via {@link IPCServer.setAgentInvokeHandler}. */
+  agentInvoke?: AgentInvokeHandler;
   /**
    * Optional hook when a client connects (tests, diagnostics).
    * Not part of the JSON-RPC surface.
@@ -157,6 +161,7 @@ export type CreateIpcServerOptions = {
 
 export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   const startedAtMs = options.startedAtMs ?? Date.now();
+  let agentInvokeHandler: AgentInvokeHandler | undefined = options.agentInvoke;
   const sessions = new Map<string, ClientSession>();
   const consentImpl = new ConsentCoordinatorImpl((clientId) => {
     const s = sessions.get(clientId);
@@ -221,19 +226,35 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         const rec = asRecord(params);
         const input = rec !== undefined && typeof rec["input"] === "string" ? rec["input"] : "";
         const stream = rec?.["stream"] === true;
-        if (stream) {
-          session.writeNotification({
-            jsonrpc: "2.0",
-            method: "agent.chunk",
-            params: {
-              text: `[stub] Processing for client ${clientId.slice(0, 8)}…`,
+        const handler = agentInvokeHandler;
+        if (handler === undefined) {
+          return {
+            reply: `Agent invoke is not configured (no handler). Echo: ${input.slice(0, 500)}`,
+            stream,
+          };
+        }
+        try {
+          return await handler({
+            clientId,
+            input,
+            stream,
+            sendChunk: (text: string) => {
+              if (!stream) {
+                return;
+              }
+              session.writeNotification({
+                jsonrpc: "2.0",
+                method: "agent.chunk",
+                params: { text },
+              });
             },
           });
+        } catch (e) {
+          if (e instanceof GatewayAgentUnavailableError) {
+            throw new RpcMethodError(-32000, e.message);
+          }
+          throw e;
         }
-        return {
-          reply: `Q1 stub — engine not wired. Echo: ${input.slice(0, 500)}`,
-          stream,
-        };
       }
 
       case "consent.respond": {
@@ -319,6 +340,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   return {
     listenPath: options.listenPath,
     consent: consentImpl,
+    setAgentInvokeHandler(handler: AgentInvokeHandler | undefined): void {
+      agentInvokeHandler = handler;
+    },
     async start(): Promise<void> {
       if (platform() === "win32") {
         await new Promise<void>((resolve, reject) => {
@@ -395,6 +419,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     },
 
     async stop(): Promise<void> {
+      consentImpl.rejectAllPending("Gateway shutting down", "gateway shutting down");
       if (netServer !== undefined) {
         const s = netServer;
         netServer = undefined;

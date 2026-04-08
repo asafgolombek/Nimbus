@@ -1,9 +1,11 @@
 /**
- * CLI command handlers
- * Each command connects to the Gateway via JSON-RPC 2.0 IPC.
- * The CLI never imports Gateway source directly.
+ * CLI command handlers — IPC to Gateway only (no gateway source imports).
  */
 
-// TODO Q1: Export command handlers: start, stop, status, ask, search, sync
-// TODO Q1: Export command handlers: connector, extension, vault, watch
-export {};
+export { runAsk } from "./ask.ts";
+export { runAudit } from "./audit.ts";
+export { printHelp } from "./help.ts";
+export { runStart } from "./start.ts";
+export { runStatus } from "./status.ts";
+export { runStop } from "./stop.ts";
+export { runVault } from "./vault.ts";

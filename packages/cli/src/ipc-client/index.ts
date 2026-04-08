@@ -85,9 +85,7 @@ export class IPCClient {
         });
         sock.on("data", (buf: Buffer) => {
           try {
-            this.ingest(
-              new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
-            );
+            this.ingest(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
           } catch (e) {
             this.failAll(e);
           }
@@ -234,8 +232,7 @@ export class IPCClient {
   }
 
   private failAll(reason: unknown): void {
-    const err =
-      reason instanceof Error ? reason : new Error(String(reason));
+    const err = reason instanceof Error ? reason : new Error(String(reason));
     if (this.pending.size === 0) {
       return;
     }

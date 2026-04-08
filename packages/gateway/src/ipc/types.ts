@@ -1,3 +1,4 @@
+import type { AgentInvokeHandler } from "./agent-invoke.ts";
 import type { ConsentCoordinator } from "./consent.ts";
 
 export interface IPCServer {
@@ -5,4 +6,5 @@ export interface IPCServer {
   readonly consent: ConsentCoordinator;
   start(): Promise<void>;
   stop(): Promise<void>;
+  setAgentInvokeHandler(handler: AgentInvokeHandler | undefined): void;
 }

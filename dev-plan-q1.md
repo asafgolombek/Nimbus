@@ -4,6 +4,8 @@
 **Theme:** Gateway, PAL, Vault, Filesystem Connector, HITL Gate, CLI, CI  
 **Status:** **In progress** — PAL, vault, IPC (including consent), local SQLite index, **Stage 5 (HITL + `ToolExecutor`)**, and **Stage 7 (filesystem MCP factory + dispatcher adapter)** are in code and tested. Still outstanding: **Stage 6** (router / planner / Mastra agent + real `agent.invoke`), **Stage 8** (CLI), **Stage 9** (gateway entry wiring + shutdown), and deeper integration/E2E.
 
+**Plan document:** This file is the Q1 scope and sequencing contract. Update stage statuses, checkboxes, and the [Remaining backlog](#remaining-backlog-q1-close) table as PRs land. **Repo snapshot:** reflects tree as of revision pass (April 2026); trust the codebase for API names.
+
 ---
 
 ## Current State
@@ -143,12 +145,17 @@ Each platform `create()` performs a **dependency probe** before returning — e.
 
 All directories are created on first use inside `create()` — never lazily.
 
-### 1.5 Write PAL unit tests
+### 1.5 PAL unit tests
 
-`packages/gateway/src/platform/platform.test.ts` already exists as a stub. Add tests that:
-- Verify `createPlatformServices()` returns the correct implementation for the current platform
-- Verify `PlatformPaths` values are non-empty strings on each platform (run in CI matrix)
-- Verify `PlatformInitError` is thrown (not a generic error) when a dependency is missing
+`packages/gateway/src/platform/platform.test.ts` exercises:
+
+- `createPlatformServices` is exported and returns a full `PlatformServices` shape on the current OS
+- Every `PlatformPaths` field is a non-empty string
+- Socket path matches the documented pattern (Windows named pipe `\\.\pipe\nimbus-gateway`; Unix socket path contains `nimbus-gateway.sock`)
+- Linux: subprocess fixture proves `PlatformInitError` / `secret-tool` install hint when the vault dependency is missing
+- Windows: `PlatformInitError` when required environment (e.g. `APPDATA`) is unset for path construction
+
+Add more cases (e.g. explicit multi-connection IPC) when wiring narrows new failure modes.
 
 ---
 
@@ -515,6 +522,8 @@ Wire up `nimbusAgent` as specified in `architecture.md §Agent Definition`. Use 
 
 ### Commands to implement in Q1
 
+The comment block at the top of `packages/cli/src/index.ts` lists **roadmap** commands (`search`, `sync`, `connector`, `extension`, `watch`). **Q1 ships only** the handlers below; defer the rest until the quarters named in [What is Explicitly Out of Scope](#what-is-explicitly-out-of-scope-q1).
+
 | Command | Description |
 |---|---|
 | `nimbus start` | Daemonize the Gateway; print socket path |
@@ -603,8 +612,13 @@ async function main(): Promise<void> {
   const platform = await createPlatformServices();
   const mcp = await buildConnectorMesh(platform.paths);
   const dispatcher = createConnectorDispatcher(mcp);
-  // Executor needs a ConsentChannel bound per client when handling agent.invoke:
-  // const executor = new ToolExecutor(bindConsentChannel(platform.ipc.consent, clientId), platform.localIndex, dispatcher);
+  // Per agent.invoke session: ToolExecutor(consent, auditSink, dispatcher).
+  // AuditSink is typically platform.localIndex (recordAudit). Example:
+  // const executor = new ToolExecutor(
+  //   bindConsentChannel(platform.ipc.consent, clientId),
+  //   platform.localIndex,
+  //   dispatcher,
+  // );
 
   const shutdown = async (signal: string) => {
     process.stdout.write(`[gateway] ${signal} — shutting down\n`);
@@ -715,6 +729,42 @@ Do not implement any of these in Q1 code.
 - Integration and E2E tests **(smoke/placeholder only today)**
 - Coverage gates **(vault + engine thresholds enforced on real suites)**
 - CI matrix green
+
+---
+
+## Remaining backlog (Q1 close)
+
+Work still required before the [Definition of Done](#definition-of-done-q1) checklist can be fully checked. Order respects [Delivery Sequence](#delivery-sequence): **Stage 9** can partially precede **Stage 6** if IPC + MCP + stub/no-op agent path is enough for `start` / `ping` / vault RPCs; **`ask`** needs **Stage 6** and a real **`agent.invoke`** implementation.
+
+| Area | Stage | Deliverable |
+|------|-------|-------------|
+| Gateway bootstrap | 9 | `buildConnectorMesh`, `createConnectorDispatcher`, `ToolExecutor` factory per `clientId` for invoke path, `platform.ipc.start()` / `stop()`, SIGTERM/SIGINT shutdown (MCP disconnect, IPC drain, WAL-safe DB close) |
+| Engine | 6 | `router.ts`, `planner.ts`, `agent.ts` (or equivalent modules), env-driven model config, IPC `agent.invoke` streaming |
+| CLI | 8 | Command router, `start`/`stop`/`status`/`ask`/`vault`/`audit`, `@clack/prompts` + consent notifications |
+| Tests | — | Integration: real SQLite + subprocess scenarios per subsystem contracts; E2E: live Gateway + mock MCP (see `scripts/lib/ci-tests.ts` for CI parity) |
+| Quality | — | `bun run lint` clean; CI matrix green on Ubuntu, macOS, Windows |
+
+### Suggested PR sequence (for implementers)
+
+1. **Stage 9 (thin)** — Start IPC after PAL assembly; optional no-op or stub executor for RPC smoke; shutdown handlers. Unblocks manual and automated “gateway process up” tests.
+2. **Stage 8 (core)** — `start` / `stop` / `status`, `vault.*`, `audit`; IPC client reuse. No `ask` yet.
+3. **Stage 6** — Router + planner + minimal Mastra (or agreed agent loop); replace `agent.invoke` stub in `packages/gateway/src/ipc/server.ts`.
+4. **Stage 8 (`ask`)** — Wire NL query + streaming to IPC.
+5. **Tests** — Deepen `test/integration/` and `packages/cli/test/e2e/` to match CLAUDE.md expectations; keep `runCiTestSuite()` in `scripts/lib/ci-tests.ts` aligned with `.github/workflows/ci.yml`.
+
+### Handoff to Q2
+
+When Q1 Definition of Done is met, the **Bridge** quarter (Google/Microsoft connectors, OAuth PKCE, delta sync) continues from a running Gateway + CLI + filesystem MCP baseline. Do not expand this file into Q2 scope; track Q2 in a separate plan when drafted.
+
+---
+
+## References
+
+| Doc | Role |
+|-----|------|
+| `architecture.md` | Subsystem design, HITL contract, IPC semantics |
+| `mission.md` | Principles (local-first, agency, no SaaS) |
+| `CLAUDE.md` / `.cursor/rules/nimbus.mdc` | Commands, coverage gates, non-negotiables |
 
 ---
 

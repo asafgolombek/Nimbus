@@ -236,6 +236,18 @@ export class LocalIndex {
     );
   }
 
+  /**
+   * Best-effort WAL checkpoint and close the DB (gateway shutdown).
+   */
+  close(): void {
+    try {
+      this.db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+      /* ignore */
+    }
+    this.db.close();
+  }
+
   listAudit(limit: number): AuditEntry[] {
     const capped = Math.min(1000, Math.max(1, Math.floor(limit)));
     const rows = this.db

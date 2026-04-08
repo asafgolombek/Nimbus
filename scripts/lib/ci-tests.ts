@@ -29,25 +29,13 @@ function runBunTest(args: readonly string[], wrapDbus: boolean): void {
 
 /** Run the same test steps as CI (unit+coverage, gates, integration, e2e, UI Vitest). */
 export function runCiTestSuite(): void {
-  runBunTest(
-    ["packages/gateway", "packages/cli", "packages/sdk", "--coverage"],
-    true,
-  );
+  runBunTest(["packages/gateway", "packages/cli", "packages/sdk", "--coverage"], true);
 
-  runBunTest(
-    ["packages/gateway/src/engine", "--coverage", "--coverage-threshold-lines=85"],
-    false,
-  );
+  runBunTest(["packages/gateway/src/engine", "--coverage", "--coverage-threshold-lines=85"], false);
 
-  runBunTest(
-    ["packages/gateway/src/vault", "--coverage", "--coverage-threshold-lines=90"],
-    true,
-  );
+  runBunTest(["packages/gateway/src/vault", "--coverage", "--coverage-threshold-lines=90"], true);
 
-  runBunTest(
-    ["packages/gateway/test/integration/", "packages/cli/test/integration/"],
-    false,
-  );
+  runBunTest(["packages/gateway/test/integration/", "packages/cli/test/integration/"], false);
 
   runBunTest(["packages/cli/test/e2e/"], false);
 
