@@ -14,26 +14,7 @@
  * See architecture.md §Subsystem 3: The Secure Vault
  */
 
-export interface NimbusVault {
-  /** Store a secret. key format: "<service>.<type>" */
-  set(key: string, value: string): Promise<void>;
-  /** Returns null for missing keys — never throws on absence. */
-  get(key: string): Promise<string | null>;
-  /** No-op if key does not exist. */
-  delete(key: string): Promise<void>;
-  /** Lists key names (never values) for a given prefix. */
-  listKeys(prefix?: string): Promise<string[]>;
-}
+export { createNimbusVault } from "./factory.ts";
 
-/**
- * Validates documented vault key shape (`<segment>.<segment>`) for API boundaries.
- * PAL implementations remain authoritative; this is a shared guard for callers.
- */
-export function isWellFormedVaultKey(key: string): boolean {
-  if (key.length === 0 || key.length > 256) {
-    return false;
-  }
-  return /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/i.test(key);
-}
-
-// TODO Q1: Export platform vault implementations resolved via PAL
+export { isWellFormedVaultKey, validateVaultKeyOrThrow } from "./key-format.ts";
+export type { NimbusVault } from "./nimbus-vault.ts";

@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { PlatformPaths } from "./paths.ts";
 
 function isWindowsNamedPipe(socketPath: string): boolean {
@@ -8,7 +8,14 @@ function isWindowsNamedPipe(socketPath: string): boolean {
 
 /** Creates configured dirs (and Unix socket parent) before services use them. */
 export async function ensurePlatformDirectories(paths: PlatformPaths): Promise<void> {
-  const dirs = [paths.configDir, paths.dataDir, paths.logDir, paths.extensionsDir, paths.tempDir];
+  const dirs = [
+    paths.configDir,
+    join(paths.configDir, "vault"),
+    paths.dataDir,
+    paths.logDir,
+    paths.extensionsDir,
+    paths.tempDir,
+  ];
   if (!isWindowsNamedPipe(paths.socketPath)) {
     dirs.push(dirname(paths.socketPath));
   }

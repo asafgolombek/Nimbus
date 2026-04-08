@@ -1,5 +1,5 @@
 import { createStubIpcServer } from "../ipc/index.ts";
-import { createMockVault } from "../vault/mock.ts";
+import { createNimbusVault } from "../vault/factory.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
 import type { PlatformPaths } from "./paths.ts";
 import type { AutostartManager, NotificationService, PlatformServices } from "./types.ts";
@@ -23,7 +23,7 @@ function createStubNotifications(): NotificationService {
 export async function assemblePlatformServices(paths: PlatformPaths): Promise<PlatformServices> {
   await ensurePlatformDirectories(paths);
   return {
-    vault: createMockVault(),
+    vault: await createNimbusVault(paths),
     ipc: createStubIpcServer(paths.socketPath),
     paths,
     autostart: createStubAutostart(),
