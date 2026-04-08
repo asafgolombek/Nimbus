@@ -144,36 +144,17 @@ export class DarwinKeychainVault implements NimbusVault {
     return Buffer.from(toArrayBuffer(addressAsPointer(pwdPtr), 0, pwdLen)).toString("utf8");
   }
 
-  private releaseFindGenericPasswordOutputs(pwdPtr: bigint, itemRef: bigint): void {
-    if (pwdPtr !== 0n) {
-      security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
-    }
-    if (itemRef !== 0n) {
-      coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
-    }
+  private serviceAndKeyBuffers(key: string): { svcBuf: Buffer; keyBuf: Buffer } {
+    return { svcBuf: Buffer.from(SERVICE), keyBuf: Buffer.from(key, "utf8") };
   }
 
-  private bestEffortReleaseFindGenericPasswordOutputs(pwdPtr: bigint, itemRef: bigint): void {
-    if (pwdPtr !== 0n) {
-      try {
-        security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
-      } catch {
-        /* best-effort */
-      }
-    }
-    if (itemRef !== 0n) {
-      try {
-        coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
-      } catch {
-        /* best-effort */
-      }
-    }
-  }
-
-  /** Delete keychain item if present; ignores not-found. */
-  private async deleteKeychainOnly(key: string): Promise<void> {
-    const svcBuf = Buffer.from(SERVICE);
-    const keyBuf = Buffer.from(key, "utf8");
+  private keychainFindGenericPassword(key: string): {
+    status: number;
+    passwordLengthBuf: Buffer;
+    passwordDataOutBuf: Buffer;
+    itemRefBuf: Buffer;
+  } {
+    const { svcBuf, keyBuf } = this.serviceAndKeyBuffers(key);
     const passwordLengthBuf = Buffer.alloc(4);
     const passwordDataOutBuf = Buffer.alloc(8);
     const itemRefBuf = Buffer.alloc(8);
@@ -190,6 +171,43 @@ export class DarwinKeychainVault implements NimbusVault {
       ptr(passwordDataOutBuf),
       ptr(itemRefBuf),
     );
+
+    return { status, passwordLengthBuf, passwordDataOutBuf, itemRefBuf };
+  }
+
+  private invokeKeychainRelease(bestEffort: boolean, fn: () => void): void {
+    if (bestEffort) {
+      try {
+        fn();
+      } catch {
+        /* best-effort */
+      }
+    } else {
+      fn();
+    }
+  }
+
+  private releaseFindGenericPasswordOutputs(
+    pwdPtr: bigint,
+    itemRef: bigint,
+    bestEffort: boolean,
+  ): void {
+    if (pwdPtr !== 0n) {
+      this.invokeKeychainRelease(bestEffort, () => {
+        security.symbols.SecKeychainItemFreeContent(null, addressAsPointer(pwdPtr));
+      });
+    }
+    if (itemRef !== 0n) {
+      this.invokeKeychainRelease(bestEffort, () => {
+        coreFoundation.symbols.CFRelease(addressAsPointer(itemRef));
+      });
+    }
+  }
+
+  /** Delete keychain item if present; ignores not-found. */
+  private async deleteKeychainOnly(key: string): Promise<void> {
+    const { status, passwordLengthBuf, passwordDataOutBuf, itemRefBuf } =
+      this.keychainFindGenericPassword(key);
 
     if (status === ERR_SEC_ITEM_NOT_FOUND) {
       return;
@@ -215,8 +233,7 @@ export class DarwinKeychainVault implements NimbusVault {
     validateVaultKeyOrThrow(key);
     await this.deleteKeychainOnly(key);
 
-    const svcBuf = Buffer.from(SERVICE);
-    const keyBuf = Buffer.from(key, "utf8");
+    const { svcBuf, keyBuf } = this.serviceAndKeyBuffers(key);
     const pass = Buffer.from(value, "utf8");
     const status = security.symbols.SecKeychainAddGenericPassword(
       null,
@@ -236,24 +253,8 @@ export class DarwinKeychainVault implements NimbusVault {
 
   async get(key: string): Promise<string | null> {
     validateVaultKeyOrThrow(key);
-    const svcBuf = Buffer.from(SERVICE);
-    const keyBuf = Buffer.from(key, "utf8");
-    const passwordLengthBuf = Buffer.alloc(4);
-    const passwordDataOutBuf = Buffer.alloc(8);
-    const itemRefBuf = Buffer.alloc(8);
-    passwordDataOutBuf.fill(0);
-    itemRefBuf.fill(0);
-
-    const status = security.symbols.SecKeychainFindGenericPassword(
-      null,
-      svcBuf.length,
-      ptr(svcBuf),
-      keyBuf.length,
-      ptr(keyBuf),
-      ptr(passwordLengthBuf),
-      ptr(passwordDataOutBuf),
-      ptr(itemRefBuf),
-    );
+    const { status, passwordLengthBuf, passwordDataOutBuf, itemRefBuf } =
+      this.keychainFindGenericPassword(key);
 
     if (status === ERR_SEC_ITEM_NOT_FOUND) {
       return null;
@@ -269,9 +270,9 @@ export class DarwinKeychainVault implements NimbusVault {
     let plain: string;
     try {
       plain = this.readPlainPasswordFromKeychainPointer(pwdLen, pwdPtr);
-      this.releaseFindGenericPasswordOutputs(pwdPtr, itemRef);
+      this.releaseFindGenericPasswordOutputs(pwdPtr, itemRef, false);
     } catch (err) {
-      this.bestEffortReleaseFindGenericPasswordOutputs(pwdPtr, itemRef);
+      this.releaseFindGenericPasswordOutputs(pwdPtr, itemRef, true);
       throw err;
     }
 
