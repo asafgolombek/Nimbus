@@ -91,25 +91,93 @@ Write operations — merging a PR, triggering a Jenkins build, applying a Terraf
 
 ### Prerequisites
 
-- [Bun v1.2+](https://bun.sh/docs/installation)
-- Google Cloud project with Drive, Gmail, Photos APIs enabled (for Google connectors)
-- Azure app registration with Microsoft Graph permissions (for OneDrive / Outlook)
+- **From source:** [Bun v1.2+](https://bun.sh/docs/installation) on your machine.
+- **Pre-built binaries:** No Bun install required — releases are self-contained executables produced with `bun build --compile`.
+- **Connectors (when enabled):** Google Cloud project with Drive, Gmail, Photos APIs; Azure app registration with Microsoft Graph (OneDrive / Outlook).
 
-### Install
+---
+
+### Where to run commands
+
+| What you are doing | Working directory |
+|---|---|
+| **Clone + install + build** (from source) | Repository **root** — the folder that contains the root `package.json` (the `nimbus` directory after `git clone`). |
+| **`nimbus` CLI** | Any directory, once the CLI binary is on your `PATH` (or you invoke it with a full path). |
+
+---
+
+### Option A — Pre-built binaries (no Git checkout)
+
+1. Open **[GitHub Releases](https://github.com/your-org/nimbus/releases)** for this repository (replace `your-org` with the real org or fork).
+2. Download the files for your OS from the latest **v**`*.*.*` release:
+
+   | Asset | Purpose |
+   |---|---|
+   | `nimbus-gateway-linux-x64`, `nimbus-gateway-macos-x64`, `nimbus-gateway-windows-x64.exe` | Headless Gateway process |
+   | `nimbus-cli-linux-x64`, `nimbus-cli-macos-x64`, `nimbus-cli-windows-x64.exe` | `nimbus` terminal command |
+
+3. **Linux / macOS:** `chmod +x nimbus-gateway-* nimbus-cli-*` (or only the files you use).
+4. Optionally rename the CLI binary to `nimbus` and add its directory to your `PATH`.
+5. Binaries embed a Bun runtime — you do **not** need to install Bun separately to **run** them.
+
+---
+
+### Option B — Build from source (contributors & local dev)
+
+From a terminal, use the **repository root** only:
 
 ```bash
 git clone https://github.com/your-org/nimbus.git
 cd nimbus
+```
+
+Install dependencies with **`bun install`** (Bun’s built-in command). Do **not** run `bun run install` — that looks for a `"install"` script in `package.json`, which this repo does not define, and will fail with `Script not found "install"`.
+
+```bash
 bun install
 bun run build
 ```
 
+After a successful build:
+
+| OS | CLI (Gateway is built to repo `dist/` as well) |
+|---|---|
+| Windows | `packages\cli\dist\nimbus.exe` (or `nimbus` if Bun emitted the name without `.exe`) |
+| macOS / Linux | `./packages/cli/dist/nimbus` |
+
+You can add `packages/cli/dist` to your `PATH`, symlink the binary as `nimbus`, or call it with a full path. The workspace does not currently register the CLI into root `node_modules/.bin` unless you depend on `@nimbus/cli` from another package, so **`nimbus` alone may not resolve** until you put the built binary on `PATH`.
+
+---
+
 ### Start the Gateway
+
+Examples below use `nimbus` as if the CLI is on your `PATH`; substitute `./packages/cli/dist/nimbus` (or the downloaded `nimbus-cli-*` binary) if needed.
 
 ```bash
 nimbus start          # Start the Gateway as a background process
 nimbus status         # Verify it's running and list connector health
 ```
+
+---
+
+### Publishing releases (maintainers)
+
+Releases are automated from **annotated version tags**; assets are uploaded to **GitHub Releases** (no separate download server required).
+
+1. Merge work to the branch you release from (e.g. `main`).
+2. Create and push a tag matching `vMAJOR.MINOR.PATCH` (optionally with a prerelease suffix, e.g. `v0.1.0-rc.1`):
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+3. The **[Release workflow](.github/workflows/release.yml)** runs on that tag: it compiles the **Gateway** and **CLI** for Linux, macOS (x64), and Windows, then **creates a GitHub Release** and attaches the binaries. Anyone can download them from the Releases page without cloning the repo.
+4. **Code signing** (optional, recommended for production): configure the repository secrets referenced in the workflow (macOS certificate + notarization, Windows certificate) and complete the TODO `codesign` / `signtool` steps when ready.
+
+Future milestones may add classic installers (`.msi`, `.dmg`, `.deb`, AppImage) and a hosted update feed; today’s pipeline ships **single-file executables** per platform.
+
+---
 
 ### Authenticate a Service
 
@@ -395,7 +463,7 @@ nimbus/
 │   │   ├── ci.yml            # pr-quality (PR) + 3-platform matrix (push)
 │   │   ├── security.yml      # bun audit + trivy (PR + nightly)
 │   │   ├── codeql.yml        # CodeQL JS/TS
-│   │   └── release.yml       # signed binary distribution
+│   │   └── release.yml       # tagged releases → GitHub Releases (Gateway + CLI binaries)
 │   ├── dependabot.yml
 │   └── BRANCH_PROTECTION.md  # how to require checks in GitHub settings
 │
