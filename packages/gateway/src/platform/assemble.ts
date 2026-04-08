@@ -1,3 +1,7 @@
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
+
+import { LocalIndex } from "../index/local-index.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { createNimbusVault } from "../vault/factory.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
@@ -23,14 +27,19 @@ function createStubNotifications(): NotificationService {
 export async function assemblePlatformServices(paths: PlatformPaths): Promise<PlatformServices> {
   await ensurePlatformDirectories(paths);
   const vault = await createNimbusVault(paths);
+  const db = new Database(join(paths.dataDir, "nimbus.db"));
+  LocalIndex.ensureSchema(db);
+  const localIndex = new LocalIndex(db);
   return {
     vault,
     ipc: createIpcServer({
       listenPath: paths.socketPath,
       vault,
       version: "0.1.0",
+      localIndex,
     }),
     paths,
+    localIndex,
     autostart: createStubAutostart(),
     notifications: createStubNotifications(),
   };

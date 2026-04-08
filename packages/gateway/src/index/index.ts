@@ -1,15 +1,13 @@
 /**
- * Local Index — bun:sqlite metadata store + sqlite-vec embeddings
+ * Local Index — bun:sqlite metadata store (FTS5 name search in Q1; sqlite-vec in Q3)
  *
- * Tables:
- * - indexed_items: metadata for all items across all services
- * - item_embeddings: float[1536] vectors via sqlite-vec virtual table
- * - action_log: full audit trail of every agent action + HITL decision
- * - sync_state: per-connector sync tokens and health
- * - extensions: installed extension registry
- *
- * See architecture.md §Local Database Schema
+ * See architecture.md §Local Database Schema and dev-plan-q1.md Stage 4.
  */
 
-// TODO Q1: Export Database, migrations runner, query helpers
-export {};
+export {
+  type AuditEntry,
+  type IndexSearchQuery,
+  LocalIndex,
+  RAW_META_MAX_BYTES,
+} from "./local-index.ts";
+export { INITIAL_SCHEMA_SQL } from "./schema-sql.ts";

@@ -3,6 +3,7 @@ import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
 
+import type { LocalIndex } from "../index/local-index.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
@@ -10,13 +11,13 @@ import {
   encodeLine,
   errorResponse,
   isRequest,
-  JsonRpcParseError,
-  NdjsonLineReader,
-  parseJsonRpcLine,
   type JsonRpcId,
   type JsonRpcNotification,
   type JsonRpcOutbound,
+  JsonRpcParseError,
   type JsonRpcRequest,
+  NdjsonLineReader,
+  parseJsonRpcLine,
 } from "./jsonrpc.ts";
 import type { IPCServer } from "./types.ts";
 
@@ -111,8 +112,7 @@ class ClientSession {
   }
 
   private sendParseFailure(e: unknown): void {
-    const msg =
-      e instanceof JsonRpcParseError ? e.message : "Parse error";
+    const msg = e instanceof JsonRpcParseError ? e.message : "Parse error";
     this.write(encodeLine(errorResponse(null, -32700, msg)));
     this.dispose();
   }
@@ -123,8 +123,7 @@ class ClientSession {
       try {
         msg = parseJsonRpcLine(line);
       } catch (e) {
-        const m =
-          e instanceof JsonRpcParseError ? e.message : "Parse error";
+        const m = e instanceof JsonRpcParseError ? e.message : "Parse error";
         this.writeOutbound(errorResponse(null, -32700, m));
         continue;
       }
@@ -145,6 +144,8 @@ export type CreateIpcServerOptions = {
   listenPath: string;
   vault: NimbusVault;
   version: string;
+  /** When set, `audit.list` reads from the local index; otherwise returns []. */
+  localIndex?: LocalIndex;
   /** Monotonic gateway start time (ms) for ping.uptime */
   startedAtMs?: number;
   /**
@@ -218,10 +219,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
       case "agent.invoke": {
         const rec = asRecord(params);
-        const input =
-          rec !== undefined && typeof rec["input"] === "string"
-            ? rec["input"]
-            : "";
+        const input = rec !== undefined && typeof rec["input"] === "string" ? rec["input"] : "";
         const stream = rec?.["stream"] === true;
         if (stream) {
           session.writeNotification({
@@ -282,9 +280,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       case "vault.listKeys": {
         const rec = asRecord(params);
         const prefix =
-          rec !== undefined && typeof rec["prefix"] === "string"
-            ? rec["prefix"]
-            : undefined;
+          rec !== undefined && typeof rec["prefix"] === "string" ? rec["prefix"] : undefined;
         return await options.vault.listKeys(prefix);
       }
 
@@ -298,8 +294,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         ) {
           limit = Math.min(1000, Math.max(1, Math.floor(rec["limit"])));
         }
-        void limit;
-        return [];
+        if (options.localIndex === undefined) {
+          return [];
+        }
+        return options.localIndex.listAudit(limit);
       }
 
       default:
@@ -309,15 +307,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
   function attachSession(write: SessionWrite): ClientSession {
     const clientId = randomUUID();
-    const session = new ClientSession(
-      clientId,
-      write,
-      handleRpc,
-      (cid) => {
-        sessions.delete(cid);
-        consentImpl.onClientDisconnect(cid);
-      },
-    );
+    const session = new ClientSession(clientId, write, handleRpc, (cid) => {
+      sessions.delete(cid);
+      consentImpl.onClientDisconnect(cid);
+    });
     sessions.set(clientId, session);
     options.onClientConnected?.(clientId);
     return session;
@@ -336,9 +329,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
             });
             stopNetSessions.add(session);
             sock.on("data", (buf: Buffer) => {
-              session.push(
-                new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
-              );
+              session.push(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
             });
             sock.on("end", () => {
               session.endInput();
