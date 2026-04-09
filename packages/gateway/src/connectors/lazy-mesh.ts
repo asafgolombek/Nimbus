@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { MCPClient } from "@mastra/mcp";
 
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
+import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
@@ -17,14 +18,30 @@ function gmailMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "gmail", "src", "server.ts");
 }
 
+function googlePhotosMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "google-photos", "src", "server.ts");
+}
+
+function onedriveMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "onedrive", "src", "server.ts");
+}
+
+function outlookMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "outlook", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail) (Q2 §1.6).
- * Increments {@link getToolsEpoch} when the Google children start or stop so tool caches refresh.
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) (Q2 §1.6 / Phase 2).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
   private googleBundleClient: MCPClient | undefined;
   private googleIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private microsoftBundleClient: MCPClient | undefined;
+  private microsoftIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -59,11 +76,26 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearMicrosoftIdleTimer(): void {
+    if (this.microsoftIdleTimer !== undefined) {
+      clearTimeout(this.microsoftIdleTimer);
+      this.microsoftIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
       this.googleIdleTimer = undefined;
       void this.stopGoogleBundle();
+    }, this.inactivityMs);
+  }
+
+  private scheduleMicrosoftDisconnect(): void {
+    this.clearMicrosoftIdleTimer();
+    this.microsoftIdleTimer = setTimeout(() => {
+      this.microsoftIdleTimer = undefined;
+      void this.stopMicrosoftBundle();
     }, this.inactivityMs);
   }
 
@@ -80,7 +112,22 @@ export class LazyConnectorMesh {
     }
   }
 
-  /** Starts the Google Drive + Gmail MCP subprocesses when `google.oauth` is present (shared token). */
+  private async stopMicrosoftBundle(): Promise<void> {
+    const c = this.microsoftBundleClient;
+    this.microsoftBundleClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /**
+   * Starts Google Drive + Gmail + Google Photos MCP subprocesses when `google.oauth` is present (shared token).
+   */
   async ensureGoogleDriveRunning(): Promise<void> {
     this.clearGoogleIdleTimer();
     if (this.googleBundleClient !== undefined) {
@@ -101,23 +148,64 @@ export class LazyConnectorMesh {
           args: [gmailMcpScriptPath()],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
         },
+        google_photos: {
+          command: "bun",
+          args: [googlePhotosMcpScriptPath()],
+          env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
+        },
       },
     });
     this.bumpToolsEpoch();
     this.scheduleGoogleDisconnect();
   }
 
+  /**
+   * Starts OneDrive + Outlook MCP subprocesses when `microsoft.oauth` is present (shared token).
+   */
+  async ensureMicrosoftBundleRunning(): Promise<void> {
+    this.clearMicrosoftIdleTimer();
+    if (this.microsoftBundleClient !== undefined) {
+      this.scheduleMicrosoftDisconnect();
+      return;
+    }
+    const token = await getValidMicrosoftAccessToken(this.vault);
+    this.microsoftBundleClient = new MCPClient({
+      id: `nimbus-ms-${String(Date.now())}`,
+      servers: {
+        onedrive: {
+          command: "bun",
+          args: [onedriveMcpScriptPath()],
+          env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+        },
+        outlook: {
+          command: "bun",
+          args: [outlookMcpScriptPath()],
+          env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleMicrosoftDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
-    const raw = await this.vault.get("google.oauth");
-    if (raw !== null && raw !== "") {
+    const rawGoogle = await this.vault.get("google.oauth");
+    if (rawGoogle !== null && rawGoogle !== "") {
       await this.ensureGoogleDriveRunning();
     }
+    const rawMs = await this.vault.get("microsoft.oauth");
+    if (rawMs !== null && rawMs !== "") {
+      await this.ensureMicrosoftBundleRunning();
+    }
+
     const fsTools = await this.filesystem.listTools();
     const gdTools =
       this.googleBundleClient !== undefined ? await this.googleBundleClient.listTools() : {};
-    return { ...fsTools, ...gdTools } as Record<
+    const msTools =
+      this.microsoftBundleClient !== undefined ? await this.microsoftBundleClient.listTools() : {};
+    return { ...fsTools, ...gdTools, ...msTools } as Record<
       string,
       { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
     >;
@@ -125,7 +213,9 @@ export class LazyConnectorMesh {
 
   async disconnect(): Promise<void> {
     this.clearGoogleIdleTimer();
+    this.clearMicrosoftIdleTimer();
     await this.stopGoogleBundle();
+    await this.stopMicrosoftBundle();
     try {
       await this.filesystem.disconnect();
     } catch {

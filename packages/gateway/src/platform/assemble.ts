@@ -4,7 +4,10 @@ import pino from "pino";
 
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
 import { createGoogleDriveSyncable } from "../connectors/google-drive-sync.ts";
+import { createGooglePhotosSyncable } from "../connectors/google-photos-sync.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
+import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
@@ -59,6 +62,21 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createGmailSyncable({
       ensureGoogleMcpRunning: () => connectorMesh.ensureGoogleDriveRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createGooglePhotosSyncable({
+      ensureGoogleMcpRunning: () => connectorMesh.ensureGoogleDriveRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createOneDriveSyncable({
+      ensureMicrosoftMcpRunning: () => connectorMesh.ensureMicrosoftBundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createOutlookSyncable({
+      ensureMicrosoftMcpRunning: () => connectorMesh.ensureMicrosoftBundleRunning(),
     }),
   );
   syncScheduler.start();

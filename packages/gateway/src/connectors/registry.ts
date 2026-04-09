@@ -6,7 +6,8 @@ import { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
 export { createLazyConnectorMesh, LazyConnectorMesh };
 
 /**
- * Filesystem MCP (always) + optional lazy Google Drive + Gmail MCP when `google.oauth` exists in Vault.
+ * Filesystem MCP (always) + lazy Google bundle (Drive, Gmail, Photos) when `google.oauth` exists +
+ * lazy Microsoft bundle (OneDrive, Outlook) when `microsoft.oauth` exists.
  */
 export async function buildConnectorMesh(
   paths: PlatformPaths,
@@ -44,6 +45,12 @@ export type McpToolListingClient = {
  *
  * Gmail (HITL): `email.send` → `gmail_gmail_message_send`; `email.draft.send` →
  * `gmail_gmail_draft_send`; `email.draft.create` → `gmail_gmail_draft_create`.
+ *
+ * OneDrive (HITL): `onedrive.delete` → `onedrive_onedrive_item_delete`; `onedrive.move` →
+ * `onedrive_onedrive_item_move`.
+ *
+ * Outlook (HITL): `email.send` → `outlook_outlook_mail_send`; `calendar.event.create` →
+ * `outlook_outlook_calendar_create`; `calendar.event.delete` → `outlook_outlook_calendar_delete`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;
