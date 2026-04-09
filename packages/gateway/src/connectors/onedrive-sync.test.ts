@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { itemPrimaryKey } from "../index/item-store.ts";
 import {
-  createMemoryVault,
-  createSyncTestContext,
-  openMemoryIndexDatabase,
+  createOAuthConnectorTestSetup,
+  expectPrefixedCursorCodecRoundTrip,
+  registerGlobalFetchRestore,
   requestUrlString,
 } from "../testing/bun-test-support.ts";
 import {
@@ -19,33 +19,20 @@ describe("OneDrive sync cursor codec", () => {
       { v: 1, nextUrl: null },
       { v: 1, nextUrl: "https://graph.microsoft.com/v1.0/me/drive/root/delta?token=x" },
     ];
-    for (const s of samples) {
-      const enc = encodeOneDriveSyncCursor(s);
-      expect(enc.startsWith("nimbus-odrv1:")).toBe(true);
-      expect(decodeOneDriveSyncCursor(enc)).toEqual(s);
-    }
+    expectPrefixedCursorCodecRoundTrip(
+      samples,
+      encodeOneDriveSyncCursor,
+      decodeOneDriveSyncCursor,
+      "nimbus-odrv1:",
+    );
   });
 });
 
 describe("createOneDriveSyncable", () => {
-  const originalFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+  registerGlobalFetchRestore(afterEach);
 
   test("upserts file items and stores deltaLink cursor", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "microsoft.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { db, ctx } = await createOAuthConnectorTestSetup("microsoft");
     const syncable = createOneDriveSyncable({ ensureMicrosoftMcpRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -85,17 +72,7 @@ describe("createOneDriveSyncable", () => {
   });
 
   test("deletes when @removed present", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "microsoft.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { db, ctx } = await createOAuthConnectorTestSetup("microsoft");
     const syncable = createOneDriveSyncable({ ensureMicrosoftMcpRunning: async () => {} });
 
     let call = 0;

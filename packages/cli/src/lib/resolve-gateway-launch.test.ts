@@ -32,6 +32,10 @@ function writeRepoLayout(root: string, options: { distBinary?: boolean; source?:
   }
 }
 
+function cliLibMetaHref(repoRoot: string): string {
+  return pathToFileURL(join(repoRoot, "packages", "cli", "src", "lib", "x.ts")).href;
+}
+
 describe("walkUpDirs", () => {
   test("includes start then parents until filesystem root", () => {
     const root = mkdtempSync(join(tmpdir(), "nimbus-walk-"));
@@ -108,8 +112,7 @@ describe("resolveGatewayLaunch", () => {
     const sibling = join(cliDist, "nimbus-gateway");
     writeFileSync(sibling, "", "utf8");
 
-    const meta = pathToFileURL(join(repo, "packages", "cli", "src", "lib", "x.ts")).href;
-    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), meta, "linux");
+    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), cliLibMetaHref(repo), "linux");
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.cmd).toEqual([sibling]);
@@ -123,8 +126,7 @@ describe("resolveGatewayLaunch", () => {
     const cliDist = join(repo, "packages", "cli", "dist");
     mkdirSync(cliDist, { recursive: true });
     const distGw = join(repo, "dist", "nimbus-gateway");
-    const meta = pathToFileURL(join(repo, "packages", "cli", "src", "lib", "x.ts")).href;
-    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), meta, "linux");
+    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), cliLibMetaHref(repo), "linux");
     expect(r).toEqual({ ok: true, cmd: [distGw] });
   });
 
@@ -133,9 +135,8 @@ describe("resolveGatewayLaunch", () => {
     writeRepoLayout(repo, { distBinary: false });
     const cliDist = join(repo, "packages", "cli", "dist");
     mkdirSync(cliDist, { recursive: true });
-    const meta = pathToFileURL(join(repo, "packages", "cli", "src", "lib", "x.ts")).href;
     const bunPath = process.execPath;
-    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), meta, "linux", {
+    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), cliLibMetaHref(repo), "linux", {
       whichBun: () => bunPath,
     });
     expect(r.ok).toBe(true);
@@ -155,8 +156,7 @@ describe("resolveGatewayLaunch", () => {
     writeFileSync(distGw, "", "utf8");
     const cliDist = join(repo, "packages", "cli", "dist");
     mkdirSync(cliDist, { recursive: true });
-    const meta = pathToFileURL(join(repo, "packages", "cli", "src", "lib", "x.ts")).href;
-    const r = resolveGatewayLaunch(join(cliDist, "nimbus.exe"), meta, "win32");
+    const r = resolveGatewayLaunch(join(cliDist, "nimbus.exe"), cliLibMetaHref(repo), "win32");
     expect(r).toEqual({ ok: true, cmd: [distGw] });
   });
 
@@ -165,8 +165,7 @@ describe("resolveGatewayLaunch", () => {
     writeRepoLayout(repo, { distBinary: false });
     const cliDist = join(repo, "packages", "cli", "dist");
     mkdirSync(cliDist, { recursive: true });
-    const meta = pathToFileURL(join(repo, "packages", "cli", "src", "lib", "x.ts")).href;
-    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), meta, "linux", {
+    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), cliLibMetaHref(repo), "linux", {
       whichBun: () => undefined,
     });
     expect(r.ok).toBe(false);

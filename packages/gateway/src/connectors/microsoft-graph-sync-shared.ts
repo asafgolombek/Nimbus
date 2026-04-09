@@ -1,4 +1,6 @@
 import type { SyncContext } from "../sync/types.ts";
+import { asUnknownObjectRecord } from "./json-unknown.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
 export type MicrosoftGraphDeltaCursorV1 = { v: 1; nextUrl: string | null };
 
@@ -6,34 +8,26 @@ export function encodeMicrosoftGraphDeltaCursor(
   prefix: string,
   cursor: MicrosoftGraphDeltaCursorV1,
 ): string {
-  return prefix + Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+  return encodeNimbusJsonCursor(prefix, cursor);
 }
 
 export function decodeMicrosoftGraphDeltaCursor(
   raw: string,
   prefix: string,
 ): MicrosoftGraphDeltaCursorV1 | undefined {
-  if (!raw.startsWith(prefix)) {
+  const o = decodeNimbusJsonCursorPayload(raw, prefix);
+  if (o === null || typeof o !== "object" || Array.isArray(o)) {
     return undefined;
   }
-  try {
-    const json = Buffer.from(raw.slice(prefix.length), "base64url").toString("utf8");
-    const o: unknown = JSON.parse(json);
-    if (o === null || typeof o !== "object" || Array.isArray(o)) {
-      return undefined;
-    }
-    const r = o as Record<string, unknown>;
-    if (r["v"] !== 1) {
-      return undefined;
-    }
-    const nextUrl = r["nextUrl"];
-    if (nextUrl !== null && typeof nextUrl !== "string") {
-      return undefined;
-    }
-    return { v: 1, nextUrl: nextUrl === null ? null : nextUrl };
-  } catch {
+  const r = o as Record<string, unknown>;
+  if (r["v"] !== 1) {
     return undefined;
   }
+  const nextUrl = r["nextUrl"];
+  if (nextUrl !== null && typeof nextUrl !== "string") {
+    return undefined;
+  }
+  return { v: 1, nextUrl: nextUrl === null ? null : nextUrl };
 }
 
 export type ODataDeltaPage = {
@@ -43,10 +37,7 @@ export type ODataDeltaPage = {
 };
 
 export function parseODataDeltaPage(json: unknown): ODataDeltaPage {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) {
-    return {};
-  }
-  const o = json as Record<string, unknown>;
+  const o = asUnknownObjectRecord(json);
   const value = o["value"];
   const nextLink = o["@odata.nextLink"];
   const deltaLink = o["@odata.deltaLink"];

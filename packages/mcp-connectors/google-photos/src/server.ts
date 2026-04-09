@@ -7,6 +7,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import { fetchBearerAuthorizedJson, resolveUrlWithBase } from "../../shared/fetch-bearer-json.ts";
+
 const PHOTOS_BASE = "https://photoslibrary.googleapis.com/v1";
 
 function requireAccessToken(): string {
@@ -24,23 +26,8 @@ async function photosFetch(
   path: string,
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; json: unknown; text: string }> {
-  const url = path.startsWith("http") ? path : `${PHOTOS_BASE}${path}`;
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  const text = await res.text();
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch {
-    json = null;
-  }
-  return { ok: res.ok, status: res.status, json, text };
+  const url = resolveUrlWithBase(PHOTOS_BASE, path);
+  return fetchBearerAuthorizedJson(url, token, init, { "Content-Type": "application/json" });
 }
 
 const server = new McpServer({ name: "nimbus-google-photos", version: "0.1.0" });

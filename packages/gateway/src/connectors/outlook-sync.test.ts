@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { itemPrimaryKey } from "../index/item-store.ts";
 import {
-  createMemoryVault,
-  createSyncTestContext,
-  openMemoryIndexDatabase,
+  createOAuthConnectorTestSetup,
+  expectPrefixedCursorCodecRoundTrip,
+  registerGlobalFetchRestore,
   requestUrlString,
 } from "../testing/bun-test-support.ts";
 import {
@@ -19,33 +19,20 @@ describe("Outlook sync cursor codec", () => {
       { v: 1, nextUrl: null },
       { v: 1, nextUrl: "https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=a" },
     ];
-    for (const s of samples) {
-      const enc = encodeOutlookSyncCursor(s);
-      expect(enc.startsWith("nimbus-outl1:")).toBe(true);
-      expect(decodeOutlookSyncCursor(enc)).toEqual(s);
-    }
+    expectPrefixedCursorCodecRoundTrip(
+      samples,
+      encodeOutlookSyncCursor,
+      decodeOutlookSyncCursor,
+      "nimbus-outl1:",
+    );
   });
 });
 
 describe("createOutlookSyncable", () => {
-  const originalFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+  registerGlobalFetchRestore(afterEach);
 
   test("indexes messages from delta page", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "microsoft.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { db, ctx } = await createOAuthConnectorTestSetup("microsoft");
     const syncable = createOutlookSyncable({ ensureMicrosoftMcpRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {

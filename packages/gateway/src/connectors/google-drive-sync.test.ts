@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { itemPrimaryKey } from "../index/item-store.ts";
 import {
-  createMemoryVault,
-  createSyncTestContext,
-  openMemoryIndexDatabase,
+  createOAuthConnectorTestSetup,
+  expectPrefixedCursorCodecRoundTrip,
+  registerGlobalFetchRestore,
   requestUrlString,
 } from "../testing/bun-test-support.ts";
 import {
@@ -31,11 +31,12 @@ describe("Google Drive sync cursor codec", () => {
       { v: 1, phase: "drain", changePage: "chg1" },
       { v: 1, phase: "delta", pageToken: "d99" },
     ];
-    for (const s of samples) {
-      const enc = encodeDriveSyncCursor(s);
-      expect(enc.startsWith("nimbus-gdrv1:")).toBe(true);
-      expect(decodeDriveSyncCursor(enc)).toEqual(s);
-    }
+    expectPrefixedCursorCodecRoundTrip(
+      samples,
+      encodeDriveSyncCursor,
+      decodeDriveSyncCursor,
+      "nimbus-gdrv1:",
+    );
   });
 
   test("rejects invalid prefixed payload", () => {
@@ -44,24 +45,10 @@ describe("Google Drive sync cursor codec", () => {
 });
 
 describe("createGoogleDriveSyncable", () => {
-  const originalFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+  registerGlobalFetchRestore(afterEach);
 
   test("null cursor: start token + files.list then drain cursor", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "google.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { db, ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
     const responses: Array<{ url: string; json: unknown }> = [
@@ -105,17 +92,7 @@ describe("createGoogleDriveSyncable", () => {
   });
 
   test("drain phase applies removal", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "google.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { db, ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -151,17 +128,7 @@ describe("createGoogleDriveSyncable", () => {
   });
 
   test("legacy list page token migrates with fresh start token", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "google.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -187,17 +154,7 @@ describe("createGoogleDriveSyncable", () => {
   });
 
   test("corrupt prefixed cursor throws", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "google.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
     globalThis.fetch = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
 

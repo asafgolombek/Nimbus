@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { itemPrimaryKey } from "../index/item-store.ts";
 import {
-  createMemoryVault,
-  createSyncTestContext,
-  openMemoryIndexDatabase,
+  createOAuthConnectorTestSetup,
+  expectPrefixedCursorCodecRoundTrip,
+  registerGlobalFetchRestore,
   requestUrlString,
 } from "../testing/bun-test-support.ts";
 import {
@@ -19,33 +19,20 @@ describe("Google Photos sync cursor codec", () => {
       { v: 1, pageToken: null },
       { v: 1, pageToken: "next" },
     ];
-    for (const s of samples) {
-      const enc = encodeGooglePhotosSyncCursor(s);
-      expect(enc.startsWith("nimbus-gph1:")).toBe(true);
-      expect(decodeGooglePhotosSyncCursor(enc)).toEqual(s);
-    }
+    expectPrefixedCursorCodecRoundTrip(
+      samples,
+      encodeGooglePhotosSyncCursor,
+      decodeGooglePhotosSyncCursor,
+      "nimbus-gph1:",
+    );
   });
 });
 
 describe("createGooglePhotosSyncable", () => {
-  const originalFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+  registerGlobalFetchRestore(afterEach);
 
   test("indexes media items from search response", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "google.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { db, ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGooglePhotosSyncable({ ensureGoogleMcpRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {

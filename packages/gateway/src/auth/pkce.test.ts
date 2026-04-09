@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { createMemoryVault, requestUrlString } from "../testing/bun-test-support.ts";
+import {
+  createMemoryVault,
+  googlePkceOpenUrlCompleter,
+  requestUrlString,
+} from "../testing/bun-test-support.ts";
 import { pkceCodeChallengeS256, refreshAccessToken, runPKCEFlow } from "./pkce.ts";
 
 describe("pkceCodeChallengeS256", () => {
@@ -32,20 +36,7 @@ describe("runPKCEFlow", () => {
       scopes: ["openid", "email"],
       provider: "google",
       vault,
-      openUrl: async (url) => {
-        const u = new URL(url);
-        expect(u.hostname).toBe("accounts.google.com");
-        const ru = u.searchParams.get("redirect_uri");
-        const st = u.searchParams.get("state");
-        if (ru === null || ru === "" || st === null || st === "") {
-          throw new Error("expected redirect_uri and state in auth URL");
-        }
-        const cb = new URL(ru);
-        cb.searchParams.set("code", "mock-auth-code");
-        cb.searchParams.set("state", st);
-        const res = await fetch(cb.toString());
-        expect(res.ok).toBe(true);
-      },
+      openUrl: googlePkceOpenUrlCompleter("mock-auth-code", { expectAccountsHost: true }),
       fetchImpl: async (input) => {
         const s = requestUrlString(input);
         if (s.includes("oauth2.googleapis.com/token")) {
@@ -79,18 +70,10 @@ describe("runPKCEFlow", () => {
         scopes: ["openid"],
         provider: "google",
         vault,
-        openUrl: async (url) => {
-          const u = new URL(url);
-          const ru = u.searchParams.get("redirect_uri");
-          const st = u.searchParams.get("state");
-          if (ru === null || ru === "" || st === null || st === "") {
-            throw new Error("expected redirect_uri and state");
-          }
-          const cb = new URL(ru);
-          cb.searchParams.set("code", "code2");
-          cb.searchParams.set("state", st);
-          await fetch(cb.toString());
-        },
+        openUrl: googlePkceOpenUrlCompleter("code2", {
+          missingParamsMessage: "expected redirect_uri and state",
+          assertFetchOk: false,
+        }),
         fetchImpl: async (_input) =>
           new Response(JSON.stringify({ error: "invalid_grant", error_description: "bad" }), {
             status: 400,
@@ -129,18 +112,10 @@ describe("runPKCEFlow", () => {
         onRandomPortFallback: () => {
           fallback += 1;
         },
-        openUrl: async (url) => {
-          const u = new URL(url);
-          const ru = u.searchParams.get("redirect_uri");
-          const st = u.searchParams.get("state");
-          if (ru === null || ru === "" || st === null || st === "") {
-            throw new Error("expected redirect_uri and state");
-          }
-          const cb = new URL(ru);
-          cb.searchParams.set("code", "c");
-          cb.searchParams.set("state", st);
-          await fetch(cb.toString());
-        },
+        openUrl: googlePkceOpenUrlCompleter("c", {
+          missingParamsMessage: "expected redirect_uri and state",
+          assertFetchOk: false,
+        }),
         fetchImpl: async (input) => {
           const s = requestUrlString(input);
           if (s.includes("oauth2.googleapis.com/token")) {

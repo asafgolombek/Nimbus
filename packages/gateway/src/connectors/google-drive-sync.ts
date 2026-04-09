@@ -1,6 +1,8 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { asUnknownObjectRecord } from "./json-unknown.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
 type DriveFile = {
   id?: string;
@@ -46,75 +48,58 @@ const CHANGES_PAGE_SIZE = 100;
 const SERVICE_ID = "google_drive";
 
 function parseDriveList(json: unknown): DriveListResponse {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) {
-    return {};
-  }
-  return json as DriveListResponse;
+  return asUnknownObjectRecord(json) as DriveListResponse;
 }
 
 function parseDriveChanges(json: unknown): DriveChangesListResponse {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) {
-    return {};
-  }
-  return json as DriveChangesListResponse;
+  return asUnknownObjectRecord(json) as DriveChangesListResponse;
 }
 
 function parseStartToken(json: unknown): DriveStartTokenResponse {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) {
-    return {};
-  }
-  return json as DriveStartTokenResponse;
+  return asUnknownObjectRecord(json) as DriveStartTokenResponse;
 }
 
 export function encodeDriveSyncCursor(c: DriveSyncCursorV1): string {
-  return CURSOR_PREFIX + Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+  return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
 /** Exported for unit tests (cursor round-trip and migration). */
 export function decodeDriveSyncCursor(raw: string): DriveSyncCursorV1 | undefined {
-  if (!raw.startsWith(CURSOR_PREFIX)) {
+  const o = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (o === null || typeof o !== "object" || Array.isArray(o)) {
     return undefined;
   }
-  try {
-    const json = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const o: unknown = JSON.parse(json);
-    if (o === null || typeof o !== "object" || Array.isArray(o)) {
-      return undefined;
-    }
-    const r = o as Record<string, unknown>;
-    if (r["v"] !== 1) {
-      return undefined;
-    }
-    const phase = r["phase"];
-    if (phase === "init_list") {
-      const t0 = r["t0"];
-      const listToken = r["listToken"];
-      if (typeof t0 !== "string" || t0 === "") {
-        return undefined;
-      }
-      if (listToken !== null && typeof listToken !== "string") {
-        return undefined;
-      }
-      return { v: 1, phase: "init_list", t0, listToken: listToken === null ? null : listToken };
-    }
-    if (phase === "drain") {
-      const changePage = r["changePage"];
-      if (typeof changePage !== "string" || changePage === "") {
-        return undefined;
-      }
-      return { v: 1, phase: "drain", changePage };
-    }
-    if (phase === "delta") {
-      const pageToken = r["pageToken"];
-      if (typeof pageToken !== "string" || pageToken === "") {
-        return undefined;
-      }
-      return { v: 1, phase: "delta", pageToken };
-    }
-    return undefined;
-  } catch {
+  const r = o as Record<string, unknown>;
+  if (r["v"] !== 1) {
     return undefined;
   }
+  const phase = r["phase"];
+  if (phase === "init_list") {
+    const t0 = r["t0"];
+    const listToken = r["listToken"];
+    if (typeof t0 !== "string" || t0 === "") {
+      return undefined;
+    }
+    if (listToken !== null && typeof listToken !== "string") {
+      return undefined;
+    }
+    return { v: 1, phase: "init_list", t0, listToken: listToken === null ? null : listToken };
+  }
+  if (phase === "drain") {
+    const changePage = r["changePage"];
+    if (typeof changePage !== "string" || changePage === "") {
+      return undefined;
+    }
+    return { v: 1, phase: "drain", changePage };
+  }
+  if (phase === "delta") {
+    const pageToken = r["pageToken"];
+    if (typeof pageToken !== "string" || pageToken === "") {
+      return undefined;
+    }
+    return { v: 1, phase: "delta", pageToken };
+  }
+  return undefined;
 }
 
 function listQueryForInitial(sinceIso: string): string {

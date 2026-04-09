@@ -1,6 +1,8 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { asUnknownObjectRecord } from "./json-unknown.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
 const SERVICE_ID = "google_photos";
 const CURSOR_PREFIX = "nimbus-gph1:";
@@ -29,38 +31,27 @@ type SearchResponse = {
 export type GooglePhotosSyncCursorV1 = { v: 1; pageToken: string | null };
 
 export function encodeGooglePhotosSyncCursor(c: GooglePhotosSyncCursorV1): string {
-  return CURSOR_PREFIX + Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+  return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
 export function decodeGooglePhotosSyncCursor(raw: string): GooglePhotosSyncCursorV1 | undefined {
-  if (!raw.startsWith(CURSOR_PREFIX)) {
+  const o = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (o === null || typeof o !== "object" || Array.isArray(o)) {
     return undefined;
   }
-  try {
-    const json = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const o: unknown = JSON.parse(json);
-    if (o === null || typeof o !== "object" || Array.isArray(o)) {
-      return undefined;
-    }
-    const r = o as Record<string, unknown>;
-    if (r["v"] !== 1) {
-      return undefined;
-    }
-    const pageToken = r["pageToken"];
-    if (pageToken !== null && typeof pageToken !== "string") {
-      return undefined;
-    }
-    return { v: 1, pageToken: pageToken === null ? null : pageToken };
-  } catch {
+  const r = o as Record<string, unknown>;
+  if (r["v"] !== 1) {
     return undefined;
   }
+  const pageToken = r["pageToken"];
+  if (pageToken !== null && typeof pageToken !== "string") {
+    return undefined;
+  }
+  return { v: 1, pageToken: pageToken === null ? null : pageToken };
 }
 
 function parseSearch(json: unknown): SearchResponse {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) {
-    return {};
-  }
-  return json as SearchResponse;
+  return asUnknownObjectRecord(json) as SearchResponse;
 }
 
 function creationMs(meta: MediaMetadata | undefined, fallback: number): number {

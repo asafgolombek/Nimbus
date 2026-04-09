@@ -8,6 +8,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import { fetchBearerAuthorizedJson, resolveUrlWithBase } from "../../shared/fetch-bearer-json.ts";
+
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
 function requireAccessToken(): string {
@@ -25,22 +27,8 @@ async function graphRequest(
   pathOrUrl: string,
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; json: unknown; text: string }> {
-  const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${GRAPH}${pathOrUrl}`;
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-  const text = await res.text();
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch {
-    json = null;
-  }
-  return { ok: res.ok, status: res.status, json, text };
+  const url = resolveUrlWithBase(GRAPH, pathOrUrl);
+  return fetchBearerAuthorizedJson(url, token, init);
 }
 
 const server = new McpServer({ name: "nimbus-outlook", version: "0.1.0" });

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { itemPrimaryKey } from "../index/item-store.ts";
 import {
-  createMemoryVault,
-  createSyncTestContext,
-  openMemoryIndexDatabase,
+  createOAuthConnectorTestSetup,
+  expectPrefixedCursorCodecRoundTrip,
+  registerGlobalFetchRestore,
   requestUrlString,
 } from "../testing/bun-test-support.ts";
 import {
@@ -21,11 +21,12 @@ describe("Gmail sync cursor codec", () => {
       { v: 1, phase: "delta", startHistoryId: "100", pageToken: "hp1" },
       { v: 1, phase: "delta", startHistoryId: "100", pageToken: null },
     ];
-    for (const s of samples) {
-      const enc = encodeGmailSyncCursor(s);
-      expect(enc.startsWith("nimbus-gml1:")).toBe(true);
-      expect(decodeGmailSyncCursor(enc)).toEqual(s);
-    }
+    expectPrefixedCursorCodecRoundTrip(
+      samples,
+      encodeGmailSyncCursor,
+      decodeGmailSyncCursor,
+      "nimbus-gml1:",
+    );
   });
 
   test("rejects invalid prefixed payload", () => {
@@ -34,24 +35,10 @@ describe("Gmail sync cursor codec", () => {
 });
 
 describe("createGmailSyncable", () => {
-  const originalFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+  registerGlobalFetchRestore(afterEach);
 
   test("null cursor: messages.list page + profile historyId → delta cursor", async () => {
-    const vault = createMemoryVault();
-    await vault.set(
-      "google.oauth",
-      JSON.stringify({
-        accessToken: "t",
-        refreshToken: "r",
-        expiresAt: Date.now() + 3_600_000,
-      }),
-    );
-    const db = openMemoryIndexDatabase();
-    const ctx = createSyncTestContext(db, vault);
+    const { db, ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGmailSyncable({ ensureGoogleMcpRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {
