@@ -20,7 +20,6 @@ function parseAuditListLimit(args: string[]): number {
       if (v !== undefined) {
         limit = Number.parseInt(v, 10);
       }
-      continue;
     }
   }
   if (!Number.isFinite(limit) || limit < 1) {

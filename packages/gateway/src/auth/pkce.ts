@@ -73,8 +73,8 @@ function randomUrlSafeString(byteLength: number): string {
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i] ?? 0);
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
   }
   const b64 = btoa(binary);
   return b64.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
@@ -129,6 +129,16 @@ type OAuthTokenJson = {
   scope?: unknown;
 };
 
+function parseExpiresInSeconds(raw: unknown): number {
+  if (typeof raw === "number") {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    return Number.parseInt(raw, 10);
+  }
+  return Number.NaN;
+}
+
 function parseTokenJson(json: unknown): TokenEndpointResult {
   if (json === null || typeof json !== "object") {
     throw new Error("Token response was not valid JSON");
@@ -139,12 +149,7 @@ function parseTokenJson(json: unknown): TokenEndpointResult {
   if (typeof access !== "string" || access.length === 0) {
     throw new Error("Token response missing access_token");
   }
-  const expiresIn =
-    typeof rawExpires === "number"
-      ? rawExpires
-      : typeof rawExpires === "string"
-        ? Number.parseInt(rawExpires, 10)
-        : Number.NaN;
+  const expiresIn = parseExpiresInSeconds(rawExpires);
   if (!Number.isFinite(expiresIn) || expiresIn < 0) {
     throw new Error("Token response missing expires_in");
   }
@@ -213,6 +218,93 @@ async function persistTokens(
   await vault.set(key, payload);
 }
 
+type OAuthCompletion = { code: string } | { error: string };
+
+function handlePkceCallbackRequest(
+  req: Request,
+  expectedState: string,
+  sink: { value?: OAuthCompletion },
+): Response {
+  const u = new URL(req.url);
+  if (u.pathname !== CALLBACK_PATH) {
+    return new Response("Not Found", { status: 404 });
+  }
+  const err = u.searchParams.get("error");
+  if (err !== null && err !== "") {
+    sink.value = { error: err };
+    return new Response("Authorization was denied. You can close this window.", {
+      status: 200,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+  const code = u.searchParams.get("code");
+  const st = u.searchParams.get("state");
+  if (code === null || code === "" || st !== expectedState) {
+    return new Response("Invalid callback", { status: 400 });
+  }
+  sink.value = { code };
+  return new Response("Signed in. You can close this window.", {
+    status: 200,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+function buildPkceAuthorizeUrl(
+  provider: "google" | "microsoft",
+  params: {
+    clientId: string;
+    scopes: string[];
+    redirectUri: string;
+    state: string;
+    codeChallenge: string;
+  },
+): URL {
+  const authUrl = new URL(provider === "google" ? GOOGLE_AUTH : MS_AUTH);
+  authUrl.searchParams.set("client_id", params.clientId);
+  authUrl.searchParams.set("redirect_uri", params.redirectUri);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", params.scopes.join(" "));
+  authUrl.searchParams.set("state", params.state);
+  authUrl.searchParams.set("code_challenge", params.codeChallenge);
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  if (provider === "google") {
+    authUrl.searchParams.set("access_type", "offline");
+    authUrl.searchParams.set("prompt", "consent");
+  }
+  return authUrl;
+}
+
+async function exchangePkceAuthorizationCode(
+  fetchFn: PKCEFetch,
+  provider: "google" | "microsoft",
+  clientId: string,
+  redirectUri: string,
+  codeVerifier: string,
+  authCode: string,
+  requestedScopes: string[],
+): Promise<PKCEResult> {
+  const tokenUrl = provider === "google" ? GOOGLE_TOKEN : MS_TOKEN;
+  const tokenBody: Record<string, string> = {
+    client_id: clientId,
+    grant_type: "authorization_code",
+    code: authCode,
+    redirect_uri: redirectUri,
+    code_verifier: codeVerifier,
+  };
+  const json = await postForm(fetchFn, tokenUrl, tokenBody);
+  const parsed = parseTokenJson(json);
+  const refreshTok = parsed.refresh_token;
+  if (refreshTok === undefined || refreshTok === "") {
+    throw new Error("No refresh token returned; try revoking app access and signing in again");
+  }
+  return {
+    accessToken: parsed.access_token,
+    refreshToken: refreshTok,
+    expiresAt: Date.now() + Math.floor(parsed.expires_in * 1000),
+    scopes: scopesFromTokenResponse(parsed.scope, requestedScopes),
+  };
+}
+
 async function runOnLocalPort(
   options: PKCEOptions,
   bindPort: number,
@@ -227,91 +319,51 @@ async function runOnLocalPort(
   const codeChallenge = await pkceCodeChallengeS256(codeVerifier);
   const state = randomUrlSafeString(16);
 
-  let completion: { code: string } | { error: string } | undefined;
+  const completion: { value?: OAuthCompletion } = {};
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: bindPort,
     fetch(req) {
-      const u = new URL(req.url);
-      if (u.pathname !== CALLBACK_PATH) {
-        return new Response("Not Found", { status: 404 });
-      }
-      const err = u.searchParams.get("error");
-      if (err !== null && err !== "") {
-        completion = { error: err };
-        return new Response("Authorization was denied. You can close this window.", {
-          status: 200,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        });
-      }
-      const code = u.searchParams.get("code");
-      const st = u.searchParams.get("state");
-      if (code === null || code === "" || st !== state) {
-        return new Response("Invalid callback", { status: 400 });
-      }
-      completion = { code };
-      return new Response("Signed in. You can close this window.", {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
+      return handlePkceCallbackRequest(req, state, completion);
     },
   });
 
   const boundPort = server.port;
   const redirectUri = `http://127.0.0.1:${String(boundPort)}${CALLBACK_PATH}`;
-
-  const authUrl = new URL(provider === "google" ? GOOGLE_AUTH : MS_AUTH);
-  authUrl.searchParams.set("client_id", clientId);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", scopes.join(" "));
-  authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set("code_challenge", codeChallenge);
-  authUrl.searchParams.set("code_challenge_method", "S256");
-  if (provider === "google") {
-    authUrl.searchParams.set("access_type", "offline");
-    authUrl.searchParams.set("prompt", "consent");
-  }
+  const authUrl = buildPkceAuthorizeUrl(provider, {
+    clientId,
+    scopes,
+    redirectUri,
+    state,
+    codeChallenge,
+  });
 
   const abortTimer = setTimeout(() => {
-    completion ??= { error: "timeout" };
+    completion.value ??= { error: "timeout" };
   }, AUTH_TIMEOUT_MS);
 
   try {
     await openUrl(authUrl.toString());
 
-    while (completion === undefined) {
+    while (completion.value === undefined) {
       await new Promise((r) => setTimeout(r, 50));
     }
 
-    const done = completion;
+    const done = completion.value;
     if ("error" in done) {
       throw new Error("OAuth authorization did not complete");
     }
 
-    const tokenUrl = provider === "google" ? GOOGLE_TOKEN : MS_TOKEN;
-    const tokenBody: Record<string, string> = {
-      client_id: clientId,
-      grant_type: "authorization_code",
-      code: done.code,
-      redirect_uri: redirectUri,
-      code_verifier: codeVerifier,
-    };
-
-    const json = await postForm(fetchFn, tokenUrl, tokenBody);
-    const parsed = parseTokenJson(json);
-    const refreshTok = parsed.refresh_token;
-    if (refreshTok === undefined || refreshTok === "") {
-      throw new Error("No refresh token returned; try revoking app access and signing in again");
-    }
-
-    const result: PKCEResult = {
-      accessToken: parsed.access_token,
-      refreshToken: refreshTok,
-      expiresAt: Date.now() + Math.floor(parsed.expires_in * 1000),
-      scopes: scopesFromTokenResponse(parsed.scope, scopes),
-    };
+    const result = await exchangePkceAuthorizationCode(
+      fetchFn,
+      provider,
+      clientId,
+      redirectUri,
+      codeVerifier,
+      done.code,
+      scopes,
+    );
 
     await persistTokens(vault, provider, result);
     return result;

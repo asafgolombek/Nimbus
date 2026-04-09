@@ -27,7 +27,13 @@ export async function runStart(_args: string[]): Promise<void> {
     const logPath = `${paths.logDir}/gateway.log`;
     const logFile = Bun.file(logPath);
 
-    const spawnOpts: { cmd: string[]; cwd?: string; stdin: "ignore"; stdout: typeof logFile; stderr: typeof logFile } = {
+    const spawnOpts: {
+      cmd: string[];
+      cwd?: string;
+      stdin: "ignore";
+      stdout: typeof logFile;
+      stderr: typeof logFile;
+    } = {
       cmd: launch.cmd,
       stdin: "ignore",
       stdout: logFile,

@@ -79,7 +79,11 @@ export class IPCClient {
     });
   }
 
-  private attachWindowsSocket(sock: net.Socket, resolve: () => void, reject: (e: Error) => void): void {
+  private attachWindowsSocket(
+    sock: net.Socket,
+    resolve: () => void,
+    reject: (e: Error) => void,
+  ): void {
     sock.on("connect", () => {
       this.netSocket = sock;
       this.connected = true;
