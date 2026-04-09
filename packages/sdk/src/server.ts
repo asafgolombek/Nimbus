@@ -21,7 +21,7 @@ export interface ToolDefinition<TInput, TClient> {
 }
 
 export class NimbusExtensionServer<TClient = unknown> {
-  // TODO Q3: store options and initialize MCP stdio server with manifest
+  // Roadmap Q3: store options and initialize MCP stdio server with manifest
   private readonly _options: ExtensionServerOptions<TClient>;
 
   constructor(options: ExtensionServerOptions<TClient>) {
@@ -29,11 +29,11 @@ export class NimbusExtensionServer<TClient = unknown> {
   }
 
   registerTool<TInput>(_name: string, _definition: ToolDefinition<TInput, TClient>): void {
-    // TODO Q3: Register tool with MCP server
+    // Roadmap Q3: register tool with MCP server
   }
 
   start(): void {
-    // TODO Q3: Start MCP stdio server
+    // Roadmap Q3: start MCP stdio server
     void this._options;
   }
 }

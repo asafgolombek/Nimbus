@@ -2,31 +2,54 @@
 
 **Period:** Q1 2026 (Active)  
 **Theme:** Gateway, PAL, Vault, Filesystem Connector, HITL Gate, CLI, CI  
-**Status:** Scaffold complete — implementation begins
+**Status:** **In progress** — PAL, vault, IPC (including consent), local SQLite index, **Stage 5 (HITL + `ToolExecutor`)**, and **Stage 7 (filesystem MCP factory + dispatcher adapter)** are in code and tested. Still outstanding: **Stage 6** (router / planner / Mastra agent + real `agent.invoke`), **Stage 8** (CLI), **Stage 9** (gateway entry wiring + shutdown), and deeper integration/E2E.
+
+**Plan document:** This file is the Q1 scope and sequencing contract. Update stage statuses, checkboxes, and the [Remaining backlog](#remaining-backlog-q1-close) table as PRs land. **Repo snapshot:** reflects tree as of revision pass (April 2026); trust the codebase for API names.
 
 ---
 
 ## Current State
 
-The monorepo is fully scaffolded: packages, CI matrix, biome config, and test infrastructure all exist. The files under `packages/gateway/src/` and `packages/cli/src/` are stubs with `// TODO Q1` markers. Nothing in the Engine, Vault, IPC, or Platform layer is implemented yet.
+The monorepo is past “scaffold only”: **Stages 1–5, 7 (minimal), and most of Stage 3** are reflected in working code under `packages/gateway`. **Stage 6** (intent router, task planner, Mastra agent), **Stage 8** (CLI commands), and **Stage 9** (full gateway bootstrap: IPC start, mesh + executor wiring, graceful shutdown) remain; `packages/gateway/src/index.ts` and `engine/index.ts` still carry `// TODO Q1` markers for those layers.
 
-**What exists and is real:**
-- `NimbusVault` interface (`vault/index.ts`)
-- `PlatformServices` dispatch skeleton (`platform/index.ts`)
-- `ExtensionManifest` and `NimbusItem` types (`sdk/src/types.ts`)
-- CI/CD workflows (3-platform matrix on push, Ubuntu PR gate)
-- Test file stubs (unit, integration, e2e)
-- SDK server scaffold and testing utilities
+### Implemented (verified in tree)
 
-**What is TODO Q1 (everything below):**
-- `PlatformServices` interface fields (vault, ipc, paths, autostart, notifications)
-- All three platform implementations (win32, darwin, linux)
-- Vault implementations (DPAPI, Keychain, libsecret)
-- IPC server and client (JSON-RPC 2.0)
-- Local SQLite index schema
-- Engine: Intent Router, Task Planner, HITL Consent Gate, Tool Executor
-- Filesystem connector wiring
-- CLI command router and commands
+| Stage | What | Primary paths |
+|------|------|----------------|
+| 1 — PAL | `PlatformPaths`, `createPlatformServices()`, win32/darwin/linux, `PlatformInitError`, directory ensure, dependency probes (e.g. Linux `secret-tool`) | `packages/gateway/src/platform/` |
+| 2 — Vault | `NimbusVault` + DPAPI / Keychain / `secret-tool`, `MockVault`, contract + OS smoke tests | `packages/gateway/src/vault/` |
+| 3 — IPC | NDJSON JSON-RPC 2.0, 1MB line limit, named pipe (Windows) + Unix socket (`0600`), multi-client sessions | `packages/gateway/src/ipc/`, `packages/cli/src/ipc-client/` |
+| 3 — Methods | `gateway.ping`, `vault.*`, `audit.list` (when `LocalIndex` passed in), `consent.respond`; **`agent.invoke` is a stub** (echo / placeholder text until the engine exists) | `packages/gateway/src/ipc/server.ts` |
+| 3 — Consent | `ConsentCoordinatorImpl`: consent tied to `clientId`; pending requests reject on disconnect (`ConsentDisconnectedError`) | `packages/gateway/src/ipc/consent.ts` |
+| 4 — Index | FTS5 schema, triggers, `sync_state`, `audit_log`; `LocalIndex` upsert/search/sync/audit APIs | `packages/gateway/src/index/` |
+| 5 — Engine (HITL + executor) | `HITL_REQUIRED` (architecture whitelist), `ToolExecutor`, `bindConsentChannel`, `formatConsentPrompt`; audit **before** connector; `ConsentDisconnectedError` → rejected + audit | `packages/gateway/src/engine/executor.ts`, `types.ts`, `engine.test.ts` |
+| 7 — Connectors (Q1) | `buildConnectorMesh` (filesystem via `bunx` MCP server), `createConnectorDispatcher` for `MCPClient.listTools()` namespaced tool ids | `packages/gateway/src/connectors/registry.ts`, `registry.test.ts` |
+
+**Assembly note:** `PlatformServices` in code includes **`localIndex`** (opened in `platform/assemble.ts`) in addition to `vault`, `ipc`, `paths`, `autostart`, and `notifications`. That is a deliberate convenience so IPC can serve `audit.list` without a separate index handle.
+
+### Not implemented yet
+
+- **`packages/gateway/src/engine/`** — `router.ts`, `planner.ts`, `agent.ts`, and **`agent.invoke` path** (IPC still stubs natural-language invoke).
+- **`packages/gateway/src/index.ts`** — Gateway entry only calls `createPlatformServices()` and prints; it does **not** call `ipc.start()`, construct `MCPClient` / `createConnectorDispatcher`, wire `ToolExecutor`, or run the Stage 9 shutdown sequence.
+- **`packages/cli/src/index.ts`** + **`commands/index.ts`** — No command router or `start` / `stop` / `ask` / `vault` / `audit` handlers.
+
+### Tests (workspace scripts)
+
+| Script | Meaning today |
+|--------|----------------|
+| `bun run test` | Gateway + CLI + SDK unit tests (includes IPC integration tests, vault, PAL, `LocalIndex`) — **green** |
+| `bun run test:coverage:vault` | **Green**; real vault smoke runs per OS where applicable |
+| `bun run test:coverage:engine` | **Green** (≥85% lines); **`ToolExecutor` + HITL tests** in `engine.test.ts` |
+| `bun run test:integration` | **Passes**; tests are still **smoke** (e.g. PAL module loads), not “real SQLite + subprocess” depth described in older comments |
+| `bun run test:e2e:cli` | **Passes**; **placeholder** (imports command module only), not a live Gateway subprocess harness yet |
+| `bun run lint` | Run locally; Biome may report issues until the repo is lint-clean |
+
+### `TODO Q1` grep anchors (for contributors)
+
+- `packages/gateway/src/index.ts` — full startup sequence  
+- `packages/gateway/src/engine/index.ts` — router / planner / agent (executor already exported)  
+- `packages/cli/src/index.ts` — command router  
+- `packages/cli/src/commands/index.ts` — command handlers  
 
 ---
 
@@ -52,11 +75,15 @@ The order is strict: each layer depends on the one before it. Do not jump ahead.
 
 **Files:** `packages/gateway/src/platform/index.ts`, `win32.ts`, `darwin.ts`, `linux.ts`, `paths.ts`
 
+**Status:** **Done** (see `platform.test.ts`).
+
 ### 1.1 Define `PlatformServices` and `PlatformPaths`
 
-Fill in the TODO in `platform/index.ts`:
+Target shape (implemented in `platform/types.ts`, `paths.ts`, `assemble.ts`):
 
 ```typescript
+import type { LocalIndex } from "../index/local-index.ts";
+
 export interface PlatformPaths {
   configDir: string;    // nimbus.toml location
   dataDir: string;      // SQLite DB, embeddings
@@ -70,6 +97,8 @@ export interface PlatformServices {
   vault: NimbusVault;
   ipc: IPCServer;
   paths: PlatformPaths;
+  /** Opened during assembly so IPC can expose `audit.list` without extra wiring. */
+  localIndex: LocalIndex;
   autostart: AutostartManager;
   notifications: NotificationService;
 }
@@ -116,18 +145,25 @@ Each platform `create()` performs a **dependency probe** before returning — e.
 
 All directories are created on first use inside `create()` — never lazily.
 
-### 1.5 Write PAL unit tests
+### 1.5 PAL unit tests
 
-`packages/gateway/src/platform/platform.test.ts` already exists as a stub. Add tests that:
-- Verify `createPlatformServices()` returns the correct implementation for the current platform
-- Verify `PlatformPaths` values are non-empty strings on each platform (run in CI matrix)
-- Verify `PlatformInitError` is thrown (not a generic error) when a dependency is missing
+`packages/gateway/src/platform/platform.test.ts` exercises:
+
+- `createPlatformServices` is exported and returns a full `PlatformServices` shape on the current OS
+- Every `PlatformPaths` field is a non-empty string
+- Socket path matches the documented pattern (Windows named pipe `\\.\pipe\nimbus-gateway`; Unix socket path contains `nimbus-gateway.sock`)
+- Linux: subprocess fixture proves `PlatformInitError` / `secret-tool` install hint when the vault dependency is missing
+- Windows: `PlatformInitError` when required environment (e.g. `APPDATA`) is unset for path construction
+
+Add more cases (e.g. explicit multi-connection IPC) when wiring narrows new failure modes.
 
 ---
 
 ## Stage 2 — Secure Vault
 
 **Files:** `packages/gateway/src/vault/index.ts`, `vault/win32.ts`, `vault/darwin.ts`, `vault/linux.ts`
+
+**Status:** **Done** (contract tests + per-OS smoke tests in `vault.test.ts`).
 
 ### 2.1 Vault invariants (must be upheld in all implementations)
 
@@ -199,21 +235,23 @@ export class MockVault implements NimbusVault {
 
 `packages/gateway/src/vault/vault.test.ts` must achieve **≥90% coverage** (CI gate). Tests run against `MockVault` on all platforms:
 
-- [ ] `set` + `get` round-trip returns original value
-- [ ] `get` on missing key returns `null` (never throws)
-- [ ] `delete` removes key; subsequent `get` returns `null`
-- [ ] `delete` on missing key is a no-op (no throw)
-- [ ] `listKeys()` never returns secret values
-- [ ] `listKeys(prefix)` filters correctly
-- [ ] Invalid key format: `isWellFormedVaultKey` rejects empty, too-long, bad-pattern keys
-- [ ] Secret value does not appear in any thrown error message
-- [ ] Real vault smoke test (1 set + get + delete round-trip) runs on the matching CI platform only
+- [x] `set` + `get` round-trip returns original value
+- [x] `get` on missing key returns `null` (never throws)
+- [x] `delete` removes key; subsequent `get` returns `null`
+- [x] `delete` on missing key is a no-op (no throw)
+- [x] `listKeys()` never returns secret values
+- [x] `listKeys(prefix)` filters correctly
+- [x] Invalid key format: `isWellFormedVaultKey` rejects empty, too-long, bad-pattern keys
+- [x] Secret value does not appear in any thrown error message
+- [x] Real vault smoke test (1 set + get + delete round-trip) runs on the matching CI platform only
 
 ---
 
 ## Stage 3 — IPC Server + Client
 
 **Files:** `packages/gateway/src/ipc/index.ts`, `packages/cli/src/ipc-client/index.ts`
+
+**Status:** **Mostly done** — transport, framing, vault RPCs, ping, audit list, and consent plumbing are implemented; full engine-driven `agent.invoke` is still a stub.
 
 ### 3.1 Protocol
 
@@ -224,6 +262,8 @@ JSON-RPC 2.0 over:
 **Message framing:** Newline-delimited JSON (one JSON object per line). Vault values are short credential strings, not large blobs, so there is no payload size risk that would justify length-prefixed headers in Q1. Add a 1MB per-message hard limit in the parser as a guard.
 
 ### 3.2 Gateway IPC Server
+
+**Status:** Implemented in `packages/gateway/src/ipc/server.ts`, except **`agent.invoke`** (stub until the engine is wired).
 
 Implement `IPCServer` with these methods for Q1:
 
@@ -275,7 +315,9 @@ The executor `await`s a `Promise` that resolves when `consent.respond` arrives.
 
 ## Stage 4 — Local Index (SQLite)
 
-**Files:** `packages/gateway/src/index/index.ts`, `packages/gateway/src/index/schema.ts`
+**Files:** `packages/gateway/src/index/index.ts`, `packages/gateway/src/index/schema-sql.ts`
+
+**Status:** **Done** (`local-index.ts`, `index.test.ts`). Schema lives in `schema-sql.ts` (not `schema.ts`).
 
 ### 4.1 Schema
 
@@ -339,6 +381,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 ### 4.2 `LocalIndex` class
 
+**Status:** Implemented in `packages/gateway/src/index/local-index.ts` (schema in `schema-sql.ts`). Audit persistence uses **`recordAudit`** / **`listAudit`** on the class; the Stage 5 pseudocode below still refers to an `auditLog` adapter used by `ToolExecutor` once the engine exists.
+
 ```typescript
 const RAW_META_MAX_BYTES = 65_536; // 64 KB per item — enforced in upsert()
 
@@ -356,7 +400,13 @@ export class LocalIndex {
   search(query: { service?: string; itemType?: string; name?: string; limit?: number }): NimbusItem[] {}
   recordSync(connectorId: string, token: string): void {}
   getLastSyncToken(connectorId: string): string | null {}
-  listAudit(limit: number): AuditEntry[] {} // for nimbus audit command
+  recordAudit(entry: {
+    actionType: string;
+    hitlStatus: "approved" | "rejected" | "not_required";
+    actionJson: string;
+    timestamp: number;
+  }): void {}
+  listAudit(limit: number): AuditEntry[] {} // for `audit.list` IPC + nimbus audit
 }
 ```
 
@@ -368,66 +418,40 @@ Name search uses `items_fts` (FTS5 `MATCH`) when `name` is provided; other filte
 
 **Files:** `packages/gateway/src/engine/executor.ts`
 
-This is the most security-critical file. Implement it exactly as specified in `architecture.md`:
+**Status:** **Done** (`executor.ts`, `types.ts`, `engine.test.ts`, exports in `engine/index.ts`).
+
+This is the most security-critical file. Implemented per `architecture.md` with one **runtime note**: some engines still allow `Set.prototype.add` on `Object.freeze(new Set())`, so the export is an **`Object.freeze`’d `ReadonlySet` facade** over a private backing `Set` (immutability verified in tests).
 
 ### 5.1 `HITL_REQUIRED` frozen set
 
-Copy the exact set from `architecture.md §HITL Consent Gate`. It is `Object.freeze(new Set([...]))` — a module-level constant. It must not be modifiable at runtime.
+Member list matches `architecture.md §HITL Consent Gate`. Exposed as `ReadonlySet<string>`; must not be modifiable at runtime (see facade note above).
 
 ### 5.2 `ToolExecutor.execute()`
 
-```typescript
-export class ToolExecutor {
-  constructor(
-    private readonly consentChannel: ConsentChannel,
-    private readonly auditLog: AuditLog,
-    private readonly connectorMesh: MCPClient,
-  ) {}
-
-  async execute(action: PlannedAction): Promise<ActionResult> {
-    const requiresHITL = HITL_REQUIRED.has(action.type);
-
-    let hitlStatus: "approved" | "rejected" | "not_required";
-
-    if (requiresHITL) {
-      const approved = await this.consentChannel.requestApproval(
-        formatConsentPrompt(action)
-      );
-      hitlStatus = approved ? "approved" : "rejected";
-    } else {
-      hitlStatus = "not_required";
-    }
-
-    // ALWAYS write audit record BEFORE any action is taken
-    await this.auditLog.record({ action, hitlStatus, timestamp: Date.now() });
-
-    if (hitlStatus === "rejected") {
-      return { status: "rejected", reason: "User declined consent gate." };
-    }
-
-    return this.dispatchToConnector(action);
-  }
-}
-```
+**As implemented:** constructor takes `ConsentChannel`, `AuditSink` (e.g. `LocalIndex.recordAudit`), and `ConnectorDispatcher` (e.g. from `createConnectorDispatcher(mcpClient)`). `ConsentDisconnectedError` is handled as **rejected** with audit payload `hitlRejectReason: "client disconnected"`. Audit uses **sync** `recordAudit` (not `await`), still strictly **before** `connectors.dispatch`.
 
 ### 5.3 HITL unit tests
 
-`packages/gateway/src/engine/engine.test.ts` must achieve **≥85% coverage** (CI gate):
+`packages/gateway/src/engine/engine.test.ts` achieves **≥85% coverage** (CI gate). Checklist:
 
-- [ ] Every action type in `HITL_REQUIRED` triggers the consent channel
-- [ ] Action types NOT in `HITL_REQUIRED` do NOT call the consent channel
-- [ ] `rejected` response → connector is NOT called; audit record shows `"rejected"`
-- [ ] `approved` response → connector IS called; audit record shows `"approved"`
-- [ ] `not_required` → connector is called without asking; audit shows `"not_required"`
-- [ ] Audit record is written BEFORE the connector call (verify ordering with a spy)
-- [ ] `HITL_REQUIRED` set cannot be mutated at runtime (attempt `HITL_REQUIRED.add(...)` → throws or is ignored)
-- [ ] If IPC client disconnects mid-consent, pending action is rejected and audit records `"rejected"` with `reason: "client disconnected"`
+- [x] Every action type in `HITL_REQUIRED` triggers the consent channel
+- [x] Action types NOT in `HITL_REQUIRED` do NOT call the consent channel
+- [x] `rejected` response → connector is NOT called; audit record shows `"rejected"`
+- [x] `approved` response → connector IS called; audit record shows `"approved"`
+- [x] `not_required` → connector is called without asking; audit shows `"not_required"`
+- [x] Audit record is written BEFORE the connector call (ordering spy)
+- [x] `HITL_REQUIRED` cannot be mutated via `Set.prototype.add` on the export (throws — export is not a real `Set`)
+- [x] `ConsentDisconnectedError` → no connector call; audit `"rejected"` with disconnect metadata
+
+**Also:** `packages/gateway/src/ipc/ipc.test.ts` exercises JSON-RPC consent respond + **disconnect rejects pending consent** at the IPC layer (complements executor tests).
 
 ---
 
 ## Stage 6 — Engine: Intent Router + Task Planner
 
 **Files:** `packages/gateway/src/engine/router.ts`, `packages/gateway/src/engine/planner.ts`, `packages/gateway/src/engine/agent.ts`
+
+**Status:** **Not started** (no router/planner/agent modules in tree).
 
 ### 6.1 Model configuration
 
@@ -482,26 +506,11 @@ Wire up `nimbusAgent` as specified in `architecture.md §Agent Definition`. Use 
 
 ## Stage 7 — Filesystem MCP Connector
 
-**Files:** `packages/gateway/src/connectors/registry.ts`
+**Files:** `packages/gateway/src/connectors/registry.ts`, `registry.test.ts`, `connectors/index.ts`
 
-For Q1, the only connector wired in is the filesystem connector:
+**Status:** **Minimal done (Q1 filesystem)** — `buildConnectorMesh(paths)` returns `@mastra/mcp` `MCPClient` with stdio `bunx @modelcontextprotocol/server-filesystem` rooted at `paths.dataDir`. **`createConnectorDispatcher(client)`** adapts `MCPClient` (or any `McpToolListingClient`) to engine **`ConnectorDispatcher`**: tool id = `payload.mcpToolId` or `action.type` (must match Mastra namespaced ids from `listTools()`, e.g. `filesystem_list_directory`). Optional `payload.input` passes through as tool arguments.
 
-```typescript
-import { MCPClient } from "@mastra/mcp";
-
-export async function buildConnectorMesh(paths: PlatformPaths): Promise<MCPClient> {
-  return new MCPClient({
-    servers: {
-      filesystem: {
-        command: "bunx",
-        args: ["@modelcontextprotocol/server-filesystem", paths.dataDir],
-      },
-    },
-  });
-}
-```
-
-This is intentionally minimal. All cloud connectors are Q2.
+**Not done yet:** Gateway startup does not call `buildConnectorMesh` / dispatcher (Stage 9). **Q2+:** additional servers, sync handlers, etc.
 
 ---
 
@@ -509,7 +518,11 @@ This is intentionally minimal. All cloud connectors are Q2.
 
 **Files:** `packages/cli/src/index.ts`, `packages/cli/src/commands/`
 
+**Status:** **Not started** — CLI entry shows intro/outro only; `commands/index.ts` exports nothing.
+
 ### Commands to implement in Q1
+
+The comment block at the top of `packages/cli/src/index.ts` lists **roadmap** commands (`search`, `sync`, `connector`, `extension`, `watch`). **Q1 ships only** the handlers below; defer the rest until the quarters named in [What is Explicitly Out of Scope](#what-is-explicitly-out-of-scope-q1).
 
 | Command | Description |
 |---|---|
@@ -586,38 +599,37 @@ When the Gateway sends a `consent.request` notification:
 
 **File:** `packages/gateway/src/index.ts`
 
-Wire everything together and register shutdown handlers:
+**Status:** **Not started** — current entry only calls `createPlatformServices()` and prints a line; it does not start IPC, MCP, or the executor.
+
+Wire everything together and register shutdown handlers. **PAL already opens SQLite + `LocalIndex` inside `createPlatformServices()`** — reuse `platform.localIndex` (do not open a second DB unless intentionally split). **IPC API in code:** `IPCServer.start()` / `stop()` (not `listen` / `close`). **Consent:** pass `bindConsentChannel(platform.ipc.consent, clientId)` per active `agent.invoke` session when wiring the executor (not a field named `consentChannel` on `IPCServer`).
 
 ```typescript
-import { createPlatformServices } from "./platform/index.ts";
-import { LocalIndex } from "./index/index.ts";
-import { buildConnectorMesh } from "./connectors/registry.ts";
+import { buildConnectorMesh, createConnectorDispatcher } from "./connectors/index.ts";
 import { ToolExecutor } from "./engine/executor.ts";
-import { IntentRouter } from "./engine/router.ts";
-import { TaskPlanner } from "./engine/planner.ts";
-import { Database } from "bun:sqlite";
+import { createPlatformServices } from "./platform/index.ts";
 
 async function main(): Promise<void> {
-  const platform = await createPlatformServices(); // throws PlatformInitError if deps missing
-  const db = new Database(path.join(platform.paths.dataDir, "nimbus.db"));
-  const index = new LocalIndex(db);
-  const connectors = await buildConnectorMesh(platform.paths);
-  const executor = new ToolExecutor(platform.ipc.consentChannel, index, connectors);
-  const router = new IntentRouter();
-  const planner = new TaskPlanner();
+  const platform = await createPlatformServices();
+  const mcp = await buildConnectorMesh(platform.paths);
+  const dispatcher = createConnectorDispatcher(mcp);
+  // Per agent.invoke session: ToolExecutor(consent, auditSink, dispatcher).
+  // AuditSink is typically platform.localIndex (recordAudit). Example:
+  // const executor = new ToolExecutor(
+  //   bindConsentChannel(platform.ipc.consent, clientId),
+  //   platform.localIndex,
+  //   dispatcher,
+  // );
 
-  // Graceful shutdown
   const shutdown = async (signal: string) => {
-    console.log(`[gateway] ${signal} received — shutting down`);
-    await platform.ipc.close();   // stop accepting new connections
-    connectors.disconnect();      // terminate MCP child processes
-    db.close();                   // flush SQLite WAL
+    process.stdout.write(`[gateway] ${signal} — shutting down\n`);
+    await platform.ipc.stop();
+    await mcp.disconnect();
     process.exit(0);
   };
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT",  () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  await platform.ipc.listen();
+  await platform.ipc.start();
 }
 
 main().catch((err: unknown) => {
@@ -651,27 +663,29 @@ bun run test:coverage:engine   # runs inside packages/gateway
 bun run test:coverage:vault    # runs inside packages/gateway
 ```
 
-Coverage thresholds are enforced by passing `--coverage-threshold` in the script. Vault tests run against `MockVault` on all platforms — the real vault integration test is gated by a platform check (`if (process.platform === "win32")`) so it only executes on the matching CI runner.
+Coverage thresholds are enforced by passing `--coverage-threshold` in the script. Vault contract tests use `MockVault` on every OS; OS-specific smoke tests in `vault.test.ts` run only when `process.platform` matches (`win32` / `darwin` / `linux`). On Linux CI, tests that use `secret-tool` run under `dbus-run-session` so the Secret Service is available.
 
 ---
 
 ## Definition of Done (Q1)
 
-- [ ] `bun run typecheck` passes with zero errors on all three platforms
-- [ ] `bun run lint` passes (Biome — no warnings)
-- [ ] `bun test` passes — all unit tests green
-- [ ] `bun run test:coverage:engine` ≥85%
-- [ ] `bun run test:coverage:vault` ≥90%
-- [ ] `bun run test:integration` passes (real SQLite, real Bun subprocess)
-- [ ] `bun run test:e2e:cli` passes (real Gateway subprocess + mock filesystem MCP)
-- [ ] CI matrix green on Ubuntu, macOS, Windows
+Use this as the **exit checklist** for Q1. Items reflect **intent**; current repo status is summarized in [Current State](#current-state).
+
+- [x] `bun run typecheck` passes with zero errors *(verified on dev machine; CI should mirror all three platforms)*
+- [ ] `bun run lint` passes (Biome — no errors/warnings) *(may still be failing until Biome is clean)*
+- [x] `bun run test` passes for gateway + cli + sdk *(root `package.json` script — does not include UI Vitest suite)*
+- [x] `bun run test:coverage:engine` ≥85% with **meaningful** engine tests *(`ToolExecutor` + HITL suite in `engine.test.ts`)*
+- [x] `bun run test:coverage:vault` ≥90%
+- [ ] `bun run test:integration` — **deep** integration *(script is green today with smoke tests only; replace with real SQLite + subprocess scenarios per plan)*
+- [ ] `bun run test:e2e:cli` — **real E2E** *(script is green today with placeholder import test only; add Gateway subprocess + mock filesystem MCP)*
+- [ ] CI matrix green on Ubuntu, macOS, Windows *(verify on GitHub / local matrix)*
 - [ ] `nimbus start` / `nimbus ask "list my files"` / `nimbus stop` works end-to-end on dev machine
 - [ ] `nimbus audit` shows HITL decisions from the session
-- [ ] Secrets never appear in `bun run test` output, logs, or IPC traces
-- [ ] HITL gate fires for every action type in the whitelist — verified by unit test
+- [ ] Secrets never appear in `bun run test` output, logs, or IPC traces *(vault tests assert non-leak; broaden as IPC/engine grow)*
+- [x] HITL gate fires for every action type in the whitelist — verified by unit test *(loop over `HITL_REQUIRED` in `engine.test.ts`)*
 - [ ] Gateway shuts down cleanly on `SIGTERM`/`SIGINT` with no socket hang or DB corruption
-- [ ] `PlatformInitError` is thrown (not a crash) when a vault OS dependency is missing
-- [ ] Multi-client IPC: consent prompt goes only to the initiating client
+- [x] `PlatformInitError` is thrown (not a crash) when a vault OS dependency is missing *(Linux probe + Windows path tests)*
+- [x] Multi-client IPC: consent prompt goes only to the initiating client *(pending map is per `requestId` + `clientId`; foreign `consent.respond` rejected — extend with explicit multi-connection tests as needed)*
 
 ---
 
@@ -696,26 +710,62 @@ Do not implement any of these in Q1 code.
 ## Implementation Order (recommended sprint breakdown)
 
 ### Week 1–2: Foundation
-- Stage 1 (PAL + PlatformPaths) — all three platforms
-- Stage 2 (Vault) — start with win32 (dev machine); darwin + linux in parallel or next
-- Stage 4 (Local Index schema) — small, unblocks everything
+- Stage 1 (PAL + PlatformPaths) — all three platforms **(done)**
+- Stage 2 (Vault) — start with win32 (dev machine); darwin + linux in parallel or next **(done)**
+- Stage 4 (Local Index schema) — small, unblocks everything **(done)**
 
 ### Week 3–4: IPC + Gateway skeleton
-- Stage 3 (IPC Server + Client)
-- Stage 9 (Gateway entry point — minimal wire-up)
-- Verify `nimbus start` launches the process and `nimbus stop` kills it
+- Stage 3 (IPC Server + Client) **(mostly done — `agent.invoke` stub)**
+- Stage 9 (Gateway entry point — minimal wire-up) **(not done — entry still minimal)**
+- Verify `nimbus start` launches the process and `nimbus stop` kills it **(blocked on Stage 8–9)**
 
 ### Week 5–6: Engine core
-- Stage 5 (HITL Gate + Tool Executor) — with full tests first (TDD)
-- Stage 6 (Intent Router + Task Planner) — minimal for `file_search` and `file_organize`
+- Stage 5 (HITL Gate + Tool Executor) — with full tests **(done)**
+- Stage 6 (Intent Router + Task Planner) — minimal for `file_search` and `file_organize` **(not started)**
 
 ### Week 7–8: CLI + E2E
-- Stage 7 (Filesystem connector wiring)
-- Stage 8 (CLI commands)
-- Integration and E2E tests
-- Coverage gates
+- Stage 7 (Filesystem connector wiring — factory + dispatcher) **(minimal done; not wired in gateway entry)**
+- Stage 8 (CLI commands) **(not started)**
+- Integration and E2E tests **(smoke/placeholder only today)**
+- Coverage gates **(vault + engine thresholds enforced on real suites)**
 - CI matrix green
 
 ---
 
-*This plan covers only Q1 2026 Foundation scope. See `architecture.md` for the full system design and `mission.md` for the project principles behind every decision.*
+## Remaining backlog (Q1 close)
+
+Work still required before the [Definition of Done](#definition-of-done-q1) checklist can be fully checked. Order respects [Delivery Sequence](#delivery-sequence): **Stage 9** can partially precede **Stage 6** if IPC + MCP + stub/no-op agent path is enough for `start` / `ping` / vault RPCs; **`ask`** needs **Stage 6** and a real **`agent.invoke`** implementation.
+
+| Area | Stage | Deliverable |
+|------|-------|-------------|
+| Gateway bootstrap | 9 | `buildConnectorMesh`, `createConnectorDispatcher`, `ToolExecutor` factory per `clientId` for invoke path, `platform.ipc.start()` / `stop()`, SIGTERM/SIGINT shutdown (MCP disconnect, IPC drain, WAL-safe DB close) |
+| Engine | 6 | `router.ts`, `planner.ts`, `agent.ts` (or equivalent modules), env-driven model config, IPC `agent.invoke` streaming |
+| CLI | 8 | Command router, `start`/`stop`/`status`/`ask`/`vault`/`audit`, `@clack/prompts` + consent notifications |
+| Tests | — | Integration: real SQLite + subprocess scenarios per subsystem contracts; E2E: live Gateway + mock MCP (see `scripts/lib/ci-tests.ts` for CI parity) |
+| Quality | — | `bun run lint` clean; CI matrix green on Ubuntu, macOS, Windows |
+
+### Suggested PR sequence (for implementers)
+
+1. **Stage 9 (thin)** — Start IPC after PAL assembly; optional no-op or stub executor for RPC smoke; shutdown handlers. Unblocks manual and automated “gateway process up” tests.
+2. **Stage 8 (core)** — `start` / `stop` / `status`, `vault.*`, `audit`; IPC client reuse. No `ask` yet.
+3. **Stage 6** — Router + planner + minimal Mastra (or agreed agent loop); replace `agent.invoke` stub in `packages/gateway/src/ipc/server.ts`.
+4. **Stage 8 (`ask`)** — Wire NL query + streaming to IPC.
+5. **Tests** — Deepen `test/integration/` and `packages/cli/test/e2e/` to match CLAUDE.md expectations; keep `runCiTestSuite()` in `scripts/lib/ci-tests.ts` aligned with `.github/workflows/ci.yml`.
+
+### Handoff to Q2
+
+When Q1 Definition of Done is met, the **Bridge** quarter (Google/Microsoft connectors, OAuth PKCE, delta sync) continues from a running Gateway + CLI + filesystem MCP baseline. Do not expand this file into Q2 scope; track Q2 in a separate plan when drafted.
+
+---
+
+## References
+
+| Doc | Role |
+|-----|------|
+| `architecture.md` | Subsystem design, HITL contract, IPC semantics |
+| `docs/mission.md` | Principles (local-first, agency, no SaaS) |
+| `CLAUDE.md` / `.cursor/rules/nimbus.mdc` | Commands, coverage gates, non-negotiables |
+
+---
+
+*This plan covers only Q1 2026 Foundation scope. See `architecture.md` for the full system design and `docs/mission.md` for the project principles behind every decision.*

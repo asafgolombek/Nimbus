@@ -1,31 +1,61 @@
 /**
  * Nimbus Gateway — Headless Bun process
  *
- * Entry point. Initializes platform services, database, vault,
- * connector mesh, Mastra agent, and IPC server.
- *
- * Startup sequence (architecture.md §Gateway Lifecycle):
- *  1. Detect platform → instantiate PlatformServices (PAL)
- *  2. Open bun:sqlite database → run pending migrations
- *  3. Verify extension integrity → SHA-256 check all installed manifests
- *  4. Initialize Secure Vault → test keystore availability
- *  5. Load connector registry → check credential availability per connector
- *  6. Spawn MCP server processes (first-party + enabled extensions)
- *  7. Initialize Mastra agent → register all tool schemas from live MCP processes
- *  8. Start background sync scheduler
- *  9. Bind IPC socket / named pipe (owner-only permissions)
- * 10. Emit "ready" → CLI and UI clients can now connect
+ * Startup: PAL → SQLite index → MCP filesystem mesh → IPC (agent.invoke → runAsk).
+ * See architecture.md §Gateway Lifecycle, dev-plan-q1.md Stages 6–9.
  */
 
+import {
+  buildConnectorMesh,
+  createConnectorDispatcher,
+  type McpToolListingClient,
+} from "./connectors/index.ts";
+import { runAsk } from "./engine/run-ask.ts";
 import { createPlatformServices } from "./platform/index.ts";
 
+const GATEWAY_VERSION = "0.1.0";
+
 async function main(): Promise<void> {
-  // TODO Q1: Implement full startup sequence
-  await createPlatformServices();
-  process.stdout.write("Nimbus Gateway starting...\n");
+  const platform = await createPlatformServices();
+  const mcp = await buildConnectorMesh(platform.paths);
+  const dispatcher = createConnectorDispatcher(mcp as unknown as McpToolListingClient);
+
+  platform.ipc.setAgentInvokeHandler((ctx) =>
+    runAsk({
+      ...ctx,
+      paths: platform.paths,
+      consentCoordinator: platform.ipc.consent,
+      localIndex: platform.localIndex,
+      dispatcher,
+    }),
+  );
+
+  const shutdown = async (signal: string): Promise<void> => {
+    process.stdout.write(`[gateway] ${signal} — shutting down\n`);
+    try {
+      await platform.ipc.stop();
+    } finally {
+      try {
+        await mcp.disconnect();
+      } catch {
+        /* ignore */
+      }
+      try {
+        platform.localIndex.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+
+  await platform.ipc.start();
+  process.stdout.write(`[gateway] ready (${GATEWAY_VERSION}) IPC ${platform.paths.socketPath}\n`);
 }
 
 main().catch((err: unknown) => {
-  console.error("Gateway startup failed:", err);
+  console.error("[gateway] fatal:", err);
   process.exit(1);
 });

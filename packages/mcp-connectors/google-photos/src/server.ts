@@ -28,6 +28,6 @@ const server = new NimbusExtensionServer({
   },
 });
 
-// TODO Q2: Register Google Photos tools (list, get, search, delete)
+// Roadmap Q2: register Google Photos tools (list, get, search, delete)
 
 server.start();

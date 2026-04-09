@@ -19,7 +19,7 @@ Once versioned releases begin (target: Q4 2026), this table will be updated with
 
 Report vulnerabilities privately via one of these channels:
 
-1. **GitHub private vulnerability reporting** — use the "Report a vulnerability" button on the [Security tab](../../security/advisories/new) of this repository (preferred)
+1. **GitHub private vulnerability reporting** — use the "Report a vulnerability" button on the [Security tab](../../../security/advisories/new) of this repository (preferred)
 2. **Email** — contact the maintainers directly at the address listed in the repository profile
 
 Include as much of the following as possible:

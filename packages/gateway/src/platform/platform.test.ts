@@ -23,6 +23,8 @@ describe("Platform Abstraction Layer", () => {
     expect(services.ipc).toBeDefined();
     expect(typeof services.ipc.start).toBe("function");
     expect(services.paths).toBeDefined();
+    expect(services.localIndex).toBeDefined();
+    expect(typeof services.localIndex.listAudit).toBe("function");
     expect(services.autostart).toBeDefined();
     expect(services.notifications).toBeDefined();
 

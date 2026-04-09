@@ -43,7 +43,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `architecture.md` | Full subsystem design — read before modifying any subsystem |
-| `mission.md` | Project principles — read before adding features |
+| `docs/mission.md` | Project principles — read before adding features |
 
 ---
 
@@ -146,11 +146,13 @@ A system that orchestrates real actions against real data cannot rely on develop
 
 ## Roadmap Context
 
+> Full roadmap with acceptance criteria and inter-quarter dependencies: [`docs/roadmap.md`](./docs/roadmap.md)
+
 | Quarter | Theme | Status |
 |---|---|---|
-| Q1 2026 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | **Active** |
-| Q2 2026 | The Bridge — Google + Microsoft connectors, delta sync, full CLI | Planned |
-| Q3 2026 | Intelligence — Embeddings, hybrid search, Extension Registry v1, Watchers | Planned |
-| Q4 2026 | Presence — Tauri 2.0 desktop app, signed releases, Extension Marketplace | Planned |
+| Q1 2026 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | **Complete** |
+| Q2 2026 | The Bridge — Cloud storage, email, source control, communication (Slack/Teams), project tracking (Linear/Jira), knowledge bases (Notion/Confluence), people graph | **Active** |
+| Q3 2026 | Intelligence — Embeddings, hybrid search, Extension Registry v1, CI/CD + cloud infra connectors, IaC write ops, workflow pipelines, watchers, relationship graph, filesystem v2, agent specialization | Planned |
+| Q4 2026 | Presence — Tauri 2.0 desktop, local LLM (Ollama), multi-agent orchestration, Rich TUI, voice interface, data portability, signed releases | Planned |
 
-When implementing, focus only on the current quarter. Do not add Q2+ features in Q1 code.
+When implementing, focus only on the current quarter. Do not add Q(n+1) features in Q(n) code.

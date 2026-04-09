@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 /**
- * Unit tests for gateway, cli, and sdk (same as `bun run test` at repo root).
- * Run from anywhere: `bun scripts/run-tests.ts`
+ * CI-parity tests (same sequence as .github/workflows/ci.yml).
+ * On Linux, unit+coverage and vault gate use `scripts/linux/linux-dbus-tests.sh` when
+ * `dbus-run-session` is available (starts gnome-keyring for Secret Service).
+ * Run from anywhere: `bun scripts/run-tests.ts`, `bun run test:ci`, or `scripts/linux/run-tests.sh`
  */
-import { REPO_ROOT, run } from "./lib/root.ts";
+import { runCiTestSuite } from "./lib/ci-tests.ts";
 
-run(["bun", "run", "test"], REPO_ROOT);
+runCiTestSuite();

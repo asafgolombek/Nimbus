@@ -8,36 +8,97 @@ import { spawn } from "node:child_process";
 import { compareVaultKeysAlphabetically, validateVaultKeyOrThrow } from "./key-format.ts";
 import type { NimbusVault } from "./nimbus-vault.ts";
 
-/** Installed by libsecret-tools on Debian/Ubuntu and typical Fedora/Arch packages. */
-const SECRET_TOOL_EXECUTABLE = "/usr/bin/secret-tool";
+/** FHS path when `secret-tool` is not on `PATH` (e.g. minimal systemd environments). */
+const SECRET_TOOL_FALLBACK = "/usr/bin/secret-tool";
 
 const LABEL_PREFIX = "Nimbus: ";
+
+function secretToolExecutable(): string {
+  return Bun.which("secret-tool") ?? SECRET_TOOL_FALLBACK;
+}
 
 function nimbusLabel(key: string): string {
   return `${LABEL_PREFIX}${key}`;
 }
 
-function runSecretTool(args: string[], stdin?: string): Promise<string> {
+/**
+ * Parses `secret-tool search --all` output (see libsecret `secret-tool.c`):
+ * - stdout: `label = Nimbus: <vaultKey>` per item
+ * - stderr: `attribute.nimbus-key = <vaultKey>` per item (attributes use g_printerr)
+ *
+ * Exported for unit tests (runs on every OS); do not log or return secret values.
+ */
+export function extractNimbusVaultKeysFromSecretToolSearchOutput(
+  stdout: string,
+  stderr?: string,
+): string[] {
+  const keys = new Set<string>();
+  const labelLine = /^label = Nimbus: (.+)$/gm;
+  for (const m of stdout.matchAll(labelLine)) {
+    const k = m[1]?.trim() ?? "";
+    if (k.length > 0) {
+      keys.add(k);
+    }
+  }
+  if (stderr !== undefined && stderr.length > 0) {
+    const nimbusKeyAttr = /^attribute\.nimbus-key = (.+)$/gm;
+    for (const m of stderr.matchAll(nimbusKeyAttr)) {
+      const k = m[1]?.trim() ?? "";
+      if (k.length > 0) {
+        keys.add(k);
+      }
+    }
+  }
+  return Array.from(keys).sort(compareVaultKeysAlphabetically);
+}
+
+function spawnSecretTool(
+  args: string[],
+  options: { stdin?: string; captureStderr: boolean },
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(SECRET_TOOL_EXECUTABLE, args, { stdio: ["pipe", "pipe", "ignore"] });
-    let out = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (c: string) => {
-      out += c;
+    const stdio: ["pipe", "pipe", "pipe" | "ignore"] = options.captureStderr
+      ? ["pipe", "pipe", "pipe"]
+      : ["pipe", "pipe", "ignore"];
+    const child = spawn(secretToolExecutable(), args, { stdio });
+    const outStream = child.stdout;
+    const inStream = child.stdin;
+    if (outStream === null || inStream === null) {
+      reject(new Error("Vault spawn: missing stdio pipes"));
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    outStream.setEncoding("utf8");
+    outStream.on("data", (c: string) => {
+      stdout += c;
     });
+    if (child.stderr) {
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (c: string) => {
+        stderr += c;
+      });
+    }
     child.on("error", reject);
     child.on("close", (code) => {
-      if (code === 0) {
-        resolve(out);
-        return;
-      }
-      reject(new Error("Vault operation failed"));
+      resolve({ code, stdout, stderr });
     });
-    if (stdin !== undefined) {
-      child.stdin.write(stdin, "utf8");
+    if (options.stdin !== undefined) {
+      inStream.write(options.stdin, "utf8");
     }
-    child.stdin.end();
+    inStream.end();
   });
+}
+
+async function runSecretTool(args: string[], stdin?: string): Promise<string> {
+  const r =
+    stdin === undefined
+      ? await spawnSecretTool(args, { captureStderr: false })
+      : await spawnSecretTool(args, { stdin, captureStderr: false });
+  if (r.code === 0) {
+    return r.stdout;
+  }
+  throw new Error("Vault operation failed");
 }
 
 export class LinuxSecretToolVault implements NimbusVault {
@@ -69,19 +130,21 @@ export class LinuxSecretToolVault implements NimbusVault {
   }
 
   async listKeys(prefix?: string): Promise<string[]> {
-    let raw: string;
+    let stdout: string;
+    let stderr: string;
     try {
-      raw = await runSecretTool(["search", "--all", "application", "nimbus"]);
+      const r = await spawnSecretTool(["search", "--all", "application", "nimbus"], {
+        captureStderr: true,
+      });
+      if (r.code !== 0) {
+        return [];
+      }
+      stdout = r.stdout;
+      stderr = r.stderr;
     } catch {
       return [];
     }
-    const keys = raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith(LABEL_PREFIX))
-      .map((line) => line.slice(LABEL_PREFIX.length))
-      .filter((k) => k.length > 0)
-      .sort(compareVaultKeysAlphabetically);
+    const keys = extractNimbusVaultKeysFromSecretToolSearchOutput(stdout, stderr);
     if (prefix === undefined || prefix.length === 0) {
       return keys;
     }

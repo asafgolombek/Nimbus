@@ -13,6 +13,10 @@
     "./testing": {
       "import": "./src/testing/index.ts",
       "types": "./src/testing/index.ts"
+    },
+    "./ipc": {
+      "import": "./src/ipc/index.ts",
+      "types": "./src/ipc/index.ts"
     }
   },
   "files": [

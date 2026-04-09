@@ -76,6 +76,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["**/packages/cli/src/commands/**/*.ts", "**/packages/cli/src/lib/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
     }
   ]
 }

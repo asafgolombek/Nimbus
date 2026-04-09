@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-// TODO Q4: Implement Tauri 2.0 desktop application
+// Roadmap Q4: Tauri 2.0 desktop application
 // Components to build: ConsentDialog, ConnectorCard, ExtensionMarketplace,
 //                      Dashboard, Search, Marketplace, Settings, AuditLog
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

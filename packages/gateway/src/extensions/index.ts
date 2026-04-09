@@ -12,5 +12,5 @@
  * See architecture.md §Subsystem 4: The Extension Registry
  */
 
-// TODO Q3: Export ExtensionRegistry, ManifestValidator, ExtensionProcessManager
+// Roadmap Q3: export ExtensionRegistry, ManifestValidator, ExtensionProcessManager
 export {};

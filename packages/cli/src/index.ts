@@ -1,34 +1,59 @@
 /**
- * Nimbus CLI — nimbus <command> [options]
+ * Nimbus CLI — `nimbus <command> [options]`
  *
- * Commands:
- *   start       Start the Gateway as a background process
- *   stop        Stop the Gateway
- *   status      Verify Gateway is running; list connector health
- *   ask         Submit a natural-language query to the agent
- *   search      Structured search across the local index
- *   sync        Trigger a sync for one or all connectors
- *   connector   Manage connectors (auth, list, pause, status)
- *   extension   Manage extensions (install, list, disable, remove)
- *   vault       Manage stored secrets (set, get, delete, list)
- *   watch       Manage ambient monitors (create, list, pause, delete)
+ * Communicates with the Gateway over JSON-RPC IPC only.
  */
 
 import { intro, outro } from "@clack/prompts";
 
+import {
+  printHelp,
+  runAsk,
+  runAudit,
+  runStart,
+  runStatus,
+  runStop,
+  runVault,
+} from "./commands/index.ts";
+
 const [, , command = "help", ...args] = process.argv;
 
-async function main(): Promise<void> {
-  intro("Nimbus");
+intro("Nimbus");
 
-  // TODO Q1: Wire up command router (command and args available)
-  void command;
-  void args;
-
-  outro("Done.");
+try {
+  switch (command) {
+    case "help":
+    case "--help":
+    case "-h":
+      printHelp();
+      break;
+    case "start":
+      await runStart(args);
+      break;
+    case "stop":
+      await runStop(args);
+      break;
+    case "status":
+      await runStatus(args);
+      break;
+    case "ask":
+      await runAsk(args);
+      break;
+    case "vault":
+      await runVault(args);
+      break;
+    case "audit":
+      await runAudit(args);
+      break;
+    default:
+      console.error(`Unknown command: ${command}`);
+      printHelp();
+      process.exitCode = 1;
+  }
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(msg);
+  process.exitCode = 1;
 }
 
-main().catch((err: unknown) => {
-  console.error(err);
-  process.exit(1);
-});
+outro("Done.");
