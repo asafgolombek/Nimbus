@@ -161,7 +161,7 @@ export class SyncScheduler {
     const ids =
       serviceId !== undefined && serviceId !== ""
         ? [serviceId]
-        : [...this.connectors.keys()].sort();
+        : [...this.connectors.keys()].sort((a, b) => a.localeCompare(b));
     const out: SyncStatus[] = [];
     for (const id of ids) {
       const row = loadSchedulerState(this.db, id);

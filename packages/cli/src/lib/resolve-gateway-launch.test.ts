@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -176,7 +177,10 @@ describe("resolveGatewayLaunch", () => {
 
   test("fails when override path missing", () => {
     process.env[ENV_GATEWAY_EXECUTABLE] = join(tmpdir(), "nonexistent-gateway-xyz");
-    const r = resolveGatewayLaunch("/bin/nimbus", pathToFileURL("/tmp/x.ts").href);
+    const r = resolveGatewayLaunch(
+      "/bin/nimbus",
+      pathToFileURL(join(tmpdir(), `nimbus-resolve-test-${randomUUID()}.ts`)).href,
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.message).toContain("not found");
