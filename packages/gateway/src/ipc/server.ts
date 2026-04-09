@@ -164,19 +164,13 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   let agentInvokeHandler: AgentInvokeHandler | undefined = options.agentInvoke;
   const sessions = new Map<string, ClientSession>();
   const consentImpl = new ConsentCoordinatorImpl((clientId) => {
-    const s = sessions.get(clientId);
-    if (s === undefined) {
-      return undefined;
-    }
-    return (n) => {
-      s.writeNotification(n);
-    };
+    const session = sessions.get(clientId);
+    return session === undefined ? undefined : (n) => session.writeNotification(n);
   });
 
   let bunListener: ReturnType<typeof Bun.listen<BunSessionData>> | undefined;
   let netServer: net.Server | undefined;
   const winSockets = new Set<net.Socket>();
-  const stopNetSessions = new Set<ClientSession>();
 
   async function handleRpc(
     clientId: string,
@@ -250,6 +244,49 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     }
   }
 
+  async function dispatchVaultIfPresent(method: string, params: unknown): Promise<unknown | null> {
+    switch (method) {
+      case "vault.set": {
+        const rec = asRecord(params);
+        if (
+          rec === undefined ||
+          typeof rec["key"] !== "string" ||
+          typeof rec["value"] !== "string"
+        ) {
+          throw new RpcMethodError(-32602, "Invalid params");
+        }
+        assertWellFormedVaultKey(rec["key"]);
+        await options.vault.set(rec["key"], rec["value"]);
+        return { ok: true };
+      }
+      case "vault.get": {
+        const rec = asRecord(params);
+        if (rec === undefined || typeof rec["key"] !== "string") {
+          throw new RpcMethodError(-32602, "Invalid params");
+        }
+        assertWellFormedVaultKey(rec["key"]);
+        return await options.vault.get(rec["key"]);
+      }
+      case "vault.delete": {
+        const rec = asRecord(params);
+        if (rec === undefined || typeof rec["key"] !== "string") {
+          throw new RpcMethodError(-32602, "Invalid params");
+        }
+        assertWellFormedVaultKey(rec["key"]);
+        await options.vault.delete(rec["key"]);
+        return { ok: true };
+      }
+      case "vault.listKeys": {
+        const rec = asRecord(params);
+        const prefix =
+          rec !== undefined && typeof rec["prefix"] === "string" ? rec["prefix"] : undefined;
+        return await options.vault.listKeys(prefix);
+      }
+      default:
+        return null;
+    }
+  }
+
   async function dispatchMethod(
     clientId: string,
     session: ClientSession,
@@ -276,46 +313,6 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         return { ok: true };
       }
 
-      case "vault.set": {
-        const rec = asRecord(params);
-        if (
-          rec === undefined ||
-          typeof rec["key"] !== "string" ||
-          typeof rec["value"] !== "string"
-        ) {
-          throw new RpcMethodError(-32602, "Invalid params");
-        }
-        assertWellFormedVaultKey(rec["key"]);
-        await options.vault.set(rec["key"], rec["value"]);
-        return { ok: true };
-      }
-
-      case "vault.get": {
-        const rec = asRecord(params);
-        if (rec === undefined || typeof rec["key"] !== "string") {
-          throw new RpcMethodError(-32602, "Invalid params");
-        }
-        assertWellFormedVaultKey(rec["key"]);
-        return await options.vault.get(rec["key"]);
-      }
-
-      case "vault.delete": {
-        const rec = asRecord(params);
-        if (rec === undefined || typeof rec["key"] !== "string") {
-          throw new RpcMethodError(-32602, "Invalid params");
-        }
-        assertWellFormedVaultKey(rec["key"]);
-        await options.vault.delete(rec["key"]);
-        return { ok: true };
-      }
-
-      case "vault.listKeys": {
-        const rec = asRecord(params);
-        const prefix =
-          rec !== undefined && typeof rec["prefix"] === "string" ? rec["prefix"] : undefined;
-        return await options.vault.listKeys(prefix);
-      }
-
       case "audit.list": {
         const rec = asRecord(params);
         let limit = 100;
@@ -332,8 +329,13 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         return options.localIndex.listAudit(limit);
       }
 
-      default:
+      default: {
+        const vaultResult = await dispatchVaultIfPresent(method, params);
+        if (vaultResult !== null) {
+          return vaultResult;
+        }
         throw new RpcMethodError(-32601, `Method not found: ${method}`);
+      }
     }
   }
 
@@ -353,7 +355,6 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const session = attachSession((line) => {
       sock.write(line);
     });
-    stopNetSessions.add(session);
     sock.on("data", (buf: Buffer) => {
       session.push(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
     });
@@ -362,12 +363,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     });
     sock.on("close", () => {
       winSockets.delete(sock);
-      stopNetSessions.delete(session);
       session.dispose();
     });
     sock.on("error", () => {
       winSockets.delete(sock);
-      stopNetSessions.delete(session);
       session.dispose();
     });
   }
@@ -451,11 +450,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       if (netServer !== undefined) {
         const s = netServer;
         netServer = undefined;
-        for (const sock of [...winSockets]) {
+        for (const sock of winSockets) {
           sock.destroy();
         }
         winSockets.clear();
-        stopNetSessions.clear();
         await new Promise<void>((resolve) => {
           s.close(() => resolve());
         });
@@ -465,7 +463,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       if (bunListener !== undefined) {
         const l = bunListener;
         bunListener = undefined;
-        for (const sess of [...sessions.values()]) {
+        for (const sess of sessions.values()) {
           sess.dispose();
         }
         sessions.clear();

@@ -44,9 +44,7 @@ export function createConnectorDispatcher(client: McpToolListingClient): Connect
   async function tools(): Promise<
     Record<string, { execute?: (a: unknown, b?: unknown) => Promise<unknown> }>
   > {
-    if (toolsPromise === undefined) {
-      toolsPromise = client.listTools();
-    }
+    toolsPromise ??= client.listTools();
     return toolsPromise;
   }
 

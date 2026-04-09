@@ -21,6 +21,24 @@ function nimbusLabel(key: string): string {
   return `${LABEL_PREFIX}${key}`;
 }
 
+/**
+ * Parses `secret-tool search --all` stdout: each matched item includes a line
+ * `label = Nimbus: <vaultKey>` (see libsecret `secret-tool.c`).
+ * Exported for unit tests (runs on every OS); do not log or return secret values.
+ */
+export function extractNimbusVaultKeysFromSecretToolSearchOutput(raw: string): string[] {
+  const labelLine = /^label = Nimbus: (.+)$/gm;
+  const keys: string[] = [];
+  for (const m of raw.matchAll(labelLine)) {
+    const k = m[1]?.trim() ?? "";
+    if (k.length > 0) {
+      keys.push(k);
+    }
+  }
+  keys.sort(compareVaultKeysAlphabetically);
+  return keys;
+}
+
 function runSecretTool(args: string[], stdin?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(secretToolExecutable(), args, { stdio: ["pipe", "pipe", "ignore"] });
@@ -79,13 +97,7 @@ export class LinuxSecretToolVault implements NimbusVault {
     } catch {
       return [];
     }
-    const keys = raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith(LABEL_PREFIX))
-      .map((line) => line.slice(LABEL_PREFIX.length))
-      .filter((k) => k.length > 0)
-      .sort(compareVaultKeysAlphabetically);
+    const keys = extractNimbusVaultKeysFromSecretToolSearchOutput(raw);
     if (prefix === undefined || prefix.length === 0) {
       return keys;
     }

@@ -53,6 +53,18 @@ function idKey(id: string | number): string {
   return typeof id === "number" ? `n:${id}` : `s:${id}`;
 }
 
+function jsonRpcErrorMessage(err: unknown): string {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "message" in err &&
+    typeof (err as { message: unknown }).message === "string"
+  ) {
+    return (err as { message: string }).message;
+  }
+  return "JSON-RPC error";
+}
+
 export class IPCClient {
   private readonly socketPath: string;
   private reader = new NdjsonLineReader();
@@ -73,55 +85,69 @@ export class IPCClient {
     this.reader = new NdjsonLineReader();
 
     if (platform() === "win32") {
-      await new Promise<void>((resolve, reject) => {
-        const sock = net.createConnection(this.socketPath);
-        sock.on("connect", () => {
-          this.netSocket = sock;
-          this.connected = true;
-          resolve();
-        });
-        sock.on("error", (err) => {
-          reject(err);
-        });
-        sock.on("data", (buf: Buffer) => {
-          try {
-            this.ingest(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
-          } catch (e) {
-            this.failAll(e);
-          }
-        });
-        sock.on("close", () => {
-          this.connected = false;
-          this.netSocket = null;
-          this.failAll(new Error("IPC connection closed"));
-        });
-      });
+      await this.connectWindows();
       return;
     }
 
+    await this.connectUnix();
+  }
+
+  private async connectWindows(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const sock = net.createConnection(this.socketPath);
+      sock.on("connect", () => {
+        this.netSocket = sock;
+        this.connected = true;
+        resolve();
+      });
+      sock.on("error", (err) => {
+        reject(err);
+      });
+      sock.on("data", (buf: Buffer) => {
+        this.onTransportData(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+      });
+      sock.on("close", () => {
+        this.onWindowsClosed();
+      });
+    });
+  }
+
+  private async connectUnix(): Promise<void> {
     this.bunSocket = await Bun.connect({
       unix: this.socketPath,
       socket: {
         data: (_socket, chunk: Uint8Array) => {
-          try {
-            this.ingest(chunk);
-          } catch (e) {
-            this.failAll(e);
-          }
+          this.onTransportData(chunk);
         },
         close: () => {
-          this.connected = false;
-          this.bunSocket = null;
-          this.failAll(new Error("IPC connection closed"));
+          this.onUnixClosed(new Error("IPC connection closed"));
         },
         error: () => {
-          this.connected = false;
-          this.bunSocket = null;
-          this.failAll(new Error("IPC connection error"));
+          this.onUnixClosed(new Error("IPC connection error"));
         },
       },
     });
     this.connected = true;
+  }
+
+  private onTransportData(chunk: Uint8Array): void {
+    try {
+      this.ingest(chunk);
+    } catch (e) {
+      this.failAll(e);
+    }
+  }
+
+  private onWindowsClosed(): void {
+    this.connected = false;
+    this.netSocket = null;
+    this.failAll(new Error("IPC connection closed"));
+  }
+
+  private onUnixClosed(err: Error): void {
+    this.connected = false;
+    this.bunSocket = null;
+    this.failAll(err);
   }
 
   async call<T>(method: string, params?: unknown): Promise<T> {
@@ -195,38 +221,40 @@ export class IPCClient {
       return;
     }
     if (Object.hasOwn(o, "id")) {
-      const id = o["id"];
-      if (typeof id !== "string" && typeof id !== "number") {
-        return;
-      }
-      const pend = this.pending.get(idKey(id));
-      if (pend === undefined) {
-        return;
-      }
-      this.pending.delete(idKey(id));
-      if (Object.hasOwn(o, "error")) {
-        const err = o["error"];
-        const msg =
-          typeof err === "object" &&
-          err !== null &&
-          "message" in err &&
-          typeof (err as { message: unknown }).message === "string"
-            ? (err as { message: string }).message
-            : "JSON-RPC error";
-        pend.reject(new Error(msg));
-        return;
-      }
-      pend.resolve(Object.hasOwn(o, "result") ? o["result"] : undefined);
+      this.dispatchRpcLine(o);
       return;
     }
-    if (typeof o["method"] === "string") {
-      const params = Object.hasOwn(o, "params") ? o["params"] : undefined;
-      const set = this.notifHandlers.get(o["method"]);
-      if (set !== undefined) {
-        for (const h of set) {
-          h(params);
-        }
-      }
+    this.dispatchNotificationLine(o);
+  }
+
+  private dispatchRpcLine(o: Record<string, unknown>): void {
+    const id = o["id"];
+    if (typeof id !== "string" && typeof id !== "number") {
+      return;
+    }
+    const pend = this.pending.get(idKey(id));
+    if (pend === undefined) {
+      return;
+    }
+    this.pending.delete(idKey(id));
+    if (Object.hasOwn(o, "error")) {
+      pend.reject(new Error(jsonRpcErrorMessage(o["error"])));
+      return;
+    }
+    pend.resolve(Object.hasOwn(o, "result") ? o["result"] : undefined);
+  }
+
+  private dispatchNotificationLine(o: Record<string, unknown>): void {
+    if (typeof o["method"] !== "string") {
+      return;
+    }
+    const params = Object.hasOwn(o, "params") ? o["params"] : undefined;
+    const set = this.notifHandlers.get(o["method"]);
+    if (set === undefined) {
+      return;
+    }
+    for (const h of set) {
+      h(params);
     }
   }
 

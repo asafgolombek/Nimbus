@@ -163,6 +163,25 @@ describe("DarwinKeychainVault (macOS)", () => {
   });
 });
 
+describe("LinuxSecretToolVault search output parsing", () => {
+  test("extracts keys from secret-tool label lines", async () => {
+    const { extractNimbusVaultKeysFromSecretToolSearchOutput } = await import("./linux.ts");
+    const raw = `[/org/freedesktop/secrets/item/x]
+label = Nimbus: ci.t_1
+secret = x
+`;
+    expect(extractNimbusVaultKeysFromSecretToolSearchOutput(raw)).toEqual(["ci.t_1"]);
+  });
+
+  test("sorts keys alphabetically", async () => {
+    const { extractNimbusVaultKeysFromSecretToolSearchOutput } = await import("./linux.ts");
+    const raw = `label = Nimbus: z.a
+label = Nimbus: a.b
+`;
+    expect(extractNimbusVaultKeysFromSecretToolSearchOutput(raw)).toEqual(["a.b", "z.a"]);
+  });
+});
+
 describe("LinuxSecretToolVault (Linux)", () => {
   test("set, get, delete, listKeys round-trip via secret-tool", async () => {
     if (process.platform !== "linux") {

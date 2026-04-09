@@ -19,55 +19,70 @@ async function withIpc<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
   }
 }
 
+async function vaultSet(rest: string[]): Promise<void> {
+  const key = rest[0];
+  const value = rest[1];
+  if (key === undefined || value === undefined) {
+    throw new Error("Usage: nimbus vault set <key> <value>");
+  }
+  await withIpc((c) => c.call("vault.set", { key, value }));
+  console.log("Stored.");
+}
+
+async function vaultGet(rest: string[]): Promise<void> {
+  const key = rest[0];
+  if (key === undefined) {
+    throw new Error("Usage: nimbus vault get <key>");
+  }
+  const ok = await confirm({
+    message: "Secrets echo to this terminal. Continue?",
+  });
+  if (isCancel(ok) || ok !== true) {
+    return;
+  }
+  const v = await withIpc((c) => c.call<string | null>("vault.get", { key }));
+  console.log(v === null ? "(not set)" : v);
+}
+
+async function vaultDelete(rest: string[]): Promise<void> {
+  const key = rest[0];
+  if (key === undefined) {
+    throw new Error("Usage: nimbus vault delete <key>");
+  }
+  await withIpc((c) => c.call("vault.delete", { key }));
+  console.log("Deleted (if it existed).");
+}
+
+async function vaultList(rest: string[]): Promise<void> {
+  const prefix = rest[0];
+  const listKeysParams: { prefix?: string } = {};
+  if (prefix !== undefined) {
+    listKeysParams.prefix = prefix;
+  }
+  const keys = await withIpc((c) => c.call<string[]>("vault.listKeys", listKeysParams));
+  for (const k of keys) {
+    console.log(k);
+  }
+}
+
 export async function runVault(args: string[]): Promise<void> {
   const sub = args[0];
   const rest = args.slice(1);
 
   if (sub === "set") {
-    const key = rest[0];
-    const value = rest[1];
-    if (key === undefined || value === undefined) {
-      throw new Error("Usage: nimbus vault set <key> <value>");
-    }
-    await withIpc((c) => c.call("vault.set", { key, value }));
-    console.log("Stored.");
+    await vaultSet(rest);
     return;
   }
-
   if (sub === "get") {
-    const key = rest[0];
-    if (key === undefined) {
-      throw new Error("Usage: nimbus vault get <key>");
-    }
-    const ok = await confirm({
-      message: "Secrets echo to this terminal. Continue?",
-    });
-    if (isCancel(ok) || ok !== true) {
-      return;
-    }
-    const v = await withIpc((c) => c.call<string | null>("vault.get", { key }));
-    console.log(v === null ? "(not set)" : v);
+    await vaultGet(rest);
     return;
   }
-
   if (sub === "delete") {
-    const key = rest[0];
-    if (key === undefined) {
-      throw new Error("Usage: nimbus vault delete <key>");
-    }
-    await withIpc((c) => c.call("vault.delete", { key }));
-    console.log("Deleted (if it existed).");
+    await vaultDelete(rest);
     return;
   }
-
   if (sub === "list") {
-    const prefix = rest[0];
-    const keys = await withIpc((c) =>
-      c.call<string[]>("vault.listKeys", prefix === undefined ? {} : { prefix }),
-    );
-    for (const k of keys) {
-      console.log(k);
-    }
+    await vaultList(rest);
     return;
   }
 

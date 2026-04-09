@@ -18,46 +18,42 @@ import {
 
 const [, , command = "help", ...args] = process.argv;
 
-async function main(): Promise<void> {
-  intro("Nimbus");
+intro("Nimbus");
 
-  try {
-    switch (command) {
-      case "help":
-      case "--help":
-      case "-h":
-        printHelp();
-        break;
-      case "start":
-        await runStart(args);
-        break;
-      case "stop":
-        await runStop(args);
-        break;
-      case "status":
-        await runStatus(args);
-        break;
-      case "ask":
-        await runAsk(args);
-        break;
-      case "vault":
-        await runVault(args);
-        break;
-      case "audit":
-        await runAudit(args);
-        break;
-      default:
-        console.error(`Unknown command: ${command}`);
-        printHelp();
-        process.exitCode = 1;
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error(msg);
-    process.exitCode = 1;
+try {
+  switch (command) {
+    case "help":
+    case "--help":
+    case "-h":
+      printHelp();
+      break;
+    case "start":
+      await runStart(args);
+      break;
+    case "stop":
+      await runStop(args);
+      break;
+    case "status":
+      await runStatus(args);
+      break;
+    case "ask":
+      await runAsk(args);
+      break;
+    case "vault":
+      await runVault(args);
+      break;
+    case "audit":
+      await runAudit(args);
+      break;
+    default:
+      console.error(`Unknown command: ${command}`);
+      printHelp();
+      process.exitCode = 1;
   }
-
-  outro("Done.");
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(msg);
+  process.exitCode = 1;
 }
 
-main();
+outro("Done.");
