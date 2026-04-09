@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { LocalIndex } from "../index/local-index.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { createNimbusVault } from "../vault/factory.ts";
+import { openUrlInDefaultBrowser } from "./browser.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
 import type { PlatformPaths } from "./paths.ts";
 import type { AutostartManager, NotificationService, PlatformServices } from "./types.ts";
@@ -42,5 +43,6 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     localIndex,
     autostart: createStubAutostart(),
     notifications: createStubNotifications(),
+    openUrl: openUrlInDefaultBrowser,
   };
 }

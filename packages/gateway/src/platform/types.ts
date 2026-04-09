@@ -20,4 +20,6 @@ export interface PlatformServices {
   localIndex: LocalIndex;
   autostart: AutostartManager;
   notifications: NotificationService;
+  /** Opens a URL in the system default browser (OAuth, help links). */
+  openUrl(url: string): Promise<void>;
 }

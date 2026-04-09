@@ -27,6 +27,7 @@ describe("Platform Abstraction Layer", () => {
     expect(typeof services.localIndex.listAudit).toBe("function");
     expect(services.autostart).toBeDefined();
     expect(services.notifications).toBeDefined();
+    expect(typeof services.openUrl).toBe("function");
 
     const { paths } = services;
     for (const key of [
