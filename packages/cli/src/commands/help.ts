@@ -12,5 +12,8 @@ Usage:
   nimbus vault list [pfx]   List vault key names
   nimbus audit [--limit N]  Recent HITL audit rows
   nimbus help               Show this message
+
+Environment (optional):
+  NIMBUS_GATEWAY_EXECUTABLE   Path to nimbus-gateway binary (overrides auto-detection)
 `);
 }

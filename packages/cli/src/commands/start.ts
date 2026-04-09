@@ -6,7 +6,7 @@ import {
   isProcessAlive,
   readGatewayState,
 } from "../lib/gateway-process.ts";
-import { getRepoRoot } from "../lib/repo-root.ts";
+import { resolveGatewayLaunch } from "../lib/resolve-gateway-launch.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
 export async function runStart(_args: string[]): Promise<void> {
@@ -22,13 +22,20 @@ export async function runStart(_args: string[]): Promise<void> {
   const s = spinner();
   s.start("Starting Gateway");
 
-  const repoRoot = getRepoRoot();
+  const launch = resolveGatewayLaunch(process.execPath, import.meta.url);
+  if (!launch.ok) {
+    s.stop("Could not start Gateway");
+    console.error(launch.message);
+    process.exitCode = 1;
+    return;
+  }
+
   const logPath = `${paths.logDir}/gateway.log`;
   const logFile = Bun.file(logPath);
 
   const proc = Bun.spawn({
-    cmd: [process.execPath, "run", "packages/gateway/src/index.ts"],
-    cwd: repoRoot,
+    cmd: launch.cmd,
+    ...(launch.cwd !== undefined ? { cwd: launch.cwd } : {}),
     stdin: "ignore",
     stdout: logFile,
     stderr: logFile,
