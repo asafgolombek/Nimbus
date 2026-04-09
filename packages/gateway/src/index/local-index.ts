@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
+import { SCHEDULER_V2_MIGRATION_SQL } from "./scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "./schema-sql.ts";
 
 export const RAW_META_MAX_BYTES = 65_536;
@@ -96,23 +97,31 @@ function readUserVersion(db: Database): number {
 }
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 1;
+  static readonly SCHEMA_VERSION = 2;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
    */
   static ensureSchema(db: Database): void {
-    const ver = readUserVersion(db);
+    let ver = readUserVersion(db);
     if (ver >= LocalIndex.SCHEMA_VERSION) {
       return;
     }
-    if (ver !== 0) {
+    if (ver === 0) {
+      db.exec(INITIAL_SCHEMA_SQL);
+      ver = 1;
+      db.exec("PRAGMA user_version = 1");
+    }
+    if (ver === 1) {
+      db.exec(SCHEDULER_V2_MIGRATION_SQL);
+      ver = 2;
+      db.exec("PRAGMA user_version = 2");
+    }
+    if (ver !== LocalIndex.SCHEMA_VERSION) {
       throw new Error(
-        `Unsupported local index schema version: ${ver} (expected 0 or ${String(LocalIndex.SCHEMA_VERSION)})`,
+        `Unsupported local index schema version: ${String(ver)} (expected 0, 1, or ${String(LocalIndex.SCHEMA_VERSION)})`,
       );
     }
-    db.exec(INITIAL_SCHEMA_SQL);
-    db.exec(`PRAGMA user_version = ${String(LocalIndex.SCHEMA_VERSION)}`);
   }
 
   constructor(private readonly db: Database) {}
