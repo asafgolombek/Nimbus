@@ -11,9 +11,11 @@ export type ClassifiedIntent = {
   confidence: number;
 };
 
+const JSON_FENCE_PATTERN = /```(?:json)?\s*([\s\S]*?)```/;
+
 function extractJsonObject(text: string): string {
   const t = text.trim();
-  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const fence = JSON_FENCE_PATTERN.exec(t);
   if (fence?.[1] !== undefined) {
     return fence[1].trim();
   }
@@ -31,6 +33,57 @@ function resolveAnthropicModelId(configured: string): string {
     return s.slice("anthropic/".length);
   }
   return s;
+}
+
+function parseClassifierJsonObject(
+  raw: string,
+  parseErrorMessage: string,
+): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error(parseErrorMessage);
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Classifier JSON not an object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function normalizeIntent(intentRaw: unknown): IntentClass {
+  if (intentRaw === "file_search" || intentRaw === "file_organize" || intentRaw === "unknown") {
+    return intentRaw;
+  }
+  return "unknown";
+}
+
+function normalizeConfidence(confidenceRaw: unknown): number {
+  return typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
+    ? Math.min(1, Math.max(0, confidenceRaw))
+    : 0;
+}
+
+function normalizeEntities(entitiesRaw: unknown): Record<string, string> {
+  const entities: Record<string, string> = {};
+  if (entitiesRaw !== null && typeof entitiesRaw === "object" && !Array.isArray(entitiesRaw)) {
+    for (const [k, v] of Object.entries(entitiesRaw as Record<string, unknown>)) {
+      if (typeof v === "string") {
+        entities[k] = v;
+      }
+    }
+  }
+  return entities;
+}
+
+function classifiedFromObject(o: Record<string, unknown>): ClassifiedIntent {
+  const intent = normalizeIntent(o["intent"]);
+  const confidence = normalizeConfidence(o["confidence"]);
+  const entities = normalizeEntities(o["entities"]);
+  const requiresHITLRaw = o["requiresHITL"];
+  const requiresHITL =
+    typeof requiresHITLRaw === "boolean" ? requiresHITLRaw : intent === "file_organize";
+  return { intent, entities, requiresHITL, confidence };
 }
 
 async function anthropicClassify(
@@ -75,44 +128,8 @@ Rules:
   const block = body.content?.find((c) => c.type === "text");
   const text = block?.text ?? "";
   const raw = extractJsonObject(text);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch {
-    throw new Error("Classifier returned non-JSON");
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Classifier JSON not an object");
-  }
-  const o = parsed as Record<string, unknown>;
-  const intentRaw = o["intent"];
-  const confidenceRaw = o["confidence"];
-  const entitiesRaw = o["entities"];
-  const requiresHITLRaw = o["requiresHITL"];
-
-  let intent: IntentClass = "unknown";
-  if (intentRaw === "file_search" || intentRaw === "file_organize" || intentRaw === "unknown") {
-    intent = intentRaw;
-  }
-
-  const confidence =
-    typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
-      ? Math.min(1, Math.max(0, confidenceRaw))
-      : 0;
-
-  const entities: Record<string, string> = {};
-  if (entitiesRaw !== null && typeof entitiesRaw === "object" && !Array.isArray(entitiesRaw)) {
-    for (const [k, v] of Object.entries(entitiesRaw as Record<string, unknown>)) {
-      if (typeof v === "string") {
-        entities[k] = v;
-      }
-    }
-  }
-
-  const requiresHITL =
-    typeof requiresHITLRaw === "boolean" ? requiresHITLRaw : intent === "file_organize";
-
-  return { intent, entities, requiresHITL, confidence };
+  const o = parseClassifierJsonObject(raw, "Classifier returned non-JSON");
+  return classifiedFromObject(o);
 }
 
 async function openAiClassify(
@@ -153,34 +170,8 @@ unknown: else.`,
   };
   const text = body.choices?.[0]?.message?.content ?? "";
   const raw = extractJsonObject(text);
-  const parsed: unknown = JSON.parse(raw) as unknown;
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Classifier JSON not an object");
-  }
-  const o = parsed as Record<string, unknown>;
-  const intentRaw = o["intent"];
-  let intent: IntentClass = "unknown";
-  if (intentRaw === "file_search" || intentRaw === "file_organize" || intentRaw === "unknown") {
-    intent = intentRaw;
-  }
-  const confidenceRaw = o["confidence"];
-  const confidence =
-    typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
-      ? Math.min(1, Math.max(0, confidenceRaw))
-      : 0;
-  const entities: Record<string, string> = {};
-  const entitiesRaw = o["entities"];
-  if (entitiesRaw !== null && typeof entitiesRaw === "object" && !Array.isArray(entitiesRaw)) {
-    for (const [k, v] of Object.entries(entitiesRaw as Record<string, unknown>)) {
-      if (typeof v === "string") {
-        entities[k] = v;
-      }
-    }
-  }
-  const requiresHITLRaw = o["requiresHITL"];
-  const requiresHITL =
-    typeof requiresHITLRaw === "boolean" ? requiresHITLRaw : intent === "file_organize";
-  return { intent, entities, requiresHITL, confidence };
+  const o = parseClassifierJsonObject(raw, "Classifier returned non-JSON");
+  return classifiedFromObject(o);
 }
 
 /**

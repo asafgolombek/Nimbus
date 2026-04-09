@@ -11,7 +11,7 @@
  */
 
 export class MockGateway {
-  // TODO Q3: Implement mock Gateway for extension testing
+  // Roadmap Q3: mock Gateway for extension testing
   async callTool(_toolName: string, _input: Record<string, unknown>): Promise<unknown> {
     return {};
   }

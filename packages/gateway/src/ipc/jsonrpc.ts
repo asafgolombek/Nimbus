@@ -46,9 +46,6 @@ export function encodeLine(message: JsonRpcOutbound): string {
 
 export class JsonRpcParseError extends Error {
   override readonly name = "JsonRpcParseError";
-  constructor(message: string) {
-    super(message);
-  }
 }
 
 function byteLengthUtf8(s: string): number {
@@ -59,7 +56,7 @@ function byteLengthUtf8(s: string): number {
  * Incrementally buffers UTF-8 chunks and emits complete non-empty lines (trimmed of trailing \r).
  */
 export class NdjsonLineReader {
-  private decoder = new TextDecoder("utf-8", { fatal: false });
+  private readonly decoder = new TextDecoder("utf-8", { fatal: false });
   private pending = "";
 
   push(chunk: Uint8Array): string[] {

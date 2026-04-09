@@ -207,6 +207,49 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     }
   }
 
+  function sendAgentChunkIfStreaming(session: ClientSession, stream: boolean, text: string): void {
+    if (!stream) {
+      return;
+    }
+    session.writeNotification({
+      jsonrpc: "2.0",
+      method: "agent.chunk",
+      params: { text },
+    });
+  }
+
+  async function dispatchAgentInvoke(
+    clientId: string,
+    session: ClientSession,
+    params: unknown,
+  ): Promise<unknown> {
+    const rec = asRecord(params);
+    const input = rec !== undefined && typeof rec["input"] === "string" ? rec["input"] : "";
+    const stream = rec?.["stream"] === true;
+    const handler = agentInvokeHandler;
+    if (handler === undefined) {
+      return {
+        reply: `Agent invoke is not configured (no handler). Echo: ${input.slice(0, 500)}`,
+        stream,
+      };
+    }
+    try {
+      return await handler({
+        clientId,
+        input,
+        stream,
+        sendChunk: (text: string) => {
+          sendAgentChunkIfStreaming(session, stream, text);
+        },
+      });
+    } catch (e) {
+      if (e instanceof GatewayAgentUnavailableError) {
+        throw new RpcMethodError(-32000, e.message);
+      }
+      throw e;
+    }
+  }
+
   async function dispatchMethod(
     clientId: string,
     session: ClientSession,
@@ -222,40 +265,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
           uptime: Date.now() - startedAtMs,
         };
 
-      case "agent.invoke": {
-        const rec = asRecord(params);
-        const input = rec !== undefined && typeof rec["input"] === "string" ? rec["input"] : "";
-        const stream = rec?.["stream"] === true;
-        const handler = agentInvokeHandler;
-        if (handler === undefined) {
-          return {
-            reply: `Agent invoke is not configured (no handler). Echo: ${input.slice(0, 500)}`,
-            stream,
-          };
-        }
-        try {
-          return await handler({
-            clientId,
-            input,
-            stream,
-            sendChunk: (text: string) => {
-              if (!stream) {
-                return;
-              }
-              session.writeNotification({
-                jsonrpc: "2.0",
-                method: "agent.chunk",
-                params: { text },
-              });
-            },
-          });
-        } catch (e) {
-          if (e instanceof GatewayAgentUnavailableError) {
-            throw new RpcMethodError(-32000, e.message);
-          }
-          throw e;
-        }
-      }
+      case "agent.invoke":
+        return await dispatchAgentInvoke(clientId, session, params);
 
       case "consent.respond": {
         const err = consentImpl.handleRespond(clientId, params);
@@ -337,6 +348,87 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return session;
   }
 
+  function attachWin32Socket(sock: net.Socket): void {
+    winSockets.add(sock);
+    const session = attachSession((line) => {
+      sock.write(line);
+    });
+    stopNetSessions.add(session);
+    sock.on("data", (buf: Buffer) => {
+      session.push(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+    });
+    sock.on("end", () => {
+      session.endInput();
+    });
+    sock.on("close", () => {
+      winSockets.delete(sock);
+      stopNetSessions.delete(session);
+      session.dispose();
+    });
+    sock.on("error", () => {
+      winSockets.delete(sock);
+      stopNetSessions.delete(session);
+      session.dispose();
+    });
+  }
+
+  async function startWin32NetServer(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const server = net.createServer(attachWin32Socket);
+      netServer = server;
+      server.listen(options.listenPath, () => {
+        resolve();
+      });
+      server.on("error", (err) => {
+        reject(err);
+      });
+    });
+  }
+
+  function removeStaleUnixSocketIfPresent(listenPath: string): void {
+    if (!existsSync(listenPath)) {
+      return;
+    }
+    try {
+      unlinkSync(listenPath);
+    } catch {
+      /* stale or race — bind will surface EADDRINUSE */
+    }
+  }
+
+  function startBunUnixListener(): void {
+    bunListener = Bun.listen<BunSessionData>({
+      unix: options.listenPath,
+      socket: {
+        open(socket) {
+          const session = attachSession((line) => {
+            socket.write(line);
+          });
+          socket.data = { session };
+        },
+        data(socket, data: Uint8Array) {
+          socket.data.session.push(data);
+        },
+        close(socket) {
+          const s = socket.data.session;
+          s.endInput();
+          s.dispose();
+        },
+        error(socket) {
+          socket.data.session?.dispose();
+        },
+      },
+    });
+  }
+
+  function chmodListenSocketBestEffort(listenPath: string): void {
+    try {
+      chmodSync(listenPath, 0o600);
+    } catch {
+      /* best-effort — platform-specific */
+    }
+  }
+
   return {
     listenPath: options.listenPath,
     consent: consentImpl,
@@ -345,77 +437,13 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     },
     async start(): Promise<void> {
       if (platform() === "win32") {
-        await new Promise<void>((resolve, reject) => {
-          const server = net.createServer((sock) => {
-            winSockets.add(sock);
-            const session = attachSession((line) => {
-              sock.write(line);
-            });
-            stopNetSessions.add(session);
-            sock.on("data", (buf: Buffer) => {
-              session.push(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
-            });
-            sock.on("end", () => {
-              session.endInput();
-            });
-            sock.on("close", () => {
-              winSockets.delete(sock);
-              stopNetSessions.delete(session);
-              session.dispose();
-            });
-            sock.on("error", () => {
-              winSockets.delete(sock);
-              stopNetSessions.delete(session);
-              session.dispose();
-            });
-          });
-          netServer = server;
-          server.listen(options.listenPath, () => {
-            resolve();
-          });
-          server.on("error", (err) => {
-            reject(err);
-          });
-        });
+        await startWin32NetServer();
         return;
       }
 
-      if (existsSync(options.listenPath)) {
-        try {
-          unlinkSync(options.listenPath);
-        } catch {
-          /* stale or race — bind will surface EADDRINUSE */
-        }
-      }
-
-      bunListener = Bun.listen<BunSessionData>({
-        unix: options.listenPath,
-        socket: {
-          open(socket) {
-            const session = attachSession((line) => {
-              socket.write(line);
-            });
-            socket.data = { session };
-          },
-          data(socket, data: Uint8Array) {
-            socket.data.session.push(data);
-          },
-          close(socket) {
-            const s = socket.data.session;
-            s.endInput();
-            s.dispose();
-          },
-          error(socket) {
-            socket.data.session?.dispose();
-          },
-        },
-      });
-
-      try {
-        chmodSync(options.listenPath, 0o600);
-      } catch {
-        /* best-effort — platform-specific */
-      }
+      removeStaleUnixSocketIfPresent(options.listenPath);
+      startBunUnixListener();
+      chmodListenSocketBestEffort(options.listenPath);
     },
 
     async stop(): Promise<void> {

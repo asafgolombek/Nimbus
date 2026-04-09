@@ -58,7 +58,9 @@ export function createConnectorDispatcher(client: McpToolListingClient): Connect
         typeof fromPayload === "string" && fromPayload.length > 0 ? fromPayload : action.type;
       const tool = map[toolId];
       if (tool === undefined) {
-        const available = Object.keys(map).sort().join(", ");
+        const available = Object.keys(map)
+          .sort((a, b) => a.localeCompare(b))
+          .join(", ");
         throw new Error(`No MCP tool "${toolId}". Available: ${available}`);
       }
       const execute = tool.execute;

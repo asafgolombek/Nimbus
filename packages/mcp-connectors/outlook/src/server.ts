@@ -30,6 +30,6 @@ const server = new NimbusExtensionServer({
   },
 });
 
-// TODO Q2: Register Outlook tools (list, get, search, draft, send, delete)
+// Roadmap Q2: register Outlook tools (list, get, search, draft, send, delete)
 
 server.start();

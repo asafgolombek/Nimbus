@@ -6,7 +6,7 @@
  * - Task Planner — `planner.ts`
  * - Mastra agent (read-only tools) — `agent.ts`
  * - HITL Consent Gate + Tool Executor — `executor.ts`
- * - Memory Layer (hybrid RAG) — TODO Q3+
+ * - Memory Layer (hybrid RAG) — roadmap Q3+
  *
  * See architecture.md §Subsystem 1: The Nimbus Engine
  */

@@ -31,6 +31,6 @@ const server = new NimbusExtensionServer({
   },
 });
 
-// TODO Q2: Register OneDrive tools (list, get, search, create, update, move, delete)
+// Roadmap Q2: register OneDrive tools (list, get, search, create, update, move, delete)
 
 server.start();

@@ -15,7 +15,7 @@ import { platform } from "node:os";
 const IPC_MAX_LINE_BYTES = 1024 * 1024;
 
 class NdjsonLineReader {
-  private decoder = new TextDecoder("utf-8", { fatal: false });
+  private readonly decoder = new TextDecoder("utf-8", { fatal: false });
   private pending = "";
 
   push(chunk: Uint8Array): string[] {
@@ -56,8 +56,8 @@ function idKey(id: string | number): string {
 export class IPCClient {
   private readonly socketPath: string;
   private reader = new NdjsonLineReader();
-  private pending = new Map<string, Pending>();
-  private notifHandlers = new Map<string, Set<(params: unknown) => void>>();
+  private readonly pending = new Map<string, Pending>();
+  private readonly notifHandlers = new Map<string, Set<(params: unknown) => void>>();
   private bunSocket: Awaited<ReturnType<typeof Bun.connect>> | null = null;
   private netSocket: net.Socket | null = null;
   private connected = false;
@@ -99,26 +99,25 @@ export class IPCClient {
       return;
     }
 
-    const client = this;
     this.bunSocket = await Bun.connect({
       unix: this.socketPath,
       socket: {
-        data(_socket, chunk: Uint8Array) {
+        data: (_socket, chunk: Uint8Array) => {
           try {
-            client.ingest(chunk);
+            this.ingest(chunk);
           } catch (e) {
-            client.failAll(e);
+            this.failAll(e);
           }
         },
-        close() {
-          client.connected = false;
-          client.bunSocket = null;
-          client.failAll(new Error("IPC connection closed"));
+        close: () => {
+          this.connected = false;
+          this.bunSocket = null;
+          this.failAll(new Error("IPC connection closed"));
         },
-        error() {
-          client.connected = false;
-          client.bunSocket = null;
-          client.failAll(new Error("IPC connection error"));
+        error: () => {
+          this.connected = false;
+          this.bunSocket = null;
+          this.failAll(new Error("IPC connection error"));
         },
       },
     });
