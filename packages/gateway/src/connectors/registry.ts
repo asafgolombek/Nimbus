@@ -1,20 +1,18 @@
-import { MCPClient } from "@mastra/mcp";
-
 import type { ConnectorDispatcher, PlannedAction } from "../engine/types.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
+
+export { createLazyConnectorMesh, LazyConnectorMesh };
 
 /**
- * Q1 filesystem-only MCP mesh. Cloud connectors are Q2+.
+ * Filesystem MCP (always) + optional lazy Google Drive MCP when `google.oauth` exists in Vault.
  */
-export async function buildConnectorMesh(paths: PlatformPaths): Promise<MCPClient> {
-  return new MCPClient({
-    servers: {
-      filesystem: {
-        command: "bunx",
-        args: ["@modelcontextprotocol/server-filesystem", paths.dataDir],
-      },
-    },
-  });
+export async function buildConnectorMesh(
+  paths: PlatformPaths,
+  vault: NimbusVault,
+): Promise<LazyConnectorMesh> {
+  return createLazyConnectorMesh(paths, vault);
 }
 
 /** Minimal surface needed to dispatch tools (MCPClient satisfies this at runtime). */
@@ -27,6 +25,8 @@ export type McpToolListingClient = {
       }
     >
   >;
+  /** When tool sets change (lazy MCP), bump this so dispatchers refresh their cache. */
+  getToolsEpoch?: () => number;
 };
 
 /**
@@ -40,11 +40,16 @@ export type McpToolListingClient = {
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;
+  let cachedEpoch = -1;
 
   async function tools(): Promise<
     Record<string, { execute?: (a: unknown, b?: unknown) => Promise<unknown> }>
   > {
-    toolsPromise ??= client.listTools();
+    const epoch = client.getToolsEpoch?.() ?? 0;
+    if (toolsPromise === undefined || epoch !== cachedEpoch) {
+      cachedEpoch = epoch;
+      toolsPromise = client.listTools();
+    }
     return toolsPromise;
   }
 

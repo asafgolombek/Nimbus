@@ -120,7 +120,7 @@ export function setIntervalMs(db: Database, serviceId: string, intervalMs: numbe
 }
 
 export function countItemsForService(db: Database, serviceId: string): number {
-  const row = db.query(`SELECT COUNT(*) as c FROM items WHERE service = ?`).get(serviceId) as
+  const row = db.query(`SELECT COUNT(*) as c FROM item WHERE service = ?`).get(serviceId) as
     | { c: number }
     | null
     | undefined;
@@ -134,7 +134,7 @@ export function countItemsForAnyService(db: Database, services: readonly string[
   }
   const placeholders = services.map(() => "?").join(",");
   const row = db
-    .query(`SELECT COUNT(*) as c FROM items WHERE service IN (${placeholders})`)
+    .query(`SELECT COUNT(*) as c FROM item WHERE service IN (${placeholders})`)
     .get(...services) as { c: number } | null | undefined;
   const c = row?.c;
   return typeof c === "number" && Number.isFinite(c) ? Math.floor(c) : 0;

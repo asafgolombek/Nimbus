@@ -2,6 +2,8 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
 
+import { createGoogleDriveSyncable } from "../connectors/google-drive-sync.ts";
+import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
@@ -47,6 +49,12 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       },
     },
   );
+  const connectorMesh = await createLazyConnectorMesh(paths, vault);
+  syncScheduler.register(
+    createGoogleDriveSyncable({
+      ensureGoogleDriveRunning: () => connectorMesh.ensureGoogleDriveRunning(),
+    }),
+  );
   syncScheduler.start();
   return {
     vault,
@@ -60,6 +68,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     }),
     paths,
     localIndex,
+    connectorMesh,
     syncScheduler,
     autostart: createStubAutostart(),
     notifications,
