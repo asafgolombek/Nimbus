@@ -3,12 +3,15 @@ import { Config } from "../config.ts";
 import {
   type ConnectorServiceId,
   defaultSyncIntervalMsForService,
+  GOOGLE_CONNECTOR_SERVICES,
+  MICROSOFT_CONNECTOR_SERVICES,
   normalizeConnectorServiceId,
   oauthProfileForService,
 } from "../connectors/connector-catalog.ts";
 import { clearOAuthVaultIfProviderUnused } from "../connectors/connector-vault.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
+import { countItemsForService, listRecentSyncTelemetry } from "../sync/scheduler-store.ts";
 import type { SyncStatus } from "../sync/types.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
@@ -41,6 +44,20 @@ function requireRegisteredConnector(localIndex: LocalIndex, id: ConnectorService
   if (localIndex.persistedConnectorStatuses(id).length === 0) {
     throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
   }
+}
+
+function sumItemsSiblingServices(
+  db: import("bun:sqlite").Database,
+  serviceId: ConnectorServiceId,
+  family: ReadonlySet<string>,
+): number {
+  let n = 0;
+  for (const s of family) {
+    if (s !== serviceId) {
+      n += countItemsForService(db, s);
+    }
+  }
+  return n;
 }
 
 function parseServiceArg(rec: Record<string, unknown> | undefined): ConnectorServiceId {
@@ -126,13 +143,51 @@ export async function dispatchConnectorRpc(options: {
       if (rows.length === 0) {
         throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
       }
-      return { kind: "hit", value: rows[0] };
+      const row = rows[0];
+      if (row === undefined) {
+        throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
+      }
+      const includeStats = rec?.["includeStats"] === true || rec?.["stats"] === true;
+      if (!includeStats) {
+        return { kind: "hit", value: row };
+      }
+      const telemetry = listRecentSyncTelemetry(localIndex.getDatabase(), id, 15);
+      return { kind: "hit", value: { ...row, telemetry } };
     }
 
     case "connector.remove": {
       const id = requireServiceId(rec);
+      const db = localIndex.getDatabase();
+      let googleOAuthBackup: string | null = null;
+      let microsoftOAuthBackup: string | null = null;
+      if (
+        GOOGLE_CONNECTOR_SERVICES.has(id) &&
+        sumItemsSiblingServices(db, id, GOOGLE_CONNECTOR_SERVICES) === 0
+      ) {
+        googleOAuthBackup = await vault.get("google.oauth");
+      }
+      if (
+        MICROSOFT_CONNECTOR_SERVICES.has(id) &&
+        sumItemsSiblingServices(db, id, MICROSOFT_CONNECTOR_SERVICES) === 0
+      ) {
+        microsoftOAuthBackup = await vault.get("microsoft.oauth");
+      }
+      if (syncScheduler !== undefined) {
+        syncScheduler.unregister(id);
+      }
       const itemsDeleted = localIndex.removeConnectorIndexData(id);
-      const vaultKeys = await clearOAuthVaultIfProviderUnused(vault, localIndex.getDatabase(), id);
+      let vaultKeys: string[] = [];
+      try {
+        vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
+      } catch (removeErr) {
+        if (googleOAuthBackup !== null) {
+          await vault.set("google.oauth", googleOAuthBackup);
+        }
+        if (microsoftOAuthBackup !== null) {
+          await vault.set("microsoft.oauth", microsoftOAuthBackup);
+        }
+        throw removeErr;
+      }
       return { kind: "hit", value: { ok: true, itemsDeleted, vaultKeysRemoved: vaultKeys } };
     }
 

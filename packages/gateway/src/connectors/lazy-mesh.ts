@@ -12,13 +12,18 @@ function googleDriveMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "google-drive", "src", "server.ts");
 }
 
+function gmailMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "gmail", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google Drive MCP (Q2 §1.6).
- * Increments {@link getToolsEpoch} when the Drive child starts or stops so tool caches refresh.
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail) (Q2 §1.6).
+ * Increments {@link getToolsEpoch} when the Google children start or stop so tool caches refresh.
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
-  private googleDriveClient: MCPClient | undefined;
+  private googleBundleClient: MCPClient | undefined;
   private googleIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
@@ -58,13 +63,13 @@ export class LazyConnectorMesh {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
       this.googleIdleTimer = undefined;
-      void this.stopGoogleDrive();
+      void this.stopGoogleBundle();
     }, this.inactivityMs);
   }
 
-  private async stopGoogleDrive(): Promise<void> {
-    const c = this.googleDriveClient;
-    this.googleDriveClient = undefined;
+  private async stopGoogleBundle(): Promise<void> {
+    const c = this.googleBundleClient;
+    this.googleBundleClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -75,19 +80,25 @@ export class LazyConnectorMesh {
     }
   }
 
+  /** Starts the Google Drive + Gmail MCP subprocesses when `google.oauth` is present (shared token). */
   async ensureGoogleDriveRunning(): Promise<void> {
     this.clearGoogleIdleTimer();
-    if (this.googleDriveClient !== undefined) {
+    if (this.googleBundleClient !== undefined) {
       this.scheduleGoogleDisconnect();
       return;
     }
     const token = await getValidGoogleAccessToken(this.vault);
-    this.googleDriveClient = new MCPClient({
-      id: `nimbus-gdrive-${String(Date.now())}`,
+    this.googleBundleClient = new MCPClient({
+      id: `nimbus-google-${String(Date.now())}`,
       servers: {
         google_drive: {
           command: "bun",
           args: [googleDriveMcpScriptPath()],
+          env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
+        },
+        gmail: {
+          command: "bun",
+          args: [gmailMcpScriptPath()],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
         },
       },
@@ -105,7 +116,7 @@ export class LazyConnectorMesh {
     }
     const fsTools = await this.filesystem.listTools();
     const gdTools =
-      this.googleDriveClient !== undefined ? await this.googleDriveClient.listTools() : {};
+      this.googleBundleClient !== undefined ? await this.googleBundleClient.listTools() : {};
     return { ...fsTools, ...gdTools } as Record<
       string,
       { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
@@ -114,7 +125,7 @@ export class LazyConnectorMesh {
 
   async disconnect(): Promise<void> {
     this.clearGoogleIdleTimer();
-    await this.stopGoogleDrive();
+    await this.stopGoogleBundle();
     try {
       await this.filesystem.disconnect();
     } catch {

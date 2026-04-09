@@ -1,0 +1,461 @@
+import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
+import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+
+const SERVICE_ID = "gmail";
+const CURSOR_PREFIX = "nimbus-gml1:";
+const LIST_PAGE_SIZE = 50;
+
+type MessageListEntry = { id?: string; threadId?: string };
+
+type MessagesListResponse = {
+  messages?: MessageListEntry[];
+  nextPageToken?: string;
+  resultSizeEstimate?: number;
+};
+
+type MessageHeader = { name?: string; value?: string };
+
+type MessagePayload = {
+  mimeType?: string;
+  headers?: MessageHeader[];
+};
+
+type GmailMessageResource = {
+  id?: string;
+  threadId?: string;
+  snippet?: string;
+  internalDate?: string;
+  labelIds?: string[];
+  payload?: MessagePayload;
+};
+
+type HistoryRecord = {
+  id?: string;
+  messages?: Array<{ id?: string; threadId?: string }>;
+  messagesAdded?: Array<{ message?: GmailMessageResource }>;
+  messagesDeleted?: Array<{ message?: { id?: string } }>;
+};
+
+type HistoryListResponse = {
+  history?: HistoryRecord[];
+  nextPageToken?: string;
+  historyId?: string;
+};
+
+type ProfileResponse = {
+  emailAddress?: string;
+  historyId?: string;
+  messagesTotal?: number;
+};
+
+export type GmailSyncCursorV1 =
+  | { v: 1; phase: "list"; q: string; pageToken: string | null }
+  | { v: 1; phase: "delta"; startHistoryId: string; pageToken: string | null };
+
+export function encodeGmailSyncCursor(c: GmailSyncCursorV1): string {
+  return CURSOR_PREFIX + Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+}
+
+export function decodeGmailSyncCursor(raw: string): GmailSyncCursorV1 | undefined {
+  if (!raw.startsWith(CURSOR_PREFIX)) {
+    return undefined;
+  }
+  try {
+    const json = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
+    const o: unknown = JSON.parse(json);
+    if (o === null || typeof o !== "object" || Array.isArray(o)) {
+      return undefined;
+    }
+    const r = o as Record<string, unknown>;
+    if (r["v"] !== 1) {
+      return undefined;
+    }
+    const phase = r["phase"];
+    if (phase === "list") {
+      const q = r["q"];
+      const pageToken = r["pageToken"];
+      if (typeof q !== "string") {
+        return undefined;
+      }
+      if (pageToken !== null && typeof pageToken !== "string") {
+        return undefined;
+      }
+      return { v: 1, phase: "list", q, pageToken: pageToken === null ? null : pageToken };
+    }
+    if (phase === "delta") {
+      const startHistoryId = r["startHistoryId"];
+      const pageToken = r["pageToken"];
+      if (typeof startHistoryId !== "string" || startHistoryId === "") {
+        return undefined;
+      }
+      if (pageToken !== null && typeof pageToken !== "string") {
+        return undefined;
+      }
+      return {
+        v: 1,
+        phase: "delta",
+        startHistoryId,
+        pageToken: pageToken === null ? null : pageToken,
+      };
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function headerFrom(payload: MessagePayload | undefined, name: string): string | null {
+  const headers = payload?.headers;
+  if (!Array.isArray(headers)) {
+    return null;
+  }
+  const lower = name.toLowerCase();
+  for (const h of headers) {
+    if (
+      typeof h?.name === "string" &&
+      h.name.toLowerCase() === lower &&
+      typeof h.value === "string"
+    ) {
+      return h.value;
+    }
+  }
+  return null;
+}
+
+function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: number): void {
+  const id = m.id;
+  if (id === undefined || id === "") {
+    return;
+  }
+  const subject = headerFrom(m.payload, "Subject") ?? "(no subject)";
+  const snippet = typeof m.snippet === "string" ? m.snippet : "";
+  const preview = snippet.length > 512 ? snippet.slice(0, 512) : snippet;
+  const internal = m.internalDate !== undefined ? Number(m.internalDate) : now;
+  const modifiedAt = Number.isFinite(internal) ? internal : now;
+  const threadId = typeof m.threadId === "string" ? m.threadId : "";
+  const from = headerFrom(m.payload, "From");
+  const to = headerFrom(m.payload, "To");
+  const url =
+    threadId !== ""
+      ? `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(threadId)}`
+      : `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(id)}`;
+
+  upsertIndexedItem(ctx.db, {
+    service: SERVICE_ID,
+    type: "email",
+    externalId: id,
+    title: subject.length > 512 ? subject.slice(0, 512) : subject,
+    bodyPreview: preview,
+    url,
+    canonicalUrl: url,
+    modifiedAt,
+    authorId: null,
+    metadata: {
+      threadId: threadId !== "" ? threadId : undefined,
+      labelIds: m.labelIds,
+      from,
+      to,
+    },
+    pinned: false,
+    syncedAt: now,
+  });
+}
+
+async function gmailFetchJson(
+  ctx: SyncContext,
+  token: string,
+  url: string,
+  init?: RequestInit,
+): Promise<{ json: unknown; bytes: number }> {
+  await ctx.rateLimiter.acquire("google");
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers ?? {}),
+    },
+  });
+  const text = await res.text();
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (!res.ok) {
+    throw new Error(`Gmail sync failed: ${String(res.status)}`);
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("Gmail sync failed: invalid JSON");
+  }
+  return { json, bytes };
+}
+
+function listQueryForInitial(days: number): string {
+  const d = Math.max(1, Math.min(365, Math.floor(days)));
+  return `newer_than:${String(d)}d`;
+}
+
+async function fetchMessageMetadata(
+  ctx: SyncContext,
+  token: string,
+  messageId: string,
+): Promise<GmailMessageResource> {
+  const u = new URL(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}`,
+  );
+  u.searchParams.set("format", "metadata");
+  u.searchParams.append("metadataHeaders", "Subject");
+  u.searchParams.append("metadataHeaders", "From");
+  u.searchParams.append("metadataHeaders", "To");
+  const { json } = await gmailFetchJson(ctx, token, u.toString());
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    return {};
+  }
+  return json as GmailMessageResource;
+}
+
+async function fetchProfile(ctx: SyncContext, token: string): Promise<ProfileResponse> {
+  const { json } = await gmailFetchJson(
+    ctx,
+    token,
+    "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+  );
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    return {};
+  }
+  return json as ProfileResponse;
+}
+
+function parseMessagesList(json: unknown): MessagesListResponse {
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    return {};
+  }
+  return json as MessagesListResponse;
+}
+
+function parseHistoryList(json: unknown): HistoryListResponse {
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    return {};
+  }
+  return json as HistoryListResponse;
+}
+
+export type GmailSyncableOptions = {
+  ensureGoogleMcpRunning: () => Promise<void>;
+};
+
+/**
+ * Gmail {@link Syncable}: windowed `messages.list`, then `history.list` with persisted `historyId`.
+ */
+export function createGmailSyncable(options: GmailSyncableOptions): Syncable {
+  const ensure = options.ensureGoogleMcpRunning;
+  const initialSyncDepthDays = 30;
+
+  return {
+    serviceId: SERVICE_ID,
+    defaultIntervalMs: 5 * 60 * 1000,
+    initialSyncDepthDays,
+
+    async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
+      await ensure();
+      const startedAt = Date.now();
+      const accessToken = await getValidGoogleAccessToken(ctx.vault);
+      const now = Date.now();
+      let itemsUpserted = 0;
+      let itemsDeleted = 0;
+      let bytesTransferred = 0;
+
+      const finishListPage = async (
+        q: string,
+        pageToken: string | undefined,
+      ): Promise<SyncResult> => {
+        const u = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
+        u.searchParams.set("maxResults", String(LIST_PAGE_SIZE));
+        u.searchParams.set("q", q);
+        if (pageToken !== undefined && pageToken !== "") {
+          u.searchParams.set("pageToken", pageToken);
+        }
+        const { json, bytes } = await gmailFetchJson(ctx, accessToken, u.toString());
+        bytesTransferred += bytes;
+        const data = parseMessagesList(json);
+        const entries = data.messages ?? [];
+        for (const e of entries) {
+          const mid = e.id;
+          if (mid === undefined || mid === "") {
+            continue;
+          }
+          const meta = await fetchMessageMetadata(ctx, accessToken, mid);
+          meta.id = meta.id ?? mid;
+          if (
+            (meta.threadId === undefined || meta.threadId === "") &&
+            typeof e.threadId === "string" &&
+            e.threadId !== ""
+          ) {
+            meta.threadId = e.threadId;
+          }
+          upsertGmailMessage(ctx, meta, now);
+          itemsUpserted += 1;
+        }
+        const next = data.nextPageToken;
+        if (next !== undefined && next !== "") {
+          return {
+            cursor: encodeGmailSyncCursor({ v: 1, phase: "list", q, pageToken: next }),
+            itemsUpserted,
+            itemsDeleted,
+            hasMore: true,
+            durationMs: Date.now() - startedAt,
+            bytesTransferred,
+          };
+        }
+        const profile = await fetchProfile(ctx, accessToken);
+        const hid = profile.historyId;
+        if (typeof hid !== "string" || hid === "") {
+          throw new Error("Gmail sync failed: profile missing historyId");
+        }
+        return {
+          cursor: encodeGmailSyncCursor({
+            v: 1,
+            phase: "delta",
+            startHistoryId: hid,
+            pageToken: null,
+          }),
+          itemsUpserted,
+          itemsDeleted,
+          hasMore: false,
+          durationMs: Date.now() - startedAt,
+          bytesTransferred,
+        };
+      };
+
+      if (cursor === null || cursor === "") {
+        const q = listQueryForInitial(initialSyncDepthDays);
+        return await finishListPage(q, undefined);
+      }
+
+      if (!cursor.startsWith(CURSOR_PREFIX)) {
+        const q = listQueryForInitial(initialSyncDepthDays);
+        return await finishListPage(q, undefined);
+      }
+
+      const decoded = decodeGmailSyncCursor(cursor);
+      if (decoded === undefined) {
+        throw new Error("Gmail sync: corrupt cursor");
+      }
+
+      if (decoded.phase === "list") {
+        return await finishListPage(decoded.q, decoded.pageToken ?? undefined);
+      }
+
+      const u = new URL("https://gmail.googleapis.com/gmail/v1/users/me/history");
+      u.searchParams.set("startHistoryId", decoded.startHistoryId);
+      u.searchParams.set("maxResults", "100");
+      if (decoded.pageToken !== null && decoded.pageToken !== "") {
+        u.searchParams.set("pageToken", decoded.pageToken);
+      }
+      for (const ht of ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"] as const) {
+        u.searchParams.append("historyTypes", ht);
+      }
+
+      let historyJson: unknown;
+      try {
+        const res = await gmailFetchJson(ctx, accessToken, u.toString());
+        historyJson = res.json;
+        bytesTransferred += res.bytes;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("404")) {
+          ctx.logger.warn(
+            { service: SERVICE_ID },
+            "Gmail history expired or invalid; resetting list sync",
+          );
+          const q = listQueryForInitial(initialSyncDepthDays);
+          return await finishListPage(q, undefined);
+        }
+        throw e;
+      }
+
+      const hist = parseHistoryList(historyJson);
+      const records = hist.history ?? [];
+      for (const rec of records) {
+        const added = rec.messagesAdded ?? [];
+        for (const a of added) {
+          const m = a.message;
+          if (m === undefined) {
+            continue;
+          }
+          const mid = m.id;
+          if (mid === undefined || mid === "") {
+            continue;
+          }
+          const full =
+            m.payload !== undefined && headerFrom(m.payload, "Subject") !== null
+              ? m
+              : await fetchMessageMetadata(ctx, accessToken, mid);
+          upsertGmailMessage(ctx, full, now);
+          itemsUpserted += 1;
+        }
+        const deleted = rec.messagesDeleted ?? [];
+        for (const d of deleted) {
+          const mid = d.message?.id;
+          if (typeof mid === "string" && mid !== "") {
+            deleteItemByServiceExternal(ctx.db, SERVICE_ID, mid);
+            itemsDeleted += 1;
+          }
+        }
+      }
+
+      const nextPage = hist.nextPageToken;
+      if (nextPage !== undefined && nextPage !== "") {
+        return {
+          cursor: encodeGmailSyncCursor({
+            v: 1,
+            phase: "delta",
+            startHistoryId: decoded.startHistoryId,
+            pageToken: nextPage,
+          }),
+          itemsUpserted,
+          itemsDeleted,
+          hasMore: true,
+          durationMs: Date.now() - startedAt,
+          bytesTransferred,
+        };
+      }
+
+      const nextHid = hist.historyId;
+      if (typeof nextHid !== "string" || nextHid === "") {
+        const profile = await fetchProfile(ctx, accessToken);
+        const fallback = profile.historyId;
+        if (typeof fallback !== "string" || fallback === "") {
+          throw new Error("Gmail sync failed: history response missing historyId");
+        }
+        return {
+          cursor: encodeGmailSyncCursor({
+            v: 1,
+            phase: "delta",
+            startHistoryId: fallback,
+            pageToken: null,
+          }),
+          itemsUpserted,
+          itemsDeleted,
+          hasMore: false,
+          durationMs: Date.now() - startedAt,
+          bytesTransferred,
+        };
+      }
+
+      return {
+        cursor: encodeGmailSyncCursor({
+          v: 1,
+          phase: "delta",
+          startHistoryId: nextHid,
+          pageToken: null,
+        }),
+        itemsUpserted,
+        itemsDeleted,
+        hasMore: false,
+        durationMs: Date.now() - startedAt,
+        bytesTransferred,
+      };
+    },
+  };
+}

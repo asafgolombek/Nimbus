@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
 
+import { createGmailSyncable } from "../connectors/gmail-sync.ts";
 import { createGoogleDriveSyncable } from "../connectors/google-drive-sync.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { LocalIndex } from "../index/local-index.ts";
@@ -53,6 +54,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createGoogleDriveSyncable({
       ensureGoogleDriveRunning: () => connectorMesh.ensureGoogleDriveRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createGmailSyncable({
+      ensureGoogleMcpRunning: () => connectorMesh.ensureGoogleDriveRunning(),
     }),
   );
   syncScheduler.start();

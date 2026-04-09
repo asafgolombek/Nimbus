@@ -14,6 +14,18 @@ type SyncStatus = {
   consecutiveFailures: number;
 };
 
+type SyncTelemetryEntry = {
+  startedAt: number;
+  durationMs: number;
+  itemsUpserted: number;
+  itemsDeleted: number;
+  bytesTransferred: number | null;
+  hadMore: boolean;
+  errorMsg: string | null;
+};
+
+type SyncStatusWithTelemetry = SyncStatus & { telemetry?: SyncTelemetryEntry[] };
+
 type ConnectorFlags = {
   rest: string[];
   port?: number;
@@ -51,6 +63,37 @@ function relTime(ms: number | null): string {
     return `${String(Math.floor(sec / 3600))}h ago`;
   }
   return `${String(Math.floor(sec / 86400))}d ago`;
+}
+
+function fmtNextSync(ms: number | null): string {
+  if (ms === null) {
+    return "—";
+  }
+  const delta = ms - Date.now();
+  if (delta <= 0) {
+    return "due";
+  }
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) {
+    return `in ${String(sec)}s`;
+  }
+  if (sec < 3600) {
+    return `in ${String(Math.floor(sec / 60))}m`;
+  }
+  if (sec < 86400) {
+    return `in ${String(Math.floor(sec / 3600))}h`;
+  }
+  return `in ${String(Math.floor(sec / 86400))}d`;
+}
+
+function truncateText(s: string, maxLen: number): string {
+  if (s.length <= maxLen) {
+    return s;
+  }
+  if (maxLen <= 1) {
+    return "…";
+  }
+  return `${s.slice(0, maxLen - 1)}…`;
 }
 
 function parseFlags(args: string[]): ConnectorFlags {
@@ -112,6 +155,10 @@ function padField(s: string, w: number): string {
   return s.length >= w ? s : s + " ".repeat(w - s.length);
 }
 
+function repeatChar(ch: string, n: number): string {
+  return ch.repeat(Math.max(0, n));
+}
+
 async function runConnectorAuth(tail: string[]): Promise<void> {
   const { rest, port, scopes } = parseFlags(tail);
   const service = rest[0];
@@ -138,11 +185,30 @@ async function runConnectorList(): Promise<void> {
     console.log("No connectors registered yet. Use: nimbus connector auth <service>");
     return;
   }
-  const header = `${padField("SERVICE", 14)} ${padField("STATUS", 10)} ${padField("LAST SYNC", 12)} ${padField("ITEMS", 8)} ERROR`;
-  console.log(header);
+  const errCap = 48;
+  const wService = Math.max(10, "SERVICE".length, ...rows.map((r) => r.serviceId.length));
+  const wStatus = Math.max(8, "STATUS".length, ...rows.map((r) => r.status.length));
+  const wLast = Math.max(10, "LAST SYNC".length, ...rows.map((r) => relTime(r.lastSyncAt).length));
+  const wNext = Math.max(
+    10,
+    "NEXT SYNC".length,
+    ...rows.map((r) => fmtNextSync(r.nextSyncAt).length),
+  );
+  const wItems = Math.max(5, "ITEMS".length, ...rows.map((r) => String(r.itemCount).length));
+  const wFail = Math.max(
+    4,
+    "FAIL".length,
+    ...rows.map((r) => String(r.consecutiveFailures).length),
+  );
+
+  const head = `${padField("SERVICE", wService)}  ${padField("STATUS", wStatus)}  ${padField("LAST SYNC", wLast)}  ${padField("NEXT SYNC", wNext)}  ${padField("ITEMS", wItems)}  ${padField("FAIL", wFail)}  ERROR`;
+  const ruleLen = head.length + errCap;
+  console.log(head);
+  console.log(repeatChar("─", ruleLen));
   for (const r of rows) {
-    const err = r.lastError ?? "—";
-    const line = `${padField(r.serviceId, 14)} ${padField(r.status, 10)} ${padField(relTime(r.lastSyncAt), 12)} ${padField(String(r.itemCount), 8)} ${err}`;
+    const errRaw = r.lastError ?? "—";
+    const err = truncateText(errRaw, errCap);
+    const line = `${padField(r.serviceId, wService)}  ${padField(r.status, wStatus)}  ${padField(relTime(r.lastSyncAt), wLast)}  ${padField(fmtNextSync(r.nextSyncAt), wNext)}  ${padField(String(r.itemCount), wItems)}  ${padField(String(r.consecutiveFailures), wFail)}  ${err}`;
     console.log(line);
   }
 }
@@ -157,12 +223,38 @@ async function runConnectorResume(service: string): Promise<void> {
   console.log(`Resumed: ${service}`);
 }
 
-async function runConnectorStatus(service: string): Promise<void> {
-  const row = await withIpc((c) => c.call<SyncStatus>("connector.status", { serviceId: service }));
+function parseStatusArgs(tail: string[]): { service: string; stats: boolean } {
+  let stats = false;
+  const rest: string[] = [];
+  for (const a of tail) {
+    if (a === "--stats") {
+      stats = true;
+      continue;
+    }
+    rest.push(a);
+  }
+  const service = rest[0];
+  if (service === undefined) {
+    throw new Error("Usage: nimbus connector status <service> [--stats]");
+  }
+  return { service, stats };
+}
+
+async function runConnectorStatusParsed(service: string, stats: boolean): Promise<void> {
+  const params: { serviceId: string; includeStats?: boolean } = { serviceId: service };
+  if (stats) {
+    params.includeStats = true;
+  }
+  const row = await withIpc((c) => c.call<SyncStatusWithTelemetry>("connector.status", params));
   console.log(JSON.stringify(row, null, 2));
 }
 
 async function runConnectorLifecycle(sub: string, tail: string[]): Promise<void> {
+  if (sub === "status") {
+    const { service, stats } = parseStatusArgs(tail);
+    await runConnectorStatusParsed(service, stats);
+    return;
+  }
   const service = tail[0];
   if (service === undefined) {
     throw new Error(`Usage: nimbus connector ${sub} <service>`);
@@ -175,7 +267,6 @@ async function runConnectorLifecycle(sub: string, tail: string[]): Promise<void>
     await runConnectorResume(service);
     return;
   }
-  await runConnectorStatus(service);
 }
 
 async function runConnectorSetInterval(tail: string[]): Promise<void> {
@@ -265,7 +356,7 @@ function printConnectorHelp(): void {
 Usage:
   nimbus connector auth <service> [--port <n>] [--scopes a,b]
   nimbus connector list
-  nimbus connector status <service>
+  nimbus connector status <service> [--stats]
   nimbus connector sync <service> [--full]
   nimbus connector pause <service>
   nimbus connector resume <service>

@@ -40,7 +40,9 @@ function parseGoogleOAuthPayload(raw: string): GoogleOAuthVaultPayload {
 export async function getValidGoogleAccessToken(vault: NimbusVault): Promise<string> {
   const raw = await vault.get("google.oauth");
   if (raw === null || raw === "") {
-    throw new Error("Google OAuth not configured; run: nimbus connector auth google_drive");
+    throw new Error(
+      "Google OAuth not configured; run: nimbus connector auth google_drive (or gmail / google_photos)",
+    );
   }
   const parsed = parseGoogleOAuthPayload(raw);
   const marginMs = 120_000;

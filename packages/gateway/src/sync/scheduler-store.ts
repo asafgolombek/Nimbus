@@ -233,3 +233,49 @@ export function insertSyncTelemetry(
     ],
   );
 }
+
+export type SyncTelemetryRow = {
+  startedAt: number;
+  durationMs: number;
+  itemsUpserted: number;
+  itemsDeleted: number;
+  bytesTransferred: number | null;
+  hadMore: boolean;
+  errorMsg: string | null;
+};
+
+/** Recent sync runs for `connector status --stats` (newest first). */
+export function listRecentSyncTelemetry(
+  db: Database,
+  service: string,
+  limit: number,
+): SyncTelemetryRow[] {
+  const cap = Math.min(100, Math.max(1, Math.floor(limit)));
+  const rows = db
+    .query(
+      `SELECT started_at, duration_ms, items_upserted, items_deleted, bytes_transferred, had_more, error_msg
+       FROM sync_telemetry WHERE service = ? ORDER BY started_at DESC LIMIT ?`,
+    )
+    .all(service, cap) as Array<{
+    started_at: number;
+    duration_ms: number;
+    items_upserted: number;
+    items_deleted: number;
+    bytes_transferred: number | null;
+    had_more: number;
+    error_msg: string | null;
+  }>;
+  const out: SyncTelemetryRow[] = [];
+  for (const r of rows) {
+    out.push({
+      startedAt: r.started_at,
+      durationMs: r.duration_ms,
+      itemsUpserted: r.items_upserted,
+      itemsDeleted: r.items_deleted,
+      bytesTransferred: r.bytes_transferred,
+      hadMore: r.had_more === 1,
+      errorMsg: r.error_msg,
+    });
+  }
+  return out;
+}

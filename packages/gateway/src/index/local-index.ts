@@ -17,12 +17,7 @@ import {
   deleteItemByPrimaryKey,
   upsertNimbusItemIntoItemTable,
 } from "./item-store.ts";
-import { SCHEDULER_V2_MIGRATION_SQL } from "./scheduler-schema-sql.ts";
-import { INITIAL_SCHEMA_SQL } from "./schema-sql.ts";
-import {
-  UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL,
-  UNIFIED_ITEM_V3_SCHEMA_SQL,
-} from "./unified-item-v3-sql.ts";
+import { runIndexedSchemaMigrations } from "./migrations/runner.ts";
 
 export { RAW_META_MAX_BYTES } from "./constants.ts";
 
@@ -123,12 +118,6 @@ function rowToItem(row: ItemRow): NimbusItem {
   return item;
 }
 
-function readUserVersion(db: Database): number {
-  const row = db.query("PRAGMA user_version").get() as { user_version: number } | null | undefined;
-  const v = row?.user_version;
-  return typeof v === "number" ? v : 0;
-}
-
 export class LocalIndex {
   static readonly SCHEMA_VERSION = 3;
 
@@ -136,31 +125,7 @@ export class LocalIndex {
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
    */
   static ensureSchema(db: Database): void {
-    let ver = readUserVersion(db);
-    if (ver >= LocalIndex.SCHEMA_VERSION) {
-      return;
-    }
-    if (ver === 0) {
-      db.exec(INITIAL_SCHEMA_SQL);
-      ver = 1;
-      db.exec("PRAGMA user_version = 1");
-    }
-    if (ver === 1) {
-      db.exec(SCHEDULER_V2_MIGRATION_SQL);
-      ver = 2;
-      db.exec("PRAGMA user_version = 2");
-    }
-    if (ver === 2) {
-      db.exec(UNIFIED_ITEM_V3_SCHEMA_SQL);
-      db.exec(UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL);
-      ver = 3;
-      db.exec("PRAGMA user_version = 3");
-    }
-    if (ver !== LocalIndex.SCHEMA_VERSION) {
-      throw new Error(
-        `Unsupported local index schema version: ${String(ver)} (expected 0–${String(LocalIndex.SCHEMA_VERSION)})`,
-      );
-    }
+    runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION);
   }
 
   constructor(private readonly db: Database) {}

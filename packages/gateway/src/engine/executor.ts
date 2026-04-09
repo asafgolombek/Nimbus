@@ -25,6 +25,7 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "file.create",
   "email.send",
   "email.draft.send",
+  "email.draft.create",
   "calendar.event.create",
   "calendar.event.delete",
   "photo.delete",

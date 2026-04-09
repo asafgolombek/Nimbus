@@ -41,6 +41,7 @@ describe("HITL_REQUIRED", () => {
       "file.delete",
       "file.create",
       "email.send",
+      "email.draft.create",
       "calendar.event.create",
       "onedrive.delete",
       "pipeline.trigger",
@@ -132,6 +133,32 @@ describe("ToolExecutor", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("file.delete");
   });
+
+  for (const emailAction of ["email.send", "email.draft.send", "email.draft.create"] as const) {
+    test(`rejected consent for ${emailAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload =
+        emailAction === "email.send"
+          ? {
+              mcpToolId: "gmail_gmail_message_send",
+              input: { to: "a@b.com", subject: "s", body: "x" },
+            }
+          : emailAction === "email.draft.send"
+            ? { mcpToolId: "gmail_gmail_draft_send", input: { draftId: "d1" } }
+            : {
+                mcpToolId: "gmail_gmail_draft_create",
+                input: { to: "a@b.com", subject: "s", body: "x" },
+              };
+      const out = await exec.execute({ type: emailAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(emailAction);
+    });
+  }
 
   for (const fileAction of ["file.create", "file.move", "file.rename"] as const) {
     test(`rejected consent for ${fileAction} does not call the connector; audit rejected`, async () => {

@@ -6,7 +6,7 @@ import { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
 export { createLazyConnectorMesh, LazyConnectorMesh };
 
 /**
- * Filesystem MCP (always) + optional lazy Google Drive MCP when `google.oauth` exists in Vault.
+ * Filesystem MCP (always) + optional lazy Google Drive + Gmail MCP when `google.oauth` exists in Vault.
  */
 export async function buildConnectorMesh(
   paths: PlatformPaths,
@@ -41,6 +41,9 @@ export type McpToolListingClient = {
  * Google Drive writes (HITL): use `file.create` | `file.delete` | `file.move` | `file.rename` as
  * `action.type` with `payload.mcpToolId` set to `google_drive_gdrive_file_create` (or `_trash`,
  * `_move`, `_rename`) and `payload.input` matching that tool's MCP arguments.
+ *
+ * Gmail (HITL): `email.send` → `gmail_gmail_message_send`; `email.draft.send` →
+ * `gmail_gmail_draft_send`; `email.draft.create` → `gmail_gmail_draft_create`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

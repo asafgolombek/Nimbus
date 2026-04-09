@@ -84,6 +84,13 @@ export class SyncScheduler {
     }
   }
 
+  /** Drop a connector from scheduling (e.g. after `connector.remove`). In-flight jobs finish best-effort. */
+  unregister(serviceId: string): void {
+    this.connectors.delete(serviceId);
+    this.queue = this.queue.filter((j) => j.serviceId !== serviceId);
+    this.resolveForceWaiters(serviceId, new Error("Connector removed"));
+  }
+
   setInterval(serviceId: string, intervalMs: number): void {
     if (!Number.isFinite(intervalMs) || intervalMs < 1) {
       throw new Error("intervalMs must be a positive finite number");
