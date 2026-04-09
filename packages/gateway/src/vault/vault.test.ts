@@ -169,6 +169,19 @@ label = Nimbus: a.b
 `;
     expect(extractNimbusVaultKeysFromSecretToolSearchOutput(raw)).toEqual(["a.b", "z.a"]);
   });
+
+  test("extracts keys from secret-tool attribute lines on stderr", () => {
+    const err = `attribute.application = nimbus
+attribute.nimbus-key = ci.t_2
+`;
+    expect(extractNimbusVaultKeysFromSecretToolSearchOutput("", err)).toEqual(["ci.t_2"]);
+  });
+
+  test("merges label stdout and nimbus-key stderr without duplicates", () => {
+    const out = "label = Nimbus: same.key\n";
+    const err = "attribute.nimbus-key = same.key\n";
+    expect(extractNimbusVaultKeysFromSecretToolSearchOutput(out, err)).toEqual(["same.key"]);
+  });
 });
 
 describe("LinuxSecretToolVault (Linux)", () => {
