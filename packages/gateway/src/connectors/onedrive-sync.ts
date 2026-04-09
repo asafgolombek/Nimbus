@@ -1,6 +1,15 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import {
+  decodeMicrosoftGraphDeltaCursor,
+  encodeMicrosoftGraphDeltaCursor,
+  fetchMicrosoftGraphJson,
+  type MicrosoftGraphDeltaCursorV1,
+  modifiedMsFromIso,
+  nextCursorFromODataDeltaLinks,
+  parseODataDeltaPage,
+} from "./microsoft-graph-sync-shared.ts";
 
 const SERVICE_ID = "onedrive";
 const CURSOR_PREFIX = "nimbus-odrv1:";
@@ -19,55 +28,14 @@ type DriveItem = {
   "@removed"?: { reason?: string };
 };
 
-type DeltaResponse = {
-  value?: DriveItem[];
-  "@odata.nextLink"?: string;
-  "@odata.deltaLink"?: string;
-};
-
-export type OneDriveSyncCursorV1 = { v: 1; nextUrl: string | null };
+export type OneDriveSyncCursorV1 = MicrosoftGraphDeltaCursorV1;
 
 export function encodeOneDriveSyncCursor(c: OneDriveSyncCursorV1): string {
-  return CURSOR_PREFIX + Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+  return encodeMicrosoftGraphDeltaCursor(CURSOR_PREFIX, c);
 }
 
 export function decodeOneDriveSyncCursor(raw: string): OneDriveSyncCursorV1 | undefined {
-  if (!raw.startsWith(CURSOR_PREFIX)) {
-    return undefined;
-  }
-  try {
-    const json = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const o: unknown = JSON.parse(json);
-    if (o === null || typeof o !== "object" || Array.isArray(o)) {
-      return undefined;
-    }
-    const r = o as Record<string, unknown>;
-    if (r["v"] !== 1) {
-      return undefined;
-    }
-    const nextUrl = r["nextUrl"];
-    if (nextUrl !== null && typeof nextUrl !== "string") {
-      return undefined;
-    }
-    return { v: 1, nextUrl: nextUrl === null ? null : nextUrl };
-  } catch {
-    return undefined;
-  }
-}
-
-function parseDelta(json: unknown): DeltaResponse {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) {
-    return {};
-  }
-  return json as DeltaResponse;
-}
-
-function modifiedMs(iso: string | undefined, fallback: number): number {
-  if (typeof iso !== "string" || iso === "") {
-    return fallback;
-  }
-  const t = Date.parse(iso);
-  return Number.isFinite(t) ? t : fallback;
+  return decodeMicrosoftGraphDeltaCursor(raw, CURSOR_PREFIX);
 }
 
 function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
@@ -79,7 +47,7 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
   const isFolder = d.folder !== undefined && d.folder !== null;
   const type = isFolder ? "folder" : "file";
   const url = typeof d.webUrl === "string" ? d.webUrl : null;
-  const modified = modifiedMs(d.lastModifiedDateTime, now);
+  const modified = modifiedMsFromIso(d.lastModifiedDateTime, now);
   const meta: Record<string, unknown> = {
     size: d.size,
     mimeType:
@@ -107,33 +75,6 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
   });
 }
 
-async function graphDeltaFetch(
-  ctx: SyncContext,
-  token: string,
-  nextUrl: string | null,
-): Promise<{ json: unknown; bytes: number }> {
-  await ctx.rateLimiter.acquire("microsoft");
-  const url =
-    nextUrl !== null && nextUrl !== ""
-      ? nextUrl
-      : `${GRAPH}/me/drive/root/delta?$top=${String(PAGE_SIZE)}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const text = await res.text();
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (!res.ok) {
-    throw new Error(`OneDrive sync failed: ${String(res.status)}`);
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("OneDrive sync failed: invalid JSON");
-  }
-  return { json, bytes };
-}
-
 export type OneDriveSyncableOptions = {
   ensureMicrosoftMcpRunning: () => Promise<void>;
 };
@@ -154,9 +95,15 @@ export function createOneDriveSyncable(options: OneDriveSyncableOptions): Syncab
         nextUrl = dec?.nextUrl ?? null;
       }
 
-      const { json, bytes } = await graphDeltaFetch(ctx, token, nextUrl);
-      const parsed = parseDelta(json);
-      const values = parsed.value ?? [];
+      const { json, bytes } = await fetchMicrosoftGraphJson(
+        ctx,
+        token,
+        nextUrl,
+        `${GRAPH}/me/drive/root/delta?$top=${String(PAGE_SIZE)}`,
+        "OneDrive",
+      );
+      const parsed = parseODataDeltaPage(json);
+      const values = (parsed.value ?? []) as DriveItem[];
       const now = Date.now();
       let upserted = 0;
       let deleted = 0;
@@ -180,20 +127,7 @@ export function createOneDriveSyncable(options: OneDriveSyncableOptions): Syncab
         upserted += 1;
       }
 
-      const nextLink = parsed["@odata.nextLink"];
-      const deltaLink = parsed["@odata.deltaLink"];
-      let stored: string | null;
-      let hasMore: boolean;
-      if (typeof nextLink === "string" && nextLink !== "") {
-        stored = encodeOneDriveSyncCursor({ v: 1, nextUrl: nextLink });
-        hasMore = true;
-      } else if (typeof deltaLink === "string" && deltaLink !== "") {
-        stored = encodeOneDriveSyncCursor({ v: 1, nextUrl: deltaLink });
-        hasMore = false;
-      } else {
-        stored = null;
-        hasMore = false;
-      }
+      const { stored, hasMore } = nextCursorFromODataDeltaLinks(parsed, encodeOneDriveSyncCursor);
 
       return {
         cursor: stored,

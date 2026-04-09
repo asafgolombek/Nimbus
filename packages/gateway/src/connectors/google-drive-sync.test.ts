@@ -1,54 +1,17 @@
-import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import pino from "pino";
 import { itemPrimaryKey } from "../index/item-store.ts";
-import { LocalIndex } from "../index/local-index.ts";
-import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
-import type { SyncContext } from "../sync/types.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import {
+  createMemoryVault,
+  createSyncTestContext,
+  openMemoryIndexDatabase,
+  requestUrlString,
+} from "../testing/bun-test-support.ts";
 import {
   createGoogleDriveSyncable,
   type DriveSyncCursorV1,
   decodeDriveSyncCursor,
   encodeDriveSyncCursor,
 } from "./google-drive-sync.ts";
-
-function createMemoryVault(): NimbusVault {
-  const m = new Map<string, string>();
-  return {
-    async set(key: string, value: string): Promise<void> {
-      m.set(key, value);
-    },
-    async get(key: string): Promise<string | null> {
-      return m.get(key) ?? null;
-    },
-    async delete(key: string): Promise<void> {
-      m.delete(key);
-    },
-    async listKeys(prefix?: string): Promise<string[]> {
-      const keys = [...m.keys()].sort();
-      if (prefix === undefined || prefix === "") {
-        return keys;
-      }
-      return keys.filter((k) => k.startsWith(prefix));
-    },
-  };
-}
-
-function openDb(): Database {
-  const db = new Database(":memory:");
-  LocalIndex.ensureSchema(db);
-  return db;
-}
-
-function testContext(db: Database, vault: NimbusVault): SyncContext {
-  return {
-    db,
-    vault,
-    logger: pino({ level: "silent" }),
-    rateLimiter: new ProviderRateLimiter(),
-  };
-}
 
 const sampleFile = {
   id: "f1",
@@ -97,8 +60,8 @@ describe("createGoogleDriveSyncable", () => {
         expiresAt: Date.now() + 3_600_000,
       }),
     );
-    const db = openDb();
-    const ctx = testContext(db, vault);
+    const db = openMemoryIndexDatabase();
+    const ctx = createSyncTestContext(db, vault);
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
     const responses: Array<{ url: string; json: unknown }> = [
@@ -113,8 +76,7 @@ describe("createGoogleDriveSyncable", () => {
     ];
 
     globalThis.fetch = (async (input: string | URL | Request) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url = requestUrlString(input);
       const next = responses.shift();
       if (next === undefined) {
         throw new Error(`unexpected fetch: ${url}`);
@@ -152,13 +114,12 @@ describe("createGoogleDriveSyncable", () => {
         expiresAt: Date.now() + 3_600_000,
       }),
     );
-    const db = openDb();
-    const ctx = testContext(db, vault);
+    const db = openMemoryIndexDatabase();
+    const ctx = createSyncTestContext(db, vault);
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url = requestUrlString(input);
       if (url.includes("/drive/v3/changes")) {
         return new Response(
           JSON.stringify({
@@ -199,13 +160,12 @@ describe("createGoogleDriveSyncable", () => {
         expiresAt: Date.now() + 3_600_000,
       }),
     );
-    const db = openDb();
-    const ctx = testContext(db, vault);
+    const db = openMemoryIndexDatabase();
+    const ctx = createSyncTestContext(db, vault);
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
     globalThis.fetch = (async (input: string | URL | Request) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url = requestUrlString(input);
       if (url.includes("startPageToken")) {
         return new Response(JSON.stringify({ startPageToken: "freshT0" }), { status: 200 });
       }
@@ -236,8 +196,8 @@ describe("createGoogleDriveSyncable", () => {
         expiresAt: Date.now() + 3_600_000,
       }),
     );
-    const db = openDb();
-    const ctx = testContext(db, vault);
+    const db = openMemoryIndexDatabase();
+    const ctx = createSyncTestContext(db, vault);
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
     globalThis.fetch = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
 

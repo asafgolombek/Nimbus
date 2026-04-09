@@ -1,9 +1,8 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import pino from "pino";
 
-import { LocalIndex } from "../index/local-index.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { createMemoryVault, openMemoryIndexDatabase } from "../testing/bun-test-support.ts";
 import { ProviderRateLimiter } from "./rate-limiter.ts";
 import { SyncScheduler } from "./scheduler.ts";
 import { loadSchedulerState } from "./scheduler-store.ts";
@@ -11,34 +10,6 @@ import type { Syncable, SyncContext, SyncResult } from "./types.ts";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function createMemoryVault(): NimbusVault {
-  const m = new Map<string, string>();
-  return {
-    async set(key: string, value: string): Promise<void> {
-      m.set(key, value);
-    },
-    async get(key: string): Promise<string | null> {
-      return m.get(key) ?? null;
-    },
-    async delete(key: string): Promise<void> {
-      m.delete(key);
-    },
-    async listKeys(prefix?: string): Promise<string[]> {
-      const keys = [...m.keys()].sort();
-      if (prefix === undefined || prefix === "") {
-        return keys;
-      }
-      return keys.filter((k) => k.startsWith(prefix));
-    },
-  };
-}
-
-function openSchedulerDb(): Database {
-  const db = new Database(":memory:");
-  LocalIndex.ensureSchema(db);
-  return db;
 }
 
 function testContext(db: Database): SyncContext {
@@ -52,7 +23,7 @@ function testContext(db: Database): SyncContext {
 
 describe("SyncScheduler", () => {
   test("two connectors run on their intervals", async () => {
-    const db = openSchedulerDb();
+    const db = openMemoryIndexDatabase();
     const ctx = testContext(db);
     let a = 0;
     let b = 0;
@@ -97,7 +68,7 @@ describe("SyncScheduler", () => {
   });
 
   test("backoff on failure sets next_sync_at and consecutive_failures", async () => {
-    const db = openSchedulerDb();
+    const db = openMemoryIndexDatabase();
     const ctx = testContext(db);
     const c: Syncable = {
       serviceId: "fail",
@@ -125,7 +96,7 @@ describe("SyncScheduler", () => {
   });
 
   test("persists cursor across scheduler instances", async () => {
-    const db = openSchedulerDb();
+    const db = openMemoryIndexDatabase();
     const ctx = testContext(db);
     const cursors: Array<string | null> = [];
     const c: Syncable = {
@@ -158,7 +129,7 @@ describe("SyncScheduler", () => {
   });
 
   test("maxConcurrentSyncs caps parallel runs across services", async () => {
-    const db = openSchedulerDb();
+    const db = openMemoryIndexDatabase();
     const ctx = testContext(db);
     let concurrent = 0;
     let peak = 0;
@@ -191,7 +162,7 @@ describe("SyncScheduler", () => {
   });
 
   test("catchUpOnRestart false resets overdue next_sync without running sync", async () => {
-    const db = openSchedulerDb();
+    const db = openMemoryIndexDatabase();
     const ctx = testContext(db);
     let runs = 0;
     const c: Syncable = {
@@ -222,7 +193,7 @@ describe("SyncScheduler", () => {
   });
 
   test("hasMore re-queues continuation without waiting interval", async () => {
-    const db = openSchedulerDb();
+    const db = openMemoryIndexDatabase();
     const ctx = testContext(db);
     let n = 0;
     const times: number[] = [];
@@ -267,7 +238,7 @@ describe("SyncScheduler", () => {
   });
 
   test("fifth consecutive failure notifies and sets error status", async () => {
-    const db = openSchedulerDb();
+    const db = openMemoryIndexDatabase();
     const ctx = testContext(db);
     let notifications = 0;
     const c: Syncable = {

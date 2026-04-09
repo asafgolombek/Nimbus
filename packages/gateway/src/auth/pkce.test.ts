@@ -1,39 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { createMemoryVault, requestUrlString } from "../testing/bun-test-support.ts";
 import { pkceCodeChallengeS256, refreshAccessToken, runPKCEFlow } from "./pkce.ts";
-
-function requestHref(input: string | URL | Request): string {
-  if (typeof input === "string") {
-    return input;
-  }
-  if (input instanceof URL) {
-    return input.href;
-  }
-  return input.url;
-}
-
-function createMemoryVault(): NimbusVault {
-  const m = new Map<string, string>();
-  return {
-    async set(key: string, value: string): Promise<void> {
-      m.set(key, value);
-    },
-    async get(key: string): Promise<string | null> {
-      return m.get(key) ?? null;
-    },
-    async delete(key: string): Promise<void> {
-      m.delete(key);
-    },
-    async listKeys(prefix?: string): Promise<string[]> {
-      const keys = [...m.keys()].sort();
-      if (prefix === undefined || prefix === "") {
-        return keys;
-      }
-      return keys.filter((k) => k.startsWith(prefix));
-    },
-  };
-}
 
 describe("pkceCodeChallengeS256", () => {
   test("matches SHA-256 base64url of verifier (RFC 7636)", async () => {
@@ -79,7 +47,7 @@ describe("runPKCEFlow", () => {
         expect(res.ok).toBe(true);
       },
       fetchImpl: async (input) => {
-        const s = requestHref(input);
+        const s = requestUrlString(input);
         if (s.includes("oauth2.googleapis.com/token")) {
           return new Response(
             JSON.stringify({
@@ -174,7 +142,7 @@ describe("runPKCEFlow", () => {
           await fetch(cb.toString());
         },
         fetchImpl: async (input) => {
-          const s = requestHref(input);
+          const s = requestUrlString(input);
           if (s.includes("oauth2.googleapis.com/token")) {
             return new Response(
               JSON.stringify({

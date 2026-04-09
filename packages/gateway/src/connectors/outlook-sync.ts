@@ -1,6 +1,15 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import {
+  decodeMicrosoftGraphDeltaCursor,
+  encodeMicrosoftGraphDeltaCursor,
+  fetchMicrosoftGraphJson,
+  type MicrosoftGraphDeltaCursorV1,
+  modifiedMsFromIso,
+  nextCursorFromODataDeltaLinks,
+  parseODataDeltaPage,
+} from "./microsoft-graph-sync-shared.ts";
 
 const SERVICE_ID = "outlook";
 const CURSOR_PREFIX = "nimbus-outl1:";
@@ -17,55 +26,14 @@ type GraphMessage = {
   "@removed"?: { reason?: string };
 };
 
-type DeltaResponse = {
-  value?: GraphMessage[];
-  "@odata.nextLink"?: string;
-  "@odata.deltaLink"?: string;
-};
-
-export type OutlookSyncCursorV1 = { v: 1; nextUrl: string | null };
+export type OutlookSyncCursorV1 = MicrosoftGraphDeltaCursorV1;
 
 export function encodeOutlookSyncCursor(c: OutlookSyncCursorV1): string {
-  return CURSOR_PREFIX + Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+  return encodeMicrosoftGraphDeltaCursor(CURSOR_PREFIX, c);
 }
 
 export function decodeOutlookSyncCursor(raw: string): OutlookSyncCursorV1 | undefined {
-  if (!raw.startsWith(CURSOR_PREFIX)) {
-    return undefined;
-  }
-  try {
-    const json = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const o: unknown = JSON.parse(json);
-    if (o === null || typeof o !== "object" || Array.isArray(o)) {
-      return undefined;
-    }
-    const r = o as Record<string, unknown>;
-    if (r["v"] !== 1) {
-      return undefined;
-    }
-    const nextUrl = r["nextUrl"];
-    if (nextUrl !== null && typeof nextUrl !== "string") {
-      return undefined;
-    }
-    return { v: 1, nextUrl: nextUrl === null ? null : nextUrl };
-  } catch {
-    return undefined;
-  }
-}
-
-function parseDelta(json: unknown): DeltaResponse {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) {
-    return {};
-  }
-  return json as DeltaResponse;
-}
-
-function modifiedMs(iso: string | undefined, fallback: number): number {
-  if (typeof iso !== "string" || iso === "") {
-    return fallback;
-  }
-  const t = Date.parse(iso);
-  return Number.isFinite(t) ? t : fallback;
+  return decodeMicrosoftGraphDeltaCursor(raw, CURSOR_PREFIX);
 }
 
 function upsertMessage(ctx: SyncContext, m: GraphMessage, now: number): void {
@@ -76,7 +44,7 @@ function upsertMessage(ctx: SyncContext, m: GraphMessage, now: number): void {
   const subject = typeof m.subject === "string" && m.subject !== "" ? m.subject : "(no subject)";
   const preview = typeof m.bodyPreview === "string" ? m.bodyPreview.slice(0, 512) : "";
   const url = typeof m.webLink === "string" ? m.webLink : null;
-  const modified = modifiedMs(m.lastModifiedDateTime ?? m.receivedDateTime, now);
+  const modified = modifiedMsFromIso(m.lastModifiedDateTime ?? m.receivedDateTime, now);
 
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
@@ -94,33 +62,6 @@ function upsertMessage(ctx: SyncContext, m: GraphMessage, now: number): void {
     pinned: false,
     syncedAt: now,
   });
-}
-
-async function graphMailDeltaFetch(
-  ctx: SyncContext,
-  token: string,
-  nextUrl: string | null,
-): Promise<{ json: unknown; bytes: number }> {
-  await ctx.rateLimiter.acquire("microsoft");
-  const url =
-    nextUrl !== null && nextUrl !== ""
-      ? nextUrl
-      : `${GRAPH}/me/messages/delta?$top=${String(PAGE_SIZE)}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const text = await res.text();
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (!res.ok) {
-    throw new Error(`Outlook sync failed: ${String(res.status)}`);
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("Outlook sync failed: invalid JSON");
-  }
-  return { json, bytes };
 }
 
 export type OutlookSyncableOptions = {
@@ -143,9 +84,15 @@ export function createOutlookSyncable(options: OutlookSyncableOptions): Syncable
         nextUrl = dec?.nextUrl ?? null;
       }
 
-      const { json, bytes } = await graphMailDeltaFetch(ctx, token, nextUrl);
-      const parsed = parseDelta(json);
-      const values = parsed.value ?? [];
+      const { json, bytes } = await fetchMicrosoftGraphJson(
+        ctx,
+        token,
+        nextUrl,
+        `${GRAPH}/me/messages/delta?$top=${String(PAGE_SIZE)}`,
+        "Outlook",
+      );
+      const parsed = parseODataDeltaPage(json);
+      const values = (parsed.value ?? []) as GraphMessage[];
       const now = Date.now();
       let upserted = 0;
       let deleted = 0;
@@ -162,20 +109,7 @@ export function createOutlookSyncable(options: OutlookSyncableOptions): Syncable
         upserted += 1;
       }
 
-      const nextLink = parsed["@odata.nextLink"];
-      const deltaLink = parsed["@odata.deltaLink"];
-      let stored: string | null;
-      let hasMore: boolean;
-      if (typeof nextLink === "string" && nextLink !== "") {
-        stored = encodeOutlookSyncCursor({ v: 1, nextUrl: nextLink });
-        hasMore = true;
-      } else if (typeof deltaLink === "string" && deltaLink !== "") {
-        stored = encodeOutlookSyncCursor({ v: 1, nextUrl: deltaLink });
-        hasMore = false;
-      } else {
-        stored = null;
-        hasMore = false;
-      }
+      const { stored, hasMore } = nextCursorFromODataDeltaLinks(parsed, encodeOutlookSyncCursor);
 
       return {
         cursor: stored,
