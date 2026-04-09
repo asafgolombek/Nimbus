@@ -9,6 +9,7 @@ type DriveFile = {
   modifiedTime?: string;
   webViewLink?: string;
   size?: string;
+  description?: string;
 };
 
 type DriveListResponse = {
@@ -56,7 +57,7 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
       url.searchParams.set("pageSize", "100");
       url.searchParams.set(
         "fields",
-        "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink, size)",
+        "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink, size, description)",
       );
       url.searchParams.set("q", q);
       if (pageToken !== undefined) {
@@ -88,12 +89,15 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
         const isFolder = mime === "application/vnd.google-apps.folder";
         const modifiedMs = f.modifiedTime !== undefined ? Date.parse(f.modifiedTime) : now;
         const safeModified = Number.isFinite(modifiedMs) ? modifiedMs : now;
+        const desc = f.description ?? "";
+        const previewBase = desc !== "" ? desc : name;
+        const bodyPreview = previewBase.length > 512 ? previewBase.slice(0, 512) : previewBase;
         upsertIndexedItem(ctx.db, {
           service: "google_drive",
           type: isFolder ? "folder" : "file",
           externalId: id,
           title: name,
-          bodyPreview: name,
+          bodyPreview,
           url: f.webViewLink ?? null,
           canonicalUrl: f.webViewLink ?? null,
           modifiedAt: safeModified,
