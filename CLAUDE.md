@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Q1 2026 — Foundation phase (greenfield)
+**Status:** Q2 2026 — The Bridge (active)
 
 ---
 
@@ -146,7 +146,8 @@ A system that orchestrates real actions against real data cannot rely on develop
 
 ## Roadmap Context
 
-> Full roadmap with acceptance criteria and inter-quarter dependencies: [`docs/roadmap.md`](./docs/roadmap.md)
+> Full roadmap with acceptance criteria and inter-quarter dependencies: [`docs/roadmap.md`](./docs/roadmap.md)  
+> Q2 execution plan (detailed tasks and sequencing): [`docs/q2-2026-plan.md`](./docs/q2-2026-plan.md)
 
 | Quarter | Theme | Status |
 |---|---|---|

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Nimbus is currently in the **Foundation phase (Q1 2026)**. Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
+Nimbus is currently in **active development (Q2 2026 — The Bridge)**. Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
 
 | Branch / Tag | Supported |
 |---|---|

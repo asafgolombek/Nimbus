@@ -11,12 +11,16 @@ indent_size = 2
 trim_trailing_whitespace = true
 insert_final_newline = true
 
+[*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css,html}]
+max_line_length = 100
+
 [*.md]
 trim_trailing_whitespace = false
 max_line_length = off
 
-[*.{toml,yaml,yml}]
-indent_size = 2
+[*.mdc]
+trim_trailing_whitespace = false
+max_line_length = off
 
 [*.rs]
 indent_size = 4

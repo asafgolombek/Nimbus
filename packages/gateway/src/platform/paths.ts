@@ -41,7 +41,7 @@ export function createWindowsPaths(): PlatformPaths {
   };
 }
 
-/** Per dev-plan-q1: config and data share Application Support/Nimbus on macOS. */
+/** Per architecture.md §Platform Divergence Table: config and data share Application Support/Nimbus on macOS. */
 export function createDarwinPaths(): PlatformPaths {
   const root = join(homedir(), "Library", "Application Support", "Nimbus");
   const tmp = processEnvGet("TMPDIR") ?? "/tmp";

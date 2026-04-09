@@ -35,7 +35,7 @@ assignees: []
 
 ## Roadmap Quarter
 
-<!-- Which quarter does this belong to? Features outside the current quarter (Q1 2026) will be deferred. -->
+<!-- Which quarter does this belong to? Features outside the current quarter (Q2 2026) will be deferred. -->
 
 - [ ] Q1 2026 — Foundation
 - [ ] Q2 2026 — The Bridge

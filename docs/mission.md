@@ -193,13 +193,16 @@ Three converging forces make this the right moment for Nimbus:
 
 The work of reclaiming agency is not completed in a single quarter. It is a multi-year structural shift. Our roadmap reflects this progression from a foundational index to a fully autonomous, sovereign mesh.
 
-### Phase 1: The Foundation (Q1 2026 - Active)
+### Phase 1: The Foundation (Q1 2026 — Complete)
 * **The Unified Local Index:** SQLite FTS5 index for metadata across the filesystem.
 * **The Secure Vault:** OS-native secret management (DPAPI, Keychain, libsecret) with zero plaintext exposure.
 * **The Consent Gate:** Structural Human-in-the-Loop (HITL) enforcement for all irreversible actions.
 * **The Engine:** Mastra-powered orchestration loop running locally.
 
 ### Phase 2: The Integration Surge (Q2–Q3 2026)
+
+Q2 2026 is the active bridge quarter; detailed sequencing is in [`q2-2026-plan.md`](./q2-2026-plan.md).
+
 * **The Cloud Connectors:** Native MCP support for Google Workspace (Drive, Gmail, Calendar) and Microsoft 365 (OneDrive, Outlook).
 * **The DevOps Mesh:** Deep integration with GitHub, GitLab, Jenkins, Jira, and Linear.
 * **Context-Aware RAG:** Vector search (`sqlite-vec`) and semantic understanding. Ask questions, don't just search keywords.

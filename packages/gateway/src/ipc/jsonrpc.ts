@@ -1,6 +1,6 @@
 /**
  * JSON-RPC 2.0 over newline-delimited JSON (one object per line).
- * @see dev-plan-q1.md §3.1
+ * @see architecture.md §IPC Protocol
  */
 
 import {
