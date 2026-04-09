@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Debug-oriented build: bundled JS + sourcemaps (no `bun build --compile`).
- * Run from anywhere: `bun scripts/build-debug.ts`
+ * Run from anywhere: `bun scripts/build-debug.ts` or `scripts/linux/build-debug.sh` / `scripts/windows/build-debug.ps1`
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";

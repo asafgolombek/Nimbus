@@ -1,6 +1,6 @@
 # Nimbus Roadmap — 2026
 
-This document is the authoritative detailed roadmap for Nimbus. The `readme.md` roadmap section is a summary; this file contains acceptance criteria, inter-quarter dependencies, and the reasoning behind sequencing decisions.
+This document is the authoritative detailed roadmap for Nimbus. The [README.md](./README.md) roadmap section is a summary; this file contains acceptance criteria, inter-quarter dependencies, and the reasoning behind sequencing decisions.
 
 ---
 

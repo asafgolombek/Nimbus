@@ -5,7 +5,7 @@ Thank you for your interest in contributing. Nimbus is in active early developme
 Before writing any code, read the two documents that define what Nimbus is:
 
 - [`architecture.md`](./architecture.md) — subsystem contracts, package dependency rules, and the data flow
-- [`mission.md`](./mission.md) — the principles behind every design decision
+- [`docs/mission.md`](./docs/mission.md) — the principles behind every design decision
 
 ---
 
@@ -153,7 +153,7 @@ Use the **Bug Report** issue template. Include:
 - Exact command run and full output
 - Whether it is platform-specific (does it reproduce on another OS?)
 
-For security vulnerabilities, **do not open a public issue** — see [`SECURITY.md`](./SECURITY.md).
+For security vulnerabilities, **do not open a public issue** — see [`docs/SECURITY.md`](./docs/SECURITY.md).
 
 ---
 

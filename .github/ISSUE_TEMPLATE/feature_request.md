@@ -31,7 +31,7 @@ assignees: []
 - [ ] **No plaintext credentials** — any credential handling goes through the Vault only
 - [ ] **MCP as connector standard** — if this requires a cloud API, it belongs in an MCP connector, not the Engine
 - [ ] **Platform equality** — this works on Windows, macOS, and Linux
-- [ ] **Roadmap alignment** — this fits the current quarter's scope (see [Roadmap](../../readme.md#1-year-roadmap))
+- [ ] **Roadmap alignment** — this fits the current quarter's scope (see [Roadmap](../../docs/README.md#2026-roadmap))
 
 ## Roadmap Quarter
 

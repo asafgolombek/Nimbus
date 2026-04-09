@@ -10,7 +10,7 @@
 [![TypeScript](https://img.shields.io/badge/language-TypeScript_6.x-3178C6?logo=typescript)](https://typescriptlang.org)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
 [![Platforms](https://img.shields.io/badge/platforms-Windows_%7C_macOS_%7C_Linux-blue)]()
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](../LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/status-Alpha-orange)]()
 
 </div>
@@ -172,7 +172,7 @@ Releases are automated from **annotated version tags**; assets are uploaded to *
    git push origin v0.1.0
    ```
 
-3. The **[Release workflow](.github/workflows/release.yml)** runs on that tag: it compiles the **Gateway** and **CLI** for Linux, macOS (x64), and Windows, then **creates a GitHub Release** and attaches the binaries. Anyone can download them from the Releases page without cloning the repo.
+3. The **[Release workflow](../.github/workflows/release.yml)** runs on that tag: it compiles the **Gateway** and **CLI** for Linux, macOS (x64), and Windows, then **creates a GitHub Release** and attaches the binaries. Anyone can download them from the Releases page without cloning the repo.
 4. **Code signing** (optional, recommended for production): configure the repository secrets referenced in the workflow (macOS certificate + notarization, Windows certificate) and complete the TODO `codesign` / `signtool` steps when ready.
 
 Future milestones may add classic installers (`.msi`, `.dmg`, `.deb`, AppImage) and a hosted update feed; today’s pipeline ships **single-file executables** per platform.
@@ -285,7 +285,7 @@ $ nimbus ask "The payment-service alert just fired — what deployed recently an
 | **CI runner** | `windows-2022` | `macos-14` | `ubuntu-22.04` |
 | **Release** | `.exe` (signed) | `.dmg` (notarized) | `.deb` + AppImage |
 
-Every PR must pass the full test suite on Ubuntu before merge; after merge, pushes run the same suite on all three CI runners. Platform-specific code is isolated behind the `PlatformServices` interface — business logic is never aware of which OS it runs on. See [`.github/BRANCH_PROTECTION.md`](./.github/BRANCH_PROTECTION.md) for required checks.
+Every PR must pass the full test suite on Ubuntu before merge; after merge, pushes run the same suite on all three CI runners. Platform-specific code is isolated behind the `PlatformServices` interface — business logic is never aware of which OS it runs on. See [`.github/BRANCH_PROTECTION.md`](../.github/BRANCH_PROTECTION.md) for required checks.
 
 ---
 
@@ -350,7 +350,7 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 ## 2026 Roadmap
 
-> See [`docs/roadmap.md`](./docs/roadmap.md) for the full detailed roadmap including milestones, dependencies, and acceptance criteria.
+> See [`roadmap.md`](./roadmap.md) for the full detailed roadmap including milestones, dependencies, and acceptance criteria.
 
 ### Q1 2026 — Foundation ✅
 
@@ -514,6 +514,14 @@ nimbus/
 │   │
 │   └── sdk/                  # @nimbus-dev/sdk (published to npm)
 │
+├── architecture.md           # subsystem design (repo root)
+├── docs/
+│   ├── README.md             # this file (repo overview on GitHub)
+│   ├── mission.md
+│   ├── SECURITY.md
+│   ├── roadmap.md
+│   └── sonar-local.md
+│
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml            # pr-quality (PR) + 3-platform matrix (push)
@@ -523,6 +531,7 @@ nimbus/
 │   ├── dependabot.yml
 │   └── BRANCH_PROTECTION.md  # how to require checks in GitHub settings
 │
+├── scripts/                  # Bun entrypoints + lib/; OS wrappers in linux/*.sh, windows/*.ps1
 ├── bunfig.toml
 └── package.json              # Bun workspace root
 ```
@@ -535,8 +544,8 @@ Nimbus is in active early development. Architecture is stabilizing; not all inte
 
 Before submitting a PR:
 
-1. Read [`docs/architecture.md`](./docs/architecture.md) — understand the four subsystems and their contracts.
-2. Read [`docs/mission.md`](./docs/mission.md) — understand what Nimbus is and what it is not.
+1. Read [`architecture.md`](../architecture.md) — understand the four subsystems and their contracts.
+2. Read [`mission.md`](./mission.md) — understand what Nimbus is and what it is not.
 3. Check issues tagged `good-first-issue`.
 4. Open a discussion before large PRs.
 
@@ -553,7 +562,7 @@ Before submitting a PR:
 
 ## License
 
-**AGPL-3.0** — see [LICENSE](./LICENSE).
+**AGPL-3.0** — see [LICENSE](../LICENSE).
 
 The license choice is deliberate and consistent with the project's mission. MIT would allow any vendor to take the Gateway, close it up, strip the privacy guarantees, and ship a hosted "Nimbus Cloud" service — extracting value from a project that exists precisely to resist that pattern.
 
@@ -567,6 +576,6 @@ If you want to embed Nimbus in a commercial product without AGPL obligations, a 
 
 *Built for the person who wants to own their digital life, not rent it.*
 
-**[Mission](./docs/mission.md) · [Architecture](./docs/architecture.md) · [Roadmap](./docs/roadmap.md) · [Changelog](./CHANGELOG.md)**
+**[Mission](./mission.md) · [Architecture](../architecture.md) · [Roadmap](./roadmap.md) · [Changelog](../CHANGELOG.md)**
 
 </div>

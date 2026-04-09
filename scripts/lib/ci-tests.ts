@@ -1,9 +1,13 @@
 /**
  * CI-parity test sequence (see .github/workflows/ci.yml test steps).
- * On Linux, unit+coverage and vault coverage run under `dbus-run-session` when available
- * (Secret Service for libsecret-backed vault tests).
+ * On Linux, unit+coverage and vault coverage run via `scripts/linux/linux-dbus-tests.sh` when
+ * `dbus-run-session` is available (D-Bus session + Secret Service for secret-tool tests).
  */
+import { join } from "node:path";
+
 import { REPO_ROOT, run } from "./root.ts";
+
+const LINUX_DBUS_TESTS = join(REPO_ROOT, "scripts", "linux", "linux-dbus-tests.sh");
 
 const CI_ENV = { env: { CI: "true" as const } };
 
@@ -21,7 +25,7 @@ function dbusAvailable(): boolean {
 function runBunTest(args: readonly string[], wrapDbus: boolean): void {
   const cmd = ["bun", "test", ...args];
   if (wrapDbus && dbusAvailable()) {
-    run(["dbus-run-session", "--", ...cmd], REPO_ROOT, CI_ENV);
+    run(["bash", LINUX_DBUS_TESTS, ...cmd], REPO_ROOT, CI_ENV);
   } else {
     run(cmd, REPO_ROOT, CI_ENV);
   }

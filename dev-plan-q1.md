@@ -763,9 +763,9 @@ When Q1 Definition of Done is met, the **Bridge** quarter (Google/Microsoft conn
 | Doc | Role |
 |-----|------|
 | `architecture.md` | Subsystem design, HITL contract, IPC semantics |
-| `mission.md` | Principles (local-first, agency, no SaaS) |
+| `docs/mission.md` | Principles (local-first, agency, no SaaS) |
 | `CLAUDE.md` / `.cursor/rules/nimbus.mdc` | Commands, coverage gates, non-negotiables |
 
 ---
 
-*This plan covers only Q1 2026 Foundation scope. See `architecture.md` for the full system design and `mission.md` for the project principles behind every decision.*
+*This plan covers only Q1 2026 Foundation scope. See `architecture.md` for the full system design and `docs/mission.md` for the project principles behind every decision.*

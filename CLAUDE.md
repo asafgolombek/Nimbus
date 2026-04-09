@@ -43,7 +43,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `architecture.md` | Full subsystem design — read before modifying any subsystem |
-| `mission.md` | Project principles — read before adding features |
+| `docs/mission.md` | Project principles — read before adding features |
 
 ---
 
