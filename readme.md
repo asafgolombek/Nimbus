@@ -348,9 +348,11 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 ---
 
-## 1-Year Roadmap
+## 2026 Roadmap
 
-### Q1 2026 — Foundation
+> See [`docs/roadmap.md`](./docs/roadmap.md) for the full detailed roadmap including milestones, dependencies, and acceptance criteria.
+
+### Q1 2026 — Foundation ✅
 
 **Goal:** Make the Gateway real and the security model provable.
 
@@ -370,34 +372,62 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 ### Q2 2026 — The Bridge
 
-**Goal:** Connect the cloud and developer tooling; unify the index.
+**Goal:** Connect the cloud, developer tooling, and the communication + collaboration surface every engineer lives in. Unify the index.
 
+**Cloud storage & email**
 - Google Drive, Gmail, Google Photos MCP connectors (OAuth PKCE)
 - OneDrive, Outlook MCP connectors (Microsoft Graph, first-party)
+
+**Source control & code review**
 - **GitHub, GitLab, Bitbucket MCP connectors** — repositories, pull requests, issues, CI status
+
+**Communication**
+- **Slack MCP connector** — messages, channels, threads, DMs, search
+- **Microsoft Teams MCP connector** — chats, channels, meetings
+- **Discord MCP connector** (opt-in) — servers, channels, threads
+
+**Project & issue tracking**
+- **Linear MCP connector** — issues, projects, cycles, roadmap items
+- **Jira MCP connector** — issues, sprints, boards, epics, comments
+
+**Knowledge bases**
+- **Notion MCP connector** — pages, databases, comments, linked mentions
+- **Confluence MCP connector** — spaces, pages, blog posts, inline comments
+
+**Infrastructure**
 - Delta sync scheduler — configurable per-connector intervals
-- Unified metadata index across all services (documents, emails, PRs, issues)
+- Unified metadata index across all services (documents, emails, messages, PRs, issues, pages)
+- Cross-service people graph — links email contacts to PR authors to Slack handles to Linear assignees
 - `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`
 - E2E CLI test suite with mock MCP servers
 
-**Milestone:** `nimbus ask "find all documents and PRs I've touched across Drive, OneDrive, and GitHub this quarter"` returns merged, ranked results from all services in under 200ms using the local index.
+**Milestone:** `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results from all services in under 200ms using the local index. `nimbus ask "who is the most active reviewer on the payment-service repo and what are they working on in Linear?"` resolves a cross-service identity link without a network call.
 
 ---
 
 ### Q3 2026 — Intelligence
 
-**Goal:** Make Nimbus proactive and semantically aware. Extend into CI/CD and cloud infrastructure.
+**Goal:** Make Nimbus proactive and semantically aware. Extend into CI/CD, cloud infrastructure, and agentic automation.
 
+**Semantic layer**
 - Embedding pipeline: chunk → embed → `sqlite-vec` (`@xenova/transformers`, local)
 - Hybrid search: BM25 keyword + vector reranking
 - RAG-based conversational memory across sessions
+
+**Extension ecosystem**
 - **Extension Registry v1** — `@nimbus-dev/sdk`, manifest schema, `nimbus scaffold`
 - `nimbus extension install/list/disable/remove` CLI commands
+
+**CI/CD & infrastructure connectors**
 - **CI/CD connectors** — Jenkins, GitHub Actions, CircleCI, GitLab CI: pipeline runs, job status, artefacts, failure summaries
 - **Cloud infrastructure connectors** — AWS (CloudWatch, ECS, Lambda, EC2, S3, Cost Explorer), Azure (Monitor, App Service, AKS), GCP (Cloud Run, GKE, Cloud Monitoring)
 - **IaC awareness** — Terraform state, CloudFormation stacks, Pulumi outputs: indexed resource state + drift detection
+- **IaC write operations** — `terraform plan` → HITL review → `apply`; rollback tracking via audit log
 - **Kubernetes connector** — pod status, events, recent restarts, rollout history (kubectl-compatible clusters)
 - **Monitoring & incident connectors** — Datadog, Grafana, Sentry, PagerDuty, New Relic: alert indexing, cross-service incident correlation
+
+**Workflow automation**
+- **Workflow pipelines** — named, repeatable multi-step workflows defined in natural language; versioned as files; shareable; all write steps HITL-gated
 - **Watcher system** — ambient monitors that fire on conditions:
   - "Alert me when I receive an email matching this pattern"
   - "Summarize new files added to this Drive folder"
@@ -405,28 +435,54 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
   - "Alert me when a production deployment fails CI"
   - "Summarize all failing Jenkins jobs every morning at 09:00"
 - `nimbus watch` CLI: `create`, `list`, `pause`, `delete`
+- `nimbus workflow` CLI: `run`, `list`, `edit`, `delete`
 
-**Milestone:** A community developer publishes a working Nimbus extension for Notion in under a day using the SDK scaffold. `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, the GitHub PR, the Jenkins run, and the CloudWatch error spike into a single local answer — without leaving the terminal.
+**Knowledge graph & filesystem intelligence**
+- **Local relationship graph** — SQLite-backed knowledge graph linking people → projects → documents → incidents → PRs across all indexed services; queryable in natural language
+- **Filesystem connector v2** — git-aware: commit history, blame, diff summarization; semantic code search; dependency graph indexing (imports, packages)
+
+**Agent specialization**
+- **DevOps agent** — domain-tuned for CI/CD, infrastructure, and incident correlation; pre-built tool set, memory scope
+- **Research agent** — optimized for document synthesis and cross-service knowledge retrieval
+
+**Milestone:** `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, the GitHub PR, the Jenkins run, the CloudWatch error spike, and the Slack incident thread into a single local answer — without leaving the terminal. A community developer publishes a working Nimbus extension in under a day using the SDK scaffold.
 
 ---
 
 ### Q4 2026 — Presence
 
-**Goal:** Give Nimbus a face and an ecosystem.
+**Goal:** Give Nimbus a face, an ecosystem, and the option to run without any cloud AI dependency.
 
+**Desktop application**
 - **Tauri 2.0 desktop application** — Windows + macOS + Linux
   - System tray with quick-query popup
   - Dashboard: connector health, index stats, recent actions, sync log
-  - **Extension Marketplace panel** — browse, install, update, manage community extensions
+  - **Extension Marketplace panel** — browse, install, update, manage community extensions; verified publisher badges; ratings
   - HITL consent dialogs with full action preview and diff view
   - Watcher management UI
+  - Workflow pipeline editor
   - Settings: model config, sync intervals, Vault management, audit log viewer
+
+**Local LLM & multi-agent**
+- **Local LLM support** — Ollama / llama.cpp integration; model selection per-task (fast local for intent routing, remote for complex reasoning); no API key required for basic use; fully air-gapped operation possible
+- **Multi-agent orchestration** — Nimbus decomposes complex tasks into parallel sub-agents; coordinator agent aggregates results; all write operations remain HITL-gated regardless of which sub-agent initiates them
+
+**Terminal power users**
+- **Rich TUI** — full keyboard-driven terminal UI (Ink) with panes: query, results, connector health, active watchers; no mouse required; works over SSH
+
+**Voice interface**
+- **Voice interface** — local Whisper-based speech-to-text in the desktop app; voice queries + spoken result summaries via local TTS; no audio leaves the machine
+
+**Data sovereignty**
+- **Data portability** — full export: SQLite snapshot + vault credential manifest (re-encrypted for import); full import on new machine in one command; GDPR-compatible deletion with audit trail; tamper-evident audit log signing
+
+**Release infrastructure**
 - Signed + notarized release binaries for all platforms
-- Auto-update via `tauri-update-server` (self-hosted)
+- Auto-update via self-hosted `tauri-update-server`
 - Plugin API v1 — third-party connector registration stable API
 - Optional encrypted LAN remote access (E2E encrypted, no relay server)
 
-**Milestone:** First tagged release `v0.1.0` — signed installers for Windows, macOS, and Linux distributed via GitHub Releases. Five community extensions available in the marketplace at launch.
+**Milestone:** First tagged release `v0.1.0` — signed installers for Windows, macOS, and Linux distributed via GitHub Releases. `nimbus ask "summarize everything that happened across my projects this week"` runs fully locally via Ollama with no API key. Five community extensions available in the marketplace at launch.
 
 ---
 
@@ -511,6 +567,6 @@ If you want to embed Nimbus in a commercial product without AGPL obligations, a 
 
 *Built for the person who wants to own their digital life, not rent it.*
 
-**[Mission](./docs/mission.md) · [Architecture](./docs/architecture.md) · [Changelog](./CHANGELOG.md)**
+**[Mission](./docs/mission.md) · [Architecture](./docs/architecture.md) · [Roadmap](./docs/roadmap.md) · [Changelog](./CHANGELOG.md)**
 
 </div>

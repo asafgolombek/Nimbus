@@ -12,12 +12,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);const f=j.tool_input?.file_path||'';if(/\\.(ts|tsx|js|jsx|json)$/i.test(f)){console.log(f)}})\" | { read -r f && bunx biome check --write \"$f\"; } 2>/dev/null || true",
+            "command": "f=$(node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);const p=j.tool_input?.file_path||'';if(/\\.(ts|tsx|js|jsx|json)$/i.test(p)){console.log(p)}})\"); [ -n \"$f\" ] && bunx biome check --write \"$f\" 2>/dev/null; true",
             "statusMessage": "Biome: formatting and linting..."
           },
           {
             "type": "command",
-            "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);const f=j.tool_input?.file_path||'';if(/\\.(ts|tsx)$/i.test(f)){console.log(f)}})\" | { read -r f && cd /c/gitrepo/Nimbus && bun run typecheck || exit 2; } 2>&1",
+            "command": "f=$(node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);const p=j.tool_input?.file_path||'';if(/\\.(ts|tsx)$/i.test(p)){console.log(p)}})\"); if [ -n \"$f\" ]; then cd /c/gitrepo/Nimbus && bun run typecheck || exit 2; fi",
             "asyncRewake": true,
             "statusMessage": "TypeScript: type checking..."
           }
