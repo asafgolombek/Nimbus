@@ -17,7 +17,7 @@ describe("LocalIndex", () => {
     const row = db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
-    expect(row.user_version).toBe(1);
+    expect(row.user_version).toBe(3);
   });
 
   test("upsert and search by name via FTS5", () => {
@@ -116,5 +116,26 @@ describe("LocalIndex", () => {
     expect(list.length).toBe(2);
     expect(list[0]?.actionType).toBe("filesystem.search");
     expect(list[1]?.actionType).toBe("file.delete");
+  });
+
+  test("connector scheduler registration and persisted statuses", () => {
+    const idx = openMemoryIndex();
+    const now = 1_700_000_000_000;
+    idx.ensureConnectorSchedulerRegistration("google_drive", 60_000, now);
+    const rows = idx.persistedConnectorStatuses();
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.serviceId).toBe("google_drive");
+    expect(rows[0]?.intervalMs).toBe(60_000);
+    expect(rows[0]?.status).toBe("ok");
+    idx.upsert({
+      id: "g1",
+      service: "google_drive",
+      itemType: "file",
+      name: "a",
+    });
+    expect(idx.persistedConnectorStatuses("google_drive")[0]?.itemCount).toBe(1);
+    const deleted = idx.removeConnectorIndexData("google_drive");
+    expect(deleted).toBe(1);
+    expect(idx.persistedConnectorStatuses()).toEqual([]);
   });
 });

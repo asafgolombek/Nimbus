@@ -1,9 +1,25 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
-import { INITIAL_SCHEMA_SQL } from "./schema-sql.ts";
+import {
+  clearSchedulerCursor,
+  countItemsForService,
+  deleteSchedulerStateRow,
+  listAllSchedulerStates,
+  loadSchedulerState,
+  type SchedulerStateRow,
+  setPaused,
+  upsertSchedulerRegistration,
+} from "../sync/scheduler-store.ts";
+import type { SyncStatus } from "../sync/types.ts";
+import {
+  deleteAllItemsForService,
+  deleteItemByPrimaryKey,
+  upsertNimbusItemIntoItemTable,
+} from "./item-store.ts";
+import { runIndexedSchemaMigrations } from "./migrations/runner.ts";
 
-export const RAW_META_MAX_BYTES = 65_536;
+export { RAW_META_MAX_BYTES } from "./constants.ts";
 
 export type AuditEntry = {
   id: number;
@@ -20,22 +36,24 @@ export type IndexSearchQuery = {
   limit?: number;
 };
 
-/** Row shape from `SELECT i.* FROM items i` */
+/** Row shape from `SELECT i.* FROM item i` */
 type ItemRow = {
   id: string;
   service: string;
-  item_type: string;
-  name: string;
-  mime_type: string | null;
-  size_bytes: number | null;
-  created_at: number | null;
-  modified_at: number | null;
+  type: string;
+  external_id: string;
+  title: string;
+  body_preview: string | null;
   url: string | null;
-  parent_id: string | null;
-  raw_meta: string | null;
+  canonical_url: string | null;
+  modified_at: number;
+  author_id: string | null;
+  metadata: string | null;
+  synced_at: number;
+  pinned: number;
 };
 
-function ftsNameMatchQuery(name: string): string {
+function ftsTitleMatchQuery(name: string): string {
   const tokens = name
     .trim()
     .split(/\s+/)
@@ -46,41 +64,52 @@ function ftsNameMatchQuery(name: string): string {
   return tokens
     .map((t) => {
       const escaped = t.replaceAll('"', '""');
-      return `name : "${escaped}"*`;
+      return `(title : "${escaped}"* OR body_preview : "${escaped}"*)`;
     })
     .join(" AND ");
 }
 
 function rowToItem(row: ItemRow): NimbusItem {
   const item: NimbusItem = {
-    id: String(row.id),
+    id: String(row.external_id),
     service: String(row.service),
-    itemType: String(row.item_type),
-    name: String(row.name),
+    itemType: String(row.type),
+    name: String(row.title),
   };
-  if (row.mime_type != null) {
-    item.mimeType = String(row.mime_type);
-  }
-  if (row.size_bytes != null) {
-    item.sizeBytes = Number(row.size_bytes);
-  }
-  if (row.created_at != null) {
-    item.createdAt = Number(row.created_at);
-  }
-  if (row.modified_at != null) {
-    item.modifiedAt = Number(row.modified_at);
-  }
-  if (row.url != null) {
+  item.modifiedAt = Number(row.modified_at);
+  if (row.url != null && row.url !== "") {
     item.url = String(row.url);
   }
-  if (row.parent_id != null) {
-    item.parentId = String(row.parent_id);
-  }
-  if (row.raw_meta != null && row.raw_meta !== "") {
+  if (row.metadata != null && row.metadata !== "") {
     try {
-      const parsed: unknown = JSON.parse(String(row.raw_meta));
+      const parsed: unknown = JSON.parse(String(row.metadata));
       if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        item.rawMeta = parsed as Record<string, unknown>;
+        const rec = parsed as Record<string, unknown>;
+        item.rawMeta = { ...rec };
+        const mt = rec["mime_type"];
+        if (typeof mt === "string") {
+          item.mimeType = mt;
+        }
+        const sb = rec["size_bytes"];
+        if (typeof sb === "number" && Number.isFinite(sb)) {
+          item.sizeBytes = sb;
+        }
+        const pid = rec["parent_id"];
+        if (typeof pid === "string") {
+          item.parentId = pid;
+        }
+        const ca = rec["created_at"];
+        if (typeof ca === "number" && Number.isFinite(ca)) {
+          item.createdAt = ca;
+        }
+        delete item.rawMeta["mime_type"];
+        delete item.rawMeta["size_bytes"];
+        delete item.rawMeta["parent_id"];
+        delete item.rawMeta["created_at"];
+        delete item.rawMeta["legacy_raw_meta"];
+        if (Object.keys(item.rawMeta).length === 0) {
+          delete item.rawMeta;
+        }
       }
     } catch {
       /* leave rawMeta unset */
@@ -89,79 +118,135 @@ function rowToItem(row: ItemRow): NimbusItem {
   return item;
 }
 
-function readUserVersion(db: Database): number {
-  const row = db.query("PRAGMA user_version").get() as { user_version: number } | null | undefined;
-  const v = row?.user_version;
-  return typeof v === "number" ? v : 0;
-}
-
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 1;
+  static readonly SCHEMA_VERSION = 3;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
    */
   static ensureSchema(db: Database): void {
-    const ver = readUserVersion(db);
-    if (ver >= LocalIndex.SCHEMA_VERSION) {
-      return;
-    }
-    if (ver !== 0) {
-      throw new Error(
-        `Unsupported local index schema version: ${ver} (expected 0 or ${String(LocalIndex.SCHEMA_VERSION)})`,
-      );
-    }
-    db.exec(INITIAL_SCHEMA_SQL);
-    db.exec(`PRAGMA user_version = ${String(LocalIndex.SCHEMA_VERSION)}`);
+    runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION);
   }
 
   constructor(private readonly db: Database) {}
 
-  upsert(item: NimbusItem): void {
-    const meta = JSON.stringify(item.rawMeta ?? {});
-    if (Buffer.byteLength(meta, "utf8") > RAW_META_MAX_BYTES) {
-      throw new Error(`raw_meta for item "${item.id}" exceeds 64 KB limit`);
+  /** Gateway IPC only — OAuth retention checks after connector removal. */
+  getDatabase(): Database {
+    return this.db;
+  }
+
+  private static rowToPersistedSyncStatus(db: Database, row: SchedulerStateRow): SyncStatus {
+    let status: SyncStatus["status"] = "ok";
+    if (row.paused === 1) {
+      status = "paused";
+    } else if (row.status === "error") {
+      status = "error";
+    } else if (row.status === "backoff") {
+      status = "backoff";
     }
-    this.db.run(
-      `INSERT INTO items (
-        id, service, item_type, name, mime_type, size_bytes, created_at, modified_at, url, parent_id, raw_meta
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        service = excluded.service,
-        item_type = excluded.item_type,
-        name = excluded.name,
-        mime_type = excluded.mime_type,
-        size_bytes = excluded.size_bytes,
-        created_at = excluded.created_at,
-        modified_at = excluded.modified_at,
-        url = excluded.url,
-        parent_id = excluded.parent_id,
-        raw_meta = excluded.raw_meta`,
-      [
-        item.id,
-        item.service,
-        item.itemType,
-        item.name,
-        item.mimeType ?? null,
-        item.sizeBytes ?? null,
-        item.createdAt ?? null,
-        item.modifiedAt ?? null,
-        item.url ?? null,
-        item.parentId ?? null,
-        meta,
-      ],
-    );
+    return {
+      serviceId: row.service_id,
+      status,
+      lastSyncAt: row.last_sync_at,
+      nextSyncAt: row.next_sync_at,
+      intervalMs: row.interval_ms,
+      itemCount: countItemsForService(db, row.service_id),
+      lastError: row.error_msg,
+      consecutiveFailures: row.consecutive_failures,
+    };
+  }
+
+  /**
+   * Sync rows persisted in `scheduler_state` (no in-process "syncing" flag — use {@link SyncScheduler#getStatus} when wired).
+   */
+  persistedConnectorStatuses(serviceIdFilter?: string): SyncStatus[] {
+    if (serviceIdFilter !== undefined && serviceIdFilter !== "") {
+      const row = loadSchedulerState(this.db, serviceIdFilter);
+      if (row === null) {
+        return [];
+      }
+      return [LocalIndex.rowToPersistedSyncStatus(this.db, row)];
+    }
+    const rows = listAllSchedulerStates(this.db);
+    return rows.map((r) => LocalIndex.rowToPersistedSyncStatus(this.db, r));
+  }
+
+  ensureConnectorSchedulerRegistration(serviceId: string, intervalMs: number, now: number): void {
+    upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, false);
+  }
+
+  pauseConnectorSync(serviceId: string): void {
+    if (loadSchedulerState(this.db, serviceId) === null) {
+      throw new Error(`Unknown connector: ${serviceId}`);
+    }
+    setPaused(this.db, serviceId, true);
+  }
+
+  resumeConnectorSync(serviceId: string): void {
+    if (loadSchedulerState(this.db, serviceId) === null) {
+      throw new Error(`Unknown connector: ${serviceId}`);
+    }
+    setPaused(this.db, serviceId, false);
+  }
+
+  setConnectorSyncIntervalMs(serviceId: string, intervalMs: number, now: number): void {
+    upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, true);
+  }
+
+  clearConnectorSyncCursor(serviceId: string): void {
+    if (loadSchedulerState(this.db, serviceId) === null) {
+      throw new Error(`Unknown connector: ${serviceId}`);
+    }
+    clearSchedulerCursor(this.db, serviceId);
+  }
+
+  /**
+   * Deletes index + scheduler + legacy sync_state rows for one connector (SQLite transaction).
+   * Returns how many items were removed.
+   */
+  removeConnectorIndexData(serviceId: string): number {
+    return this.db.transaction(() => {
+      const n = countItemsForService(this.db, serviceId);
+      deleteAllItemsForService(this.db, serviceId);
+      deleteSchedulerStateRow(this.db, serviceId);
+      this.db.run("DELETE FROM sync_state WHERE connector_id = ?", [serviceId]);
+      return n;
+    })();
+  }
+
+  upsert(item: NimbusItem): void {
+    upsertNimbusItemIntoItemTable(this.db, item, Date.now());
   }
 
   delete(id: string): void {
-    this.db.run("DELETE FROM items WHERE id = ?", [id]);
+    const byPk = this.db.query("SELECT id FROM item WHERE id = ?").get(id) as
+      | { id: string }
+      | null
+      | undefined;
+    if (byPk !== null && byPk !== undefined) {
+      deleteItemByPrimaryKey(this.db, byPk.id);
+      return;
+    }
+    const rows = this.db.query("SELECT id FROM item WHERE external_id = ?").all(id) as {
+      id: string;
+    }[];
+    if (rows.length === 0) {
+      return;
+    }
+    if (rows.length > 1) {
+      throw new Error("delete id is ambiguous across services");
+    }
+    const pk = rows[0]?.id;
+    if (pk !== undefined) {
+      deleteItemByPrimaryKey(this.db, pk);
+    }
   }
 
   search(query: IndexSearchQuery): NimbusItem[] {
     const limit = Math.min(500, Math.max(1, query.limit ?? 50));
     const nameQ = query.name?.trim() ?? "";
     const useFts = nameQ.length > 0;
-    const fts = useFts ? ftsNameMatchQuery(nameQ) : "";
+    const fts = useFts ? ftsTitleMatchQuery(nameQ) : "";
 
     if (useFts && fts === "") {
       return [];
@@ -175,7 +260,7 @@ export class LocalIndex {
       params.push(query.service);
     }
     if (query.itemType !== undefined && query.itemType !== "") {
-      filters.push("i.item_type = ?");
+      filters.push("i.type = ?");
       params.push(query.itemType);
     }
 
@@ -183,9 +268,9 @@ export class LocalIndex {
 
     if (useFts) {
       const sql = `
-        SELECT i.* FROM items i
-        INNER JOIN items_fts ON i.rowid = items_fts.rowid
-        WHERE items_fts MATCH ? ${whereExtra}
+        SELECT i.* FROM item i
+        INNER JOIN item_fts ON i.rowid = item_fts.rowid
+        WHERE item_fts MATCH ? ${whereExtra}
         LIMIT ?
       `;
       params.unshift(fts);
@@ -196,8 +281,8 @@ export class LocalIndex {
 
     const sql =
       filters.length > 0
-        ? `SELECT i.* FROM items i WHERE ${filters.join(" AND ")} LIMIT ?`
-        : `SELECT i.* FROM items i LIMIT ?`;
+        ? `SELECT i.* FROM item i WHERE ${filters.join(" AND ")} LIMIT ?`
+        : `SELECT i.* FROM item i LIMIT ?`;
     params.push(limit);
     const rows = this.db.query(sql).all(...params) as ItemRow[];
     return rows.map(rowToItem);

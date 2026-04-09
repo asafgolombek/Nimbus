@@ -1,20 +1,19 @@
-import { MCPClient } from "@mastra/mcp";
-
 import type { ConnectorDispatcher, PlannedAction } from "../engine/types.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
+
+export { createLazyConnectorMesh, LazyConnectorMesh };
 
 /**
- * Q1 filesystem-only MCP mesh. Cloud connectors are Q2+.
+ * Filesystem MCP (always) + lazy Google bundle (Drive, Gmail, Photos) when `google.oauth` exists +
+ * lazy Microsoft bundle (OneDrive, Outlook) when `microsoft.oauth` exists.
  */
-export async function buildConnectorMesh(paths: PlatformPaths): Promise<MCPClient> {
-  return new MCPClient({
-    servers: {
-      filesystem: {
-        command: "bunx",
-        args: ["@modelcontextprotocol/server-filesystem", paths.dataDir],
-      },
-    },
-  });
+export async function buildConnectorMesh(
+  paths: PlatformPaths,
+  vault: NimbusVault,
+): Promise<LazyConnectorMesh> {
+  return createLazyConnectorMesh(paths, vault);
 }
 
 /** Minimal surface needed to dispatch tools (MCPClient satisfies this at runtime). */
@@ -27,6 +26,8 @@ export type McpToolListingClient = {
       }
     >
   >;
+  /** When tool sets change (lazy MCP), bump this so dispatchers refresh their cache. */
+  getToolsEpoch?: () => number;
 };
 
 /**
@@ -37,14 +38,32 @@ export type McpToolListingClient = {
  * 2. `action.type` (must equal the namespaced id, e.g. `filesystem_list_directory`)
  *
  * Execution input: `action.payload.input` when present; otherwise payload minus `mcpToolId` / `input`.
+ *
+ * Google Drive writes (HITL): use `file.create` | `file.delete` | `file.move` | `file.rename` as
+ * `action.type` with `payload.mcpToolId` set to `google_drive_gdrive_file_create` (or `_trash`,
+ * `_move`, `_rename`) and `payload.input` matching that tool's MCP arguments.
+ *
+ * Gmail (HITL): `email.send` → `gmail_gmail_message_send`; `email.draft.send` →
+ * `gmail_gmail_draft_send`; `email.draft.create` → `gmail_gmail_draft_create`.
+ *
+ * OneDrive (HITL): `onedrive.delete` → `onedrive_onedrive_item_delete`; `onedrive.move` →
+ * `onedrive_onedrive_item_move`.
+ *
+ * Outlook (HITL): `email.send` → `outlook_outlook_mail_send`; `calendar.event.create` →
+ * `outlook_outlook_calendar_create`; `calendar.event.delete` → `outlook_outlook_calendar_delete`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;
+  let cachedEpoch = -1;
 
   async function tools(): Promise<
     Record<string, { execute?: (a: unknown, b?: unknown) => Promise<unknown> }>
   > {
-    toolsPromise ??= client.listTools();
+    const epoch = client.getToolsEpoch?.() ?? 0;
+    if (toolsPromise === undefined || epoch !== cachedEpoch) {
+      cachedEpoch = epoch;
+      toolsPromise = client.listTools();
+    }
     return toolsPromise;
   }
 

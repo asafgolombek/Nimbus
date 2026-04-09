@@ -6,7 +6,7 @@ import {
   isProcessAlive,
   readGatewayState,
 } from "../lib/gateway-process.ts";
-import { getRepoRoot } from "../lib/repo-root.ts";
+import { resolveGatewayLaunch } from "../lib/resolve-gateway-launch.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
 export async function runStart(_args: string[]): Promise<void> {
@@ -22,27 +22,44 @@ export async function runStart(_args: string[]): Promise<void> {
   const s = spinner();
   s.start("Starting Gateway");
 
-  const repoRoot = getRepoRoot();
-  const logPath = `${paths.logDir}/gateway.log`;
-  const logFile = Bun.file(logPath);
+  const launch = resolveGatewayLaunch(process.execPath, import.meta.url);
+  if (launch.ok) {
+    const logPath = `${paths.logDir}/gateway.log`;
+    const logFile = Bun.file(logPath);
 
-  const proc = Bun.spawn({
-    cmd: [process.execPath, "run", "packages/gateway/src/index.ts"],
-    cwd: repoRoot,
-    stdin: "ignore",
-    stdout: logFile,
-    stderr: logFile,
-  });
+    const spawnOpts: {
+      cmd: string[];
+      cwd?: string;
+      stdin: "ignore";
+      stdout: typeof logFile;
+      stderr: typeof logFile;
+    } = {
+      cmd: launch.cmd,
+      stdin: "ignore",
+      stdout: logFile,
+      stderr: logFile,
+    };
+    if (launch.cwd !== undefined) {
+      spawnOpts.cwd = launch.cwd;
+    }
 
-  proc.unref();
+    const proc = Bun.spawn(spawnOpts);
 
-  const state = {
-    pid: proc.pid,
-    socketPath: paths.socketPath,
-  };
-  await Bun.write(gatewayStatePath(paths), `${JSON.stringify(state, undefined, 2)}\n`);
+    proc.unref();
 
-  s.stop(`Gateway started (pid ${String(proc.pid)})`);
-  console.log(`Socket: ${paths.socketPath}`);
-  console.log(`Log:    ${logPath}`);
+    const state = {
+      pid: proc.pid,
+      socketPath: paths.socketPath,
+    };
+    await Bun.write(gatewayStatePath(paths), `${JSON.stringify(state, undefined, 2)}\n`);
+
+    s.stop(`Gateway started (pid ${String(proc.pid)})`);
+    console.log(`Socket: ${paths.socketPath}`);
+    console.log(`Log:    ${logPath}`);
+    return;
+  }
+
+  s.stop("Could not start Gateway");
+  console.error(launch.message);
+  process.exitCode = 1;
 }

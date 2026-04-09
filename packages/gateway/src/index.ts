@@ -5,11 +5,7 @@
  * See architecture.md §Nimbus Gateway: Process Lifecycle.
  */
 
-import {
-  buildConnectorMesh,
-  createConnectorDispatcher,
-  type McpToolListingClient,
-} from "./connectors/index.ts";
+import { createConnectorDispatcher, type McpToolListingClient } from "./connectors/index.ts";
 import { runAsk } from "./engine/run-ask.ts";
 import { createPlatformServices } from "./platform/index.ts";
 
@@ -17,7 +13,7 @@ const GATEWAY_VERSION = "0.1.0";
 
 async function main(): Promise<void> {
   const platform = await createPlatformServices();
-  const mcp = await buildConnectorMesh(platform.paths);
+  const mcp = platform.connectorMesh;
   const dispatcher = createConnectorDispatcher(mcp as unknown as McpToolListingClient);
 
   platform.ipc.setAgentInvokeHandler((ctx) =>
@@ -32,6 +28,11 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     process.stdout.write(`[gateway] ${signal} — shutting down\n`);
+    try {
+      platform.syncScheduler.stop();
+    } catch {
+      /* ignore */
+    }
     try {
       await platform.ipc.stop();
     } finally {

@@ -14,7 +14,7 @@ describe("Platform Abstraction Layer", () => {
     expect(typeof createPlatformServices).toBe("function");
   });
 
-  it("returns a full PlatformServices shape for the current OS", async () => {
+  it("returns a full PlatformServices shape for the current OS", async (): Promise<void> => {
     const { createPlatformServices } = await import("./index.ts");
     const services = await createPlatformServices();
 
@@ -25,8 +25,15 @@ describe("Platform Abstraction Layer", () => {
     expect(services.paths).toBeDefined();
     expect(services.localIndex).toBeDefined();
     expect(typeof services.localIndex.listAudit).toBe("function");
+    expect(services.connectorMesh).toBeDefined();
+    expect(typeof services.connectorMesh.listTools).toBe("function");
+    expect(services.syncScheduler).toBeDefined();
+    expect(typeof services.syncScheduler.start).toBe("function");
+    services.syncScheduler.stop();
+    await services.connectorMesh.disconnect();
     expect(services.autostart).toBeDefined();
     expect(services.notifications).toBeDefined();
+    expect(typeof services.openUrl).toBe("function");
 
     const { paths } = services;
     for (const key of [

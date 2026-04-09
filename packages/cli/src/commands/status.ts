@@ -13,7 +13,7 @@ export async function runStatus(_args: string[]): Promise<void> {
   const client = new IPCClient(state.socketPath);
   try {
     await client.connect();
-    const ping = await client.call<{ version: string; uptime: number }>("gateway.ping", {});
+    const ping = await client.call<{ version: string; uptime: number }>("gateway.ping");
     console.log(`Gateway: running (pid ${String(state.pid)})`);
     console.log(`Version: ${ping.version}`);
     console.log(`Uptime:  ${String(Math.round(ping.uptime / 1000))}s`);

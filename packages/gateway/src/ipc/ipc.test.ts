@@ -1,9 +1,12 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import net from "node:net";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { LocalIndex } from "../index/local-index.ts";
 import { MockVault } from "../vault/mock.ts";
 import { ConsentDisconnectedError } from "./consent.ts";
 import {
@@ -72,19 +75,25 @@ function testListenPath(): string {
   return join(mkdtempSync(join(tmpdir(), "nimbus-ipc-")), "sock");
 }
 
-async function rpcPing(listenPath: string): Promise<string> {
-  const req = `${JSON.stringify({
+function jsonRpcNdjsonLine(method: string, id: number, params?: unknown): string {
+  const body: Record<string, unknown> = {
     jsonrpc: "2.0",
-    id: 1,
-    method: "gateway.ping",
-  })}\n`;
+    id,
+    method,
+  };
+  if (params !== undefined) {
+    body["params"] = params;
+  }
+  return `${JSON.stringify(body)}\n`;
+}
 
+async function exchangeFirstNdjsonLine(listenPath: string, lineToWrite: string): Promise<string> {
   if (platform() === "win32") {
     return await new Promise<string>((resolve, reject) => {
       let buf = "";
       const sock = net.createConnection(listenPath);
       sock.on("connect", () => {
-        sock.write(req);
+        sock.write(lineToWrite);
       });
       sock.on("data", (b: Buffer) => {
         const { next, line } = appendAndTakeFirstLine(buf, b.toString("utf8"));
@@ -104,7 +113,7 @@ async function rpcPing(listenPath: string): Promise<string> {
       unix: listenPath,
       socket: {
         open(socket) {
-          socket.write(req);
+          socket.write(lineToWrite);
         },
         data(socket, chunk: Uint8Array) {
           const { next, line } = appendAndTakeFirstLine(buf, new TextDecoder().decode(chunk));
@@ -122,7 +131,40 @@ async function rpcPing(listenPath: string): Promise<string> {
   });
 }
 
+async function rpcCall(listenPath: string, method: string, params: unknown): Promise<string> {
+  return exchangeFirstNdjsonLine(listenPath, jsonRpcNdjsonLine(method, 42, params));
+}
+
+async function rpcPing(listenPath: string): Promise<string> {
+  return exchangeFirstNdjsonLine(listenPath, jsonRpcNdjsonLine("gateway.ping", 1));
+}
+
 describe("ipc server integration", () => {
+  test("connector.listStatus over IPC", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+    localIndex.ensureConnectorSchedulerRegistration("google_drive", 30_000, Date.now());
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+      openUrl: async () => {},
+    });
+    await server.start();
+    try {
+      const line = await rpcCall(listenPath, "connector.listStatus", {});
+      const res = JSON.parse(line) as { result?: Array<{ serviceId: string }> };
+      expect(res.result?.length).toBe(1);
+      expect(res.result?.[0]?.serviceId).toBe("google_drive");
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("gateway.ping over IPC transport", async () => {
     const listenPath = testListenPath();
     const server = createIpcServer({
@@ -274,48 +316,7 @@ describe("ipc server integration", () => {
         method: "agent.invoke",
         params: { input: "hi", stream: false },
       })}\n`;
-      const line = await new Promise<string>((resolve, reject) => {
-        if (platform() === "win32") {
-          let buf = "";
-          const sock = net.createConnection(listenPath);
-          sock.on("connect", () => {
-            sock.write(req);
-          });
-          sock.on("data", (b: Buffer) => {
-            const { next, line: ln } = appendAndTakeFirstLine(buf, b.toString("utf8"));
-            buf = next;
-            if (ln !== undefined) {
-              resolve(ln);
-              sock.end();
-            }
-          });
-          sock.on("error", reject);
-        } else {
-          let buf = "";
-          Bun.connect({
-            unix: listenPath,
-            socket: {
-              open(socket) {
-                socket.write(req);
-              },
-              data(socket, chunk: Uint8Array) {
-                const { next, line: ln } = appendAndTakeFirstLine(
-                  buf,
-                  new TextDecoder().decode(chunk),
-                );
-                buf = next;
-                if (ln !== undefined) {
-                  resolve(ln);
-                  socket.end();
-                }
-              },
-              error() {
-                reject(new Error("socket error"));
-              },
-            },
-          }).catch(reject);
-        }
-      });
+      const line = await exchangeFirstNdjsonLine(listenPath, req);
       const res = JSON.parse(line) as { result?: { reply?: string } };
       expect(res.result?.reply).toBe("from-handler");
     } finally {

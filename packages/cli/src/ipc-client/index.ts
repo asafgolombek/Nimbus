@@ -24,15 +24,25 @@ function idKey(id: string | number): string {
 }
 
 function jsonRpcErrorMessage(err: unknown): string {
-  if (
-    typeof err === "object" &&
-    err !== null &&
-    "message" in err &&
-    typeof (err as { message: unknown }).message === "string"
-  ) {
-    return (err as { message: string }).message;
+  if (typeof err !== "object" || err === null) {
+    return "JSON-RPC error";
   }
-  return "JSON-RPC error";
+  if (!("message" in err)) {
+    return "JSON-RPC error";
+  }
+  const msg = (err as { message: unknown }).message;
+  if (typeof msg !== "string") {
+    return "JSON-RPC error";
+  }
+  return msg;
+}
+
+function tryParseJsonRecord(line: string): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 export class IPCClient {
@@ -65,20 +75,28 @@ export class IPCClient {
   private async connectWindows(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const sock = net.createConnection(this.socketPath);
-      sock.on("connect", () => {
-        this.netSocket = sock;
-        this.connected = true;
-        resolve();
-      });
-      sock.on("error", (err) => {
-        reject(err);
-      });
-      sock.on("data", (buf: Buffer) => {
-        this.onTransportData(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
-      });
-      sock.on("close", () => {
-        this.onWindowsClosed();
-      });
+      this.attachWindowsSocket(sock, resolve, reject);
+    });
+  }
+
+  private attachWindowsSocket(
+    sock: net.Socket,
+    resolve: () => void,
+    reject: (e: Error) => void,
+  ): void {
+    sock.on("connect", () => {
+      this.netSocket = sock;
+      this.connected = true;
+      resolve();
+    });
+    sock.on("error", (err) => {
+      reject(err);
+    });
+    sock.on("data", (buf: Buffer) => {
+      this.onTransportData(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+    });
+    sock.on("close", () => {
+      this.onWindowsClosed();
     });
   }
 
@@ -125,12 +143,15 @@ export class IPCClient {
       throw new Error("IPC client is not connected");
     }
     const id = randomUUID();
-    const line = `${JSON.stringify({
+    const body: { jsonrpc: string; id: string; method: string; params?: unknown } = {
       jsonrpc: "2.0",
       id,
       method,
-      ...(params === undefined ? {} : { params }),
-    })}\n`;
+    };
+    if (params !== undefined) {
+      body.params = params;
+    }
+    const line = `${JSON.stringify(body)}\n`;
 
     return await new Promise<T>((resolve, reject) => {
       this.pending.set(idKey(id), {
@@ -153,14 +174,24 @@ export class IPCClient {
   async disconnect(): Promise<void> {
     this.connected = false;
     this.failAll(new Error("IPC disconnected"));
-    if (this.netSocket !== null) {
-      this.netSocket.end();
-      this.netSocket = null;
+    this.endWindowsTransport();
+    this.endUnixTransport();
+  }
+
+  private endWindowsTransport(): void {
+    if (this.netSocket === null) {
+      return;
     }
-    if (this.bunSocket !== null) {
-      this.bunSocket.end();
-      this.bunSocket = null;
+    this.netSocket.end();
+    this.netSocket = null;
+  }
+
+  private endUnixTransport(): void {
+    if (this.bunSocket === null) {
+      return;
     }
+    this.bunSocket.end();
+    this.bunSocket = null;
   }
 
   private rawWrite(s: string): void {
@@ -181,10 +212,8 @@ export class IPCClient {
   }
 
   private dispatchLine(line: string): void {
-    let o: Record<string, unknown>;
-    try {
-      o = JSON.parse(line) as Record<string, unknown>;
-    } catch {
+    const o = tryParseJsonRecord(line);
+    if (o === undefined) {
       return;
     }
     if (o["jsonrpc"] !== "2.0") {

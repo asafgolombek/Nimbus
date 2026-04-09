@@ -53,8 +53,11 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
 
   const listConnectors = createTool({
     id: "listConnectors",
-    description: "List first-party MCP connector ids available in this gateway (Q1: filesystem).",
-    execute: async () => ({ connectors: ["filesystem"] as const }),
+    description:
+      "List first-party MCP connector ids: filesystem always; Google bundle (Drive, Gmail, Photos) when `google.oauth` exists; Microsoft bundle (OneDrive, Outlook) when `microsoft.oauth` exists.",
+    execute: async () => ({
+      connectors: ["filesystem", "google_drive", "gmail", "google_photos", "onedrive", "outlook"],
+    }),
   });
 
   const getAuditLog = createTool({
