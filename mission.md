@@ -189,6 +189,36 @@ Three converging forces make this the right moment for Nimbus:
 
 **The Models Are Capable.** The language models available today can understand intent, decompose tasks, reason across context windows, and produce structured outputs suitable for programmatic execution. The cognitive loop required to power a true digital assistant is no longer a research problem — it is an engineering one.
 
+## The Roadmap to Sovereignty
+
+The work of reclaiming agency is not completed in a single quarter. It is a multi-year structural shift. Our roadmap reflects this progression from a foundational index to a fully autonomous, sovereign mesh.
+
+### Phase 1: The Foundation (Q1 2026 - Active)
+* **The Unified Local Index:** SQLite FTS5 index for metadata across the filesystem.
+* **The Secure Vault:** OS-native secret management (DPAPI, Keychain, libsecret) with zero plaintext exposure.
+* **The Consent Gate:** Structural Human-in-the-Loop (HITL) enforcement for all irreversible actions.
+* **The Engine:** Mastra-powered orchestration loop running locally.
+
+### Phase 2: The Integration Surge (Q2–Q3 2026)
+* **The Cloud Connectors:** Native MCP support for Google Workspace (Drive, Gmail, Calendar) and Microsoft 365 (OneDrive, Outlook).
+* **The DevOps Mesh:** Deep integration with GitHub, GitLab, Jenkins, Jira, and Linear.
+* **Context-Aware RAG:** Vector search (`sqlite-vec`) and semantic understanding. Ask questions, don't just search keywords.
+* **Ambient Watchers:** Proactive, consent-gated notifications ("CI failed on your PR; I've summarized the logs").
+
+### Phase 3: The Sovereign Workspace (Q4 2026)
+* **The Command Center:** A high-performance Tauri 2.0 desktop application.
+* **Sovereign Multi-Device Sync:** End-to-end encrypted synchronization between your devices (laptop, mobile) without a central Nimbus server.
+* **The Extension Marketplace:** A local-first registry for community-built MCP connectors, sandboxed and permission-gated.
+
+### Phase 4: The Autonomous Era (2027 and Beyond)
+This is where Nimbus transitions from a tool you use to an infrastructure that works for you.
+
+* **The "Ghost" Protocol (P2P Collaborative Mesh):** A peer-to-peer, E2EE mesh network allowing Nimbus instances to communicate. Share namespaces of your index (e.g., "Project X") with teammates without a SaaS intermediary.
+* **Local Model Sovereignty (The Personal LLM Lab):** Move beyond API dependencies. Nimbus will locally fine-tune small, high-performance models (Llama 3, Mistral) on your data. It learns your jargon and writing style using your NPU/GPU, with zero data exfiltration.
+* **Infrastructure-as-Agent (Autonomous DevOps):** Nimbus operates as a junior SRE. It autonomously scales down idle AWS resources, monitors for drift, and when CI fails, it writes the fix, runs local tests, and proposes the PR for your approval.
+* **Physical Sovereignty:** Integration with hardware vaults (YubiKey, Ledger) for air-gapped secret management, and Decentralized Identifiers (DIDs) to replace federated logins.
+* **The Digital Executor:** A local-first "dead man's switch." Securely hand over specific cryptographic keys and documents to trusted heirs without relying on a cloud provider's inactive account policy.
+
 ---
 
 ## What Nimbus Is Not
