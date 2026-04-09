@@ -81,7 +81,7 @@ export const HITL_REQUIRED = Object.freeze({
     thisArg?: unknown,
   ): void {
     for (const v of HITL_REQUIRED_BACKING) {
-      callbackfn.call(thisArg, v, v, HITL_REQUIRED as ReadonlySet<string>);
+      callbackfn.call(thisArg, v, v, HITL_REQUIRED);
     }
   },
 }) as ReadonlySet<string>;

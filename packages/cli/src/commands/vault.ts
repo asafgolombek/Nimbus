@@ -41,7 +41,7 @@ async function vaultGet(rest: string[]): Promise<void> {
     return;
   }
   const v = await withIpc((c) => c.call<string | null>("vault.get", { key }));
-  console.log(v === null ? "(not set)" : v);
+  console.log(v ?? "(not set)");
 }
 
 async function vaultDelete(rest: string[]): Promise<void> {

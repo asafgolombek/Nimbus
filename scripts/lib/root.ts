@@ -13,7 +13,7 @@ export function run(cmd: readonly string[], cwd: string = REPO_ROOT, options?: R
   const proc = Bun.spawnSync([...cmd], {
     cwd,
     stdio: ["inherit", "inherit", "inherit"],
-    env: options?.env !== undefined ? { ...process.env, ...options.env } : process.env,
+    env: options?.env === undefined ? process.env : { ...process.env, ...options.env },
   });
   if (proc.exitCode !== 0) {
     process.exit(proc.exitCode ?? 1);

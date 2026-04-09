@@ -47,6 +47,72 @@ function assertWellFormedVaultKey(key: string): void {
   }
 }
 
+function removeStaleUnixSocketIfPresent(listenPath: string): void {
+  if (!existsSync(listenPath)) {
+    return;
+  }
+  try {
+    unlinkSync(listenPath);
+  } catch {
+    /* stale or race — bind will surface EADDRINUSE */
+  }
+}
+
+function chmodListenSocketBestEffort(listenPath: string): void {
+  try {
+    chmodSync(listenPath, 0o600);
+  } catch {
+    /* best-effort — platform-specific */
+  }
+}
+
+type VaultDispatchHit = { readonly kind: "hit"; readonly value: unknown };
+type VaultDispatchMiss = { readonly kind: "miss" };
+type VaultDispatchOutcome = VaultDispatchHit | VaultDispatchMiss;
+
+async function dispatchVaultIfPresent(
+  vault: NimbusVault,
+  method: string,
+  params: unknown,
+): Promise<VaultDispatchOutcome> {
+  switch (method) {
+    case "vault.set": {
+      const rec = asRecord(params);
+      if (rec === undefined || typeof rec["key"] !== "string" || typeof rec["value"] !== "string") {
+        throw new RpcMethodError(-32602, "Invalid params");
+      }
+      assertWellFormedVaultKey(rec["key"]);
+      await vault.set(rec["key"], rec["value"]);
+      return { kind: "hit", value: { ok: true } };
+    }
+    case "vault.get": {
+      const rec = asRecord(params);
+      if (rec === undefined || typeof rec["key"] !== "string") {
+        throw new RpcMethodError(-32602, "Invalid params");
+      }
+      assertWellFormedVaultKey(rec["key"]);
+      return { kind: "hit", value: await vault.get(rec["key"]) };
+    }
+    case "vault.delete": {
+      const rec = asRecord(params);
+      if (rec === undefined || typeof rec["key"] !== "string") {
+        throw new RpcMethodError(-32602, "Invalid params");
+      }
+      assertWellFormedVaultKey(rec["key"]);
+      await vault.delete(rec["key"]);
+      return { kind: "hit", value: { ok: true } };
+    }
+    case "vault.listKeys": {
+      const rec = asRecord(params);
+      const prefix =
+        rec !== undefined && typeof rec["prefix"] === "string" ? rec["prefix"] : undefined;
+      return { kind: "hit", value: await vault.listKeys(prefix) };
+    }
+    default:
+      return { kind: "miss" };
+  }
+}
+
 type SessionWrite = (line: string) => void;
 
 type BunSessionData = { session: ClientSession };
@@ -244,49 +310,6 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     }
   }
 
-  async function dispatchVaultIfPresent(method: string, params: unknown): Promise<unknown | null> {
-    switch (method) {
-      case "vault.set": {
-        const rec = asRecord(params);
-        if (
-          rec === undefined ||
-          typeof rec["key"] !== "string" ||
-          typeof rec["value"] !== "string"
-        ) {
-          throw new RpcMethodError(-32602, "Invalid params");
-        }
-        assertWellFormedVaultKey(rec["key"]);
-        await options.vault.set(rec["key"], rec["value"]);
-        return { ok: true };
-      }
-      case "vault.get": {
-        const rec = asRecord(params);
-        if (rec === undefined || typeof rec["key"] !== "string") {
-          throw new RpcMethodError(-32602, "Invalid params");
-        }
-        assertWellFormedVaultKey(rec["key"]);
-        return await options.vault.get(rec["key"]);
-      }
-      case "vault.delete": {
-        const rec = asRecord(params);
-        if (rec === undefined || typeof rec["key"] !== "string") {
-          throw new RpcMethodError(-32602, "Invalid params");
-        }
-        assertWellFormedVaultKey(rec["key"]);
-        await options.vault.delete(rec["key"]);
-        return { ok: true };
-      }
-      case "vault.listKeys": {
-        const rec = asRecord(params);
-        const prefix =
-          rec !== undefined && typeof rec["prefix"] === "string" ? rec["prefix"] : undefined;
-        return await options.vault.listKeys(prefix);
-      }
-      default:
-        return null;
-    }
-  }
-
   async function dispatchMethod(
     clientId: string,
     session: ClientSession,
@@ -330,9 +353,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       }
 
       default: {
-        const vaultResult = await dispatchVaultIfPresent(method, params);
-        if (vaultResult !== null) {
-          return vaultResult;
+        const vaultOutcome = await dispatchVaultIfPresent(options.vault, method, params);
+        if (vaultOutcome.kind === "hit") {
+          return vaultOutcome.value;
         }
         throw new RpcMethodError(-32601, `Method not found: ${method}`);
       }
@@ -384,17 +407,6 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     });
   }
 
-  function removeStaleUnixSocketIfPresent(listenPath: string): void {
-    if (!existsSync(listenPath)) {
-      return;
-    }
-    try {
-      unlinkSync(listenPath);
-    } catch {
-      /* stale or race — bind will surface EADDRINUSE */
-    }
-  }
-
   function startBunUnixListener(): void {
     bunListener = Bun.listen<BunSessionData>({
       unix: options.listenPath,
@@ -418,14 +430,6 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         },
       },
     });
-  }
-
-  function chmodListenSocketBestEffort(listenPath: string): void {
-    try {
-      chmodSync(listenPath, 0o600);
-    } catch {
-      /* best-effort — platform-specific */
-    }
   }
 
   return {

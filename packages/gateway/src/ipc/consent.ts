@@ -80,7 +80,7 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
       return { code: -32602, message: "Invalid params" };
     }
     const entry = this.pending.get(o["requestId"]);
-    if (entry === undefined || entry.clientId !== clientId) {
+    if (entry?.clientId !== clientId) {
       return { code: -32602, message: "Unknown or foreign consent request" };
     }
     this.pending.delete(o["requestId"]);
@@ -89,8 +89,15 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
   }
 
   onClientDisconnect(clientId: string): void {
-    for (const [requestId, entry] of [...this.pending.entries()]) {
+    const toRemove: string[] = [];
+    for (const [requestId, entry] of this.pending) {
       if (entry.clientId === clientId) {
+        toRemove.push(requestId);
+      }
+    }
+    for (const requestId of toRemove) {
+      const entry = this.pending.get(requestId);
+      if (entry !== undefined) {
         this.pending.delete(requestId);
         entry.reject(new ConsentDisconnectedError());
       }
@@ -99,8 +106,9 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
 
   rejectAllPending(message: string, hitlAuditReason: string): void {
     const err = new ConsentDisconnectedError(message, hitlAuditReason);
-    for (const [requestId, entry] of [...this.pending.entries()]) {
-      this.pending.delete(requestId);
+    const snapshot = new Map(this.pending);
+    this.pending.clear();
+    for (const entry of snapshot.values()) {
       entry.reject(err);
     }
   }

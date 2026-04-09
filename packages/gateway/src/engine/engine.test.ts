@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   ConsentCoordinatorImpl,
@@ -15,6 +17,9 @@ import {
 import type { AuditSink, ConnectorDispatcher, ConsentChannel, PlannedAction } from "./types.ts";
 
 type AuditRecord = Parameters<AuditSink["recordAudit"]>[0];
+
+/** Avoid hardcoded `/tmp/…` in tests (world-writable; Sonar security hotspot). */
+const HITL_TEST_TARGET_PATH = join(tmpdir(), "nimbus-engine-hitl-test-target");
 
 describe("engine subsystem", () => {
   test("exports stable subsystem id", () => {
@@ -118,7 +123,7 @@ describe("ToolExecutor", () => {
     const m = createMocks(true);
     m.approveNext = false;
     const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-    const action: PlannedAction = { type: "file.delete", payload: { path: "/tmp/x" } };
+    const action: PlannedAction = { type: "file.delete", payload: { path: HITL_TEST_TARGET_PATH } };
     const out = await exec.execute(action);
     expect(out).toEqual({ status: "rejected", reason: "User declined consent gate." });
     expect(m.dispatchCalls.length).toBe(0);
@@ -130,7 +135,7 @@ describe("ToolExecutor", () => {
   test("approved consent calls the connector; audit shows approved", async () => {
     const m = createMocks(true);
     const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-    const action: PlannedAction = { type: "file.delete", payload: { path: "/tmp/x" } };
+    const action: PlannedAction = { type: "file.delete", payload: { path: HITL_TEST_TARGET_PATH } };
     const out = await exec.execute(action);
     expect(out).toEqual({ status: "ok", result: { done: true } });
     expect(m.dispatchCalls).toEqual([action]);
