@@ -1,6 +1,7 @@
 import { Config } from "../config.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
+import { extractFirstMarkdownFenceBody } from "./json-fence.ts";
 
 export type IntentClass = "file_search" | "file_organize" | "unknown";
 
@@ -11,13 +12,11 @@ export type ClassifiedIntent = {
   confidence: number;
 };
 
-const JSON_FENCE_PATTERN = /```(?:json)?\s*([\s\S]*?)```/;
-
 function extractJsonObject(text: string): string {
   const t = text.trim();
-  const fence = JSON_FENCE_PATTERN.exec(t);
-  if (fence?.[1] !== undefined) {
-    return fence[1].trim();
+  const fenced = extractFirstMarkdownFenceBody(t);
+  if (fenced !== undefined) {
+    return fenced;
   }
   const start = t.indexOf("{");
   const end = t.lastIndexOf("}");

@@ -17,6 +17,7 @@
       },
       "dependencies": {
         "@clack/prompts": "^1.2.0",
+        "@nimbus-dev/sdk": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",

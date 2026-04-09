@@ -3,7 +3,12 @@
  * @see dev-plan-q1.md §3.1
  */
 
-export const IPC_MAX_LINE_BYTES = 1024 * 1024;
+import {
+  IPC_MAX_LINE_BYTES as SDK_IPC_MAX_LINE_BYTES,
+  NdjsonLineReader as SdkNdjsonLineReader,
+} from "@nimbus-dev/sdk/ipc";
+
+export const IPC_MAX_LINE_BYTES = SDK_IPC_MAX_LINE_BYTES;
 
 export type JsonRpcId = string | number | null;
 
@@ -48,52 +53,20 @@ export class JsonRpcParseError extends Error {
   override readonly name = "JsonRpcParseError";
 }
 
-function byteLengthUtf8(s: string): number {
-  return new TextEncoder().encode(s).length;
-}
-
-/**
- * Incrementally buffers UTF-8 chunks and emits complete non-empty lines (trimmed of trailing \r).
- */
+/** NDJSON line buffer — delegates to `@nimbus-dev/sdk/ipc`; throws {@link JsonRpcParseError} on line limit violations. */
 export class NdjsonLineReader {
-  private readonly decoder = new TextDecoder("utf-8", { fatal: false });
-  private pending = "";
+  private readonly inner: SdkNdjsonLineReader;
+
+  constructor() {
+    this.inner = new SdkNdjsonLineReader({ lineLimitError: JsonRpcParseError });
+  }
 
   push(chunk: Uint8Array): string[] {
-    this.pending += this.decoder.decode(chunk, { stream: true });
-    const out: string[] = [];
-    while (true) {
-      const nl = this.pending.indexOf("\n");
-      if (nl < 0) {
-        break;
-      }
-      const line = this.pending.slice(0, nl);
-      this.pending = this.pending.slice(nl + 1);
-      const trimmed = line.endsWith("\r") ? line.slice(0, -1) : line;
-      if (trimmed.length === 0) {
-        continue;
-      }
-      if (byteLengthUtf8(trimmed) > IPC_MAX_LINE_BYTES) {
-        throw new JsonRpcParseError("Message exceeds 1MB line limit");
-      }
-      out.push(trimmed);
-    }
-    if (byteLengthUtf8(this.pending) > IPC_MAX_LINE_BYTES) {
-      throw new JsonRpcParseError("Message exceeds 1MB line limit");
-    }
-    return out;
+    return this.inner.push(chunk);
   }
 
   flush(): string[] {
-    const rest = this.pending + this.decoder.decode();
-    this.pending = "";
-    if (rest.length === 0) {
-      return [];
-    }
-    if (byteLengthUtf8(rest) > IPC_MAX_LINE_BYTES) {
-      throw new JsonRpcParseError("Message exceeds 1MB line limit");
-    }
-    return [rest.endsWith("\r") ? rest.slice(0, -1) : rest];
+    return this.inner.flush();
   }
 }
 

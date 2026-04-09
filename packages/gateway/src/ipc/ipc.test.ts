@@ -15,6 +15,16 @@ import {
 } from "./jsonrpc.ts";
 import { createIpcServer } from "./server.ts";
 
+/** Accumulate UTF-8 chunks and return the first complete line (excluding `\n`) when present. */
+function appendAndTakeFirstLine(buffer: string, chunk: string): { next: string; line?: string } {
+  const combined = buffer + chunk;
+  const nl = combined.indexOf("\n");
+  if (nl < 0) {
+    return { next: combined };
+  }
+  return { next: combined.slice(nl + 1), line: combined.slice(0, nl) };
+}
+
 describe("ipc jsonrpc", () => {
   test("parseJsonRpcLine accepts request with id", () => {
     const msg = parseJsonRpcLine('{"jsonrpc":"2.0","id":"1","method":"gateway.ping"}');
@@ -77,10 +87,10 @@ async function rpcPing(listenPath: string): Promise<string> {
         sock.write(req);
       });
       sock.on("data", (b: Buffer) => {
-        buf += b.toString("utf8");
-        const i = buf.indexOf("\n");
-        if (i >= 0) {
-          resolve(buf.slice(0, i));
+        const { next, line } = appendAndTakeFirstLine(buf, b.toString("utf8"));
+        buf = next;
+        if (line !== undefined) {
+          resolve(line);
           sock.end();
         }
       });
@@ -97,10 +107,10 @@ async function rpcPing(listenPath: string): Promise<string> {
           socket.write(req);
         },
         data(socket, chunk: Uint8Array) {
-          buf += new TextDecoder().decode(chunk);
-          const i = buf.indexOf("\n");
-          if (i >= 0) {
-            resolve(buf.slice(0, i));
+          const { next, line } = appendAndTakeFirstLine(buf, new TextDecoder().decode(chunk));
+          buf = next;
+          if (line !== undefined) {
+            resolve(line);
             socket.end();
           }
         },
@@ -163,10 +173,10 @@ describe("ipc server integration", () => {
         let consentP!: Promise<boolean>;
         const notifLine = await new Promise<string>((resolve, reject) => {
           sock.on("data", (b: Buffer) => {
-            buf += b.toString("utf8");
-            const i = buf.indexOf("\n");
-            if (i >= 0) {
-              resolve(buf.slice(0, i));
+            const { next, line } = appendAndTakeFirstLine(buf, b.toString("utf8"));
+            buf = next;
+            if (line !== undefined) {
+              resolve(line);
             }
           });
           const t = setTimeout(() => reject(new Error("timeout")), 5000);
@@ -272,10 +282,10 @@ describe("ipc server integration", () => {
             sock.write(req);
           });
           sock.on("data", (b: Buffer) => {
-            buf += b.toString("utf8");
-            const i = buf.indexOf("\n");
-            if (i >= 0) {
-              resolve(buf.slice(0, i));
+            const { next, line: ln } = appendAndTakeFirstLine(buf, b.toString("utf8"));
+            buf = next;
+            if (ln !== undefined) {
+              resolve(ln);
               sock.end();
             }
           });
@@ -289,10 +299,13 @@ describe("ipc server integration", () => {
                 socket.write(req);
               },
               data(socket, chunk: Uint8Array) {
-                buf += new TextDecoder().decode(chunk);
-                const i = buf.indexOf("\n");
-                if (i >= 0) {
-                  resolve(buf.slice(0, i));
+                const { next, line: ln } = appendAndTakeFirstLine(
+                  buf,
+                  new TextDecoder().decode(chunk),
+                );
+                buf = next;
+                if (ln !== undefined) {
+                  resolve(ln);
                   socket.end();
                 }
               },

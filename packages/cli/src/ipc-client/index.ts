@@ -12,37 +12,7 @@ import { randomUUID } from "node:crypto";
 import net from "node:net";
 import { platform } from "node:os";
 
-const IPC_MAX_LINE_BYTES = 1024 * 1024;
-
-class NdjsonLineReader {
-  private readonly decoder = new TextDecoder("utf-8", { fatal: false });
-  private pending = "";
-
-  push(chunk: Uint8Array): string[] {
-    this.pending += this.decoder.decode(chunk, { stream: true });
-    const out: string[] = [];
-    while (true) {
-      const nl = this.pending.indexOf("\n");
-      if (nl < 0) {
-        break;
-      }
-      const line = this.pending.slice(0, nl);
-      this.pending = this.pending.slice(nl + 1);
-      const trimmed = line.endsWith("\r") ? line.slice(0, -1) : line;
-      if (trimmed.length === 0) {
-        continue;
-      }
-      if (new TextEncoder().encode(trimmed).length > IPC_MAX_LINE_BYTES) {
-        throw new Error("Message exceeds 1MB line limit");
-      }
-      out.push(trimmed);
-    }
-    if (new TextEncoder().encode(this.pending).length > IPC_MAX_LINE_BYTES) {
-      throw new Error("Message exceeds 1MB line limit");
-    }
-    return out;
-  }
-}
+import { NdjsonLineReader } from "@nimbus-dev/sdk/ipc";
 
 type Pending = {
   resolve: (v: unknown) => void;

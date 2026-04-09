@@ -5,7 +5,19 @@ import { join } from "node:path";
 
 import type { PlatformPaths } from "../platform/paths.ts";
 import { isWellFormedVaultKey } from "./index.ts";
+import { extractNimbusVaultKeysFromSecretToolSearchOutput } from "./linux.ts";
 import { MockVault } from "./mock.ts";
+
+function dpapiVaultTestPaths(root: string, socketPath: string): PlatformPaths {
+  return {
+    configDir: root,
+    dataDir: join(root, "data"),
+    logDir: join(root, "logs"),
+    socketPath,
+    extensionsDir: join(root, "ext"),
+    tempDir: join(root, "tmp"),
+  };
+}
 
 describe("vault key validation", () => {
   test("accepts documented service.type shape", () => {
@@ -82,14 +94,7 @@ describe("DpapiVault (Windows)", () => {
       return;
     }
     const root = await mkdtemp(join(tmpdir(), "nimbus-vault-dpapi-"));
-    const paths: PlatformPaths = {
-      configDir: root,
-      dataDir: join(root, "data"),
-      logDir: join(root, "logs"),
-      socketPath: String.raw`\\.\pipe\nimbus-vault-test`,
-      extensionsDir: join(root, "ext"),
-      tempDir: join(root, "tmp"),
-    };
+    const paths = dpapiVaultTestPaths(root, String.raw`\\.\pipe\nimbus-vault-test`);
     const { DpapiVault } = await import("./win32.ts");
     const v = new DpapiVault(paths);
     await v.set("svc.token", "round-trip-secret");
@@ -105,14 +110,7 @@ describe("DpapiVault (Windows)", () => {
       return;
     }
     const root = await mkdtemp(join(tmpdir(), "nimbus-vault-dpapi-miss-"));
-    const paths: PlatformPaths = {
-      configDir: root,
-      dataDir: join(root, "data"),
-      logDir: join(root, "logs"),
-      socketPath: String.raw`\\.\pipe\nimbus-vault-miss`,
-      extensionsDir: join(root, "ext"),
-      tempDir: join(root, "tmp"),
-    };
+    const paths = dpapiVaultTestPaths(root, String.raw`\\.\pipe\nimbus-vault-miss`);
     const { DpapiVault } = await import("./win32.ts");
     const v = new DpapiVault(paths);
     expect(await v.get("missing.key")).toBeNull();
@@ -123,14 +121,7 @@ describe("DpapiVault (Windows)", () => {
       return;
     }
     const root = await mkdtemp(join(tmpdir(), "nimbus-vault-dpapi-del-"));
-    const paths: PlatformPaths = {
-      configDir: root,
-      dataDir: join(root, "data"),
-      logDir: join(root, "logs"),
-      socketPath: String.raw`\\.\pipe\nimbus-vault-del`,
-      extensionsDir: join(root, "ext"),
-      tempDir: join(root, "tmp"),
-    };
+    const paths = dpapiVaultTestPaths(root, String.raw`\\.\pipe\nimbus-vault-del`);
     const { DpapiVault } = await import("./win32.ts");
     const v = new DpapiVault(paths);
     await expect(v.delete("absent.key")).resolves.toBeUndefined();
@@ -164,8 +155,7 @@ describe("DarwinKeychainVault (macOS)", () => {
 });
 
 describe("LinuxSecretToolVault search output parsing", () => {
-  test("extracts keys from secret-tool label lines", async () => {
-    const { extractNimbusVaultKeysFromSecretToolSearchOutput } = await import("./linux.ts");
+  test("extracts keys from secret-tool label lines", () => {
     const raw = `[/org/freedesktop/secrets/item/x]
 label = Nimbus: ci.t_1
 secret = x
@@ -173,8 +163,7 @@ secret = x
     expect(extractNimbusVaultKeysFromSecretToolSearchOutput(raw)).toEqual(["ci.t_1"]);
   });
 
-  test("sorts keys alphabetically", async () => {
-    const { extractNimbusVaultKeysFromSecretToolSearchOutput } = await import("./linux.ts");
+  test("sorts keys alphabetically", () => {
     const raw = `label = Nimbus: z.a
 label = Nimbus: a.b
 `;
