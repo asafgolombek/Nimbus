@@ -1,8 +1,10 @@
 /**
- * nimbus-mcp-google-drive — Google Drive MCP server (read tools).
+ * nimbus-mcp-google-drive — Google Drive MCP server (read + write tools).
  * OAuth access token is injected by the Gateway as GOOGLE_OAUTH_ACCESS_TOKEN (never logged).
+ * Destructive writes require Gateway HITL (`file.create`, `file.delete`, `file.move`, `file.rename`).
  */
 
+import { randomBytes } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -34,7 +36,8 @@ async function driveListFiles(
 ): Promise<unknown> {
   const params = new URLSearchParams({
     pageSize: String(pageSize),
-    fields: "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink, size)",
+    fields:
+      "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink, size, description)",
     q,
   });
   if (pageToken !== undefined && pageToken !== "") {
@@ -212,6 +215,101 @@ async function driveDownloadFile(
   };
 }
 
+async function drivePatchJson(
+  token: string,
+  fileId: string,
+  body: Record<string, unknown>,
+  query?: URLSearchParams,
+): Promise<unknown> {
+  const path = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`;
+  const url = query !== undefined && [...query].length > 0 ? `${path}?${query.toString()}` : path;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Drive API ${String(res.status)}: ${errText.slice(0, 200)}`);
+  }
+  return (await res.json()) as unknown;
+}
+
+async function drivePostCreateMetadata(
+  token: string,
+  metadata: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch("https://www.googleapis.com/drive/v3/files", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(metadata),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Drive API ${String(res.status)}: ${errText.slice(0, 200)}`);
+  }
+  return (await res.json()) as unknown;
+}
+
+async function driveMultipartCreate(
+  token: string,
+  metadata: { name: string; mimeType: string; parents?: string[] },
+  mediaBody: string,
+  mediaMime: string,
+): Promise<unknown> {
+  const boundary = `nimbus_${randomBytes(16).toString("hex")}`;
+  const metaJson = JSON.stringify(metadata);
+  const crlf = "\r\n";
+  const body = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    metaJson,
+    `--${boundary}`,
+    `Content-Type: ${mediaMime}`,
+    "",
+    mediaBody,
+    `--${boundary}--`,
+  ].join(crlf);
+  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Drive API ${String(res.status)}: ${errText.slice(0, 200)}`);
+  }
+  return (await res.json()) as unknown;
+}
+
+async function driveListParents(token: string, fileId: string): Promise<string[]> {
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Drive API ${String(res.status)}: ${errText.slice(0, 200)}`);
+  }
+  const json: unknown = await res.json();
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    return [];
+  }
+  const parentsRaw = (json as Record<string, unknown>)["parents"];
+  if (!Array.isArray(parentsRaw)) {
+    return [];
+  }
+  return parentsRaw.filter((p): p is string => typeof p === "string" && p !== "");
+}
+
 const server = new McpServer({ name: "nimbus-google-drive", version: "0.1.0" });
 
 const registerSimpleTool = server.tool.bind(server) as (
@@ -318,6 +416,122 @@ registerSimpleTool(
     }
     return {
       content: [{ type: "text", text: JSON.stringify(result.payload) }],
+    };
+  },
+);
+
+const gdriveFileCreateArgs = z.object({
+  name: z.string().min(1).max(500),
+  mimeType: z.string().min(1).max(200).optional(),
+  parentId: z.string().min(1).optional(),
+  content: z.string().max(4_000_000).optional(),
+});
+
+registerSimpleTool(
+  "gdrive_file_create",
+  "Create a Google Drive file. Optional text `content` uses multipart upload. Empty file if content omitted. Requires Gateway HITL file.create.",
+  gdriveFileCreateArgs.shape,
+  async (args: unknown): Promise<GdriveListResult> => {
+    const parsed = gdriveFileCreateArgs.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const token = requireAccessToken();
+    const mime = parsed.data.mimeType ?? "text/plain";
+    const meta: { name: string; mimeType: string; parents?: string[] } = {
+      name: parsed.data.name,
+      mimeType: mime,
+    };
+    if (parsed.data.parentId !== undefined) {
+      meta.parents = [parsed.data.parentId];
+    }
+    let data: unknown;
+    if (parsed.data.content !== undefined && parsed.data.content !== "") {
+      data = await driveMultipartCreate(token, meta, parsed.data.content, mime);
+    } else {
+      data = await drivePostCreateMetadata(token, meta);
+    }
+    return {
+      content: [{ type: "text", text: JSON.stringify(data) }],
+    };
+  },
+);
+
+const gdriveFileTrashArgs = z.object({
+  fileId: z.string().min(1),
+});
+
+registerSimpleTool(
+  "gdrive_file_trash",
+  "Move a Drive file or folder to trash (recoverable). Requires Gateway HITL file.delete.",
+  gdriveFileTrashArgs.shape,
+  async (args: unknown): Promise<GdriveListResult> => {
+    const parsed = gdriveFileTrashArgs.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const token = requireAccessToken();
+    const data = await drivePatchJson(token, parsed.data.fileId, { trashed: true });
+    return {
+      content: [{ type: "text", text: JSON.stringify(data) }],
+    };
+  },
+);
+
+const gdriveFileMoveArgs = z.object({
+  fileId: z.string().min(1),
+  newParentId: z.string().min(1),
+  removeParentId: z.string().min(1).optional(),
+});
+
+registerSimpleTool(
+  "gdrive_file_move",
+  "Move a file or folder to another parent folder (Drive parents). If removeParentId is omitted, the first current parent is used. Requires Gateway HITL file.move.",
+  gdriveFileMoveArgs.shape,
+  async (args: unknown): Promise<GdriveListResult> => {
+    const parsed = gdriveFileMoveArgs.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const token = requireAccessToken();
+    let remove = parsed.data.removeParentId;
+    if (remove === undefined) {
+      const parents = await driveListParents(token, parsed.data.fileId);
+      const first = parents[0];
+      if (first === undefined) {
+        throw new Error("Cannot infer removeParentId: file has no parents (may be root-only)");
+      }
+      remove = first;
+    }
+    const q = new URLSearchParams({
+      addParents: parsed.data.newParentId,
+      removeParents: remove,
+    });
+    const data = await drivePatchJson(token, parsed.data.fileId, {}, q);
+    return {
+      content: [{ type: "text", text: JSON.stringify(data) }],
+    };
+  },
+);
+
+const gdriveFileRenameArgs = z.object({
+  fileId: z.string().min(1),
+  newName: z.string().min(1).max(500),
+});
+
+registerSimpleTool(
+  "gdrive_file_rename",
+  "Rename a Drive file or folder. Requires Gateway HITL file.rename.",
+  gdriveFileRenameArgs.shape,
+  async (args: unknown): Promise<GdriveListResult> => {
+    const parsed = gdriveFileRenameArgs.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const token = requireAccessToken();
+    const data = await drivePatchJson(token, parsed.data.fileId, { name: parsed.data.newName });
+    return {
+      content: [{ type: "text", text: JSON.stringify(data) }],
     };
   },
 );

@@ -39,6 +39,7 @@ describe("HITL_REQUIRED", () => {
   test("includes core destructive / outbound action types", () => {
     for (const t of [
       "file.delete",
+      "file.create",
       "email.send",
       "calendar.event.create",
       "onedrive.delete",
@@ -131,6 +132,32 @@ describe("ToolExecutor", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("file.delete");
   });
+
+  for (const fileAction of ["file.create", "file.move", "file.rename"] as const) {
+    test(`rejected consent for ${fileAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload =
+        fileAction === "file.create"
+          ? { mcpToolId: "google_drive_gdrive_file_create", input: { name: "n.txt" } }
+          : fileAction === "file.move"
+            ? {
+                mcpToolId: "google_drive_gdrive_file_move",
+                input: { fileId: "x", newParentId: "y" },
+              }
+            : {
+                mcpToolId: "google_drive_gdrive_file_rename",
+                input: { fileId: "x", newName: "z" },
+              };
+      const out = await exec.execute({ type: fileAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(fileAction);
+    });
+  }
 
   test("approved consent calls the connector; audit shows approved", async () => {
     const m = createMocks(true);

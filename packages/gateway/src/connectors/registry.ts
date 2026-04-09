@@ -37,6 +37,10 @@ export type McpToolListingClient = {
  * 2. `action.type` (must equal the namespaced id, e.g. `filesystem_list_directory`)
  *
  * Execution input: `action.payload.input` when present; otherwise payload minus `mcpToolId` / `input`.
+ *
+ * Google Drive writes (HITL): use `file.create` | `file.delete` | `file.move` | `file.rename` as
+ * `action.type` with `payload.mcpToolId` set to `google_drive_gdrive_file_create` (or `_trash`,
+ * `_move`, `_rename`) and `payload.input` matching that tool's MCP arguments.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

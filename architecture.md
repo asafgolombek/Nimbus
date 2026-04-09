@@ -274,7 +274,7 @@ The HITL gate is the most security-critical component. Its invariants are enforc
 // Frozen at module load — cannot be mutated at runtime
 const HITL_REQUIRED: ReadonlySet<string> = Object.freeze(new Set([
   // Cloud storage & communication
-  "file.delete", "file.move", "file.rename",
+  "file.delete", "file.move", "file.rename", "file.create",
   "email.send", "email.draft.send",
   "calendar.event.create", "calendar.event.delete",
   "photo.delete",
