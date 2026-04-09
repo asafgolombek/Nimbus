@@ -61,10 +61,16 @@ function spawnSecretTool(
       ? ["pipe", "pipe", "pipe"]
       : ["pipe", "pipe", "ignore"];
     const child = spawn(secretToolExecutable(), args, { stdio });
+    const outStream = child.stdout;
+    const inStream = child.stdin;
+    if (outStream === null || inStream === null) {
+      reject(new Error("Vault spawn: missing stdio pipes"));
+      return;
+    }
     let stdout = "";
     let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (c: string) => {
+    outStream.setEncoding("utf8");
+    outStream.on("data", (c: string) => {
       stdout += c;
     });
     if (child.stderr) {
@@ -78,14 +84,17 @@ function spawnSecretTool(
       resolve({ code, stdout, stderr });
     });
     if (options.stdin !== undefined) {
-      child.stdin.write(options.stdin, "utf8");
+      inStream.write(options.stdin, "utf8");
     }
-    child.stdin.end();
+    inStream.end();
   });
 }
 
 async function runSecretTool(args: string[], stdin?: string): Promise<string> {
-  const r = await spawnSecretTool(args, { stdin, captureStderr: false });
+  const r =
+    stdin === undefined
+      ? await spawnSecretTool(args, { captureStderr: false })
+      : await spawnSecretTool(args, { stdin, captureStderr: false });
   if (r.code === 0) {
     return r.stdout;
   }
