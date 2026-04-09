@@ -5,7 +5,7 @@
  */
 
 import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { PlatformPaths } from "../platform/paths.ts";
@@ -93,6 +93,7 @@ export class DarwinKeychainVault implements NimbusVault {
 
   private async writeIndex(keys: string[]): Promise<void> {
     const unique = [...new Set(keys)].sort(compareVaultKeysAlphabetically);
+    await mkdir(this.vaultDir, { recursive: true });
     await writeFile(this.indexPath, `${JSON.stringify(unique)}\n`, "utf8");
   }
 
