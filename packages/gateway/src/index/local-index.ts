@@ -7,8 +7,8 @@ import {
   deleteSchedulerStateRow,
   listAllSchedulerStates,
   loadSchedulerState,
-  setPaused,
   type SchedulerStateRow,
+  setPaused,
   upsertSchedulerRegistration,
 } from "../sync/scheduler-store.ts";
 import type { SyncStatus } from "../sync/types.ts";
@@ -206,11 +206,7 @@ export class LocalIndex {
     return rows.map((r) => LocalIndex.rowToPersistedSyncStatus(this.db, r));
   }
 
-  ensureConnectorSchedulerRegistration(
-    serviceId: string,
-    intervalMs: number,
-    now: number,
-  ): void {
+  ensureConnectorSchedulerRegistration(serviceId: string, intervalMs: number, now: number): void {
     upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, false);
   }
 
@@ -266,7 +262,9 @@ export class LocalIndex {
       deleteItemByPrimaryKey(this.db, byPk.id);
       return;
     }
-    const rows = this.db.query("SELECT id FROM item WHERE external_id = ?").all(id) as { id: string }[];
+    const rows = this.db.query("SELECT id FROM item WHERE external_id = ?").all(id) as {
+      id: string;
+    }[];
     if (rows.length === 0) {
       return;
     }

@@ -23,33 +23,37 @@ export async function runStart(_args: string[]): Promise<void> {
   s.start("Starting Gateway");
 
   const launch = resolveGatewayLaunch(process.execPath, import.meta.url);
-  if (!launch.ok) {
-    s.stop("Could not start Gateway");
-    console.error(launch.message);
-    process.exitCode = 1;
+  if (launch.ok) {
+    const logPath = `${paths.logDir}/gateway.log`;
+    const logFile = Bun.file(logPath);
+
+    const spawnOpts: { cmd: string[]; cwd?: string; stdin: "ignore"; stdout: typeof logFile; stderr: typeof logFile } = {
+      cmd: launch.cmd,
+      stdin: "ignore",
+      stdout: logFile,
+      stderr: logFile,
+    };
+    if (launch.cwd !== undefined) {
+      spawnOpts.cwd = launch.cwd;
+    }
+
+    const proc = Bun.spawn(spawnOpts);
+
+    proc.unref();
+
+    const state = {
+      pid: proc.pid,
+      socketPath: paths.socketPath,
+    };
+    await Bun.write(gatewayStatePath(paths), `${JSON.stringify(state, undefined, 2)}\n`);
+
+    s.stop(`Gateway started (pid ${String(proc.pid)})`);
+    console.log(`Socket: ${paths.socketPath}`);
+    console.log(`Log:    ${logPath}`);
     return;
   }
 
-  const logPath = `${paths.logDir}/gateway.log`;
-  const logFile = Bun.file(logPath);
-
-  const proc = Bun.spawn({
-    cmd: launch.cmd,
-    ...(launch.cwd !== undefined ? { cwd: launch.cwd } : {}),
-    stdin: "ignore",
-    stdout: logFile,
-    stderr: logFile,
-  });
-
-  proc.unref();
-
-  const state = {
-    pid: proc.pid,
-    socketPath: paths.socketPath,
-  };
-  await Bun.write(gatewayStatePath(paths), `${JSON.stringify(state, undefined, 2)}\n`);
-
-  s.stop(`Gateway started (pid ${String(proc.pid)})`);
-  console.log(`Socket: ${paths.socketPath}`);
-  console.log(`Log:    ${logPath}`);
+  s.stop("Could not start Gateway");
+  console.error(launch.message);
+  process.exitCode = 1;
 }

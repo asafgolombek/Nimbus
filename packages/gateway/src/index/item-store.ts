@@ -101,7 +101,11 @@ export function upsertIndexedItem(
   );
 }
 
-export function upsertNimbusItemIntoItemTable(db: Database, item: NimbusItem, syncedAt: number): void {
+export function upsertNimbusItemIntoItemTable(
+  db: Database,
+  item: NimbusItem,
+  syncedAt: number,
+): void {
   const externalId = itemExternalIdFromInput(item.service, item.id);
   const meta: Record<string, unknown> = { ...(item.rawMeta ?? {}) };
   if (item.mimeType !== undefined) {
@@ -137,7 +141,11 @@ export function deleteItemByPrimaryKey(db: Database, primaryKey: string): void {
   db.run("DELETE FROM item WHERE id = ?", [primaryKey]);
 }
 
-export function deleteItemByServiceExternal(db: Database, service: string, externalId: string): void {
+export function deleteItemByServiceExternal(
+  db: Database,
+  service: string,
+  externalId: string,
+): void {
   db.run("DELETE FROM item WHERE service = ? AND external_id = ?", [service, externalId]);
 }
 

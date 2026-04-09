@@ -10,17 +10,27 @@ type AuditRow = {
   timestamp: number;
 };
 
-export async function runAudit(args: string[]): Promise<void> {
+function parseAuditListLimit(args: string[]): number {
   let limit = 50;
-  for (let i = 0; i < args.length; i += 1) {
-    if (args[i] === "--limit" && args[i + 1] !== undefined) {
-      limit = Number.parseInt(args[i + 1] ?? "", 10);
-      i += 1;
+  const q = [...args];
+  while (q.length > 0) {
+    const a = q.shift();
+    if (a === "--limit") {
+      const v = q.shift();
+      if (v !== undefined) {
+        limit = Number.parseInt(v, 10);
+      }
+      continue;
     }
   }
   if (!Number.isFinite(limit) || limit < 1) {
-    limit = 50;
+    return 50;
   }
+  return limit;
+}
+
+export async function runAudit(args: string[]): Promise<void> {
+  const limit = parseAuditListLimit(args);
 
   const paths = getCliPlatformPaths();
   const state = await readGatewayState(paths);
@@ -45,7 +55,7 @@ export async function runAudit(args: string[]): Promise<void> {
           }
         }
       } catch {
-        /* ignore */
+        // Skip malformed action_json; keep default reason.
       }
       console.log(
         `${ts.padEnd(20)} ${r.actionType.padEnd(22)} ${r.hitlStatus.padEnd(14)} ${reason}`,

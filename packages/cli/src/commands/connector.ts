@@ -14,6 +14,13 @@ type SyncStatus = {
   consecutiveFailures: number;
 };
 
+type ConnectorFlags = {
+  rest: string[];
+  port?: number;
+  scopes?: string[];
+  full?: boolean;
+};
+
 async function withIpc<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
   const paths = getCliPlatformPaths();
   const state = await readGatewayState(paths);
@@ -46,23 +53,20 @@ function relTime(ms: number | null): string {
   return `${String(Math.floor(sec / 86400))}d ago`;
 }
 
-function parseFlags(args: string[]): {
-  rest: string[];
-  port?: number;
-  scopes?: string[];
-  full?: boolean;
-} {
+function parseFlags(args: string[]): ConnectorFlags {
   const rest: string[] = [];
   let port: number | undefined;
   let scopes: string[] | undefined;
   let full: boolean | undefined;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+  const q = [...args];
+
+  while (q.length > 0) {
+    const a = q.shift();
     if (a === undefined) {
-      continue;
+      break;
     }
     if (a === "--port" || a === "-p") {
-      const v = args[i + 1];
+      const v = q.shift();
       if (v === undefined) {
         throw new Error("Missing value for --port");
       }
@@ -71,11 +75,10 @@ function parseFlags(args: string[]): {
         throw new Error("Invalid --port");
       }
       port = n;
-      i++;
       continue;
     }
     if (a === "--scopes" || a === "-s") {
-      const v = args[i + 1];
+      const v = q.shift();
       if (v === undefined) {
         throw new Error("Missing value for --scopes");
       }
@@ -83,7 +86,6 @@ function parseFlags(args: string[]): {
         .split(",")
         .map((x) => x.trim())
         .filter((x) => x.length > 0);
-      i++;
       continue;
     }
     if (a === "--full") {
@@ -92,7 +94,8 @@ function parseFlags(args: string[]): {
     }
     rest.push(a);
   }
-  const out: { rest: string[]; port?: number; scopes?: string[]; full?: boolean } = { rest };
+
+  const out: ConnectorFlags = { rest };
   if (port !== undefined) {
     out.port = port;
   }
@@ -105,6 +108,120 @@ function parseFlags(args: string[]): {
   return out;
 }
 
+function padField(s: string, w: number): string {
+  return s.length >= w ? s : s + " ".repeat(w - s.length);
+}
+
+async function runConnectorAuth(tail: string[]): Promise<void> {
+  const { rest, port, scopes } = parseFlags(tail);
+  const service = rest[0];
+  if (service === undefined) {
+    throw new Error("Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b]");
+  }
+  const params: { service: string; port?: number; scopes?: string[] } = { service };
+  if (port !== undefined) {
+    params.port = port;
+  }
+  if (scopes !== undefined) {
+    params.scopes = scopes;
+  }
+  const res = await withIpc((c) =>
+    c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
+  );
+  console.log(`Signed in: ${res.serviceId}`);
+  console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
+}
+
+async function runConnectorList(): Promise<void> {
+  const rows = await withIpc((c) => c.call<SyncStatus[]>("connector.listStatus"));
+  if (rows.length === 0) {
+    console.log("No connectors registered yet. Use: nimbus connector auth <service>");
+    return;
+  }
+  const header = `${padField("SERVICE", 14)} ${padField("STATUS", 10)} ${padField("LAST SYNC", 12)} ${padField("ITEMS", 8)} ERROR`;
+  console.log(header);
+  for (const r of rows) {
+    const err = r.lastError ?? "—";
+    const line = `${padField(r.serviceId, 14)} ${padField(r.status, 10)} ${padField(relTime(r.lastSyncAt), 12)} ${padField(String(r.itemCount), 8)} ${err}`;
+    console.log(line);
+  }
+}
+
+async function runConnectorPause(service: string): Promise<void> {
+  await withIpc((c) => c.call("connector.pause", { serviceId: service }));
+  console.log(`Paused: ${service}`);
+}
+
+async function runConnectorResume(service: string): Promise<void> {
+  await withIpc((c) => c.call("connector.resume", { serviceId: service }));
+  console.log(`Resumed: ${service}`);
+}
+
+async function runConnectorStatus(service: string): Promise<void> {
+  const row = await withIpc((c) => c.call<SyncStatus>("connector.status", { serviceId: service }));
+  console.log(JSON.stringify(row, null, 2));
+}
+
+async function runConnectorLifecycle(sub: string, tail: string[]): Promise<void> {
+  const service = tail[0];
+  if (service === undefined) {
+    throw new Error(`Usage: nimbus connector ${sub} <service>`);
+  }
+  if (sub === "pause") {
+    await runConnectorPause(service);
+    return;
+  }
+  if (sub === "resume") {
+    await runConnectorResume(service);
+    return;
+  }
+  await runConnectorStatus(service);
+}
+
+async function runConnectorSetInterval(tail: string[]): Promise<void> {
+  const service = tail[0];
+  const dur = tail[1];
+  if (service === undefined || dur === undefined) {
+    throw new Error("Usage: nimbus connector set-interval <service> <duration>  (e.g. 5m, 1h)");
+  }
+  const ms = parseDurationToMs(dur);
+  await withIpc((c) => c.call("connector.setInterval", { serviceId: service, intervalMs: ms }));
+  console.log(`Interval set: ${service} → ${dur} (${String(ms)} ms)`);
+}
+
+async function runConnectorSync(tail: string[]): Promise<void> {
+  const { rest, full } = parseFlags(tail);
+  const service = rest[0];
+  if (service === undefined) {
+    throw new Error("Usage: nimbus connector sync <service> [--full]");
+  }
+  let syncParams: { serviceId: string; full?: boolean };
+  if (full === true) {
+    syncParams = { serviceId: service, full: true };
+  } else {
+    syncParams = { serviceId: service };
+  }
+  await withIpc((c) => c.call("connector.sync", syncParams));
+  const suffix = full === true ? " (full)" : "";
+  console.log(`Sync requested: ${service}${suffix}`);
+}
+
+async function runConnectorRemove(tail: string[]): Promise<void> {
+  const service = tail[0];
+  if (service === undefined) {
+    throw new Error("Usage: nimbus connector remove <service>");
+  }
+  const res = await withIpc((c) =>
+    c.call<{ ok: boolean; itemsDeleted: number; vaultKeysRemoved: string[] }>("connector.remove", {
+      serviceId: service,
+    }),
+  );
+  console.log(`Removed index rows: ${String(res.itemsDeleted)}`);
+  if (res.vaultKeysRemoved.length > 0) {
+    console.log(`Cleared vault keys: ${res.vaultKeysRemoved.join(", ")}`);
+  }
+}
+
 export async function runConnector(args: string[]): Promise<void> {
   const sub = args[0];
   const tail = args.slice(1);
@@ -115,111 +232,27 @@ export async function runConnector(args: string[]): Promise<void> {
   }
 
   if (sub === "auth") {
-    const { rest, port, scopes } = parseFlags(tail);
-    const service = rest[0];
-    if (service === undefined) {
-      throw new Error("Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b]");
-    }
-    const params: { service: string; port?: number; scopes?: string[] } = { service };
-    if (port !== undefined) {
-      params.port = port;
-    }
-    if (scopes !== undefined) {
-      params.scopes = scopes;
-    }
-    const res = await withIpc((c) =>
-      c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
-    );
-    console.log(`Signed in: ${res.serviceId}`);
-    console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
+    await runConnectorAuth(tail);
     return;
   }
-
   if (sub === "list") {
-    const rows = await withIpc((c) => c.call<SyncStatus[]>("connector.listStatus"));
-    if (rows.length === 0) {
-      console.log("No connectors registered yet. Use: nimbus connector auth <service>");
-      return;
-    }
-    const pad = (s: string, w: number): string =>
-      s.length >= w ? s : s + " ".repeat(w - s.length);
-    const header = `${pad("SERVICE", 14)} ${pad("STATUS", 10)} ${pad("LAST SYNC", 12)} ${pad("ITEMS", 8)} ERROR`;
-    console.log(header);
-    for (const r of rows) {
-      const err = r.lastError ?? "—";
-      const line = `${pad(r.serviceId, 14)} ${pad(r.status, 10)} ${pad(relTime(r.lastSyncAt), 12)} ${pad(String(r.itemCount), 8)} ${err}`;
-      console.log(line);
-    }
+    await runConnectorList();
     return;
   }
-
   if (sub === "pause" || sub === "resume" || sub === "status") {
-    const service = tail[0];
-    if (service === undefined) {
-      throw new Error(`Usage: nimbus connector ${sub} <service>`);
-    }
-    if (sub === "pause") {
-      await withIpc((c) => c.call("connector.pause", { serviceId: service }));
-      console.log(`Paused: ${service}`);
-      return;
-    }
-    if (sub === "resume") {
-      await withIpc((c) => c.call("connector.resume", { serviceId: service }));
-      console.log(`Resumed: ${service}`);
-      return;
-    }
-    const row = await withIpc((c) =>
-      c.call<SyncStatus>("connector.status", { serviceId: service }),
-    );
-    console.log(JSON.stringify(row, null, 2));
+    await runConnectorLifecycle(sub, tail);
     return;
   }
-
   if (sub === "set-interval") {
-    const service = tail[0];
-    const dur = tail[1];
-    if (service === undefined || dur === undefined) {
-      throw new Error("Usage: nimbus connector set-interval <service> <duration>  (e.g. 5m, 1h)");
-    }
-    const ms = parseDurationToMs(dur);
-    await withIpc((c) => c.call("connector.setInterval", { serviceId: service, intervalMs: ms }));
-    console.log(`Interval set: ${service} → ${dur} (${String(ms)} ms)`);
+    await runConnectorSetInterval(tail);
     return;
   }
-
   if (sub === "sync") {
-    const { rest, full } = parseFlags(tail);
-    const service = rest[0];
-    if (service === undefined) {
-      throw new Error("Usage: nimbus connector sync <service> [--full]");
-    }
-    await withIpc((c) =>
-      c.call(
-        "connector.sync",
-        full === true ? { serviceId: service, full: true } : { serviceId: service },
-      ),
-    );
-    console.log(`Sync requested: ${service}${full === true ? " (full)" : ""}`);
+    await runConnectorSync(tail);
     return;
   }
-
   if (sub === "remove") {
-    const service = tail[0];
-    if (service === undefined) {
-      throw new Error("Usage: nimbus connector remove <service>");
-    }
-    const res = await withIpc((c) =>
-      c.call<{ ok: boolean; itemsDeleted: number; vaultKeysRemoved: string[] }>(
-        "connector.remove",
-        {
-          serviceId: service,
-        },
-      ),
-    );
-    console.log(`Removed index rows: ${String(res.itemsDeleted)}`);
-    if (res.vaultKeysRemoved.length > 0) {
-      console.log(`Cleared vault keys: ${res.vaultKeysRemoved.join(", ")}`);
-    }
+    await runConnectorRemove(tail);
     return;
   }
 

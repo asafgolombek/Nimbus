@@ -8,7 +8,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 function requireAccessToken(): string {
-  // biome-ignore lint/complexity/useLiteralKeys: NodeJS.ProcessEnv is an index signature (TS4111).
   const t = process.env["GOOGLE_OAUTH_ACCESS_TOKEN"];
   if (t === undefined || t === "") {
     throw new Error("GOOGLE_OAUTH_ACCESS_TOKEN is not set");
