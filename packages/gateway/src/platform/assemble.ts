@@ -1,11 +1,15 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import pino from "pino";
 
 import { LocalIndex } from "../index/local-index.ts";
 import { createIpcServer } from "../ipc/index.ts";
+import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
+import { SyncScheduler } from "../sync/scheduler.ts";
 import { createNimbusVault } from "../vault/factory.ts";
 import { openUrlInDefaultBrowser } from "./browser.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
+import { processEnvGet } from "./env-access.ts";
 import type { PlatformPaths } from "./paths.ts";
 import type { AutostartManager, NotificationService, PlatformServices } from "./types.ts";
 
@@ -31,6 +35,19 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const db = new Database(join(paths.dataDir, "nimbus.db"));
   LocalIndex.ensureSchema(db);
   const localIndex = new LocalIndex(db);
+  const notifications = createStubNotifications();
+  const syncLogger = pino({ level: processEnvGet("NIMBUS_LOG_LEVEL") ?? "warn" });
+  const rateLimiter = new ProviderRateLimiter();
+  const syncScheduler = new SyncScheduler(
+    { vault, db, logger: syncLogger, rateLimiter },
+    undefined,
+    {
+      notify: async (title, body) => {
+        await notifications.show(title, body);
+      },
+    },
+  );
+  syncScheduler.start();
   return {
     vault,
     ipc: createIpcServer({
@@ -38,11 +55,14 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       vault,
       version: "0.1.0",
       localIndex,
+      openUrl: openUrlInDefaultBrowser,
+      syncScheduler,
     }),
     paths,
     localIndex,
+    syncScheduler,
     autostart: createStubAutostart(),
-    notifications: createStubNotifications(),
+    notifications,
     openUrl: openUrlInDefaultBrowser,
   };
 }

@@ -1,6 +1,17 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
+import {
+  clearSchedulerCursor,
+  countItemsForService,
+  deleteSchedulerStateRow,
+  listAllSchedulerStates,
+  loadSchedulerState,
+  setPaused,
+  type SchedulerStateRow,
+  upsertSchedulerRegistration,
+} from "../sync/scheduler-store.ts";
+import type { SyncStatus } from "../sync/types.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "./scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "./schema-sql.ts";
 
@@ -125,6 +136,94 @@ export class LocalIndex {
   }
 
   constructor(private readonly db: Database) {}
+
+  /** Gateway IPC only — OAuth retention checks after connector removal. */
+  getDatabase(): Database {
+    return this.db;
+  }
+
+  private static rowToPersistedSyncStatus(db: Database, row: SchedulerStateRow): SyncStatus {
+    let status: SyncStatus["status"] = "ok";
+    if (row.paused === 1) {
+      status = "paused";
+    } else if (row.status === "error") {
+      status = "error";
+    } else if (row.status === "backoff") {
+      status = "backoff";
+    }
+    return {
+      serviceId: row.service_id,
+      status,
+      lastSyncAt: row.last_sync_at,
+      nextSyncAt: row.next_sync_at,
+      intervalMs: row.interval_ms,
+      itemCount: countItemsForService(db, row.service_id),
+      lastError: row.error_msg,
+      consecutiveFailures: row.consecutive_failures,
+    };
+  }
+
+  /**
+   * Sync rows persisted in `scheduler_state` (no in-process "syncing" flag — use {@link SyncScheduler#getStatus} when wired).
+   */
+  persistedConnectorStatuses(serviceIdFilter?: string): SyncStatus[] {
+    if (serviceIdFilter !== undefined && serviceIdFilter !== "") {
+      const row = loadSchedulerState(this.db, serviceIdFilter);
+      if (row === null) {
+        return [];
+      }
+      return [LocalIndex.rowToPersistedSyncStatus(this.db, row)];
+    }
+    const rows = listAllSchedulerStates(this.db);
+    return rows.map((r) => LocalIndex.rowToPersistedSyncStatus(this.db, r));
+  }
+
+  ensureConnectorSchedulerRegistration(
+    serviceId: string,
+    intervalMs: number,
+    now: number,
+  ): void {
+    upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, false);
+  }
+
+  pauseConnectorSync(serviceId: string): void {
+    if (loadSchedulerState(this.db, serviceId) === null) {
+      throw new Error(`Unknown connector: ${serviceId}`);
+    }
+    setPaused(this.db, serviceId, true);
+  }
+
+  resumeConnectorSync(serviceId: string): void {
+    if (loadSchedulerState(this.db, serviceId) === null) {
+      throw new Error(`Unknown connector: ${serviceId}`);
+    }
+    setPaused(this.db, serviceId, false);
+  }
+
+  setConnectorSyncIntervalMs(serviceId: string, intervalMs: number, now: number): void {
+    upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, true);
+  }
+
+  clearConnectorSyncCursor(serviceId: string): void {
+    if (loadSchedulerState(this.db, serviceId) === null) {
+      throw new Error(`Unknown connector: ${serviceId}`);
+    }
+    clearSchedulerCursor(this.db, serviceId);
+  }
+
+  /**
+   * Deletes index + scheduler + legacy sync_state rows for one connector (SQLite transaction).
+   * Returns how many items were removed.
+   */
+  removeConnectorIndexData(serviceId: string): number {
+    return this.db.transaction(() => {
+      const n = countItemsForService(this.db, serviceId);
+      this.db.run("DELETE FROM items WHERE service = ?", [serviceId]);
+      deleteSchedulerStateRow(this.db, serviceId);
+      this.db.run("DELETE FROM sync_state WHERE connector_id = ?", [serviceId]);
+      return n;
+    })();
+  }
 
   upsert(item: NimbusItem): void {
     const meta = JSON.stringify(item.rawMeta ?? {});

@@ -1,0 +1,114 @@
+import type { OAuthProvider } from "../auth/pkce.ts";
+
+/** Normalised connector `service_id` values (Q2 plan / scheduler_state). */
+export const CONNECTOR_SERVICE_IDS = [
+  "google_drive",
+  "gmail",
+  "google_photos",
+  "onedrive",
+  "outlook",
+  "teams",
+] as const;
+
+export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
+
+export const GOOGLE_CONNECTOR_SERVICES: ReadonlySet<string> = new Set([
+  "google_drive",
+  "gmail",
+  "google_photos",
+]);
+
+export const MICROSOFT_CONNECTOR_SERVICES: ReadonlySet<string> = new Set([
+  "onedrive",
+  "outlook",
+  "teams",
+]);
+
+export function normalizeConnectorServiceId(raw: string): ConnectorServiceId | null {
+  const s = raw.trim().toLowerCase().replaceAll("-", "_");
+  if ((CONNECTOR_SERVICE_IDS as readonly string[]).includes(s)) {
+    return s as ConnectorServiceId;
+  }
+  return null;
+}
+
+export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): number {
+  switch (serviceId) {
+    case "google_drive":
+    case "onedrive":
+      return 30 * 60 * 1000;
+    case "gmail":
+    case "outlook":
+    case "teams":
+      return 5 * 60 * 1000;
+    case "google_photos":
+      return 6 * 60 * 60 * 1000;
+    default: {
+      const _exhaustive: never = serviceId;
+      return _exhaustive;
+    }
+  }
+}
+
+export type ConnectorOAuthProfile = {
+  provider: OAuthProvider;
+  defaultScopes: string[];
+};
+
+export function oauthProfileForService(serviceId: ConnectorServiceId): ConnectorOAuthProfile {
+  switch (serviceId) {
+    case "google_drive":
+      return {
+        provider: "google",
+        defaultScopes: ["https://www.googleapis.com/auth/drive.readonly"],
+      };
+    case "gmail":
+      return {
+        provider: "google",
+        defaultScopes: [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/gmail.compose",
+        ],
+      };
+    case "google_photos":
+      return {
+        provider: "google",
+        defaultScopes: ["https://www.googleapis.com/auth/photoslibrary.readonly"],
+      };
+    case "onedrive":
+      return {
+        provider: "microsoft",
+        defaultScopes: ["Files.Read.All", "offline_access", "openid", "profile"],
+      };
+    case "outlook":
+      return {
+        provider: "microsoft",
+        defaultScopes: [
+          "Mail.Read",
+          "Mail.Send",
+          "Calendars.Read",
+          "Calendars.ReadWrite",
+          "Contacts.Read",
+          "offline_access",
+          "openid",
+          "profile",
+        ],
+      };
+    case "teams":
+      return {
+        provider: "microsoft",
+        defaultScopes: [
+          "ChannelMessage.Read.All",
+          "Chat.Read",
+          "User.Read",
+          "offline_access",
+          "openid",
+          "profile",
+        ],
+      };
+    default: {
+      const _never: never = serviceId;
+      return _never;
+    }
+  }
+}

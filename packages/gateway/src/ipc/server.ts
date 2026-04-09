@@ -5,9 +5,11 @@ import { platform } from "node:os";
 
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import type { LocalIndex } from "../index/local-index.ts";
+import type { SyncScheduler } from "../sync/scheduler.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { AgentInvokeHandler } from "./agent-invoke.ts";
+import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
 import {
   encodeLine,
@@ -214,6 +216,10 @@ export type CreateIpcServerOptions = {
   version: string;
   /** When set, `audit.list` reads from the local index; otherwise returns []. */
   localIndex?: LocalIndex;
+  /** Opens URLs for OAuth (`connector.auth`). */
+  openUrl?: (url: string) => Promise<void>;
+  /** Background sync; required for `connector.sync` force runs. */
+  syncScheduler?: SyncScheduler;
   /** Monotonic gateway start time (ms) for ping.uptime */
   startedAtMs?: number;
   /** Initial `agent.invoke` handler; may be replaced via {@link IPCServer.setAgentInvokeHandler}. */
@@ -317,6 +323,31 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   ): Promise<unknown> {
     const { method } = req;
     const params = req.params;
+
+    if (method.startsWith("connector.") && options.localIndex !== undefined) {
+      const openUrl = options.openUrl;
+      if (openUrl === undefined && method === "connector.auth") {
+        throw new RpcMethodError(-32603, "Gateway is not configured for OAuth (missing openUrl)");
+      }
+      try {
+        const out = await dispatchConnectorRpc({
+          method,
+          params,
+          vault: options.vault,
+          localIndex: options.localIndex,
+          openUrl: openUrl ?? (async () => {}),
+          syncScheduler: options.syncScheduler,
+        });
+        if (out.kind === "hit") {
+          return out.value;
+        }
+      } catch (e) {
+        if (e instanceof ConnectorRpcError) {
+          throw new RpcMethodError(e.rpcCode, e.message);
+        }
+        throw e;
+      }
+    }
 
     switch (method) {
       case "gateway.ping":

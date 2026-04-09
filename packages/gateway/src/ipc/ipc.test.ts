@@ -1,9 +1,12 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import net from "node:net";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { LocalIndex } from "../index/local-index.ts";
 import { MockVault } from "../vault/mock.ts";
 import { ConsentDisconnectedError } from "./consent.ts";
 import {
@@ -72,6 +75,57 @@ function testListenPath(): string {
   return join(mkdtempSync(join(tmpdir(), "nimbus-ipc-")), "sock");
 }
 
+async function rpcCall(listenPath: string, method: string, params: unknown): Promise<string> {
+  const req = `${JSON.stringify({
+    jsonrpc: "2.0",
+    id: 42,
+    method,
+    params,
+  })}\n`;
+
+  if (platform() === "win32") {
+    return await new Promise<string>((resolve, reject) => {
+      let buf = "";
+      const sock = net.createConnection(listenPath);
+      sock.on("connect", () => {
+        sock.write(req);
+      });
+      sock.on("data", (b: Buffer) => {
+        const { next, line } = appendAndTakeFirstLine(buf, b.toString("utf8"));
+        buf = next;
+        if (line !== undefined) {
+          resolve(line);
+          sock.end();
+        }
+      });
+      sock.on("error", reject);
+    });
+  }
+
+  return await new Promise<string>((resolve, reject) => {
+    let buf = "";
+    Bun.connect({
+      unix: listenPath,
+      socket: {
+        open(socket) {
+          socket.write(req);
+        },
+        data(socket, chunk: Uint8Array) {
+          const { next, line } = appendAndTakeFirstLine(buf, new TextDecoder().decode(chunk));
+          buf = next;
+          if (line !== undefined) {
+            resolve(line);
+            socket.end();
+          }
+        },
+        error() {
+          reject(new Error("socket error"));
+        },
+      },
+    }).catch(reject);
+  });
+}
+
 async function rpcPing(listenPath: string): Promise<string> {
   const req = `${JSON.stringify({
     jsonrpc: "2.0",
@@ -123,6 +177,31 @@ async function rpcPing(listenPath: string): Promise<string> {
 }
 
 describe("ipc server integration", () => {
+  test("connector.listStatus over IPC", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+    localIndex.ensureConnectorSchedulerRegistration("google_drive", 30_000, Date.now());
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+      openUrl: async () => {},
+    });
+    await server.start();
+    try {
+      const line = await rpcCall(listenPath, "connector.listStatus", {});
+      const res = JSON.parse(line) as { result?: Array<{ serviceId: string }> };
+      expect(res.result?.length).toBe(1);
+      expect(res.result?.[0]?.serviceId).toBe("google_drive");
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("gateway.ping over IPC transport", async () => {
     const listenPath = testListenPath();
     const server = createIpcServer({

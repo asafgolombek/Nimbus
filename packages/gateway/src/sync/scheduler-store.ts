@@ -38,21 +38,7 @@ export function loadSchedulerState(db: Database, serviceId: string): SchedulerSt
   if (row === null || row === undefined) {
     return null;
   }
-  const st = row.status;
-  if (st !== "ok" && st !== "backoff" && st !== "error") {
-    return null;
-  }
-  return {
-    service_id: row.service_id,
-    cursor: row.cursor,
-    interval_ms: row.interval_ms,
-    last_sync_at: row.last_sync_at,
-    next_sync_at: row.next_sync_at,
-    status: st,
-    error_msg: row.error_msg,
-    consecutive_failures: row.consecutive_failures,
-    paused: row.paused,
-  };
+  return parseSchedulerRow(row);
 }
 
 export function upsertSchedulerRegistration(
@@ -140,6 +126,82 @@ export function countItemsForService(db: Database, serviceId: string): number {
     | undefined;
   const c = row?.c;
   return typeof c === "number" && Number.isFinite(c) ? Math.floor(c) : 0;
+}
+
+export function countItemsForAnyService(db: Database, services: readonly string[]): number {
+  if (services.length === 0) {
+    return 0;
+  }
+  const placeholders = services.map(() => "?").join(",");
+  const row = db
+    .query(`SELECT COUNT(*) as c FROM items WHERE service IN (${placeholders})`)
+    .get(...services) as { c: number } | null | undefined;
+  const c = row?.c;
+  return typeof c === "number" && Number.isFinite(c) ? Math.floor(c) : 0;
+}
+
+function parseSchedulerRow(row: {
+  service_id: string;
+  cursor: string | null;
+  interval_ms: number;
+  last_sync_at: number | null;
+  next_sync_at: number | null;
+  status: string;
+  error_msg: string | null;
+  consecutive_failures: number;
+  paused: number;
+}): SchedulerStateRow | null {
+  const st = row.status;
+  if (st !== "ok" && st !== "backoff" && st !== "error") {
+    return null;
+  }
+  return {
+    service_id: row.service_id,
+    cursor: row.cursor,
+    interval_ms: row.interval_ms,
+    last_sync_at: row.last_sync_at,
+    next_sync_at: row.next_sync_at,
+    status: st,
+    error_msg: row.error_msg,
+    consecutive_failures: row.consecutive_failures,
+    paused: row.paused,
+  };
+}
+
+export function listAllSchedulerStates(db: Database): SchedulerStateRow[] {
+  const rows = db
+    .query(
+      `SELECT service_id, cursor, interval_ms, last_sync_at, next_sync_at, status, error_msg,
+              consecutive_failures, paused
+       FROM scheduler_state ORDER BY service_id ASC`,
+    )
+    .all() as Array<{
+    service_id: string;
+    cursor: string | null;
+    interval_ms: number;
+    last_sync_at: number | null;
+    next_sync_at: number | null;
+    status: string;
+    error_msg: string | null;
+    consecutive_failures: number;
+    paused: number;
+  }>;
+  const out: SchedulerStateRow[] = [];
+  for (const r of rows) {
+    const parsed = parseSchedulerRow(r);
+    if (parsed !== null) {
+      out.push(parsed);
+    }
+  }
+  return out;
+}
+
+export function clearSchedulerCursor(db: Database, serviceId: string): void {
+  db.run(`UPDATE scheduler_state SET cursor = NULL WHERE service_id = ?`, [serviceId]);
+}
+
+export function deleteSchedulerStateRow(db: Database, serviceId: string): void {
+  db.run(`DELETE FROM scheduler_state WHERE service_id = ?`, [serviceId]);
 }
 
 export function insertSyncTelemetry(

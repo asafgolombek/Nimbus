@@ -25,6 +25,9 @@ describe("Platform Abstraction Layer", () => {
     expect(services.paths).toBeDefined();
     expect(services.localIndex).toBeDefined();
     expect(typeof services.localIndex.listAudit).toBe("function");
+    expect(services.syncScheduler).toBeDefined();
+    expect(typeof services.syncScheduler.start).toBe("function");
+    services.syncScheduler.stop();
     expect(services.autostart).toBeDefined();
     expect(services.notifications).toBeDefined();
     expect(typeof services.openUrl).toBe("function");

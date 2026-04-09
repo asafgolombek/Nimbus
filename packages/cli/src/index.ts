@@ -10,6 +10,7 @@ import {
   printHelp,
   runAsk,
   runAudit,
+  runConnector,
   runStart,
   runStatus,
   runStop,
@@ -44,6 +45,9 @@ try {
       break;
     case "audit":
       await runAudit(args);
+      break;
+    case "connector":
+      await runConnector(args);
       break;
     default:
       console.error(`Unknown command: ${command}`);

@@ -11,6 +11,7 @@ Usage:
   nimbus vault delete <k>    Remove a secret
   nimbus vault list [pfx]   List vault key names
   nimbus audit [--limit N]  Recent HITL audit rows
+  nimbus connector …       Register connectors, OAuth, sync status (see: nimbus connector help)
   nimbus help               Show this message
 
 Environment (optional):

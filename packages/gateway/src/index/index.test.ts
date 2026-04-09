@@ -117,4 +117,25 @@ describe("LocalIndex", () => {
     expect(list[0]?.actionType).toBe("filesystem.search");
     expect(list[1]?.actionType).toBe("file.delete");
   });
+
+  test("connector scheduler registration and persisted statuses", () => {
+    const idx = openMemoryIndex();
+    const now = 1_700_000_000_000;
+    idx.ensureConnectorSchedulerRegistration("google_drive", 60_000, now);
+    const rows = idx.persistedConnectorStatuses();
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.serviceId).toBe("google_drive");
+    expect(rows[0]?.intervalMs).toBe(60_000);
+    expect(rows[0]?.status).toBe("ok");
+    idx.upsert({
+      id: "g1",
+      service: "google_drive",
+      itemType: "file",
+      name: "a",
+    });
+    expect(idx.persistedConnectorStatuses("google_drive")[0]?.itemCount).toBe(1);
+    const deleted = idx.removeConnectorIndexData("google_drive");
+    expect(deleted).toBe(1);
+    expect(idx.persistedConnectorStatuses()).toEqual([]);
+  });
 });
