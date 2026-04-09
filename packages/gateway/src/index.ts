@@ -2,7 +2,7 @@
  * Nimbus Gateway — Headless Bun process
  *
  * Startup: PAL → SQLite index → MCP filesystem mesh → IPC (agent.invoke → runAsk).
- * See architecture.md §Gateway Lifecycle, dev-plan-q1.md Stages 6–9.
+ * See architecture.md §Nimbus Gateway: Process Lifecycle.
  */
 
 import {

@@ -1,7 +1,7 @@
 /**
  * IPC Layer — JSON-RPC 2.0 over domain socket (Unix) or named pipe (Windows)
  *
- * See architecture.md §IPC Protocol, dev-plan-q1.md §Stage 3
+ * See architecture.md §IPC Protocol.
  */
 
 export type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";

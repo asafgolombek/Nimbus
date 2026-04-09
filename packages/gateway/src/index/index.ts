@@ -1,7 +1,7 @@
 /**
  * Local Index — bun:sqlite metadata store (FTS5 name search in Q1; sqlite-vec in Q3)
  *
- * See architecture.md §Local Database Schema and dev-plan-q1.md Stage 4.
+ * See architecture.md §Local Database Schema.
  */
 
 export {

@@ -22,9 +22,11 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 | Quarter | Theme | Status | Release Target |
 |---|---|---|---|
 | Q1 2026 | Foundation | **Complete** | — |
-| Q2 2026 | The Bridge | Planned | End of June 2026 |
+| Q2 2026 | The Bridge | **Active** | End of June 2026 |
 | Q3 2026 | Intelligence | Planned | End of September 2026 |
 | Q4 2026 | Presence | Planned | End of December 2026 — `v0.1.0` |
+
+Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 ---
 

@@ -5,7 +5,7 @@
  * - Windows: `node:net` to the named pipe path (e.g. `\\.\pipe\nimbus-gateway`)
  * - macOS/Linux: `Bun.connect` Unix domain socket
  *
- * See dev-plan-q1.md §3.4, architecture.md §IPC Protocol
+ * See architecture.md §IPC Protocol.
  */
 
 import { randomUUID } from "node:crypto";

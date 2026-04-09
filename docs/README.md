@@ -352,6 +352,8 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 > See [`roadmap.md`](./roadmap.md) for the full detailed roadmap including milestones, dependencies, and acceptance criteria.
 
+**Current quarter (Q2 2026) — detailed implementation plan:** [`q2-2026-plan.md`](./q2-2026-plan.md)
+
 ### Q1 2026 — Foundation ✅
 
 **Goal:** Make the Gateway real and the security model provable.
