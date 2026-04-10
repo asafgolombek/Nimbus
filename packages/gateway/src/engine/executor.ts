@@ -31,6 +31,7 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "photo.delete",
   "onedrive.delete",
   "onedrive.move",
+  "slack.message.post",
   // Source control
   "repo.pr.merge",
   "repo.pr.close",

@@ -5,6 +5,7 @@ import { MCPClient } from "@mastra/mcp";
 
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
+import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
@@ -48,8 +49,13 @@ function bitbucketMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "bitbucket", "src", "server.ts");
 }
 
+function slackMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "slack", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub / GitLab / Bitbucket credential MCP when vault keys exist (Q2 §1.6 / Phase 2–3).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub / GitLab / Bitbucket / Slack credential MCP when vault keys exist (Q2 §1.6 / Phase 2–4).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -63,6 +69,8 @@ export class LazyConnectorMesh {
   private gitlabIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private bitbucketClient: MCPClient | undefined;
   private bitbucketIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private slackClient: MCPClient | undefined;
+  private slackIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -125,6 +133,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearSlackIdleTimer(): void {
+    if (this.slackIdleTimer !== undefined) {
+      clearTimeout(this.slackIdleTimer);
+      this.slackIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -162,6 +177,14 @@ export class LazyConnectorMesh {
     this.bitbucketIdleTimer = setTimeout(() => {
       this.bitbucketIdleTimer = undefined;
       void this.stopBitbucketClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleSlackDisconnect(): void {
+    this.clearSlackIdleTimer();
+    this.slackIdleTimer = setTimeout(() => {
+      this.slackIdleTimer = undefined;
+      void this.stopSlackClient();
     }, this.inactivityMs);
   }
 
@@ -220,6 +243,19 @@ export class LazyConnectorMesh {
   private async stopBitbucketClient(): Promise<void> {
     const c = this.bitbucketClient;
     this.bitbucketClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopSlackClient(): Promise<void> {
+    const c = this.slackClient;
+    this.slackClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -385,6 +421,38 @@ export class LazyConnectorMesh {
     this.scheduleBitbucketDisconnect();
   }
 
+  /**
+   * Starts Slack MCP when `slack.oauth` is present in the Vault.
+   */
+  async ensureSlackRunning(): Promise<void> {
+    this.clearSlackIdleTimer();
+    if (this.slackClient !== undefined) {
+      this.scheduleSlackDisconnect();
+      return;
+    }
+    let token: string;
+    try {
+      token = await getValidSlackAccessToken(this.vault);
+    } catch {
+      return;
+    }
+    if (token === "") {
+      return;
+    }
+    this.slackClient = new MCPClient({
+      id: `nimbus-slack-${String(Date.now())}`,
+      servers: {
+        slack: {
+          command: "bun",
+          args: [slackMcpScriptPath()],
+          env: { ...process.env, SLACK_USER_ACCESS_TOKEN: token },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleSlackDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
@@ -409,6 +477,10 @@ export class LazyConnectorMesh {
     if (bbUser !== null && bbUser !== "" && bbPass !== null && bbPass !== "") {
       await this.ensureBitbucketRunning();
     }
+    const rawSlack = await this.vault.get("slack.oauth");
+    if (rawSlack !== null && rawSlack !== "") {
+      await this.ensureSlackRunning();
+    }
 
     const fsTools = await this.filesystem.listTools();
     const gdTools =
@@ -419,10 +491,16 @@ export class LazyConnectorMesh {
     const glTools = this.gitlabClient !== undefined ? await this.gitlabClient.listTools() : {};
     const bbTools =
       this.bitbucketClient !== undefined ? await this.bitbucketClient.listTools() : {};
-    return { ...fsTools, ...gdTools, ...msTools, ...ghTools, ...glTools, ...bbTools } as Record<
-      string,
-      { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
-    >;
+    const slackTools = this.slackClient !== undefined ? await this.slackClient.listTools() : {};
+    return {
+      ...fsTools,
+      ...gdTools,
+      ...msTools,
+      ...ghTools,
+      ...glTools,
+      ...bbTools,
+      ...slackTools,
+    } as Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>;
   }
 
   async disconnect(): Promise<void> {
@@ -431,11 +509,13 @@ export class LazyConnectorMesh {
     this.clearGithubIdleTimer();
     this.clearGitlabIdleTimer();
     this.clearBitbucketIdleTimer();
+    this.clearSlackIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
     await this.stopGitlabClient();
     await this.stopBitbucketClient();
+    await this.stopSlackClient();
     try {
       await this.filesystem.disconnect();
     } catch {

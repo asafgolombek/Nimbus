@@ -6,5 +6,7 @@ export {
   pkceCodeChallengeS256,
   type RefreshAccessTokenContext,
   refreshAccessToken,
+  refreshSlackUserToken,
   runPKCEFlow,
 } from "./pkce.ts";
+export { getValidSlackAccessToken } from "./slack-access-token.ts";

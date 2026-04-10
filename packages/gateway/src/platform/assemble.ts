@@ -11,6 +11,7 @@ import { createGooglePhotosSyncable } from "../connectors/google-photos-sync.ts"
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
+import { createSlackSyncable } from "../connectors/slack-sync.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
@@ -95,6 +96,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createBitbucketSyncable({
       ensureBitbucketMcpRunning: () => connectorMesh.ensureBitbucketRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createSlackSyncable({
+      ensureSlackMcpRunning: () => connectorMesh.ensureSlackRunning(),
     }),
   );
   syncScheduler.start();

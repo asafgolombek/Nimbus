@@ -60,6 +60,9 @@ export type McpToolListingClient = {
  * GitLab (HITL): `repo.pr.merge` → `gitlab_gitlab_mr_merge` (set `payload.mcpToolId` + `input`).
  *
  * Bitbucket (HITL): `repo.pr.merge` → `bitbucket_bitbucket_pr_merge`.
+ *
+ * Slack (HITL): `slack.message.post` → `slack_slack_message_post` or
+ * `slack_slack_message_post_dm` (set `payload.mcpToolId` + `input`).
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

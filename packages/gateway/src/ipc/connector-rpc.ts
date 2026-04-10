@@ -193,6 +193,10 @@ export async function dispatchConnectorRpc(options: {
           await vault.delete("bitbucket.app_password");
           vaultKeys.push("bitbucket.username", "bitbucket.app_password");
         }
+        if (id === "slack") {
+          await vault.delete("slack.oauth");
+          vaultKeys.push("slack.oauth");
+        }
       } catch (removeErr) {
         if (googleOAuthBackup !== null) {
           await vault.set("google.oauth", googleOAuthBackup);
@@ -290,15 +294,33 @@ export async function dispatchConnectorRpc(options: {
         };
       }
       const profile = oauthProfileForService(id);
-      const clientId =
-        profile.provider === "google" ? Config.oauthGoogleClientId : Config.oauthMicrosoftClientId;
+      let clientId = "";
+      let emptyClientIdMessage = "";
+      switch (profile.provider) {
+        case "google":
+          clientId = Config.oauthGoogleClientId;
+          emptyClientIdMessage =
+            "Set NIMBUS_OAUTH_GOOGLE_CLIENT_ID to a registered desktop OAuth client id";
+          break;
+        case "microsoft":
+          clientId = Config.oauthMicrosoftClientId;
+          emptyClientIdMessage =
+            "Set NIMBUS_OAUTH_MICROSOFT_CLIENT_ID to a registered desktop OAuth client id";
+          break;
+        case "slack":
+          clientId = Config.oauthSlackClientId;
+          emptyClientIdMessage =
+            "Set NIMBUS_OAUTH_SLACK_CLIENT_ID to a Slack app client id with PKCE enabled";
+          break;
+        case "notion":
+          throw new ConnectorRpcError(-32603, "Notion OAuth is not implemented yet");
+        default: {
+          const _ex: never = profile.provider;
+          throw new ConnectorRpcError(-32602, `Unsupported OAuth provider: ${_ex}`);
+        }
+      }
       if (clientId === "") {
-        throw new ConnectorRpcError(
-          -32602,
-          profile.provider === "google"
-            ? "Set NIMBUS_OAUTH_GOOGLE_CLIENT_ID to a registered desktop OAuth client id"
-            : "Set NIMBUS_OAUTH_MICROSOFT_CLIENT_ID to a registered desktop OAuth client id",
-        );
+        throw new ConnectorRpcError(-32602, emptyClientIdMessage);
       }
       let scopes = profile.defaultScopes;
       const scopeParam = rec?.["scopes"];

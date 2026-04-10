@@ -14,7 +14,8 @@
     "packages/mcp-connectors/gmail",
     "packages/mcp-connectors/github",
     "packages/mcp-connectors/gitlab",
-    "packages/mcp-connectors/bitbucket"
+    "packages/mcp-connectors/bitbucket",
+    "packages/mcp-connectors/slack"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",

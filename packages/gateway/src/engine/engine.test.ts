@@ -50,6 +50,7 @@ describe("HITL_REQUIRED", () => {
       "deployment.apply",
       "k8s.delete",
       "incident.resolve",
+      "slack.message.post",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -161,6 +162,24 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(emailAction);
     });
   }
+
+  test("rejected consent for slack.message.post does not call the connector; audit rejected", async () => {
+    const m = createMocks(true);
+    m.approveNext = false;
+    const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+    const out = await exec.execute({
+      type: "slack.message.post",
+      payload: {
+        mcpToolId: "slack_slack_message_post",
+        input: { channel: "C0123", text: "hi" },
+      },
+    });
+    expect(out.status).toBe("rejected");
+    expect(m.dispatchCalls.length).toBe(0);
+    expect(m.auditCalls.length).toBe(1);
+    expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+    expect(m.auditCalls[0]?.actionType).toBe("slack.message.post");
+  });
 
   for (const fileAction of ["file.create", "file.move", "file.rename"] as const) {
     test(`rejected consent for ${fileAction} does not call the connector; audit rejected`, async () => {

@@ -8,6 +8,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "onedrive",
   "outlook",
   "teams",
+  "slack",
   "github",
   "gitlab",
   "bitbucket",
@@ -43,6 +44,7 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
     case "gmail":
     case "outlook":
     case "teams":
+    case "slack":
       return 5 * 60 * 1000;
     case "google_photos":
       return 6 * 60 * 60 * 1000;
@@ -111,6 +113,24 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
           "offline_access",
           "openid",
           "profile",
+        ],
+      };
+    case "slack":
+      return {
+        provider: "slack",
+        defaultScopes: [
+          "channels:read",
+          "channels:history",
+          "groups:read",
+          "groups:history",
+          "im:read",
+          "im:history",
+          "mpim:read",
+          "mpim:history",
+          "users:read",
+          "users:read.email",
+          "search:read",
+          "chat:write",
         ],
       };
     case "github":

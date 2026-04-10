@@ -138,17 +138,47 @@ describe("runPKCEFlow", () => {
     expect(fallback).toBe(1);
   });
 
-  test("slack provider is not implemented", async () => {
+  test("completes Slack PKCE flow, persists slack.oauth (user token in authed_user)", async () => {
     const vault = createMemoryVault();
-    await expect(
-      runPKCEFlow({
-        clientId: "x",
-        scopes: ["x"],
-        provider: "slack",
-        vault,
-        openUrl: async () => {},
+    const secretAccess = "xoxp-slack-access-test";
+    const secretRefresh = "xoxe-slack-refresh-test";
+
+    const result = await runPKCEFlow({
+      clientId: "123.456",
+      scopes: ["channels:read"],
+      provider: "slack",
+      vault,
+      openUrl: googlePkceOpenUrlCompleter("slack-mock-code", {
+        missingParamsMessage: "expected redirect_uri and state in Slack auth URL",
       }),
-    ).rejects.toThrow(/not implemented/);
+      fetchImpl: async (input) => {
+        const s = requestUrlString(input);
+        if (s.includes("slack.com/api/oauth.v2.access")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              authed_user: {
+                access_token: secretAccess,
+                refresh_token: secretRefresh,
+                expires_in: 3600,
+                scope: "channels:read",
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    expect(result.accessToken).toBe(secretAccess);
+    expect(result.refreshToken).toBe(secretRefresh);
+    expect(result.scopes).toEqual(["channels:read"]);
+
+    const stored = await vault.get("slack.oauth");
+    expect(stored).toBeTruthy();
+    expect(stored).toContain(secretAccess);
+    expect(stored).toContain(secretRefresh);
   });
 });
 
