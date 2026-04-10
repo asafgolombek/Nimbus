@@ -11,7 +11,8 @@
     "packages/mcp-connectors/outlook",
     "packages/mcp-connectors/google-photos",
     "packages/mcp-connectors/google-drive",
-    "packages/mcp-connectors/gmail"
+    "packages/mcp-connectors/gmail",
+    "packages/mcp-connectors/github"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",

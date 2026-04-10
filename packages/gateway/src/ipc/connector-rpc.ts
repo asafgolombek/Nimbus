@@ -179,6 +179,10 @@ export async function dispatchConnectorRpc(options: {
       let vaultKeys: string[] = [];
       try {
         vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
+        if (id === "github") {
+          await vault.delete("github.pat");
+          vaultKeys.push("github.pat");
+        }
       } catch (removeErr) {
         if (googleOAuthBackup !== null) {
           await vault.set("google.oauth", googleOAuthBackup);
@@ -206,6 +210,24 @@ export async function dispatchConnectorRpc(options: {
 
     case "connector.auth": {
       const id = parseServiceArg(rec);
+      if (id === "github") {
+        const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+        const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+        if (token === "") {
+          throw new ConnectorRpcError(-32602, "Missing personalAccessToken for github");
+        }
+        await vault.set("github.pat", token);
+        const interval = defaultSyncIntervalMsForService(id);
+        localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
+        return {
+          kind: "hit",
+          value: {
+            ok: true,
+            serviceId: id,
+            scopesGranted: [] as string[],
+          },
+        };
+      }
       const profile = oauthProfileForService(id);
       const clientId =
         profile.provider === "google" ? Config.oauthGoogleClientId : Config.oauthMicrosoftClientId;

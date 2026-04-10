@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
 
+import { createGithubSyncable } from "../connectors/github-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
 import { createGoogleDriveSyncable } from "../connectors/google-drive-sync.ts";
 import { createGooglePhotosSyncable } from "../connectors/google-photos-sync.ts";
@@ -77,6 +78,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createOutlookSyncable({
       ensureMicrosoftMcpRunning: () => connectorMesh.ensureMicrosoftBundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createGithubSyncable({
+      ensureGithubMcpRunning: () => connectorMesh.ensureGithubRunning(),
     }),
   );
   syncScheduler.start();

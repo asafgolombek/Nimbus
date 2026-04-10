@@ -30,6 +30,7 @@ type ConnectorFlags = {
   rest: string[];
   port?: number;
   scopes?: string[];
+  token?: string;
   full?: boolean;
 };
 
@@ -100,6 +101,7 @@ function parseFlags(args: string[]): ConnectorFlags {
   const rest: string[] = [];
   let port: number | undefined;
   let scopes: string[] | undefined;
+  let token: string | undefined;
   let full: boolean | undefined;
   const q = [...args];
 
@@ -131,6 +133,17 @@ function parseFlags(args: string[]): ConnectorFlags {
         .filter((x) => x.length > 0);
       continue;
     }
+    if (a === "--token" || a === "-t") {
+      const v = q.shift();
+      if (v === undefined) {
+        throw new Error("Missing value for --token");
+      }
+      if (v.trim() === "") {
+        throw new Error("Invalid --token (empty)");
+      }
+      token = v.trim();
+      continue;
+    }
     if (a === "--full") {
       full = true;
       continue;
@@ -144,6 +157,9 @@ function parseFlags(args: string[]): ConnectorFlags {
   }
   if (scopes !== undefined) {
     out.scopes = scopes;
+  }
+  if (token !== undefined) {
+    out.token = token;
   }
   if (full !== undefined) {
     out.full = full;
@@ -160,23 +176,44 @@ function repeatChar(ch: string, n: number): string {
 }
 
 async function runConnectorAuth(tail: string[]): Promise<void> {
-  const { rest, port, scopes } = parseFlags(tail);
+  const { rest, port, scopes, token } = parseFlags(tail);
   const service = rest[0];
   if (service === undefined) {
-    throw new Error("Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b]");
+    throw new Error(
+      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>]",
+    );
   }
-  const params: { service: string; port?: number; scopes?: string[] } = { service };
+  const params: {
+    service: string;
+    port?: number;
+    scopes?: string[];
+    personalAccessToken?: string;
+  } = { service };
   if (port !== undefined) {
     params.port = port;
   }
   if (scopes !== undefined) {
     params.scopes = scopes;
   }
+  const normalized = service.trim().toLowerCase().replaceAll("-", "_");
+  if (normalized === "github") {
+    const pat = token ?? process.env["NIMBUS_GITHUB_PAT"]?.trim();
+    if (pat === undefined || pat === "") {
+      throw new Error(
+        "GitHub requires a PAT: nimbus connector auth github --token <pat>  (or set NIMBUS_GITHUB_PAT in the environment)",
+      );
+    }
+    params.personalAccessToken = pat;
+  }
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
   console.log(`Signed in: ${res.serviceId}`);
-  console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
+  if (res.serviceId === "github") {
+    console.log("Credential: personal access token stored in the OS vault (no OAuth scopes).");
+  } else {
+    console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
+  }
 }
 
 async function runConnectorList(): Promise<void> {
@@ -354,7 +391,7 @@ function printConnectorHelp(): void {
   console.log(`nimbus connector — cloud connector registration and sync (Q2)
 
 Usage:
-  nimbus connector auth <service> [--port <n>] [--scopes a,b]
+  nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>]
   nimbus connector list
   nimbus connector status <service> [--stats]
   nimbus connector sync <service> [--full]
@@ -363,11 +400,13 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github
 
-OAuth client ids (required for auth):
+OAuth client ids (required for Google/Microsoft auth):
   NIMBUS_OAUTH_GOOGLE_CLIENT_ID
   NIMBUS_OAUTH_MICROSOFT_CLIENT_ID
+
+GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).
 
 Credentials are stored in the OS vault only (never printed here).
 `);

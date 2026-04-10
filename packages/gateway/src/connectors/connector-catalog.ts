@@ -8,6 +8,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "onedrive",
   "outlook",
   "teams",
+  "github",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -43,6 +44,8 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
       return 5 * 60 * 1000;
     case "google_photos":
       return 6 * 60 * 60 * 1000;
+    case "github":
+      return 60 * 1000;
     default: {
       const _exhaustive: never = serviceId;
       return _exhaustive;
@@ -106,6 +109,10 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
           "profile",
         ],
       };
+    case "github":
+      throw new Error(
+        "oauthProfileForService: github uses a PAT (connector.auth personalAccessToken)",
+      );
     default: {
       const _never: never = serviceId;
       return _never;

@@ -33,8 +33,13 @@ function outlookMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "outlook", "src", "server.ts");
 }
 
+function githubMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "github", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) (Q2 §1.6 / Phase 2).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub MCP when `github.pat` exists (Q2 §1.6 / Phase 2–3).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -42,6 +47,8 @@ export class LazyConnectorMesh {
   private googleIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private microsoftBundleClient: MCPClient | undefined;
   private microsoftIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private githubClient: MCPClient | undefined;
+  private githubIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -83,6 +90,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearGithubIdleTimer(): void {
+    if (this.githubIdleTimer !== undefined) {
+      clearTimeout(this.githubIdleTimer);
+      this.githubIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -96,6 +110,14 @@ export class LazyConnectorMesh {
     this.microsoftIdleTimer = setTimeout(() => {
       this.microsoftIdleTimer = undefined;
       void this.stopMicrosoftBundle();
+    }, this.inactivityMs);
+  }
+
+  private scheduleGithubDisconnect(): void {
+    this.clearGithubIdleTimer();
+    this.githubIdleTimer = setTimeout(() => {
+      this.githubIdleTimer = undefined;
+      void this.stopGithubClient();
     }, this.inactivityMs);
   }
 
@@ -115,6 +137,19 @@ export class LazyConnectorMesh {
   private async stopMicrosoftBundle(): Promise<void> {
     const c = this.microsoftBundleClient;
     this.microsoftBundleClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopGithubClient(): Promise<void> {
+    const c = this.githubClient;
+    this.githubClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -188,6 +223,33 @@ export class LazyConnectorMesh {
     this.scheduleMicrosoftDisconnect();
   }
 
+  /**
+   * Starts GitHub MCP when `github.pat` is present in the Vault.
+   */
+  async ensureGithubRunning(): Promise<void> {
+    this.clearGithubIdleTimer();
+    if (this.githubClient !== undefined) {
+      this.scheduleGithubDisconnect();
+      return;
+    }
+    const pat = await this.vault.get("github.pat");
+    if (pat === null || pat === "") {
+      return;
+    }
+    this.githubClient = new MCPClient({
+      id: `nimbus-github-${String(Date.now())}`,
+      servers: {
+        github: {
+          command: "bun",
+          args: [githubMcpScriptPath()],
+          env: { ...process.env, GITHUB_PAT: pat },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleGithubDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
@@ -199,13 +261,18 @@ export class LazyConnectorMesh {
     if (rawMs !== null && rawMs !== "") {
       await this.ensureMicrosoftBundleRunning();
     }
+    const rawGh = await this.vault.get("github.pat");
+    if (rawGh !== null && rawGh !== "") {
+      await this.ensureGithubRunning();
+    }
 
     const fsTools = await this.filesystem.listTools();
     const gdTools =
       this.googleBundleClient !== undefined ? await this.googleBundleClient.listTools() : {};
     const msTools =
       this.microsoftBundleClient !== undefined ? await this.microsoftBundleClient.listTools() : {};
-    return { ...fsTools, ...gdTools, ...msTools } as Record<
+    const ghTools = this.githubClient !== undefined ? await this.githubClient.listTools() : {};
+    return { ...fsTools, ...gdTools, ...msTools, ...ghTools } as Record<
       string,
       { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
     >;
@@ -214,8 +281,10 @@ export class LazyConnectorMesh {
   async disconnect(): Promise<void> {
     this.clearGoogleIdleTimer();
     this.clearMicrosoftIdleTimer();
+    this.clearGithubIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
+    await this.stopGithubClient();
     try {
       await this.filesystem.disconnect();
     } catch {
