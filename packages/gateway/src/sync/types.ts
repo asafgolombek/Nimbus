@@ -29,6 +29,17 @@ export interface SyncResult {
   bytesTransferred?: number;
 }
 
+/** Credential miss / token failure — no index changes, preserve incoming cursor. */
+export function syncNoopResult(cursor: string | null, t0: number): SyncResult {
+  return {
+    cursor,
+    itemsUpserted: 0,
+    itemsDeleted: 0,
+    hasMore: false,
+    durationMs: Math.round(performance.now() - t0),
+  };
+}
+
 export interface SyncSchedulerConfig {
   maxConcurrentSyncs: number;
   catchUpOnRestart: boolean;

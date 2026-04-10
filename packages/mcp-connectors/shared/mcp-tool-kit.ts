@@ -34,6 +34,89 @@ export function registerZodTool<T>(
   );
 }
 
+/** Curried registrar — drops the per-connector `reg` boilerplate. */
+export function createZodToolRegistrar(registerSimpleTool: RegisterSimpleToolFn) {
+  return <T>(
+    name: string,
+    description: string,
+    schema: ZodObjectSchema<T>,
+    handler: (args: T) => Promise<McpListResult>,
+  ): void => {
+    registerZodTool(registerSimpleTool, name, description, schema, handler);
+  };
+}
+
+export type HttpTextResponse = { ok: boolean; status: number; text: string };
+
+export type HttpJsonBodyResponse = { ok: boolean; status: number; json: unknown; text: string };
+
+/** After a JSON-body fetch: throw with status + body snippet, else wrap `json` for MCP. */
+export function mcpJsonResultIfOk(
+  serviceLabel: string,
+  res: HttpJsonBodyResponse,
+  snippetMax = 300,
+): McpListResult {
+  if (!res.ok) {
+    throw new Error(`${serviceLabel} ${String(res.status)}: ${res.text.slice(0, snippetMax)}`);
+  }
+  return mcpJsonResult(res.json);
+}
+
+/**
+ * After a text-body fetch: throw with status + body snippet, else parse JSON and wrap for MCP.
+ * Use `jsonParseErrorMessage` when parse failures need a stable diagnostic (e.g. Jira tools).
+ */
+export function mcpJsonResultFromTextIfOk(
+  serviceLabel: string,
+  res: HttpTextResponse,
+  options?: { maxSnippet?: number; jsonParseErrorMessage?: string },
+): McpListResult {
+  const max = options?.maxSnippet ?? 400;
+  if (!res.ok) {
+    throw new Error(`${serviceLabel} ${String(res.status)}: ${res.text.slice(0, max)}`);
+  }
+  try {
+    return mcpJsonResult(JSON.parse(res.text) as unknown);
+  } catch {
+    if (options?.jsonParseErrorMessage !== undefined) {
+      throw new Error(options.jsonParseErrorMessage);
+    }
+    throw new Error(`${serviceLabel}: invalid JSON response`);
+  }
+}
+
+/** Like {@link mcpJsonResultFromTextIfOk} but returns parsed JSON for composing multi-part tool results. */
+export function parseJsonTextIfOk(
+  serviceLabel: string,
+  res: HttpTextResponse,
+  maxSnippet = 400,
+): unknown {
+  if (!res.ok) {
+    throw new Error(`${serviceLabel} ${String(res.status)}: ${res.text.slice(0, maxSnippet)}`);
+  }
+  return JSON.parse(res.text) as unknown;
+}
+
+export function putOptionalNonEmptyString(
+  body: Record<string, unknown>,
+  key: string,
+  value: string | undefined,
+): void {
+  if (value !== undefined && value !== "") {
+    body[key] = value;
+  }
+}
+
+export function putOptionalBoolean(
+  body: Record<string, unknown>,
+  key: string,
+  value: boolean | undefined,
+): void {
+  if (value !== undefined) {
+    body[key] = value;
+  }
+}
+
 /** Input shape matches MCP `server.tool` zod fields; typed as unknown to avoid a zod import from this shared path. */
 export type RegisterSimpleToolFn = (
   name: string,

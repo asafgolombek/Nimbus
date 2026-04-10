@@ -10,11 +10,9 @@ import { z } from "zod";
 import { joinApiPath } from "../../shared/join-api-path.ts";
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   encodeBasicAuthHeader,
-  mcpJsonResult as jsonResult,
-  type McpListResult,
-  registerZodTool,
-  type ZodObjectSchema,
+  mcpJsonResultFromTextIfOk,
 } from "../../shared/mcp-tool-kit.ts";
 import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
@@ -75,25 +73,10 @@ async function confFetch(
   return { ok: res.ok, status: res.status, text };
 }
 
-function confJsonFromResponse(res: { ok: boolean; status: number; text: string }): unknown {
-  if (!res.ok) {
-    throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-  }
-  return JSON.parse(res.text) as unknown;
-}
-
 const server = new McpServer({ name: "nimbus-confluence", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const confluenceLimitStartSchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
@@ -110,7 +93,7 @@ reg(
       start: String(parsed.start ?? 0),
     });
     const res = await confFetch(`/space?${qs.toString()}`);
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -133,7 +116,7 @@ reg(
       expand: "history.lastUpdated,version",
     });
     const res = await confFetch(`/content?${qs.toString()}`);
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -148,7 +131,7 @@ reg(
     const res = await confFetch(
       `/content/${id}?expand=body.storage,version,history.lastUpdated,space`,
     );
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -165,7 +148,7 @@ reg(
       expand: "history.lastUpdated,version",
     });
     const res = await confFetch(`/content?${qs.toString()}`);
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -180,7 +163,7 @@ reg(
     const res = await confFetch(
       `/content/${id}?expand=body.storage,version,history.lastUpdated,space`,
     );
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -202,7 +185,7 @@ reg(
       expand: "body.storage,version",
     });
     const res = await confFetch(`/content/${id}/child/comment?${qs.toString()}`);
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -233,7 +216,7 @@ reg(
       body["ancestors"] = [{ id: parsed.parentPageId }];
     }
     const res = await confFetch("/content", { method: "POST", body: JSON.stringify(body) });
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -262,7 +245,7 @@ reg(
       },
     };
     const res = await confFetch(`/content/${id}`, { method: "PUT", body: JSON.stringify(body) });
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 
@@ -291,7 +274,7 @@ reg(
       method: "POST",
       body: JSON.stringify(body),
     });
-    return jsonResult(confJsonFromResponse(res));
+    return mcpJsonResultFromTextIfOk("Confluence", res);
   },
 );
 

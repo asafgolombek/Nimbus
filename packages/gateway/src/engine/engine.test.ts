@@ -171,6 +171,45 @@ function hitlEmailRejectPayload(
   };
 }
 
+function hitlJiraRejectPayload(
+  jiraAction: "jira.issue.create" | "jira.issue.update" | "jira.comment.add",
+): Record<string, unknown> {
+  if (jiraAction === "jira.issue.create") {
+    return {
+      mcpToolId: "jira_jira_issue_create",
+      input: { projectKey: "NIM", summary: "x" },
+    };
+  }
+  if (jiraAction === "jira.issue.update") {
+    return {
+      mcpToolId: "jira_jira_issue_update",
+      input: { issueKey: "NIM-1", summary: "y" },
+    };
+  }
+  return {
+    mcpToolId: "jira_jira_comment_add",
+    input: { issueKey: "NIM-1", body: "c" },
+  };
+}
+
+function hitlFileRejectPayload(
+  fileAction: "file.create" | "file.move" | "file.rename",
+): Record<string, unknown> {
+  if (fileAction === "file.create") {
+    return { mcpToolId: "google_drive_gdrive_file_create", input: { name: "n.txt" } };
+  }
+  if (fileAction === "file.move") {
+    return {
+      mcpToolId: "google_drive_gdrive_file_move",
+      input: { fileId: "x", newParentId: "y" },
+    };
+  }
+  return {
+    mcpToolId: "google_drive_gdrive_file_rename",
+    input: { fileId: "x", newName: "z" },
+  };
+}
+
 describe("ToolExecutor", () => {
   function hitlTeamsRejectPayload(
     teamsAction: "teams.message.post" | "teams.message.postChat",
@@ -208,27 +247,6 @@ describe("ToolExecutor", () => {
     };
   }
 
-  function hitlJiraRejectPayload(
-    jiraAction: "jira.issue.create" | "jira.issue.update" | "jira.comment.add",
-  ): Record<string, unknown> {
-    if (jiraAction === "jira.issue.create") {
-      return {
-        mcpToolId: "jira_jira_issue_create",
-        input: { projectKey: "NIM", summary: "x" },
-      };
-    }
-    if (jiraAction === "jira.issue.update") {
-      return {
-        mcpToolId: "jira_jira_issue_update",
-        input: { issueKey: "NIM-1", summary: "y" },
-      };
-    }
-    return {
-      mcpToolId: "jira_jira_comment_add",
-      input: { issueKey: "NIM-1", body: "c" },
-    };
-  }
-
   function hitlConfluenceRejectPayload(
     confluenceAction:
       | "confluence.page.create"
@@ -255,24 +273,6 @@ describe("ToolExecutor", () => {
     return {
       mcpToolId: "confluence_confluence_comment_add",
       input: { pageId: "1", storageHtml: "<p>c</p>" },
-    };
-  }
-
-  function hitlFileRejectPayload(
-    fileAction: "file.create" | "file.move" | "file.rename",
-  ): Record<string, unknown> {
-    if (fileAction === "file.create") {
-      return { mcpToolId: "google_drive_gdrive_file_create", input: { name: "n.txt" } };
-    }
-    if (fileAction === "file.move") {
-      return {
-        mcpToolId: "google_drive_gdrive_file_move",
-        input: { fileId: "x", newParentId: "y" },
-      };
-    }
-    return {
-      mcpToolId: "google_drive_gdrive_file_rename",
-      input: { fileId: "x", newName: "z" },
     };
   }
 

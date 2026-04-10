@@ -1,5 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
   asRecord,
   basicAuthHeader,
@@ -43,16 +43,6 @@ function lastModifiedFromContent(row: Record<string, unknown>): string | undefin
     return undefined;
   }
   return stringField(lu, "when");
-}
-
-function confluenceIdleSyncResult(cursor: string | null, t0: number): SyncResult {
-  return {
-    cursor,
-    itemsUpserted: 0,
-    itemsDeleted: 0,
-    hasMore: false,
-    durationMs: Math.round(performance.now() - t0),
-  };
 }
 
 type ConfluencePagedSearchParams = {
@@ -163,7 +153,7 @@ async function confluenceFetchSearchPageBatch(
   const root = asRecord(parsed);
   const results = root?.["results"];
   if (!Array.isArray(results)) {
-    throw new Error("Confluence sync: missing results");
+    throw new TypeError("Confluence sync: missing results");
   }
   return { results, bytes };
 }
@@ -202,7 +192,7 @@ async function confluenceRunPagedSearch(p: ConfluencePagedSearchParams): Promise
     start += limit;
   }
 
-  const nextW = acc.maxEdited !== "" ? acc.maxEdited : watermark;
+  const nextW = acc.maxEdited === "" ? watermark : acc.maxEdited;
   return {
     cursor: encodeCursor({ v: 1, watermark: nextW }),
     itemsUpserted: acc.upserted,
@@ -237,11 +227,11 @@ export function createConfluenceSyncable(options: ConfluenceSyncableOptions): Sy
         baseRaw === null ||
         baseRaw === ""
       ) {
-        return confluenceIdleSyncResult(cursor, t0);
+        return syncNoopResult(cursor, t0);
       }
       const apiBase = wikiApiBase(baseRaw);
       if (apiBase === "") {
-        return confluenceIdleSyncResult(cursor, t0);
+        return syncNoopResult(cursor, t0);
       }
 
       const prev = decodeCursor(cursor);

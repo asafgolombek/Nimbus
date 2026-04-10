@@ -1,5 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -169,13 +169,7 @@ export function createLinearSyncable(options: LinearSyncableOptions): Syncable {
       await options.ensureLinearMcpRunning();
       const apiKey = await ctx.vault.get("linear.api_key");
       if (apiKey === null || apiKey === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
 
       const prev = decodeCursor(cursor);

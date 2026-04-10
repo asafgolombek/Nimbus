@@ -10,11 +10,12 @@ import { z } from "zod";
 
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   mcpJsonResult as jsonResult,
   type McpListResult,
-  registerZodTool,
+  putOptionalBoolean,
+  putOptionalNonEmptyString,
   requireProcessEnv,
-  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 type SlackApiRecord = Record<string, unknown>;
@@ -45,26 +46,6 @@ async function slackApi(
       : {};
   const okField = json["ok"];
   return { ok: okField === true && res.ok, json, text };
-}
-
-function putOptionalNonEmptyString(
-  body: Record<string, unknown>,
-  key: string,
-  value: string | undefined,
-): void {
-  if (value !== undefined && value !== "") {
-    body[key] = value;
-  }
-}
-
-function putOptionalBoolean(
-  body: Record<string, unknown>,
-  key: string,
-  value: boolean | undefined,
-): void {
-  if (value !== undefined) {
-    body[key] = value;
-  }
 }
 
 async function slackInvokeJson(
@@ -107,15 +88,7 @@ function buildConversationsHistoryBody(
 const server = new McpServer({ name: "nimbus-slack", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const slackChannelListSchema = z.object({
   types: z.string().optional(),

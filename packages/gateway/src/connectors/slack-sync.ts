@@ -1,6 +1,6 @@
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { shortIndexedMessageTitleFromPreview } from "./sync-message-preview-title.ts";
 import { asRecord } from "./unknown-record.ts";
@@ -21,6 +21,21 @@ type SlackSyncCursorV1 = {
 
 function encodeCursor(c: SlackSyncCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
+}
+
+function slackDecodeHighWater(hw: unknown): Record<string, string | null> {
+  const hwOut: Record<string, string | null> = {};
+  if (hw === null || typeof hw !== "object" || Array.isArray(hw)) {
+    return hwOut;
+  }
+  for (const [k, v] of Object.entries(hw as Record<string, unknown>)) {
+    hwOut[k] = typeof v === "string" ? v : null;
+  }
+  return hwOut;
+}
+
+function slackStringIdArrayOk(ids: unknown): ids is string[] {
+  return Array.isArray(ids) && ids.every((x) => typeof x === "string");
 }
 
 function decodeCursor(raw: string | null): SlackSyncCursorV1 | null {
@@ -46,17 +61,11 @@ function decodeCursor(raw: string | null): SlackSyncCursorV1 | null {
   if (typeof floorTs !== "string" || floorTs === "") {
     return null;
   }
-  if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string")) {
+  if (!slackStringIdArrayOk(ids)) {
     return null;
   }
   if (typeof nextIdx !== "number" || !Number.isInteger(nextIdx) || nextIdx < 0) {
     return null;
-  }
-  const hwOut: Record<string, string | null> = {};
-  if (hw !== null && typeof hw === "object" && !Array.isArray(hw)) {
-    for (const [k, v] of Object.entries(hw as Record<string, unknown>)) {
-      hwOut[k] = typeof v === "string" ? v : null;
-    }
   }
   const listCursor = rec["listCursor"];
   const histCursor = rec["histCursor"];
@@ -64,9 +73,9 @@ function decodeCursor(raw: string | null): SlackSyncCursorV1 | null {
   return {
     phase,
     floorTs,
-    ids: ids as string[],
+    ids,
     nextIdx,
-    hw: hwOut,
+    hw: slackDecodeHighWater(hw),
     listCursor: typeof listCursor === "string" ? listCursor : null,
     histCursor: typeof histCursor === "string" ? histCursor : null,
     teamSubdomain: typeof teamSubdomain === "string" ? teamSubdomain : null,
@@ -127,26 +136,14 @@ export function createSlackSyncable(options: SlackSyncableOptions): Syncable {
       await options.ensureSlackMcpRunning();
       const rawVault = await ctx.vault.get("slack.oauth");
       if (rawVault === null || rawVault === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
 
       let token: string;
       try {
         token = await getValidSlackAccessToken(ctx.vault);
       } catch {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
 
       const depthMs = Math.max(1, syncable.initialSyncDepthDays) * 86_400_000;
@@ -179,7 +176,8 @@ export function createSlackSyncable(options: SlackSyncableOptions): Syncable {
             try {
               const host = new URL(urlRaw).hostname;
               const sub = host.replace(/\.slack\.com$/i, "");
-              state = { ...state, teamSubdomain: sub !== host ? sub : null };
+              const teamSub = sub === host ? null : sub;
+              state = { ...state, teamSubdomain: teamSub };
             } catch {
               /* ignore */
             }

@@ -10,11 +10,10 @@ import { z } from "zod";
 
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   encodeBasicAuthHeader,
   mcpJsonResult as jsonResult,
-  type McpListResult,
-  registerZodTool,
-  type ZodObjectSchema,
+  mcpJsonResultFromTextIfOk,
 } from "../../shared/mcp-tool-kit.ts";
 import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
@@ -68,20 +67,6 @@ async function jiraFetch(
   return { ok: res.ok, status: res.status, text };
 }
 
-function jiraJsonFromResponse(
-  res: { ok: boolean; status: number; text: string },
-  context: string,
-): unknown {
-  if (!res.ok) {
-    throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-  }
-  try {
-    return JSON.parse(res.text) as unknown;
-  } catch {
-    throw new Error(`Jira: invalid JSON from ${context}`);
-  }
-}
-
 function plainToAdf(text: string): Record<string, unknown> {
   return {
     type: "doc",
@@ -98,15 +83,7 @@ function plainToAdf(text: string): Record<string, unknown> {
 const server = new McpServer({ name: "nimbus-jira", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const jiraIssueListSchema = z.object({
   jql: z.string().min(1).optional(),
@@ -131,7 +108,9 @@ reg(
       method: "POST",
       body,
     });
-    return jsonResult(jiraJsonFromResponse(res, "search"));
+    return mcpJsonResultFromTextIfOk("Jira", res, {
+      jsonParseErrorMessage: "Jira: invalid JSON from search",
+    });
   },
 );
 
@@ -150,7 +129,9 @@ reg(
       token,
       `/rest/api/3/issue/${key}?fields=summary,description,updated,status,issuetype,priority,assignee,comment`,
     );
-    return jsonResult(jiraJsonFromResponse(res, "issue get"));
+    return mcpJsonResultFromTextIfOk("Jira", res, {
+      jsonParseErrorMessage: "Jira: invalid JSON from issue get",
+    });
   },
 );
 
@@ -180,7 +161,9 @@ reg(
       method: "POST",
       body,
     });
-    return jsonResult(jiraJsonFromResponse(res, "issue create"));
+    return mcpJsonResultFromTextIfOk("Jira", res, {
+      jsonParseErrorMessage: "Jira: invalid JSON from issue create",
+    });
   },
 );
 
@@ -236,7 +219,9 @@ reg(
       method: "POST",
       body: payload,
     });
-    return jsonResult(jiraJsonFromResponse(res, "comment add"));
+    return mcpJsonResultFromTextIfOk("Jira", res, {
+      jsonParseErrorMessage: "Jira: invalid JSON from comment add",
+    });
   },
 );
 
@@ -259,7 +244,9 @@ reg(
       token,
       `/rest/agile/1.0/board?startAt=${String(start)}&maxResults=${String(max)}`,
     );
-    return jsonResult(jiraJsonFromResponse(res, "board list"));
+    return mcpJsonResultFromTextIfOk("Jira", res, {
+      jsonParseErrorMessage: "Jira: invalid JSON from board list",
+    });
   },
 );
 
@@ -284,7 +271,9 @@ reg(
       token,
       `/rest/agile/1.0/board/${bid}/sprint?startAt=${String(start)}&maxResults=${String(max)}`,
     );
-    return jsonResult(jiraJsonFromResponse(res, "sprint list"));
+    return mcpJsonResultFromTextIfOk("Jira", res, {
+      jsonParseErrorMessage: "Jira: invalid JSON from sprint list",
+    });
   },
 );
 
@@ -311,7 +300,9 @@ reg(
       method: "POST",
       body,
     });
-    return jsonResult(jiraJsonFromResponse(res, "epic search"));
+    return mcpJsonResultFromTextIfOk("Jira", res, {
+      jsonParseErrorMessage: "Jira: invalid JSON from epic search",
+    });
   },
 );
 

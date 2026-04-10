@@ -10,11 +10,10 @@ import { z } from "zod";
 import { fetchBearerAuthorizedJson, resolveUrlWithBase } from "../../shared/fetch-bearer-json.ts";
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   type McpListResult,
-  mcpJsonResult,
-  registerZodTool,
+  mcpJsonResultIfOk,
   requireProcessEnv,
-  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -43,24 +42,13 @@ function graphListResult(r: {
   json: unknown;
   text: string;
 }): McpListResult {
-  if (!r.ok) {
-    throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
-  }
-  return mcpJsonResult(r.json);
+  return mcpJsonResultIfOk("Graph", r, 200);
 }
 
 const server = new McpServer({ name: "nimbus-teams", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const teamsTeamListSchema = z.object({
   top: z.number().int().min(1).max(100).optional(),

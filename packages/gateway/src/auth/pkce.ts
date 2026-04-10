@@ -507,12 +507,12 @@ function pkceResultFromSlackOAuthV2Access(json: unknown, requestedScopes: string
     );
   }
   const expIn = user["expires_in"];
-  const expiresSec =
-    typeof expIn === "number" && Number.isFinite(expIn)
-      ? expIn
-      : typeof expIn === "string"
-        ? Number.parseInt(expIn, 10)
-        : Number.NaN;
+  let expiresSec = Number.NaN;
+  if (typeof expIn === "number" && Number.isFinite(expIn)) {
+    expiresSec = expIn;
+  } else if (typeof expIn === "string") {
+    expiresSec = Number.parseInt(expIn, 10);
+  }
   const safeExpires = Number.isFinite(expiresSec) && expiresSec > 0 ? expiresSec : 43_200;
   const scopeStr = user["scope"];
   const scopes =

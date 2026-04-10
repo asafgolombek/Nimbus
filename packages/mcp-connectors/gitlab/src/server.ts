@@ -10,11 +10,10 @@ import { z } from "zod";
 
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   mcpJsonResult as jsonResult,
-  type McpListResult,
-  registerZodTool,
+  mcpJsonResultIfOk,
   requireProcessEnv,
-  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
@@ -32,7 +31,8 @@ async function glFetch(
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; json: unknown; text: string }> {
   const base = apiBase();
-  const url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  const relativePath = path.startsWith("/") ? path : `/${path}`;
+  const url = path.startsWith("http") ? path : `${base}${relativePath}`;
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -53,15 +53,7 @@ async function glFetch(
 const server = new McpServer({ name: "nimbus-gitlab", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const projectPathArg = z.object({
   projectPath: z
@@ -90,10 +82,7 @@ reg(
       u.searchParams.set("page", String(parsed.page));
     }
     const res = await glFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitLab", res);
   },
 );
 
@@ -113,10 +102,7 @@ reg("gitlab_mr_list", "List merge requests for a project.", gitlabMrListSchema, 
     u.searchParams.set("page", String(parsed.page));
   }
   const res = await glFetch(token, `${u.pathname}${u.search}`);
-  if (!res.ok) {
-    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return jsonResult(res.json);
+  return mcpJsonResultIfOk("GitLab", res);
 });
 
 const gitlabMrGetSchema = projectPathArg.extend({
@@ -128,10 +114,7 @@ reg("gitlab_mr_get", "Get a single merge request by IID.", gitlabMrGetSchema, as
   const enc = encodeURIComponent(parsed.projectPath);
   const path = `/projects/${enc}/merge_requests/${String(parsed.mergeRequestIid)}`;
   const res = await glFetch(token, path);
-  if (!res.ok) {
-    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return jsonResult(res.json);
+  return mcpJsonResultIfOk("GitLab", res);
 });
 
 const gitlabMrMergeSchema = projectPathArg.extend({
@@ -164,10 +147,7 @@ reg(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitLab", res);
   },
 );
 
@@ -187,10 +167,7 @@ reg("gitlab_issue_list", "List issues for a project.", gitlabIssueListSchema, as
     u.searchParams.set("page", String(parsed.page));
   }
   const res = await glFetch(token, `${u.pathname}${u.search}`);
-  if (!res.ok) {
-    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return jsonResult(res.json);
+  return mcpJsonResultIfOk("GitLab", res);
 });
 
 const gitlabIssueGetSchema = projectPathArg.extend({
@@ -202,10 +179,7 @@ reg("gitlab_issue_get", "Get a single issue by IID.", gitlabIssueGetSchema, asyn
   const enc = encodeURIComponent(parsed.projectPath);
   const path = `/projects/${enc}/issues/${String(parsed.issueIid)}`;
   const res = await glFetch(token, path);
-  if (!res.ok) {
-    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return jsonResult(res.json);
+  return mcpJsonResultIfOk("GitLab", res);
 });
 
 const gitlabPipelineListSchema = projectPathArg.extend({
@@ -234,10 +208,7 @@ reg(
       u.searchParams.set("status", parsed.status);
     }
     const res = await glFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitLab", res);
   },
 );
 
@@ -254,10 +225,7 @@ reg(
     const enc = encodeURIComponent(parsed.projectPath);
     const path = `/projects/${enc}/pipelines/${String(parsed.pipelineId)}`;
     const res = await glFetch(token, path);
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitLab", res);
   },
 );
 

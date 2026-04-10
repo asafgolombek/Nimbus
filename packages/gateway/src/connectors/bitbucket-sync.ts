@@ -1,6 +1,6 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -139,7 +139,7 @@ function parseRepositoryFullNames(body: unknown): string[] {
   const out: string[] = [];
   for (const v of values) {
     const r = asRecord(v);
-    const fn = r !== undefined ? stringField(r, "full_name") : undefined;
+    const fn = r === undefined ? undefined : stringField(r, "full_name");
     if (fn?.includes("/")) {
       out.push(fn);
     }
@@ -149,7 +149,7 @@ function parseRepositoryFullNames(body: unknown): string[] {
 
 function stringFieldFromBody(body: unknown, key: string): string | undefined {
   const r = asRecord(body);
-  return r !== undefined ? stringField(r, key) : undefined;
+  return r === undefined ? undefined : stringField(r, key);
 }
 
 export type BitbucketSyncableOptions = {
@@ -168,13 +168,7 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
       const user = await ctx.vault.get("bitbucket.username");
       const pass = await ctx.vault.get("bitbucket.app_password");
       if (user === null || user === "" || pass === null || pass === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
       const auth = basicAuthHeader(user, pass);
 
@@ -184,18 +178,18 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
       const defaultSince = new Date(nowMs - initialSyncDepthDays * 86_400_000).toISOString();
 
       let state: BitbucketCursorV1 =
-        prev !== null
+        prev === null
           ? {
-              ...prev,
-              repositoryPagesExhausted: prev.repositoryPagesExhausted === true,
-            }
-          : {
               since: defaultSince,
               pendingRepos: [],
               reposNext: null,
               activeRepo: null,
               prNext: null,
               repositoryPagesExhausted: false,
+            }
+          : {
+              ...prev,
+              repositoryPagesExhausted: prev.repositoryPagesExhausted === true,
             };
 
       let upserted = 0;

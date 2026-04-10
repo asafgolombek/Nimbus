@@ -10,10 +10,8 @@ import { z } from "zod";
 import { joinApiPath } from "../../shared/join-api-path.ts";
 import {
   createRegisterSimpleTool,
-  mcpJsonResult as jsonResult,
-  type McpListResult,
-  registerZodTool,
-  type ZodObjectSchema,
+  createZodToolRegistrar,
+  mcpJsonResultIfOk,
 } from "../../shared/mcp-tool-kit.ts";
 
 const BB_API = "https://api.bitbucket.org/2.0";
@@ -74,30 +72,10 @@ async function bbFetch(
   return { ok: res.ok, status: res.status, json, text };
 }
 
-async function bbEnsureOk(res: {
-  ok: boolean;
-  status: number;
-  text: string;
-  json: unknown;
-}): Promise<unknown> {
-  if (!res.ok) {
-    throw new Error(`Bitbucket ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return res.json;
-}
-
 const server = new McpServer({ name: "nimbus-bitbucket", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const repoFullArg = z.object({
   repoFull: z
@@ -118,13 +96,13 @@ reg(
   async (parsed) => {
     if (parsed.page?.startsWith("http")) {
       const res = await bbFetch(parsed.page);
-      return jsonResult(await bbEnsureOk(res));
+      return mcpJsonResultIfOk("Bitbucket", res);
     }
     const qs = new URLSearchParams();
     qs.set("role", "member");
     qs.set("pagelen", String(parsed.pagelen ?? 30));
     const res = await bbFetch(`/repositories?${qs.toString()}`);
-    return jsonResult(await bbEnsureOk(res));
+    return mcpJsonResultIfOk("Bitbucket", res);
   },
 );
 
@@ -141,7 +119,7 @@ reg(
   async (parsed) => {
     if (parsed.page?.startsWith("http")) {
       const res = await bbFetch(parsed.page);
-      return jsonResult(await bbEnsureOk(res));
+      return mcpJsonResultIfOk("Bitbucket", res);
     }
     const { workspace, repoSlug } = splitRepoFull(parsed.repoFull);
     const base = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests`;
@@ -152,7 +130,7 @@ reg(
       qs.set("q", `state="${parsed.state}"`);
     }
     const res = await bbFetch(`${base}?${qs.toString()}`);
-    return jsonResult(await bbEnsureOk(res));
+    return mcpJsonResultIfOk("Bitbucket", res);
   },
 );
 
@@ -168,7 +146,7 @@ reg(
     const { workspace, repoSlug } = splitRepoFull(parsed.repoFull);
     const path = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests/${String(parsed.pullRequestId)}`;
     const res = await bbFetch(path);
-    return jsonResult(await bbEnsureOk(res));
+    return mcpJsonResultIfOk("Bitbucket", res);
   },
 );
 
@@ -197,7 +175,7 @@ reg(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    return jsonResult(await bbEnsureOk(res));
+    return mcpJsonResultIfOk("Bitbucket", res);
   },
 );
 
@@ -213,14 +191,14 @@ reg(
   async (parsed) => {
     if (parsed.page?.startsWith("http")) {
       const res = await bbFetch(parsed.page);
-      return jsonResult(await bbEnsureOk(res));
+      return mcpJsonResultIfOk("Bitbucket", res);
     }
     const { workspace, repoSlug } = splitRepoFull(parsed.repoFull);
     const base = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pipelines/`;
     const qs = new URLSearchParams();
     qs.set("pagelen", String(parsed.pagelen ?? 30));
     const res = await bbFetch(`${base}?${qs.toString()}`);
-    return jsonResult(await bbEnsureOk(res));
+    return mcpJsonResultIfOk("Bitbucket", res);
   },
 );
 
@@ -237,7 +215,7 @@ reg(
     const encUuid = encodeURIComponent(parsed.pipelineUuid);
     const path = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pipelines/${encUuid}`;
     const res = await bbFetch(path);
-    return jsonResult(await bbEnsureOk(res));
+    return mcpJsonResultIfOk("Bitbucket", res);
   },
 );
 
@@ -248,14 +226,14 @@ reg(
   async (parsed) => {
     if (parsed.page?.startsWith("http")) {
       const res = await bbFetch(parsed.page);
-      return jsonResult(await bbEnsureOk(res));
+      return mcpJsonResultIfOk("Bitbucket", res);
     }
     const { workspace, repoSlug } = splitRepoFull(parsed.repoFull);
     const base = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/issues`;
     const qs = new URLSearchParams();
     qs.set("pagelen", String(parsed.pagelen ?? 30));
     const res = await bbFetch(`${base}?${qs.toString()}`);
-    return jsonResult(await bbEnsureOk(res));
+    return mcpJsonResultIfOk("Bitbucket", res);
   },
 );
 

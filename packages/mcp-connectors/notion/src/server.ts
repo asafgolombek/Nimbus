@@ -9,11 +9,12 @@ import { z } from "zod";
 import { joinApiPath } from "../../shared/join-api-path.ts";
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   mcpJsonResult as jsonResult,
-  type McpListResult,
-  registerZodTool,
+  mcpJsonResultFromTextIfOk,
+  parseJsonTextIfOk,
+  putOptionalNonEmptyString,
   requireProcessEnv,
-  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 const NOTION_VERSION = "2022-06-28";
@@ -50,15 +51,7 @@ function richText(content: string): ReadonlyArray<Record<string, unknown>> {
 const server = new McpServer({ name: "nimbus-notion", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const notionSearchSchema = z.object({
   query: z.string().optional(),
@@ -66,26 +59,27 @@ const notionSearchSchema = z.object({
   startCursor: z.string().optional(),
 });
 
+function notionSearchPostBody(
+  objectValue: "page" | "database",
+  parsed: z.infer<typeof notionSearchSchema>,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    filter: { property: "object", value: objectValue },
+    page_size: parsed.pageSize ?? 50,
+  };
+  putOptionalNonEmptyString(body, "query", parsed.query);
+  putOptionalNonEmptyString(body, "start_cursor", parsed.startCursor);
+  return body;
+}
+
 reg(
   "notion_page_list",
   "Search Notion pages the integration can access (POST /v1/search, object filter page).",
   notionSearchSchema,
   async (parsed) => {
-    const body: Record<string, unknown> = {
-      filter: { property: "object", value: "page" },
-      page_size: parsed.pageSize ?? 50,
-    };
-    if (parsed.query !== undefined && parsed.query !== "") {
-      body["query"] = parsed.query;
-    }
-    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
-      body["start_cursor"] = parsed.startCursor;
-    }
+    const body = notionSearchPostBody("page", parsed);
     const res = await notionFetch("/search", { method: "POST", body: JSON.stringify(body) });
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -98,16 +92,10 @@ reg(
   async (parsed) => {
     const id = encodeURIComponent(parsed.pageId);
     const page = await notionFetch(`/pages/${id}`);
-    if (!page.ok) {
-      throw new Error(`Notion ${String(page.status)}: ${page.text.slice(0, 400)}`);
-    }
     const blocks = await notionFetch(`/blocks/${id}/children?page_size=100`);
-    if (!blocks.ok) {
-      throw new Error(`Notion blocks ${String(blocks.status)}: ${blocks.text.slice(0, 400)}`);
-    }
     return jsonResult({
-      page: JSON.parse(page.text) as unknown,
-      blockChildren: JSON.parse(blocks.text) as unknown,
+      page: parseJsonTextIfOk("Notion", page),
+      blockChildren: parseJsonTextIfOk("Notion blocks", blocks),
     });
   },
 );
@@ -117,21 +105,9 @@ reg(
   "Search Notion databases (POST /v1/search, object filter database).",
   notionSearchSchema,
   async (parsed) => {
-    const body: Record<string, unknown> = {
-      filter: { property: "object", value: "database" },
-      page_size: parsed.pageSize ?? 50,
-    };
-    if (parsed.query !== undefined && parsed.query !== "") {
-      body["query"] = parsed.query;
-    }
-    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
-      body["start_cursor"] = parsed.startCursor;
-    }
+    const body = notionSearchPostBody("database", parsed);
     const res = await notionFetch("/search", { method: "POST", body: JSON.stringify(body) });
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -150,17 +126,12 @@ reg(
     const body: Record<string, unknown> = {
       page_size: parsed.pageSize ?? 50,
     };
-    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
-      body["start_cursor"] = parsed.startCursor;
-    }
+    putOptionalNonEmptyString(body, "start_cursor", parsed.startCursor);
     const res = await notionFetch(`/databases/${id}/query`, {
       method: "POST",
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -183,10 +154,7 @@ reg(
       qs.set("start_cursor", parsed.startCursor);
     }
     const res = await notionFetch(`/blocks/${id}/children?${qs.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -203,10 +171,7 @@ reg(
       qs.set("start_cursor", parsed.startCursor);
     }
     const res = await notionFetch(`/comments?${qs.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -231,10 +196,7 @@ reg(
       },
     };
     const res = await notionFetch("/pages", { method: "POST", body: JSON.stringify(body) });
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -262,10 +224,7 @@ reg(
       method: "PATCH",
       body: JSON.stringify({ properties: props }),
     });
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -293,10 +252,7 @@ reg(
       method: "PATCH",
       body: JSON.stringify({ children }),
     });
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 
@@ -315,10 +271,7 @@ reg(
       rich_text: richText(parsed.text),
     };
     const res = await notionFetch("/comments", { method: "POST", body: JSON.stringify(body) });
-    if (!res.ok) {
-      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return mcpJsonResultFromTextIfOk("Notion", res);
   },
 );
 

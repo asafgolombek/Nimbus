@@ -536,16 +536,17 @@ export class LazyConnectorMesh {
     const apiBase = await this.vault.get("gitlab.api_base");
     const trimmedBase =
       apiBase !== null && apiBase.trim() !== "" ? stripTrailingSlashes(apiBase) : null;
+    const gitlabServerEnv =
+      trimmedBase === null
+        ? { ...process.env, GITLAB_PAT: pat }
+        : { ...process.env, GITLAB_PAT: pat, GITLAB_API_BASE_URL: trimmedBase };
     this.gitlabClient = new MCPClient({
       id: `nimbus-gitlab-${String(Date.now())}`,
       servers: {
         gitlab: {
           command: "bun",
           args: [gitlabMcpScriptPath()],
-          env:
-            trimmedBase !== null
-              ? { ...process.env, GITLAB_PAT: pat, GITLAB_API_BASE_URL: trimmedBase }
-              : { ...process.env, GITLAB_PAT: pat },
+          env: gitlabServerEnv,
         },
       },
     });
@@ -762,53 +763,53 @@ export class LazyConnectorMesh {
     this.scheduleConfluenceDisconnect();
   }
 
-  /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
-  private async ensureCredentialConnectorsRunning(): Promise<void> {
-    const rawGoogle = await this.vault.get("google.oauth");
-    if (rawGoogle !== null && rawGoogle !== "") {
-      await this.ensureGoogleDriveRunning();
+  private async ensureIfVaultKeyNonEmpty(key: string, run: () => Promise<void>): Promise<void> {
+    const v = await this.vault.get(key);
+    if (v !== null && v !== "") {
+      await run();
     }
-    const rawMs = await this.vault.get("microsoft.oauth");
-    if (rawMs !== null && rawMs !== "") {
-      await this.ensureMicrosoftBundleRunning();
-    }
-    const rawGh = await this.vault.get("github.pat");
-    if (rawGh !== null && rawGh !== "") {
-      await this.ensureGithubRunning();
-    }
-    const rawGl = await this.vault.get("gitlab.pat");
-    if (rawGl !== null && rawGl !== "") {
-      await this.ensureGitlabRunning();
-    }
+  }
+
+  private async ensureBitbucketIfVaultCreds(): Promise<void> {
     const bbUser = await this.vault.get("bitbucket.username");
     const bbPass = await this.vault.get("bitbucket.app_password");
     if (bbUser !== null && bbUser !== "" && bbPass !== null && bbPass !== "") {
       await this.ensureBitbucketRunning();
     }
-    const rawSlack = await this.vault.get("slack.oauth");
-    if (rawSlack !== null && rawSlack !== "") {
-      await this.ensureSlackRunning();
-    }
-    const rawLinear = await this.vault.get("linear.api_key");
-    if (rawLinear !== null && rawLinear !== "") {
-      await this.ensureLinearRunning();
-    }
+  }
+
+  private async ensureJiraIfVaultCreds(): Promise<void> {
     const jt = await this.vault.get("jira.api_token");
     const je = await this.vault.get("jira.email");
     const jb = await this.vault.get("jira.base_url");
     if (jt !== null && jt !== "" && je !== null && je !== "" && jb !== null && jb !== "") {
       await this.ensureJiraRunning();
     }
-    const rawNotion = await this.vault.get("notion.oauth");
-    if (rawNotion !== null && rawNotion !== "") {
-      await this.ensureNotionRunning();
-    }
+  }
+
+  private async ensureConfluenceIfVaultCreds(): Promise<void> {
     const ct = await this.vault.get("confluence.api_token");
     const ce = await this.vault.get("confluence.email");
     const cb = await this.vault.get("confluence.base_url");
     if (ct !== null && ct !== "" && ce !== null && ce !== "" && cb !== null && cb !== "") {
       await this.ensureConfluenceRunning();
     }
+  }
+
+  /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
+  private async ensureCredentialConnectorsRunning(): Promise<void> {
+    await this.ensureIfVaultKeyNonEmpty("google.oauth", () => this.ensureGoogleDriveRunning());
+    await this.ensureIfVaultKeyNonEmpty("microsoft.oauth", () =>
+      this.ensureMicrosoftBundleRunning(),
+    );
+    await this.ensureIfVaultKeyNonEmpty("github.pat", () => this.ensureGithubRunning());
+    await this.ensureIfVaultKeyNonEmpty("gitlab.pat", () => this.ensureGitlabRunning());
+    await this.ensureBitbucketIfVaultCreds();
+    await this.ensureIfVaultKeyNonEmpty("slack.oauth", () => this.ensureSlackRunning());
+    await this.ensureIfVaultKeyNonEmpty("linear.api_key", () => this.ensureLinearRunning());
+    await this.ensureJiraIfVaultCreds();
+    await this.ensureIfVaultKeyNonEmpty("notion.oauth", () => this.ensureNotionRunning());
+    await this.ensureConfluenceIfVaultCreds();
   }
 
   async listTools(): Promise<

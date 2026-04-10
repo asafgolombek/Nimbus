@@ -206,12 +206,14 @@ function upsertChannelMessage(
     fromName = displayName;
   }
   let titleBase: string;
-  if (preview.trim() !== "") {
-    titleBase = shortIndexedMessageTitleFromPreview(preview, "(message)");
-  } else if (fromName !== null) {
-    titleBase = `Message from ${fromName}`;
+  if (preview.trim() === "") {
+    if (fromName !== null) {
+      titleBase = `Message from ${fromName}`;
+    } else {
+      titleBase = "(message)";
+    }
   } else {
-    titleBase = "(message)";
+    titleBase = shortIndexedMessageTitleFromPreview(preview, "(message)");
   }
   let title = titleBase;
   if (title.length > 512) {

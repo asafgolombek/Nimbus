@@ -10,11 +10,9 @@ import { z } from "zod";
 
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   mcpJsonResult as jsonResult,
-  type McpListResult,
-  registerZodTool,
   requireProcessEnv,
-  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 const LINEAR_GQL = "https://api.linear.app/graphql";
@@ -70,15 +68,7 @@ function linearGqlData<T>(
 const server = new McpServer({ name: "nimbus-linear", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const linearIssueListSchema = z.object({
   first: z.number().int().min(1).max(100).optional(),

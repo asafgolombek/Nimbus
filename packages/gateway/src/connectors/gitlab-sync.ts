@@ -1,6 +1,6 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -176,13 +176,7 @@ export function createGitlabSyncable(options: GitlabSyncableOptions): Syncable {
       await options.ensureGitlabMcpRunning();
       const pat = await ctx.vault.get("gitlab.pat");
       if (pat === null || pat === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
 
       const apiBase = normalisedApiBase(await ctx.vault.get("gitlab.api_base"));
@@ -234,7 +228,7 @@ export function createGitlabSyncable(options: GitlabSyncableOptions): Syncable {
           throw new Error("GitLab events: invalid JSON");
         }
         if (!Array.isArray(parsed)) {
-          throw new Error("GitLab events: expected array");
+          throw new TypeError("GitLab events: expected array");
         }
 
         const now = Date.now();

@@ -1,5 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -197,17 +197,15 @@ function buildGithubEventHeaders(pat: string, etag: string | null): Record<strin
 }
 
 function applyGithubRateLimitPenaltyIfNeeded(ctx: SyncContext, res: Response): void {
-  if (res.status !== 403) {
-    return;
+  if (res.status === 403) {
+    const remaining = res.headers.get("x-ratelimit-remaining");
+    if (remaining === "0" || remaining === null) {
+      const retryAfter = res.headers.get("retry-after");
+      const sec = retryAfter !== null ? Number.parseInt(retryAfter, 10) : 60;
+      const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
+      ctx.rateLimiter.penalise("github", ms);
+    }
   }
-  const remaining = res.headers.get("x-ratelimit-remaining");
-  if (remaining !== "0" && remaining !== null) {
-    return;
-  }
-  const retryAfter = res.headers.get("retry-after");
-  const sec = retryAfter !== null ? Number.parseInt(retryAfter, 10) : 60;
-  const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
-  ctx.rateLimiter.penalise("github", ms);
 }
 
 function parseGithubEventsPayload(text: string): unknown[] {
@@ -240,14 +238,7 @@ async function syncGithubUserEvents(
   const bytesTransferred = text.length;
 
   if (res.status === 304) {
-    return {
-      cursor,
-      itemsUpserted: 0,
-      itemsDeleted: 0,
-      hasMore: false,
-      durationMs: Math.round(performance.now() - t0),
-      bytesTransferred,
-    };
+    return { ...syncNoopResult(cursor, t0), bytesTransferred };
   }
 
   applyGithubRateLimitPenaltyIfNeeded(ctx, res);
@@ -296,13 +287,7 @@ export function createGithubSyncable(options: GithubSyncableOptions): Syncable {
       await options.ensureGithubMcpRunning();
       const pat = await ctx.vault.get("github.pat");
       if (pat === null || pat === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
 
       return syncGithubUserEvents(ctx, cursor, pat, t0);

@@ -1,5 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
   asRecord,
   basicAuthHeader,
@@ -80,6 +80,151 @@ type SearchEnvelope = {
   total?: number;
 };
 
+type JiraVaultCreds = { token: string; email: string; baseUrl: string };
+
+async function loadJiraVaultCreds(ctx: SyncContext): Promise<JiraVaultCreds | null> {
+  const token = await ctx.vault.get("jira.api_token");
+  const email = await ctx.vault.get("jira.email");
+  const baseRaw = await ctx.vault.get("jira.base_url");
+  if (
+    token === null ||
+    token === "" ||
+    email === null ||
+    email === "" ||
+    baseRaw === null ||
+    baseRaw === ""
+  ) {
+    return null;
+  }
+  const baseUrl = normalizeAtlassianSiteBaseUrl(baseRaw);
+  if (baseUrl === "") {
+    return null;
+  }
+  return { token, email, baseUrl };
+}
+
+function jiraJqlFromCursor(prev: JiraSyncCursorV1 | null, initialSyncDepthDays: number): string {
+  const hasFloor = prev?.floorJql !== null && prev?.floorJql !== undefined && prev.floorJql !== "";
+  const jqlBase = hasFloor
+    ? `updated > "${prev.floorJql}"`
+    : `updated >= -${String(initialSyncDepthDays)}d`;
+  return `${jqlBase} ORDER BY updated ASC`;
+}
+
+type JiraSearchPage = {
+  issues: ReadonlyArray<Record<string, unknown>>;
+  envelope: SearchEnvelope;
+  text: string;
+};
+
+async function jiraFetchSearchPage(p: {
+  ctx: SyncContext;
+  creds: JiraVaultCreds;
+  jql: string;
+  startAt: number;
+  pageSize: number;
+}): Promise<JiraSearchPage> {
+  const { ctx, creds, jql, startAt, pageSize } = p;
+  const body = JSON.stringify({
+    jql,
+    startAt,
+    maxResults: pageSize,
+    fields: ["summary", "description", "updated", "issuetype", "status"],
+  });
+  const res = await fetch(`${creds.baseUrl}/rest/api/3/search`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: basicAuthHeader(creds.email, creds.token),
+    },
+    body,
+  });
+  const text = await res.text();
+
+  if (res.status === 429) {
+    ctx.rateLimiter.penalise("jira", 60_000);
+    throw new Error("Jira sync: rate limited");
+  }
+  if (!res.ok) {
+    throw new Error(`Jira sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("Jira sync: invalid JSON");
+  }
+  const envelope = asRecord(parsed) as SearchEnvelope | undefined;
+  const issues = envelope?.issues;
+  if (issues === undefined || !Array.isArray(issues)) {
+    throw new Error("Jira sync: missing issues array");
+  }
+  return { issues, envelope: envelope ?? {}, text };
+}
+
+function jiraIndexOneIssue(p: {
+  ctx: SyncContext;
+  issue: Record<string, unknown>;
+  syncTime: number;
+  baseUrl: string;
+  maxUpdatedIso: { value: string };
+}): boolean {
+  const { ctx, issue: row, syncTime, baseUrl, maxUpdatedIso } = p;
+  const key = stringField(row, "key");
+  const id = stringField(row, "id");
+  if (key === undefined || key === "") {
+    return false;
+  }
+  const fields = asRecord(row["fields"]);
+  let summary = key;
+  if (fields !== undefined) {
+    summary = stringField(fields, "summary") ?? key;
+  }
+  const updatedRaw = fields === undefined ? undefined : stringField(fields, "updated");
+  const modified =
+    updatedRaw === undefined || updatedRaw === "" ? syncTime : Date.parse(updatedRaw);
+  if (updatedRaw !== undefined && updatedRaw !== "") {
+    maxUpdatedIso.value =
+      maxUpdatedIso.value === "" ? updatedRaw : maxIso(maxUpdatedIso.value, updatedRaw);
+  }
+  const bodyPrev = fields === undefined ? "" : descriptionPreview(fields);
+  const browseUrl = `${baseUrl}/browse/${key}`;
+  upsertIndexedItem(ctx.db, {
+    service: SERVICE_ID,
+    type: "issue",
+    externalId: key,
+    title: summary.length > 512 ? summary.slice(0, 512) : summary,
+    bodyPreview: bodyPrev.slice(0, 512),
+    url: browseUrl,
+    canonicalUrl: browseUrl,
+    modifiedAt: Number.isFinite(modified) ? modified : syncTime,
+    authorId: null,
+    metadata: { jiraId: id ?? key, key },
+    pinned: false,
+    syncedAt: syncTime,
+  });
+  return true;
+}
+
+function jiraShouldStopPaging(
+  issuesLen: number,
+  env: SearchEnvelope,
+  startAtAfterIncrement: number,
+  pageSize: number,
+): boolean {
+  if (issuesLen === 0) {
+    return true;
+  }
+  const reportedTotal =
+    typeof env.total === "number" && Number.isFinite(env.total) ? env.total : undefined;
+  if (reportedTotal !== undefined) {
+    return startAtAfterIncrement >= reportedTotal;
+  }
+  return issuesLen < pageSize;
+}
+
 export type JiraSyncableOptions = {
   ensureJiraMcpRunning: () => Promise<void>;
 };
@@ -93,42 +238,13 @@ export function createJiraSyncable(options: JiraSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureJiraMcpRunning();
-      const token = await ctx.vault.get("jira.api_token");
-      const email = await ctx.vault.get("jira.email");
-      const baseRaw = await ctx.vault.get("jira.base_url");
-      if (
-        token === null ||
-        token === "" ||
-        email === null ||
-        email === "" ||
-        baseRaw === null ||
-        baseRaw === ""
-      ) {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
-      }
-      const baseUrl = normalizeAtlassianSiteBaseUrl(baseRaw);
-      if (baseUrl === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+      const creds = await loadJiraVaultCreds(ctx);
+      if (creds === null) {
+        return syncNoopResult(cursor, t0);
       }
 
       const prev = decodeCursor(cursor);
-      const jqlBase =
-        prev?.floorJql !== null && prev?.floorJql !== undefined && prev.floorJql !== ""
-          ? `updated > "${prev.floorJql}"`
-          : `updated >= -${String(initialSyncDepthDays)}d`;
-      const jql = `${jqlBase} ORDER BY updated ASC`;
+      const jql = jiraJqlFromCursor(prev, initialSyncDepthDays);
 
       await ctx.rateLimiter.acquire("jira");
 
@@ -136,106 +252,48 @@ export function createJiraSyncable(options: JiraSyncableOptions): Syncable {
       const pageSize = 50;
       let upserted = 0;
       let bytesTransferred = 0;
-      let maxUpdatedIso = "";
+      const maxUpdatedIso = { value: "" };
       const syncTime = Date.now();
 
       for (;;) {
-        const body = JSON.stringify({
+        const { issues, envelope, text } = await jiraFetchSearchPage({
+          ctx,
+          creds,
           jql,
           startAt,
-          maxResults: pageSize,
-          fields: ["summary", "description", "updated", "issuetype", "status"],
+          pageSize,
         });
-        const res = await fetch(`${baseUrl}/rest/api/3/search`, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            Authorization: basicAuthHeader(email, token),
-          },
-          body,
-        });
-        const text = await res.text();
         bytesTransferred += text.length;
-
-        if (res.status === 429) {
-          ctx.rateLimiter.penalise("jira", 60_000);
-          throw new Error("Jira sync: rate limited");
-        }
-
-        if (!res.ok) {
-          throw new Error(`Jira sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
-        }
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text) as unknown;
-        } catch {
-          throw new Error("Jira sync: invalid JSON");
-        }
-        const env = asRecord(parsed) as SearchEnvelope | undefined;
-        const issues = env?.issues;
-        if (issues === undefined || !Array.isArray(issues)) {
-          throw new Error("Jira sync: missing issues array");
-        }
 
         for (const issue of issues) {
           const row = asRecord(issue);
           if (row === undefined) {
             continue;
           }
-          const key = stringField(row, "key");
-          const id = stringField(row, "id");
-          if (key === undefined || key === "") {
-            continue;
+          if (
+            jiraIndexOneIssue({
+              ctx,
+              issue: row,
+              syncTime,
+              baseUrl: creds.baseUrl,
+              maxUpdatedIso,
+            })
+          ) {
+            upserted += 1;
           }
-          const fields = asRecord(row["fields"]);
-          let summary = key;
-          if (fields !== undefined) {
-            summary = stringField(fields, "summary") ?? key;
-          }
-          const updatedRaw = fields === undefined ? undefined : stringField(fields, "updated");
-          const modified =
-            updatedRaw === undefined || updatedRaw === "" ? syncTime : Date.parse(updatedRaw);
-          if (updatedRaw !== undefined && updatedRaw !== "") {
-            maxUpdatedIso = maxUpdatedIso === "" ? updatedRaw : maxIso(maxUpdatedIso, updatedRaw);
-          }
-          const bodyPrev = fields === undefined ? "" : descriptionPreview(fields);
-          const browseUrl = `${baseUrl}/browse/${key}`;
-          upserted += 1;
-          upsertIndexedItem(ctx.db, {
-            service: SERVICE_ID,
-            type: "issue",
-            externalId: key,
-            title: summary.length > 512 ? summary.slice(0, 512) : summary,
-            bodyPreview: bodyPrev.slice(0, 512),
-            url: browseUrl,
-            canonicalUrl: browseUrl,
-            modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-            authorId: null,
-            metadata: { jiraId: id ?? key, key },
-            pinned: false,
-            syncedAt: syncTime,
-          });
         }
 
-        if (issues.length === 0) {
+        const nextStart = startAt + pageSize;
+        if (jiraShouldStopPaging(issues.length, envelope, nextStart, pageSize)) {
           break;
         }
-        const reportedTotal =
-          typeof env?.total === "number" && Number.isFinite(env.total) ? env.total : undefined;
-        startAt += pageSize;
-        if (reportedTotal !== undefined) {
-          if (startAt >= reportedTotal) {
-            break;
-          }
-        } else if (issues.length < pageSize) {
-          break;
-        }
+        startAt = nextStart;
       }
 
       const nextFloor =
-        maxUpdatedIso !== "" ? isoToJqlExclusiveFloor(maxUpdatedIso) : (prev?.floorJql ?? null);
+        maxUpdatedIso.value === ""
+          ? (prev?.floorJql ?? null)
+          : isoToJqlExclusiveFloor(maxUpdatedIso.value);
       const nextCursor = encodeCursor({ v: 1, floorJql: nextFloor });
 
       return {

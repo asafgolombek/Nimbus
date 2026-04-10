@@ -1,6 +1,6 @@
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { isoMs, maxIso } from "./sync-iso-helpers.ts";
 import {
   decodeWatermarkCursorV1,
@@ -85,26 +85,14 @@ export function createNotionSyncable(options: NotionSyncableOptions): Syncable {
       await options.ensureNotionMcpRunning();
       const rawVault = await ctx.vault.get("notion.oauth");
       if (rawVault === null || rawVault === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
 
       let accessToken: string;
       try {
         accessToken = await getValidNotionAccessToken(ctx.vault);
       } catch {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return syncNoopResult(cursor, t0);
       }
 
       const prev = decodeCursor(cursor);
@@ -162,7 +150,7 @@ export function createNotionSyncable(options: NotionSyncableOptions): Syncable {
         }
         const results = root["results"];
         if (!Array.isArray(results)) {
-          throw new Error("Notion sync: missing results");
+          throw new TypeError("Notion sync: missing results");
         }
 
         const hasMore = root["has_more"] === true;
@@ -209,12 +197,18 @@ export function createNotionSyncable(options: NotionSyncableOptions): Syncable {
           });
         }
 
-        if (shouldStop || !hasMore || nextCursor === undefined || nextCursor === "") {
+        if (shouldStop) {
+          break;
+        }
+        if (!hasMore) {
+          break;
+        }
+        if (nextCursor === undefined || nextCursor === "") {
           break;
         }
       }
 
-      const nextW = maxEdited !== "" ? maxEdited : watermark;
+      const nextW = maxEdited === "" ? watermark : maxEdited;
       const nextEnc = encodeCursor({ v: 1, watermark: nextW });
 
       return {

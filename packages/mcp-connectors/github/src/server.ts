@@ -11,11 +11,10 @@ import { z } from "zod";
 import { fetchBearerAuthorizedJson } from "../../shared/fetch-bearer-json.ts";
 import {
   createRegisterSimpleTool,
+  createZodToolRegistrar,
   mcpJsonResult as jsonResult,
-  type McpListResult,
-  registerZodTool,
+  mcpJsonResultIfOk,
   requireProcessEnv,
-  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 const GH_API = "https://api.github.com";
@@ -36,15 +35,7 @@ async function ghFetch(
 const server = new McpServer({ name: "nimbus-github", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
-
-function reg<T>(
-  name: string,
-  description: string,
-  schema: ZodObjectSchema<T>,
-  handler: (args: T) => Promise<McpListResult>,
-): void {
-  registerZodTool(registerSimpleTool, name, description, schema, handler);
-}
+const reg = createZodToolRegistrar(registerSimpleTool);
 
 const repoSlugArgs = z.object({
   owner: z.string().min(1),
@@ -70,10 +61,7 @@ reg(
     u.searchParams.set("sort", "updated");
     u.searchParams.set("affiliation", "owner,collaborator,organization_member");
     const res = await ghFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -81,10 +69,7 @@ reg("github_repo_get", "Get repository metadata (owner/repo).", repoSlugArgs, as
   const token = requireProcessEnv("GITHUB_PAT");
   const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}`;
   const res = await ghFetch(token, path);
-  if (!res.ok) {
-    throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return jsonResult(res.json);
+  return mcpJsonResultIfOk("GitHub", res);
 });
 
 const githubPrListSchema = repoSlugArgs.extend({
@@ -110,10 +95,7 @@ reg(
     u.searchParams.set("sort", "updated");
     u.searchParams.set("direction", "desc");
     const res = await ghFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -129,10 +111,7 @@ reg(
     const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls/${String(parsed.pullNumber)}`;
     const res = await ghFetch(token, path);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -161,10 +140,7 @@ reg(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -180,10 +156,7 @@ reg(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ state: "closed" }),
     });
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -206,10 +179,7 @@ reg("github_issue_list", "List issues for a repository.", githubIssueListSchema,
   u.searchParams.set("sort", "updated");
   u.searchParams.set("direction", "desc");
   const res = await ghFetch(token, `${u.pathname}${u.search}`);
-  if (!res.ok) {
-    throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return jsonResult(res.json);
+  return mcpJsonResultIfOk("GitHub", res);
 });
 
 const githubIssueGetSchema = repoSlugArgs.extend({
@@ -220,10 +190,7 @@ reg("github_issue_get", "Get a single issue by number.", githubIssueGetSchema, a
   const token = requireProcessEnv("GITHUB_PAT");
   const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/issues/${String(parsed.issueNumber)}`;
   const res = await ghFetch(token, path);
-  if (!res.ok) {
-    throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-  }
-  return jsonResult(res.json);
+  return mcpJsonResultIfOk("GitHub", res);
 });
 
 const githubIssueCreateSchema = repoSlugArgs.extend({
@@ -246,10 +213,7 @@ reg(
         body: parsed.body,
       }),
     });
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -272,10 +236,7 @@ reg(
       u.searchParams.set("page", String(parsed.page));
     }
     const res = await ghFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -291,10 +252,7 @@ reg(
     const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/actions/runs/${String(parsed.runId)}`;
     const res = await ghFetch(token, path);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
@@ -338,10 +296,7 @@ reg(
         sha: parsed.sha,
       }),
     });
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
+    return mcpJsonResultIfOk("GitHub", res);
   },
 );
 
