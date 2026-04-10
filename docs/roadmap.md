@@ -28,6 +28,8 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
+**Q2 remainder (living detail):** People graph linker + IPC/CLI, optional Discord MCP, engine context ranker / resolver tools (Q2 plan §7.0), headless installers (§7.9), and the plan’s *Acceptance Criteria Checklist* — tracked in [`q2-2026-plan.md`](./q2-2026-plan.md) (*Implementation status (living)*).
+
 ---
 
 ## Q1 2026 — Foundation ✅
@@ -99,7 +101,7 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 - [x] **Delta sync scheduler** — per-connector configurable intervals; exponential backoff on failure; sync state persisted in SQLite
 - [x] **Unified metadata schema** — common `item` table across all services with `service`, `type`, `external_id`, `title`, `body_preview`, `modified_at`, `author_id` columns; FTS5 full-text index; `person` table (see people graph below)
-- [ ] **Cross-service people graph** — linker and sync-time population so Slack handle → GitHub login → Linear member → email → Outlook contact resolves without a network call (`person` DDL and migrations are shipped; automated linking is still in flight — Q2 plan Phase 6)
+- [ ] **Cross-service people graph** — linker and sync-time population so Slack handle → GitHub login → Linear member → email → Outlook contact resolves without a network call (`person` DDL and migrations are shipped; linker, sync hooks, `people.*` IPC, and `nimbus people` CLI are not started — Q2 plan Phase 6)
 - [x] `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove` (also `resume`, `set-interval` — see Q2 plan §1.7)
 - [x] E2E CLI test suite — Gateway subprocess + wire-protocol tests; no real cloud calls in CI (suite grows with connectors)
 

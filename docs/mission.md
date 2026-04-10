@@ -58,7 +58,7 @@ True agency over your data requires four things, and Nimbus delivers all four:
 
 ### 1. Comprehension — The Ability to See
 
-You cannot act on what you cannot find. Nimbus maintains a local metadata index of your entire digital footprint across every connected service. It understands filenames, timestamps, MIME types, semantic embeddings, and relational context. It exposes this through a unified query interface that speaks plain language. You ask; Nimbus knows.
+You cannot act on what you cannot find. Nimbus maintains a local metadata index of your digital footprint across every connected service. It understands filenames, timestamps, MIME types, short text previews, and (as the roadmap delivers) richer structure and semantic recall. It exposes this through a unified query interface that speaks plain language. You ask; Nimbus knows.
 
 For the developer, that same index spans repositories across GitHub, GitLab, and Bitbucket; pipeline runs across Jenkins, GitHub Actions, and CircleCI; issue states across Jira and Linear; and deployment records across your CD tooling — all queryable as a single, coherent surface rather than a collection of disconnected vendor dashboards.
 
@@ -243,14 +243,17 @@ The work of reclaiming agency is not completed in a single quarter. It is a mult
 
 ### Phase 2: The Integration Surge (Q2–Q3 2026)
 
-Q2 2026 is the active bridge quarter; detailed sequencing is in [`q2-2026-plan.md`](./q2-2026-plan.md).
+**Q2 2026 — The Bridge (active):** Detailed sequencing and a living implementation table are in [`q2-2026-plan.md`](./q2-2026-plan.md). The quarter targets a unified local index across the surfaces engineers use daily:
 
-* **The Cloud Connectors:** Native MCP support for Google Workspace (Drive, Gmail, Calendar) and Microsoft 365 (OneDrive, Outlook).
-* **The DevOps Mesh:** Deep integration with GitHub, GitLab, Jenkins, Jira, and Linear.
-* **Context-Aware RAG:** Vector search (`sqlite-vec`) and semantic understanding. Ask questions, don't just search keywords.
-* **Session CLI:** An interactive session mode — `nimbus` with no arguments — for persistent, context-aware conversation with the agent. Each turn builds on the last; HITL consent is a conversation step, not an interruption.
-* **Script Files:** `nimbus run <file.yml>` executes an ordered sequence of natural language steps as a single session. A preview phase shows the full plan and every required approval before any action executes. Read-only scripts run unattended.
-* **Ambient Watchers:** Proactive, consent-gated notifications ("CI failed on your PR; I've summarized the logs").
+* **Cloud storage & email:** Google Drive, Gmail, Google Photos; Microsoft OneDrive and Outlook (mail + calendar/contact tools where scopes allow).
+* **Source control & review:** GitHub, GitLab, Bitbucket — repositories, pull requests, issues, and CI metadata where exposed by each connector.
+* **Communication:** Slack and Microsoft Teams — channels, messages, search; write paths behind HITL.
+* **Project tracking & docs:** Linear, Jira, Notion, Confluence — issues, pages, and comments; writes behind HITL.
+* **Platform plumbing:** Lazy MCP startup, per-connector delta sync, `nimbus connector` auth/list/sync/status/remove, and E2E CLI tests with mock MCP servers.
+
+**Still open before Q2 is “done” on its own terms:** cross-service people graph (linker + population + `nimbus people` / IPC), optional Discord MCP (off by default), engine-side context shaping for large index results (§7.0 in the Q2 plan), headless installers (§7.9), and the acceptance checklist in that plan.
+
+**Q3 2026 — Intelligence (next):** Semantic layer (`sqlite-vec`, hybrid search), Extension Registry v1, deeper DevOps and cloud connectors (Jenkins, GitHub Actions, AWS/Azure/GCP, Kubernetes, observability tools), workflow pipelines, watchers, Session CLI and script files (`nimbus` with no args, `nimbus run`), filesystem connector v2, and agent specialization — as laid out in [`roadmap.md`](./roadmap.md).
 
 ### Phase 3: The Sovereign Workspace (Q4 2026)
 * **The Command Center:** A high-performance Tauri 2.0 desktop application.

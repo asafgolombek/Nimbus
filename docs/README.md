@@ -17,7 +17,7 @@
 
 ---
 
-Nimbus is an open-source, local-first AI agent framework that bridges the gap between your machine and every service you work across. A headless **Nimbus Gateway** runs as a background process, maintaining a private local index of your data across cloud storage (Google Drive, OneDrive), communication (Gmail, Outlook), source control and CI/CD (GitHub, GitLab, Bitbucket, Jenkins, GitHub Actions), cloud infrastructure (AWS, Azure, GCP), monitoring (Datadog, Grafana, PagerDuty), and your local filesystem. The Nimbus agent — powered by [Mastra](https://mastra.ai) and Claude — reasons over this unified index and executes multi-step workflows on your behalf. Every destructive or outgoing action is gated by an explicit Human-in-the-Loop consent step.
+Nimbus is an open-source, local-first AI agent framework that bridges the gap between your machine and the services you connect. A headless **Nimbus Gateway** runs as a background process, maintaining a private local index of metadata across **shipped** first-party connectors — Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, and the local filesystem — with more surfaces (CI/CD hosts, cloud control planes, observability tools, semantic search) on the **[roadmap](./roadmap.md)** for later quarters. The Nimbus agent — powered by [Mastra](https://mastra.ai) and a configurable model provider — reasons over this index and executes multi-step workflows on your behalf. Every destructive or outgoing action is gated by an explicit Human-in-the-Loop consent step.
 
 Your data never passes through a Nimbus server. There is no Nimbus server.
 
@@ -54,9 +54,7 @@ Nimbus understands intent, decomposes multi-step tasks, executes them across ser
 
 ### 🔧 DevOps Intelligence — Not Another Dashboard
 
-Your pull request, its CI pipeline, its deployment, and the monitoring alert it triggered all live in different systems. Nimbus indexes them all locally and lets you query across them in plain English: *"Which of my open PRs have failing CI?"*, *"What changed between the image running in prod and the one in staging?"*, *"Which Lambda functions started erroring after yesterday's deploy?"*
-
-Write operations — merging a PR, triggering a Jenkins build, applying a Terraform plan, acknowledging a PagerDuty alert — go through the same consent-gated executor as every other Nimbus action. The agent proposes; you approve. No silent infrastructure mutations.
+Pull requests, issues, and messages already land in the local index from the shipped source-control and comms connectors. The **[roadmap](./roadmap.md)** extends that story to CI/CD hosts, Kubernetes, cloud accounts, and observability tools so you can ask cross-layer questions in one place. When those connectors ship, write operations — merging a PR, triggering a build, applying a plan, acknowledging an alert — will go through the same consent-gated executor as every other Nimbus action: the agent proposes; you approve.
 
 ---
 
@@ -195,19 +193,21 @@ nimbus ask "Find all PDFs I received by email last month that I haven't opened"
 nimbus search --service google_drive --type pdf --since 30d
 nimbus sync all
 
-# Developer and DevOps queries
-nimbus ask "Which of my open PRs have failing CI?"
-nimbus ask "What changed between the image running in prod and the one in staging?"
-nimbus ask "Show me all Jenkins jobs that failed after yesterday's deploy"
-nimbus ask "Which Lambda functions started erroring in the last hour?"
+# Developer queries (indexed services only — CI/cloud depth is Q3+ on the roadmap)
+nimbus ask "Which of my open PRs mention payment-service?"
+nimbus ask "What Linear issues am I assigned this week?"
+nimbus ask "Summarize recent threads in #engineering from Slack"
 ```
 
-### Authenticate DevOps Services
+### Authenticate developer & collaboration services
 
 ```bash
-nimbus connector auth github         # GitHub PAT via OAuth — stored in OS keystore
+nimbus connector auth github         # GitHub PAT — stored in OS keystore
 nimbus connector auth gitlab         # GitLab PAT
-nimbus connector auth aws            # AWS credentials — stored in OS keystore, never in ~/.aws in plaintext
+nimbus connector auth linear         # Linear API key
+nimbus connector auth jira           # Jira API token + site URL
+nimbus connector auth notion         # Notion OAuth
+nimbus connector auth confluence     # Confluence API token + site URL
 nimbus connector list                # Shows all connectors + sync status
 ```
 
@@ -413,7 +413,7 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 **Goal:** Connect the cloud, developer tooling, and the communication + collaboration surface every engineer lives in. Unify the index.
 
-**Status (April 2026):** First-party MCP connectors and Gateway sync are implemented for Google Drive, Gmail, Google Photos, OneDrive, Outlook, GitHub, GitLab, Bitbucket, Slack, Teams, Linear, Jira, Notion, and Confluence (see the living table in [`q2-2026-plan.md`](./q2-2026-plan.md)). Remaining Q2 scope includes the **Discord** connector (opt-in), **cross-service people-graph linking** (schema is in SQLite; automated identity resolution is still in flight), and the **acceptance checklist** in that plan.
+**Status (April 2026):** First-party MCP connectors and Gateway sync are implemented for Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, and Confluence (see the living table in [`q2-2026-plan.md`](./q2-2026-plan.md)). Remaining Q2 scope includes the **Discord** connector (opt-in), **cross-service people graph** (SQLite `person` table exists; linker, sync integration, IPC, and CLI are not started), **engine context tooling** (context ranker / resolver tools — Q2 plan §7.0), **headless installers** (§7.9), and the plan’s **acceptance checklist**.
 
 **Cloud storage & email**
 - Google Drive, Gmail, Google Photos MCP connectors (OAuth PKCE)

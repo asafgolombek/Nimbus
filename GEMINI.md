@@ -42,6 +42,7 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
+| `docs/q2-2026-plan.md` | Q2 execution plan + living implementation status |
 
 ---
 
@@ -148,6 +149,8 @@ mcp-connectors/*  ← depend on @nimbus-dev/sdk only
 | Q4 2026 | Presence — Tauri 2.0 desktop, local LLM (Ollama), multi-agent orchestration, Rich TUI, voice interface, data portability, signed releases | Planned |
 
 When implementing, focus only on the current quarter. Do not add Q(n+1) features in Q(n) code.
+
+**Q2 remainder:** [`docs/q2-2026-plan.md`](./docs/q2-2026-plan.md) — people graph (Phase 6), optional Discord MCP, engine context tools (§7.0), installers (§7.9), acceptance checklist.
 
 ---
 

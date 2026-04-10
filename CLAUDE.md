@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Nimbus is a **local-first AI agent framework** — a headless Bun Gateway process that maintains a private SQLite index of the user's data across cloud services (Google Drive, Gmail, OneDrive, Outlook, Google Photos) and executes multi-step agentic workflows on their behalf. Clients (CLI and Tauri 2.0 desktop app) communicate with the Gateway exclusively over JSON-RPC 2.0 IPC.
+Nimbus is a **local-first AI agent framework** — a headless Bun Gateway process that maintains a private SQLite index of the user's data across cloud services (Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, and the local filesystem via first-party MCP connectors) and executes multi-step agentic workflows on their behalf. Clients (CLI and Tauri 2.0 desktop app) communicate with the Gateway exclusively over JSON-RPC 2.0 IPC.
 
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
@@ -46,6 +46,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
+| `docs/q2-2026-plan.md` | Q2 execution plan + living implementation status |
 
 ---
 
@@ -159,3 +160,19 @@ A system that orchestrates real actions against real data cannot rely on develop
 | Q4 2026 | Presence — Tauri 2.0 desktop, local LLM (Ollama), multi-agent orchestration, Rich TUI, voice interface, data portability, signed releases | Planned |
 
 When implementing, focus only on the current quarter. Do not add Q(n+1) features in Q(n) code.
+
+**Q2 remainder (see [`docs/q2-2026-plan.md`](./docs/q2-2026-plan.md)):** cross-service people graph (linker + IPC/CLI), optional Discord MCP, engine context ranker / `resolvePerson` tools (§7.0), headless installers (§7.9), and the plan’s acceptance checklist.
+
+---
+
+## Subsystems (monorepo)
+
+- `packages/gateway` — Engine, MCP mesh, Vault, local index, IPC
+- `packages/cli` — Terminal client
+- `packages/ui` — Tauri 2.0 + React (desktop)
+- `packages/sdk` — `@nimbus-dev/sdk` for extensions (MIT)
+- `packages/mcp-connectors/*` — First-party MCP servers (AGPL)
+
+**PAL:** All OS-specific logic lives under `packages/gateway/src/platform/` and is accessed via `PlatformServices` — never import `win32` / `darwin` / `linux` from business logic.
+
+**Prerequisites:** Bun v1.2+; Rust for building the Tauri UI (`packages/ui/src-tauri`).
