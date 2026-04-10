@@ -9,36 +9,26 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import {
+  fetchAtlassianBasicAuthJsonText,
+  normalizeRequiredSiteBaseUrl,
+  requireTrimmedEnv,
+} from "../../shared/atlassian-json-fetch.ts";
+import {
   createRegisterSimpleTool,
   createZodToolRegistrar,
-  encodeBasicAuthHeader,
   mcpJsonResult as jsonResult,
   mcpJsonResultFromTextIfOk,
 } from "../../shared/mcp-tool-kit.ts";
-import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
-
-function normalizeBaseUrl(raw: string): string {
-  const t = stripTrailingSlashes(raw);
-  if (t === "") {
-    throw new Error("JIRA_BASE_URL is empty");
-  }
-  return t.startsWith("http") ? t : `https://${t}`;
-}
 
 function requireJiraConfig(): { baseUrl: string; email: string; token: string } {
-  const baseRaw = process.env["JIRA_BASE_URL"];
-  const email = process.env["JIRA_EMAIL"];
-  const token = process.env["JIRA_API_TOKEN"];
-  if (baseRaw === undefined || baseRaw.trim() === "") {
-    throw new Error("JIRA_BASE_URL is not set");
-  }
-  if (email === undefined || email.trim() === "") {
-    throw new Error("JIRA_EMAIL is not set");
-  }
-  if (token === undefined || token.trim() === "") {
-    throw new Error("JIRA_API_TOKEN is not set");
-  }
-  return { baseUrl: normalizeBaseUrl(baseRaw), email: email.trim(), token: token.trim() };
+  const baseRaw = requireTrimmedEnv("JIRA_BASE_URL", "JIRA_BASE_URL is not set");
+  const email = requireTrimmedEnv("JIRA_EMAIL", "JIRA_EMAIL is not set");
+  const token = requireTrimmedEnv("JIRA_API_TOKEN", "JIRA_API_TOKEN is not set");
+  return {
+    baseUrl: normalizeRequiredSiteBaseUrl(baseRaw, "JIRA_BASE_URL is empty"),
+    email,
+    token,
+  };
 }
 
 async function jiraFetch(
@@ -50,22 +40,7 @@ async function jiraFetch(
 ): Promise<{ ok: boolean; status: number; text: string }> {
   const relativePath = path.startsWith("/") ? path : `/${path}`;
   const url = `${baseUrl}${relativePath}`;
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    Authorization: encodeBasicAuthHeader(email, token),
-  };
-  if (init?.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      ...headers,
-      ...(init?.headers as Record<string, string> | undefined),
-    },
-  });
-  const text = await res.text();
-  return { ok: res.ok, status: res.status, text };
+  return fetchAtlassianBasicAuthJsonText(url, email, token, init);
 }
 
 function plainToAdf(text: string): Record<string, unknown> {

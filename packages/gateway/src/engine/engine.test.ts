@@ -247,10 +247,7 @@ function hitlLinearRejectPayload(
 }
 
 function hitlConfluenceRejectPayload(
-  confluenceAction:
-    | "confluence.page.create"
-    | "confluence.page.update"
-    | "confluence.comment.add",
+  confluenceAction: "confluence.page.create" | "confluence.page.update" | "confluence.comment.add",
 ): Record<string, unknown> {
   if (confluenceAction === "confluence.page.create") {
     return {

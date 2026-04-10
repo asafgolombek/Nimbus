@@ -7,45 +7,31 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import {
+  fetchAtlassianBasicAuthJsonText,
+  normalizeRequiredSiteBaseUrl,
+  requireTrimmedEnv,
+} from "../../shared/atlassian-json-fetch.ts";
 import { joinApiPath } from "../../shared/join-api-path.ts";
 import {
   createRegisterSimpleTool,
   createZodToolRegistrar,
-  encodeBasicAuthHeader,
   mcpJsonResultFromTextIfOk,
 } from "../../shared/mcp-tool-kit.ts";
-import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
-
-function normalizeSiteBase(raw: string): string {
-  const t = stripTrailingSlashes(raw);
-  if (t === "") {
-    throw new Error("CONFLUENCE_BASE_URL is empty");
-  }
-  return t.startsWith("http") ? t : `https://${t}`;
-}
 
 function wikiRoot(siteBase: string): string {
-  const b = normalizeSiteBase(siteBase);
+  const b = normalizeRequiredSiteBaseUrl(siteBase, "CONFLUENCE_BASE_URL is empty");
   return b.endsWith("/wiki") ? b : `${b}/wiki`;
 }
 
 function requireConfluenceConfig(): { wikiApi: string; email: string; token: string } {
-  const baseRaw = process.env["CONFLUENCE_BASE_URL"];
-  const email = process.env["CONFLUENCE_EMAIL"];
-  const token = process.env["CONFLUENCE_API_TOKEN"];
-  if (baseRaw === undefined || baseRaw.trim() === "") {
-    throw new Error("CONFLUENCE_BASE_URL is not set");
-  }
-  if (email === undefined || email.trim() === "") {
-    throw new Error("CONFLUENCE_EMAIL is not set");
-  }
-  if (token === undefined || token.trim() === "") {
-    throw new Error("CONFLUENCE_API_TOKEN is not set");
-  }
+  const baseRaw = requireTrimmedEnv("CONFLUENCE_BASE_URL", "CONFLUENCE_BASE_URL is not set");
+  const email = requireTrimmedEnv("CONFLUENCE_EMAIL", "CONFLUENCE_EMAIL is not set");
+  const token = requireTrimmedEnv("CONFLUENCE_API_TOKEN", "CONFLUENCE_API_TOKEN is not set");
   return {
     wikiApi: `${wikiRoot(baseRaw)}/rest/api`,
-    email: email.trim(),
-    token: token.trim(),
+    email,
+    token,
   };
 }
 
@@ -55,22 +41,7 @@ async function confFetch(
 ): Promise<{ ok: boolean; status: number; text: string }> {
   const { wikiApi, email, token } = requireConfluenceConfig();
   const url = joinApiPath(wikiApi, path);
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    Authorization: encodeBasicAuthHeader(email, token),
-  };
-  if (init?.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      ...headers,
-      ...(init?.headers as Record<string, string> | undefined),
-    },
-  });
-  const text = await res.text();
-  return { ok: res.ok, status: res.status, text };
+  return fetchAtlassianBasicAuthJsonText(url, email, token, init);
 }
 
 const server = new McpServer({ name: "nimbus-confluence", version: "0.1.0" });

@@ -231,6 +231,15 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
       let maxUpdated = state.since;
       let reposScannedThisSync = 0;
 
+      const syncResult = (nextState: BitbucketCursorV1, hasMore: boolean): SyncResult => ({
+        cursor: encodeCursor(nextState),
+        itemsUpserted: upserted,
+        itemsDeleted: 0,
+        hasMore,
+        durationMs: Math.round(performance.now() - t0),
+        bytesTransferred,
+      });
+
       const drainPenalty = (res: Response, text: string): void => {
         if (res.status === 429) {
           const ra = res.headers.get("retry-after");
@@ -290,14 +299,7 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
           activeRepo: prUrl === null ? null : active,
         };
         if (state.prNext !== null || state.activeRepo !== null) {
-          return {
-            cursor: encodeCursor(state),
-            itemsUpserted: upserted,
-            itemsDeleted: 0,
-            hasMore: true,
-            durationMs: Math.round(performance.now() - t0),
-            bytesTransferred,
-          };
+          return syncResult(state, true);
         }
         return null;
       }
@@ -369,14 +371,7 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
                 prNext: prUrl,
                 repositoryPagesExhausted: state.repositoryPagesExhausted,
               };
-              return {
-                cursor: encodeCursor(state),
-                itemsUpserted: upserted,
-                itemsDeleted: 0,
-                hasMore: true,
-                durationMs: Math.round(performance.now() - t0),
-                bytesTransferred,
-              };
+              return syncResult(state, true);
             }
           }
         }
@@ -413,14 +408,7 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
           prNext: null,
           repositoryPagesExhausted: state.repositoryPagesExhausted,
         };
-        return {
-          cursor: encodeCursor(state),
-          itemsUpserted: upserted,
-          itemsDeleted: 0,
-          hasMore: true,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred,
-        };
+        return syncResult(state, true);
       }
 
       state = {
@@ -432,14 +420,7 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
         repositoryPagesExhausted: false,
       };
 
-      return {
-        cursor: encodeCursor(state),
-        itemsUpserted: upserted,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred,
-      };
+      return syncResult(state, false);
     },
   };
 }
