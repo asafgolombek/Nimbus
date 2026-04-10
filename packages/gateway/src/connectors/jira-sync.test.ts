@@ -5,28 +5,27 @@ import {
   createStubVault,
   describeWithFetchRestore,
   EMPTY_NIMBUS_VAULT,
+  expectServiceItemCount,
+  type SyncTestFetchParams,
   silentSyncContextExtras,
+  testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 import { createJiraSyncable } from "./jira-sync.ts";
 
 describeWithFetchRestore("jira-sync", () => {
-  test("no-op when credentials missing", async () => {
-    const db = createMemoryIndexDb();
-    const sync = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
-    const r = await sync.sync(
-      { vault: EMPTY_NIMBUS_VAULT, db, ...silentSyncContextExtras() },
-      null,
-    );
-    expect(r.itemsUpserted).toBe(0);
-    expect(r.itemsDeleted).toBe(0);
-    expect(r.cursor).toBeNull();
-  });
+  testConnectorSyncNoop(
+    "no-op when credentials missing",
+    () => createJiraSyncable({ ensureJiraMcpRunning: async () => {} }),
+    EMPTY_NIMBUS_VAULT,
+  );
 
   test("indexes issues from Jira search response and advances cursor", async () => {
     const db = createMemoryIndexDb();
-    type FetchParams = Parameters<typeof fetch>;
-    globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
+    globalThis.fetch = (async (
+      input: SyncTestFetchParams[0],
+      init?: SyncTestFetchParams[1],
+    ): Promise<Response> => {
       const u = urlFromFetchInput(input);
       expect(u).toContain("example.atlassian.net/rest/api/3/search");
       const body =
@@ -66,9 +65,6 @@ describeWithFetchRestore("jira-sync", () => {
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-jra1:");
-    const row = db.prepare("SELECT COUNT(*) AS c FROM item WHERE service = ?").get("jira") as {
-      c: number;
-    };
-    expect(row.c).toBe(1);
+    expectServiceItemCount(db, "jira", 1);
   });
 });

@@ -12,7 +12,9 @@ import {
   createRegisterSimpleTool,
   mcpJsonResult as jsonResult,
   type McpListResult,
+  registerZodTool,
   requireProcessEnv,
+  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
@@ -52,6 +54,15 @@ const server = new McpServer({ name: "nimbus-gitlab", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
 
+function reg<T>(
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerZodTool(registerSimpleTool, name, description, schema, handler);
+}
+
 const projectPathArg = z.object({
   projectPath: z
     .string()
@@ -59,30 +70,24 @@ const projectPathArg = z.object({
     .describe("URL-encoded path or numeric project id, e.g. group/repo"),
 });
 
-registerSimpleTool(
+const gitlabProjectListSchema = z.object({
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
+
+reg(
   "gitlab_project_list",
   "List projects visible to the authenticated user (membership).",
-  {
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  gitlabProjectListSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITLAB_PAT");
     const u = new URL(`${apiBase()}/projects`);
     u.searchParams.set("membership", "true");
     u.searchParams.set("order_by", "last_activity_at");
     u.searchParams.set("sort", "desc");
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
+    u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+    if (parsed.page !== undefined) {
+      u.searchParams.set("page", String(parsed.page));
     }
     const res = await glFetch(token, `${u.pathname}${u.search}`);
     if (!res.ok) {
@@ -92,103 +97,67 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
-  "gitlab_mr_list",
-  "List merge requests for a project.",
-  {
-    ...projectPathArg.shape,
-    state: z.enum(["opened", "closed", "locked", "merged", "all"]).optional(),
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      state: z.enum(["opened", "closed", "locked", "merged", "all"]).optional(),
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
-    const u = new URL(`${apiBase()}/projects/${enc}/merge_requests`);
-    u.searchParams.set("state", parsed.data.state ?? "opened");
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
-    }
-    const res = await glFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+const gitlabMrListSchema = projectPathArg.extend({
+  state: z.enum(["opened", "closed", "locked", "merged", "all"]).optional(),
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
 
-registerSimpleTool(
-  "gitlab_mr_get",
-  "Get a single merge request by IID.",
-  {
-    ...projectPathArg.shape,
-    mergeRequestIid: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      mergeRequestIid: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
-    const path = `/projects/${enc}/merge_requests/${String(parsed.data.mergeRequestIid)}`;
-    const res = await glFetch(token, path);
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+reg("gitlab_mr_list", "List merge requests for a project.", gitlabMrListSchema, async (parsed) => {
+  const token = requireProcessEnv("GITLAB_PAT");
+  const enc = encodeURIComponent(parsed.projectPath);
+  const u = new URL(`${apiBase()}/projects/${enc}/merge_requests`);
+  u.searchParams.set("state", parsed.state ?? "opened");
+  u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+  if (parsed.page !== undefined) {
+    u.searchParams.set("page", String(parsed.page));
+  }
+  const res = await glFetch(token, `${u.pathname}${u.search}`);
+  if (!res.ok) {
+    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return jsonResult(res.json);
+});
 
-registerSimpleTool(
+const gitlabMrGetSchema = projectPathArg.extend({
+  mergeRequestIid: z.number().int().min(1),
+});
+
+reg("gitlab_mr_get", "Get a single merge request by IID.", gitlabMrGetSchema, async (parsed) => {
+  const token = requireProcessEnv("GITLAB_PAT");
+  const enc = encodeURIComponent(parsed.projectPath);
+  const path = `/projects/${enc}/merge_requests/${String(parsed.mergeRequestIid)}`;
+  const res = await glFetch(token, path);
+  if (!res.ok) {
+    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return jsonResult(res.json);
+});
+
+const gitlabMrMergeSchema = projectPathArg.extend({
+  mergeRequestIid: z.number().int().min(1),
+  mergeCommitMessage: z.string().max(10_000).optional(),
+  squash: z.boolean().optional(),
+  shouldRemoveSourceBranch: z.boolean().optional(),
+});
+
+reg(
   "gitlab_mr_merge",
   "Merge a merge request (requires HITL repo.pr.merge).",
-  {
-    ...projectPathArg.shape,
-    mergeRequestIid: z.number().int().min(1),
-    mergeCommitMessage: z.string().max(10_000).optional(),
-    squash: z.boolean().optional(),
-    shouldRemoveSourceBranch: z.boolean().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      mergeRequestIid: z.number().int().min(1),
-      mergeCommitMessage: z.string().max(10_000).optional(),
-      squash: z.boolean().optional(),
-      shouldRemoveSourceBranch: z.boolean().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  gitlabMrMergeSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
-    const path = `/projects/${enc}/merge_requests/${String(parsed.data.mergeRequestIid)}/merge`;
+    const enc = encodeURIComponent(parsed.projectPath);
+    const path = `/projects/${enc}/merge_requests/${String(parsed.mergeRequestIid)}/merge`;
     const body: Record<string, unknown> = {};
-    if (parsed.data.mergeCommitMessage !== undefined) {
-      body["merge_commit_message"] = parsed.data.mergeCommitMessage;
+    if (parsed.mergeCommitMessage !== undefined) {
+      body["merge_commit_message"] = parsed.mergeCommitMessage;
     }
-    if (parsed.data.squash !== undefined) {
-      body["squash"] = parsed.data.squash;
+    if (parsed.squash !== undefined) {
+      body["squash"] = parsed.squash;
     }
-    if (parsed.data.shouldRemoveSourceBranch !== undefined) {
-      body["should_remove_source_branch"] = parsed.data.shouldRemoveSourceBranch;
+    if (parsed.shouldRemoveSourceBranch !== undefined) {
+      body["should_remove_source_branch"] = parsed.shouldRemoveSourceBranch;
     }
     const res = await glFetch(token, path, {
       method: "PUT",
@@ -202,103 +171,67 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
-  "gitlab_issue_list",
-  "List issues for a project.",
-  {
-    ...projectPathArg.shape,
-    state: z.enum(["opened", "closed", "all"]).optional(),
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      state: z.enum(["opened", "closed", "all"]).optional(),
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
-    const u = new URL(`${apiBase()}/projects/${enc}/issues`);
-    u.searchParams.set("state", parsed.data.state ?? "opened");
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
-    }
-    const res = await glFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+const gitlabIssueListSchema = projectPathArg.extend({
+  state: z.enum(["opened", "closed", "all"]).optional(),
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
 
-registerSimpleTool(
-  "gitlab_issue_get",
-  "Get a single issue by IID.",
-  {
-    ...projectPathArg.shape,
-    issueIid: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      issueIid: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
-    const path = `/projects/${enc}/issues/${String(parsed.data.issueIid)}`;
-    const res = await glFetch(token, path);
-    if (!res.ok) {
-      throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+reg("gitlab_issue_list", "List issues for a project.", gitlabIssueListSchema, async (parsed) => {
+  const token = requireProcessEnv("GITLAB_PAT");
+  const enc = encodeURIComponent(parsed.projectPath);
+  const u = new URL(`${apiBase()}/projects/${enc}/issues`);
+  u.searchParams.set("state", parsed.state ?? "opened");
+  u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+  if (parsed.page !== undefined) {
+    u.searchParams.set("page", String(parsed.page));
+  }
+  const res = await glFetch(token, `${u.pathname}${u.search}`);
+  if (!res.ok) {
+    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return jsonResult(res.json);
+});
 
-registerSimpleTool(
+const gitlabIssueGetSchema = projectPathArg.extend({
+  issueIid: z.number().int().min(1),
+});
+
+reg("gitlab_issue_get", "Get a single issue by IID.", gitlabIssueGetSchema, async (parsed) => {
+  const token = requireProcessEnv("GITLAB_PAT");
+  const enc = encodeURIComponent(parsed.projectPath);
+  const path = `/projects/${enc}/issues/${String(parsed.issueIid)}`;
+  const res = await glFetch(token, path);
+  if (!res.ok) {
+    throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return jsonResult(res.json);
+});
+
+const gitlabPipelineListSchema = projectPathArg.extend({
+  ref: z.string().max(500).optional(),
+  status: z.string().max(64).optional(),
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
+
+reg(
   "gitlab_pipeline_list",
   "List CI pipelines for a project.",
-  {
-    ...projectPathArg.shape,
-    ref: z.string().max(500).optional(),
-    status: z.string().max(64).optional(),
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      ref: z.string().max(500).optional(),
-      status: z.string().max(64).optional(),
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  gitlabPipelineListSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
+    const enc = encodeURIComponent(parsed.projectPath);
     const u = new URL(`${apiBase()}/projects/${enc}/pipelines`);
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
+    u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+    if (parsed.page !== undefined) {
+      u.searchParams.set("page", String(parsed.page));
     }
-    if (parsed.data.ref !== undefined) {
-      u.searchParams.set("ref", parsed.data.ref);
+    if (parsed.ref !== undefined) {
+      u.searchParams.set("ref", parsed.ref);
     }
-    if (parsed.data.status !== undefined) {
-      u.searchParams.set("status", parsed.data.status);
+    if (parsed.status !== undefined) {
+      u.searchParams.set("status", parsed.status);
     }
     const res = await glFetch(token, `${u.pathname}${u.search}`);
     if (!res.ok) {
@@ -308,25 +241,18 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const gitlabPipelineGetSchema = projectPathArg.extend({
+  pipelineId: z.number().int().min(1),
+});
+
+reg(
   "gitlab_pipeline_get",
   "Get a single pipeline by id.",
-  {
-    ...projectPathArg.shape,
-    pipelineId: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      pipelineId: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  gitlabPipelineGetSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
-    const path = `/projects/${enc}/pipelines/${String(parsed.data.pipelineId)}`;
+    const enc = encodeURIComponent(parsed.projectPath);
+    const path = `/projects/${enc}/pipelines/${String(parsed.pipelineId)}`;
     const res = await glFetch(token, path);
     if (!res.ok) {
       throw new Error(`GitLab ${String(res.status)}: ${res.text.slice(0, 300)}`);
@@ -335,25 +261,18 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const gitlabJobTraceSchema = projectPathArg.extend({
+  jobId: z.number().int().min(1),
+});
+
+reg(
   "gitlab_job_trace",
   "Download plain-text trace for a CI job (by job id).",
-  {
-    ...projectPathArg.shape,
-    jobId: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectPath: z.string().min(1),
-      jobId: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  gitlabJobTraceSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITLAB_PAT");
-    const enc = encodeURIComponent(parsed.data.projectPath);
-    const url = `${apiBase()}/projects/${enc}/jobs/${String(parsed.data.jobId)}/trace`;
+    const enc = encodeURIComponent(parsed.projectPath);
+    const url = `${apiBase()}/projects/${enc}/jobs/${String(parsed.jobId)}/trace`;
     const res = await fetch(url, { headers: { "PRIVATE-TOKEN": token } });
     const text = await res.text();
     if (!res.ok) {
@@ -363,9 +282,5 @@ registerSimpleTool(
   },
 );
 
-async function main(): Promise<void> {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-
-await main();
+const transport = new StdioServerTransport();
+await server.connect(transport);

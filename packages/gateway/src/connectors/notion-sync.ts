@@ -182,7 +182,7 @@ export function createNotionSyncable(options: NotionSyncableOptions): Syncable {
             maxEdited = maxEdited === "" ? edited : maxIso(maxEdited, edited);
           }
           const title = extractTitleFromProperties(row["properties"]);
-          const url = `https://www.notion.so/${id.replace(/-/g, "")}`;
+          const url = `https://www.notion.so/${id.replaceAll("-", "")}`;
           const modified = edited !== undefined && edited !== "" ? isoMs(edited) : syncTime;
           upserted += 1;
           upsertIndexedItem(ctx.db, {

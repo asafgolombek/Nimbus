@@ -5,27 +5,27 @@ import {
   createStubVault,
   describeWithFetchRestore,
   EMPTY_NIMBUS_VAULT,
+  expectServiceItemCount,
+  type SyncTestFetchParams,
   silentSyncContextExtras,
+  testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 import { createNotionSyncable } from "./notion-sync.ts";
 
 describeWithFetchRestore("notion-sync", () => {
-  test("no-op when notion.oauth missing", async () => {
-    const db = createMemoryIndexDb();
-    const sync = createNotionSyncable({ ensureNotionMcpRunning: async () => {} });
-    const r = await sync.sync(
-      { vault: EMPTY_NIMBUS_VAULT, db, ...silentSyncContextExtras() },
-      null,
-    );
-    expect(r.itemsUpserted).toBe(0);
-    expect(r.cursor).toBeNull();
-  });
+  testConnectorSyncNoop(
+    "no-op when notion.oauth missing",
+    () => createNotionSyncable({ ensureNotionMcpRunning: async () => {} }),
+    EMPTY_NIMBUS_VAULT,
+  );
 
   test("indexes pages from Notion search and advances cursor", async () => {
     const db = createMemoryIndexDb();
-    type FetchParams = Parameters<typeof fetch>;
-    globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
+    globalThis.fetch = (async (
+      input: SyncTestFetchParams[0],
+      init?: SyncTestFetchParams[1],
+    ): Promise<Response> => {
       const u = urlFromFetchInput(input);
       expect(u).toContain("api.notion.com/v1/search");
       const body =
@@ -68,9 +68,6 @@ describeWithFetchRestore("notion-sync", () => {
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-ntn1:");
-    const row = db.prepare("SELECT COUNT(*) AS c FROM item WHERE service = ?").get("notion") as {
-      c: number;
-    };
-    expect(row.c).toBe(1);
+    expectServiceItemCount(db, "notion", 1);
   });
 });

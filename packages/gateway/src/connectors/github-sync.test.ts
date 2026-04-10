@@ -4,32 +4,27 @@ import {
   createMemoryIndexDb,
   createStubVault,
   describeWithFetchRestore,
+  expectServiceItemCount,
+  type SyncTestFetchParams,
   silentSyncContextExtras,
+  testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 import { createGithubSyncable } from "./github-sync.ts";
 
 describeWithFetchRestore("github-sync", () => {
-  test("no-op when PAT missing", async () => {
-    const db = createMemoryIndexDb();
-    const sync = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
-    const r = await sync.sync(
-      {
-        vault: createStubVault({ "github.pat": null }),
-        db,
-        ...silentSyncContextExtras(),
-      },
-      null,
-    );
-    expect(r.itemsUpserted).toBe(0);
-    expect(r.itemsDeleted).toBe(0);
-    expect(r.cursor).toBeNull();
-  });
+  testConnectorSyncNoop(
+    "no-op when PAT missing",
+    () => createGithubSyncable({ ensureGithubMcpRunning: async () => {} }),
+    createStubVault({ "github.pat": null }),
+  );
 
   test("indexes PullRequestEvent and stores cursor with etag", async () => {
     const db = createMemoryIndexDb();
-    type FetchParams = Parameters<typeof fetch>;
-    globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
+    globalThis.fetch = (async (
+      input: SyncTestFetchParams[0],
+      init?: SyncTestFetchParams[1],
+    ): Promise<Response> => {
       const u = urlFromFetchInput(input);
       expect(u).toContain("api.github.com/user/events");
       expect(init?.headers).toBeDefined();
@@ -67,17 +62,16 @@ describeWithFetchRestore("github-sync", () => {
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-ghub1:");
-    const row = db.prepare("SELECT COUNT(*) AS c FROM item WHERE service = ?").get("github") as {
-      c: number;
-    };
-    expect(row.c).toBe(1);
+    expectServiceItemCount(db, "github", 1);
   });
 
   test("304 uses If-None-Match and returns zero upserts", async () => {
     const db = createMemoryIndexDb();
     let calls = 0;
-    type FetchParams = Parameters<typeof fetch>;
-    globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
+    globalThis.fetch = (async (
+      input: SyncTestFetchParams[0],
+      init?: SyncTestFetchParams[1],
+    ): Promise<Response> => {
       calls += 1;
       const u = urlFromFetchInput(input);
       expect(u).toContain("api.github.com/user/events");

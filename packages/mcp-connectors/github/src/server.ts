@@ -13,7 +13,9 @@ import {
   createRegisterSimpleTool,
   mcpJsonResult as jsonResult,
   type McpListResult,
+  registerZodTool,
   requireProcessEnv,
+  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 const GH_API = "https://api.github.com";
@@ -35,32 +37,35 @@ const server = new McpServer({ name: "nimbus-github", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
 
+function reg<T>(
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerZodTool(registerSimpleTool, name, description, schema, handler);
+}
+
 const repoSlugArgs = z.object({
   owner: z.string().min(1),
   repo: z.string().min(1),
 });
 
-registerSimpleTool(
+const githubRepoListSchema = z.object({
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
+
+reg(
   "github_repo_list",
   "List repositories for the authenticated user (affiliation: owner, collaborator, organization_member).",
-  {
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubRepoListSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
     const u = new URL(`${GH_API}/user/repos`);
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
+    u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+    if (parsed.page !== undefined) {
+      u.searchParams.set("page", String(parsed.page));
     }
     u.searchParams.set("sort", "updated");
     u.searchParams.set("affiliation", "owner,collaborator,organization_member");
@@ -72,54 +77,35 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
-  "github_repo_get",
-  "Get repository metadata (owner/repo).",
-  repoSlugArgs.shape,
-  async (args: unknown): Promise<McpListResult> => {
-    const parsed = repoSlugArgs.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}`;
-    const res = await ghFetch(token, path);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+reg("github_repo_get", "Get repository metadata (owner/repo).", repoSlugArgs, async (parsed) => {
+  const token = requireProcessEnv("GITHUB_PAT");
+  const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}`;
+  const res = await ghFetch(token, path);
+  if (!res.ok) {
+    throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return jsonResult(res.json);
+});
 
-registerSimpleTool(
+const githubPrListSchema = repoSlugArgs.extend({
+  state: z.enum(["open", "closed", "all"]).optional(),
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
+
+reg(
   "github_pr_list",
   "List pull requests for a repository.",
-  {
-    ...repoSlugArgs.shape,
-    state: z.enum(["open", "closed", "all"]).optional(),
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      state: z.enum(["open", "closed", "all"]).optional(),
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubPrListSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
     const u = new URL(
-      `${GH_API}/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls`,
+      `${GH_API}/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls`,
     );
-    u.searchParams.set("state", parsed.data.state ?? "open");
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
+    u.searchParams.set("state", parsed.state ?? "open");
+    u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+    if (parsed.page !== undefined) {
+      u.searchParams.set("page", String(parsed.page));
     }
     u.searchParams.set("sort", "updated");
     u.searchParams.set("direction", "desc");
@@ -131,25 +117,17 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const githubPrNumberSchema = repoSlugArgs.extend({
+  pullNumber: z.number().int().min(1),
+});
+
+reg(
   "github_pr_get",
   "Get a single pull request by number.",
-  {
-    ...repoSlugArgs.shape,
-    pullNumber: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      pullNumber: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubPrNumberSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls/${String(parsed.data.pullNumber)}`;
+    const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls/${String(parsed.pullNumber)}`;
     const res = await ghFetch(token, path);
     if (!res.ok) {
       throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
@@ -158,35 +136,25 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const githubPrMergeSchema = repoSlugArgs.extend({
+  pullNumber: z.number().int().min(1),
+  mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
+  commitTitle: z.string().max(500).optional(),
+});
+
+reg(
   "github_pr_merge",
   "Merge a pull request (requires HITL repo.pr.merge).",
-  {
-    ...repoSlugArgs.shape,
-    pullNumber: z.number().int().min(1),
-    mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
-    commitTitle: z.string().max(500).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      pullNumber: z.number().int().min(1),
-      mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
-      commitTitle: z.string().max(500).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubPrMergeSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls/${String(parsed.data.pullNumber)}/merge`;
+    const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls/${String(parsed.pullNumber)}/merge`;
     const body: Record<string, string> = {};
-    if (parsed.data.mergeMethod !== undefined) {
-      body["merge_method"] = parsed.data.mergeMethod;
+    if (parsed.mergeMethod !== undefined) {
+      body["merge_method"] = parsed.mergeMethod;
     }
-    if (parsed.data.commitTitle !== undefined && parsed.data.commitTitle !== "") {
-      body["commit_title"] = parsed.data.commitTitle;
+    if (parsed.commitTitle !== undefined && parsed.commitTitle !== "") {
+      body["commit_title"] = parsed.commitTitle;
     }
     const res = await ghFetch(token, path, {
       method: "PUT",
@@ -200,25 +168,13 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+reg(
   "github_pr_close",
   "Close a pull request without merging (requires HITL repo.pr.close).",
-  {
-    ...repoSlugArgs.shape,
-    pullNumber: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      pullNumber: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubPrNumberSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls/${String(parsed.data.pullNumber)}`;
+    const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls/${String(parsed.pullNumber)}`;
     const res = await ghFetch(token, path, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -231,100 +187,63 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
-  "github_issue_list",
-  "List issues for a repository.",
-  {
-    ...repoSlugArgs.shape,
-    state: z.enum(["open", "closed", "all"]).optional(),
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      state: z.enum(["open", "closed", "all"]).optional(),
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("GITHUB_PAT");
-    const u = new URL(
-      `${GH_API}/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/issues`,
-    );
-    u.searchParams.set("state", parsed.data.state ?? "open");
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
-    }
-    u.searchParams.set("sort", "updated");
-    u.searchParams.set("direction", "desc");
-    const res = await ghFetch(token, `${u.pathname}${u.search}`);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+const githubIssueListSchema = repoSlugArgs.extend({
+  state: z.enum(["open", "closed", "all"]).optional(),
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
 
-registerSimpleTool(
-  "github_issue_get",
-  "Get a single issue by number.",
-  {
-    ...repoSlugArgs.shape,
-    issueNumber: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      issueNumber: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/issues/${String(parsed.data.issueNumber)}`;
-    const res = await ghFetch(token, path);
-    if (!res.ok) {
-      throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+reg("github_issue_list", "List issues for a repository.", githubIssueListSchema, async (parsed) => {
+  const token = requireProcessEnv("GITHUB_PAT");
+  const u = new URL(
+    `${GH_API}/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/issues`,
+  );
+  u.searchParams.set("state", parsed.state ?? "open");
+  u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+  if (parsed.page !== undefined) {
+    u.searchParams.set("page", String(parsed.page));
+  }
+  u.searchParams.set("sort", "updated");
+  u.searchParams.set("direction", "desc");
+  const res = await ghFetch(token, `${u.pathname}${u.search}`);
+  if (!res.ok) {
+    throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return jsonResult(res.json);
+});
 
-registerSimpleTool(
+const githubIssueGetSchema = repoSlugArgs.extend({
+  issueNumber: z.number().int().min(1),
+});
+
+reg("github_issue_get", "Get a single issue by number.", githubIssueGetSchema, async (parsed) => {
+  const token = requireProcessEnv("GITHUB_PAT");
+  const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/issues/${String(parsed.issueNumber)}`;
+  const res = await ghFetch(token, path);
+  if (!res.ok) {
+    throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return jsonResult(res.json);
+});
+
+const githubIssueCreateSchema = repoSlugArgs.extend({
+  title: z.string().min(1).max(500),
+  body: z.string().max(65_000).optional(),
+});
+
+reg(
   "github_issue_create",
   "Create a new issue in a repository.",
-  {
-    ...repoSlugArgs.shape,
-    title: z.string().min(1).max(500),
-    body: z.string().max(65_000).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      title: z.string().min(1).max(500),
-      body: z.string().max(65_000).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubIssueCreateSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/issues`;
+    const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/issues`;
     const res = await ghFetch(token, path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title: parsed.data.title,
-        body: parsed.data.body,
+        title: parsed.title,
+        body: parsed.body,
       }),
     });
     if (!res.ok) {
@@ -334,32 +253,23 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const githubCiRunsSchema = repoSlugArgs.extend({
+  perPage: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+});
+
+reg(
   "github_ci_runs",
   "List GitHub Actions workflow runs for a repository.",
-  {
-    ...repoSlugArgs.shape,
-    perPage: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      perPage: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubCiRunsSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
     const u = new URL(
-      `${GH_API}/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/actions/runs`,
+      `${GH_API}/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/actions/runs`,
     );
-    u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
-    if (parsed.data.page !== undefined) {
-      u.searchParams.set("page", String(parsed.data.page));
+    u.searchParams.set("per_page", String(parsed.perPage ?? 30));
+    if (parsed.page !== undefined) {
+      u.searchParams.set("page", String(parsed.page));
     }
     const res = await ghFetch(token, `${u.pathname}${u.search}`);
     if (!res.ok) {
@@ -369,25 +279,17 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const githubCiRunGetSchema = repoSlugArgs.extend({
+  runId: z.number().int().min(1),
+});
+
+reg(
   "github_ci_run_get",
   "Get a single workflow run including jobs URL reference.",
-  {
-    ...repoSlugArgs.shape,
-    runId: z.number().int().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      runId: z.number().int().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubCiRunGetSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/actions/runs/${String(parsed.data.runId)}`;
+    const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/actions/runs/${String(parsed.runId)}`;
     const res = await ghFetch(token, path);
     if (!res.ok) {
       throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
@@ -396,26 +298,18 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const githubBranchDeleteSchema = repoSlugArgs.extend({
+  branch: z.string().min(1).max(255),
+});
+
+reg(
   "github_branch_delete",
   "Delete a branch by ref name (requires HITL repo.branch.delete).",
-  {
-    ...repoSlugArgs.shape,
-    branch: z.string().min(1).max(255),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      branch: z.string().min(1).max(255),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubBranchDeleteSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
-    const ref = `heads/${parsed.data.branch}`;
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/git/refs/${encodeURIComponent(ref)}`;
+    const ref = `heads/${parsed.branch}`;
+    const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/git/refs/${encodeURIComponent(ref)}`;
     const res = await ghFetch(token, path, { method: "DELETE" });
     if (!res.ok && res.status !== 204) {
       throw new Error(`GitHub ${String(res.status)}: ${res.text.slice(0, 300)}`);
@@ -424,33 +318,24 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const githubTagCreateSchema = repoSlugArgs.extend({
+  tag: z.string().min(1).max(255),
+  sha: z.string().min(7).max(40),
+});
+
+reg(
   "github_tag_create",
   "Create a lightweight tag pointing at a commit SHA (requires HITL repo.tag.create).",
-  {
-    ...repoSlugArgs.shape,
-    tag: z.string().min(1).max(255),
-    sha: z.string().min(7).max(40),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      owner: z.string().min(1),
-      repo: z.string().min(1),
-      tag: z.string().min(1).max(255),
-      sha: z.string().min(7).max(40),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  githubTagCreateSchema,
+  async (parsed) => {
     const token = requireProcessEnv("GITHUB_PAT");
-    const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/git/refs`;
+    const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/git/refs`;
     const res = await ghFetch(token, path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ref: `refs/tags/${parsed.data.tag}`,
-        sha: parsed.data.sha,
+        ref: `refs/tags/${parsed.tag}`,
+        sha: parsed.sha,
       }),
     });
     if (!res.ok) {
@@ -460,25 +345,21 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const githubCommitPushSchema = repoSlugArgs.extend({
+  branch: z.string().min(1).optional(),
+});
+
+reg(
   "github_commit_push",
   "Push commits is not available via this tool — use local git with your own remote credentials (requires HITL repo.commit.push if ever implemented).",
-  {
-    ...repoSlugArgs.shape,
-    branch: z.string().min(1).optional(),
-  },
-  async (_args: unknown): Promise<McpListResult> => {
-    return jsonResult({
+  githubCommitPushSchema,
+  async () =>
+    jsonResult({
       code: "NOT_IMPLEMENTED",
       message:
         "Pushing commits requires local git and is not executed by this MCP server. Clone the repo and push with git.",
-    });
-  },
+    }),
 );
 
-async function main(): Promise<void> {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-
-await main();
+const transport = new StdioServerTransport();
+await server.connect(transport);

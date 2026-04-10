@@ -11,7 +11,9 @@ import {
   createRegisterSimpleTool,
   mcpJsonResult as jsonResult,
   type McpListResult,
+  registerZodTool,
   requireProcessEnv,
+  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 const NOTION_VERSION = "2022-06-28";
@@ -49,33 +51,35 @@ const server = new McpServer({ name: "nimbus-notion", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
 
-registerSimpleTool(
+function reg<T>(
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerZodTool(registerSimpleTool, name, description, schema, handler);
+}
+
+const notionSearchSchema = z.object({
+  query: z.string().optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  startCursor: z.string().optional(),
+});
+
+reg(
   "notion_page_list",
   "Search Notion pages the integration can access (POST /v1/search, object filter page).",
-  {
-    query: z.string().optional(),
-    pageSize: z.number().int().min(1).max(100).optional(),
-    startCursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      query: z.string().optional(),
-      pageSize: z.number().int().min(1).max(100).optional(),
-      startCursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  notionSearchSchema,
+  async (parsed) => {
     const body: Record<string, unknown> = {
       filter: { property: "object", value: "page" },
-      page_size: parsed.data.pageSize ?? 50,
+      page_size: parsed.pageSize ?? 50,
     };
-    if (parsed.data.query !== undefined && parsed.data.query !== "") {
-      body["query"] = parsed.data.query;
+    if (parsed.query !== undefined && parsed.query !== "") {
+      body["query"] = parsed.query;
     }
-    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
-      body["start_cursor"] = parsed.data.startCursor;
+    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
+      body["start_cursor"] = parsed.startCursor;
     }
     const res = await notionFetch("/search", { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) {
@@ -85,17 +89,14 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const notionPageIdSchema = z.object({ pageId: z.string().min(1) });
+
+reg(
   "notion_page_get",
   "Retrieve a Notion page and its direct child blocks.",
-  { pageId: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({ pageId: z.string().min(1) });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.pageId);
+  notionPageIdSchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.pageId);
     const page = await notionFetch(`/pages/${id}`);
     if (!page.ok) {
       throw new Error(`Notion ${String(page.status)}: ${page.text.slice(0, 400)}`);
@@ -111,33 +112,20 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+reg(
   "notion_database_list",
   "Search Notion databases (POST /v1/search, object filter database).",
-  {
-    query: z.string().optional(),
-    pageSize: z.number().int().min(1).max(100).optional(),
-    startCursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      query: z.string().optional(),
-      pageSize: z.number().int().min(1).max(100).optional(),
-      startCursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  notionSearchSchema,
+  async (parsed) => {
     const body: Record<string, unknown> = {
       filter: { property: "object", value: "database" },
-      page_size: parsed.data.pageSize ?? 50,
+      page_size: parsed.pageSize ?? 50,
     };
-    if (parsed.data.query !== undefined && parsed.data.query !== "") {
-      body["query"] = parsed.data.query;
+    if (parsed.query !== undefined && parsed.query !== "") {
+      body["query"] = parsed.query;
     }
-    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
-      body["start_cursor"] = parsed.data.startCursor;
+    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
+      body["start_cursor"] = parsed.startCursor;
     }
     const res = await notionFetch("/search", { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) {
@@ -147,30 +135,23 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const notionDatabaseQuerySchema = z.object({
+  databaseId: z.string().min(1),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  startCursor: z.string().optional(),
+});
+
+reg(
   "notion_database_query",
   "Query a Notion database (POST /v1/databases/{id}/query).",
-  {
-    databaseId: z.string().min(1),
-    pageSize: z.number().int().min(1).max(100).optional(),
-    startCursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      databaseId: z.string().min(1),
-      pageSize: z.number().int().min(1).max(100).optional(),
-      startCursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.databaseId);
+  notionDatabaseQuerySchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.databaseId);
     const body: Record<string, unknown> = {
-      page_size: parsed.data.pageSize ?? 50,
+      page_size: parsed.pageSize ?? 50,
     };
-    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
-      body["start_cursor"] = parsed.data.startCursor;
+    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
+      body["start_cursor"] = parsed.startCursor;
     }
     const res = await notionFetch(`/databases/${id}/query`, {
       method: "POST",
@@ -183,30 +164,23 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const notionBlockPagedSchema = z.object({
+  blockId: z.string().min(1),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  startCursor: z.string().optional(),
+});
+
+reg(
   "notion_block_children",
   "List child blocks of a block or page (GET /v1/blocks/{id}/children).",
-  {
-    blockId: z.string().min(1),
-    pageSize: z.number().int().min(1).max(100).optional(),
-    startCursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      blockId: z.string().min(1),
-      pageSize: z.number().int().min(1).max(100).optional(),
-      startCursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.blockId);
+  notionBlockPagedSchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.blockId);
     const qs = new URLSearchParams({
-      page_size: String(parsed.data.pageSize ?? 50),
+      page_size: String(parsed.pageSize ?? 50),
     });
-    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
-      qs.set("start_cursor", parsed.data.startCursor);
+    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
+      qs.set("start_cursor", parsed.startCursor);
     }
     const res = await notionFetch(`/blocks/${id}/children?${qs.toString()}`);
     if (!res.ok) {
@@ -216,30 +190,17 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+reg(
   "notion_comment_list",
   "List comments for a block or page (GET /v1/comments).",
-  {
-    blockId: z.string().min(1),
-    pageSize: z.number().int().min(1).max(100).optional(),
-    startCursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      blockId: z.string().min(1),
-      pageSize: z.number().int().min(1).max(100).optional(),
-      startCursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  notionBlockPagedSchema,
+  async (parsed) => {
     const qs = new URLSearchParams({
-      block_id: parsed.data.blockId,
-      page_size: String(parsed.data.pageSize ?? 50),
+      block_id: parsed.blockId,
+      page_size: String(parsed.pageSize ?? 50),
     });
-    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
-      qs.set("start_cursor", parsed.data.startCursor);
+    if (parsed.startCursor !== undefined && parsed.startCursor !== "") {
+      qs.set("start_cursor", parsed.startCursor);
     }
     const res = await notionFetch(`/comments?${qs.toString()}`);
     if (!res.ok) {
@@ -249,30 +210,23 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const notionPageCreateSchema = z.object({
+  parentPageId: z.string().min(1),
+  title: z.string().min(1),
+  titlePropertyName: z.string().min(1).optional(),
+});
+
+reg(
   "notion_page_create",
   "Create a page under a parent page (POST /v1/pages).",
-  {
-    parentPageId: z.string().min(1),
-    title: z.string().min(1),
-    titlePropertyName: z.string().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      parentPageId: z.string().min(1),
-      title: z.string().min(1),
-      titlePropertyName: z.string().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const prop = parsed.data.titlePropertyName ?? "title";
+  notionPageCreateSchema,
+  async (parsed) => {
+    const prop = parsed.titlePropertyName ?? "title";
     const body = {
-      parent: { page_id: parsed.data.parentPageId },
+      parent: { page_id: parsed.parentPageId },
       properties: {
         [prop]: {
-          title: richText(parsed.data.title),
+          title: richText(parsed.title),
         },
       },
     };
@@ -284,29 +238,26 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const notionPageUpdateSchema = z.object({
+  pageId: z.string().min(1),
+  propertiesJson: z.string().min(1),
+});
+
+reg(
   "notion_page_update",
   "Update page properties (PATCH /v1/pages/{id}). Pass properties JSON as string.",
-  { pageId: z.string().min(1), propertiesJson: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      pageId: z.string().min(1),
-      propertiesJson: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  notionPageUpdateSchema,
+  async (parsed) => {
     let props: unknown;
     try {
-      props = JSON.parse(parsed.data.propertiesJson) as unknown;
+      props = JSON.parse(parsed.propertiesJson) as unknown;
     } catch {
       throw new Error("propertiesJson must be valid JSON");
     }
     if (props === null || typeof props !== "object" || Array.isArray(props)) {
       throw new Error("propertiesJson must be a JSON object");
     }
-    const id = encodeURIComponent(parsed.data.pageId);
+    const id = encodeURIComponent(parsed.pageId);
     const res = await notionFetch(`/pages/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ properties: props }),
@@ -318,29 +269,26 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const notionBlockAppendSchema = z.object({
+  parentBlockId: z.string().min(1),
+  childrenJson: z.string().min(1),
+});
+
+reg(
   "notion_block_append",
   "Append blocks to a parent block (PATCH /v1/blocks/{id}/children). childrenJson is a JSON array of block objects.",
-  { parentBlockId: z.string().min(1), childrenJson: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      parentBlockId: z.string().min(1),
-      childrenJson: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  notionBlockAppendSchema,
+  async (parsed) => {
     let children: unknown;
     try {
-      children = JSON.parse(parsed.data.childrenJson) as unknown;
+      children = JSON.parse(parsed.childrenJson) as unknown;
     } catch {
       throw new Error("childrenJson must be valid JSON");
     }
     if (!Array.isArray(children)) {
-      throw new Error("childrenJson must be a JSON array");
+      throw new TypeError("childrenJson must be a JSON array");
     }
-    const id = encodeURIComponent(parsed.data.parentBlockId);
+    const id = encodeURIComponent(parsed.parentBlockId);
     const res = await notionFetch(`/blocks/${id}/children`, {
       method: "PATCH",
       body: JSON.stringify({ children }),
@@ -352,22 +300,19 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const notionCommentCreateSchema = z.object({
+  pageId: z.string().min(1),
+  text: z.string().min(1),
+});
+
+reg(
   "notion_comment_create",
   "Create a comment thread on a page (POST /v1/comments).",
-  { pageId: z.string().min(1), text: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      pageId: z.string().min(1),
-      text: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  notionCommentCreateSchema,
+  async (parsed) => {
     const body = {
-      parent: { page_id: parsed.data.pageId },
-      rich_text: richText(parsed.data.text),
+      parent: { page_id: parsed.pageId },
+      rich_text: richText(parsed.text),
     };
     const res = await notionFetch("/comments", { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) {
@@ -377,9 +322,5 @@ registerSimpleTool(
   },
 );
 
-async function main(): Promise<void> {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-
-void main();
+const transport = new StdioServerTransport();
+await server.connect(transport);

@@ -4,32 +4,27 @@ import {
   createMemoryIndexDb,
   createStubVault,
   describeWithFetchRestore,
+  expectServiceItemCount,
+  type SyncTestFetchParams,
   silentSyncContextExtras,
+  testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 import { createLinearSyncable } from "./linear-sync.ts";
 
 describeWithFetchRestore("linear-sync", () => {
-  test("no-op when API key missing", async () => {
-    const db = createMemoryIndexDb();
-    const sync = createLinearSyncable({ ensureLinearMcpRunning: async () => {} });
-    const r = await sync.sync(
-      {
-        vault: createStubVault({ "linear.api_key": null }),
-        db,
-        ...silentSyncContextExtras(),
-      },
-      null,
-    );
-    expect(r.itemsUpserted).toBe(0);
-    expect(r.itemsDeleted).toBe(0);
-    expect(r.cursor).toBeNull();
-  });
+  testConnectorSyncNoop(
+    "no-op when API key missing",
+    () => createLinearSyncable({ ensureLinearMcpRunning: async () => {} }),
+    createStubVault({ "linear.api_key": null }),
+  );
 
   test("indexes issues from GraphQL response and advances cursor", async () => {
     const db = createMemoryIndexDb();
-    type FetchParams = Parameters<typeof fetch>;
-    globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
+    globalThis.fetch = (async (
+      input: SyncTestFetchParams[0],
+      init?: SyncTestFetchParams[1],
+    ): Promise<Response> => {
       const u = urlFromFetchInput(input);
       expect(u).toContain("api.linear.app/graphql");
       const body =
@@ -66,9 +61,6 @@ describeWithFetchRestore("linear-sync", () => {
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-lnr1:");
-    const row = db.prepare("SELECT COUNT(*) AS c FROM item WHERE service = ?").get("linear") as {
-      c: number;
-    };
-    expect(row.c).toBe(1);
+    expectServiceItemCount(db, "linear", 1);
   });
 });

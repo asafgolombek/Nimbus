@@ -122,6 +122,37 @@ function createMocks(initialApprove = true): {
   };
 }
 
+function hitlNotionRejectPayload(
+  notionAction:
+    | "notion.page.create"
+    | "notion.page.update"
+    | "notion.block.append"
+    | "notion.comment.create",
+): Record<string, unknown> {
+  if (notionAction === "notion.page.create") {
+    return {
+      mcpToolId: "notion_notion_page_create",
+      input: { parentPageId: "p1", title: "t" },
+    };
+  }
+  if (notionAction === "notion.page.update") {
+    return {
+      mcpToolId: "notion_notion_page_update",
+      input: { pageId: "p1", propertiesJson: "{}" },
+    };
+  }
+  if (notionAction === "notion.block.append") {
+    return {
+      mcpToolId: "notion_notion_block_append",
+      input: { parentBlockId: "b1", childrenJson: "[]" },
+    };
+  }
+  return {
+    mcpToolId: "notion_notion_comment_create",
+    input: { pageId: "p1", text: "c" },
+  };
+}
+
 describe("ToolExecutor", () => {
   function hitlEmailRejectPayload(
     emailAction: "email.send" | "email.draft.send" | "email.draft.create",
@@ -195,37 +226,6 @@ describe("ToolExecutor", () => {
     return {
       mcpToolId: "jira_jira_comment_add",
       input: { issueKey: "NIM-1", body: "c" },
-    };
-  }
-
-  function hitlNotionRejectPayload(
-    notionAction:
-      | "notion.page.create"
-      | "notion.page.update"
-      | "notion.block.append"
-      | "notion.comment.create",
-  ): Record<string, unknown> {
-    if (notionAction === "notion.page.create") {
-      return {
-        mcpToolId: "notion_notion_page_create",
-        input: { parentPageId: "p1", title: "t" },
-      };
-    }
-    if (notionAction === "notion.page.update") {
-      return {
-        mcpToolId: "notion_notion_page_update",
-        input: { pageId: "p1", propertiesJson: "{}" },
-      };
-    }
-    if (notionAction === "notion.block.append") {
-      return {
-        mcpToolId: "notion_notion_block_append",
-        input: { parentBlockId: "b1", childrenJson: "[]" },
-      };
-    }
-    return {
-      mcpToolId: "notion_notion_comment_create",
-      input: { pageId: "p1", text: "c" },
     };
   }
 

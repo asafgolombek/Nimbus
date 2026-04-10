@@ -118,6 +118,56 @@ function confluenceUpsertOneSearchHit(
   return false;
 }
 
+async function confluenceFetchSearchPageBatch(
+  ctx: SyncContext,
+  batch: {
+    apiBase: string;
+    email: string;
+    token: string;
+    cqlBase: string;
+    start: number;
+    limit: number;
+  },
+): Promise<{ results: unknown[]; bytes: number }> {
+  const { apiBase, email, token, cqlBase, start, limit } = batch;
+  const qs = new URLSearchParams({
+    cql: cqlBase,
+    limit: String(limit),
+    start: String(start),
+    expand: "history.lastUpdated,space,version",
+  });
+  const url = `${apiBase}/content/search?${qs.toString()}`;
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      Authorization: basicAuthHeader(email, token),
+    },
+  });
+  const text = await res.text();
+  const bytes = text.length;
+
+  if (res.status === 429) {
+    ctx.rateLimiter.penalise("confluence", 60_000);
+    throw new Error("Confluence sync: rate limited");
+  }
+  if (!res.ok) {
+    throw new Error(`Confluence sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("Confluence sync: invalid JSON");
+  }
+  const root = asRecord(parsed);
+  const results = root?.["results"];
+  if (!Array.isArray(results)) {
+    throw new Error("Confluence sync: missing results");
+  }
+  return { results, bytes };
+}
+
 async function confluenceRunPagedSearch(p: ConfluencePagedSearchParams): Promise<SyncResult> {
   const { ctx, apiBase, email, token, baseRaw, cqlBase, watermark, watermarkMs, t0 } = p;
   const limit = 50;
@@ -128,41 +178,15 @@ async function confluenceRunPagedSearch(p: ConfluencePagedSearchParams): Promise
   let shouldStop = false;
 
   for (;;) {
-    const qs = new URLSearchParams({
-      cql: cqlBase,
-      limit: String(limit),
-      start: String(start),
-      expand: "history.lastUpdated,space,version",
+    const { results, bytes } = await confluenceFetchSearchPageBatch(ctx, {
+      apiBase,
+      email,
+      token,
+      cqlBase,
+      start,
+      limit,
     });
-    const url = `${apiBase}/content/search?${qs.toString()}`;
-    const res = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        Authorization: basicAuthHeader(email, token),
-      },
-    });
-    const text = await res.text();
-    bytesTransferred += text.length;
-
-    if (res.status === 429) {
-      ctx.rateLimiter.penalise("confluence", 60_000);
-      throw new Error("Confluence sync: rate limited");
-    }
-    if (!res.ok) {
-      throw new Error(`Confluence sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text) as unknown;
-    } catch {
-      throw new Error("Confluence sync: invalid JSON");
-    }
-    const root = asRecord(parsed);
-    const results = root?.["results"];
-    if (!Array.isArray(results)) {
-      throw new Error("Confluence sync: missing results");
-    }
+    bytesTransferred += bytes;
 
     for (const item of results) {
       const stop = confluenceUpsertOneSearchHit(ctx, item, { watermarkMs, baseRaw, syncTime }, acc);

@@ -13,6 +13,8 @@ import {
   encodeBasicAuthHeader,
   mcpJsonResult as jsonResult,
   type McpListResult,
+  registerZodTool,
+  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
@@ -66,6 +68,20 @@ async function jiraFetch(
   return { ok: res.ok, status: res.status, text };
 }
 
+function jiraJsonFromResponse(
+  res: { ok: boolean; status: number; text: string },
+  context: string,
+): unknown {
+  if (!res.ok) {
+    throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
+  }
+  try {
+    return JSON.parse(res.text) as unknown;
+  } catch {
+    throw new Error(`Jira: invalid JSON from ${context}`);
+  }
+}
+
 function plainToAdf(text: string): Record<string, unknown> {
   return {
     type: "doc",
@@ -83,157 +99,114 @@ const server = new McpServer({ name: "nimbus-jira", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
 
-registerSimpleTool(
+function reg<T>(
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerZodTool(registerSimpleTool, name, description, schema, handler);
+}
+
+const jiraIssueListSchema = z.object({
+  jql: z.string().min(1).optional(),
+  startAt: z.number().int().min(0).optional(),
+  maxResults: z.number().int().min(1).max(100).optional(),
+});
+
+reg(
   "jira_issue_list",
   "Search Jira issues with JQL (Jira Cloud REST POST /rest/api/3/search).",
-  {
-    jql: z.string().min(1).optional(),
-    startAt: z.number().int().min(0).optional(),
-    maxResults: z.number().int().min(1).max(100).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      jql: z.string().min(1).optional(),
-      startAt: z.number().int().min(0).optional(),
-      maxResults: z.number().int().min(1).max(100).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  jiraIssueListSchema,
+  async (parsed) => {
     const { baseUrl, email, token } = requireJiraConfig();
-    const jql = parsed.data.jql ?? "order by updated DESC";
+    const jql = parsed.jql ?? "order by updated DESC";
     const body = JSON.stringify({
       jql,
-      startAt: parsed.data.startAt ?? 0,
-      maxResults: parsed.data.maxResults ?? 50,
+      startAt: parsed.startAt ?? 0,
+      maxResults: parsed.maxResults ?? 50,
       fields: ["summary", "description", "updated", "status", "issuetype", "priority", "assignee"],
     });
     const res = await jiraFetch(baseUrl, email, token, "/rest/api/3/search", {
       method: "POST",
       body,
     });
-    if (!res.ok) {
-      throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(res.text) as unknown;
-    } catch {
-      throw new Error("Jira: invalid JSON from search");
-    }
-    return jsonResult(data);
+    return jsonResult(jiraJsonFromResponse(res, "search"));
   },
 );
 
-registerSimpleTool(
+const jiraIssueKeySchema = z.object({ issueKey: z.string().min(1) });
+
+reg(
   "jira_issue_get",
   "Get a Jira issue by key or id (GET /rest/api/3/issue/{issueIdOrKey}).",
-  { issueKey: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({ issueKey: z.string().min(1) });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  jiraIssueKeySchema,
+  async (parsed) => {
     const { baseUrl, email, token } = requireJiraConfig();
-    const key = encodeURIComponent(parsed.data.issueKey);
+    const key = encodeURIComponent(parsed.issueKey);
     const res = await jiraFetch(
       baseUrl,
       email,
       token,
       `/rest/api/3/issue/${key}?fields=summary,description,updated,status,issuetype,priority,assignee,comment`,
     );
-    if (!res.ok) {
-      throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(res.text) as unknown;
-    } catch {
-      throw new Error("Jira: invalid JSON from issue get");
-    }
-    return jsonResult(data);
+    return jsonResult(jiraJsonFromResponse(res, "issue get"));
   },
 );
 
-registerSimpleTool(
+const jiraIssueCreateSchema = z.object({
+  projectKey: z.string().min(1),
+  summary: z.string().min(1),
+  description: z.string().optional(),
+  issueTypeName: z.string().min(1).optional(),
+});
+
+reg(
   "jira_issue_create",
   "Create a Jira issue (POST /rest/api/3/issue). Requires project key and summary.",
-  {
-    projectKey: z.string().min(1),
-    summary: z.string().min(1),
-    description: z.string().optional(),
-    issueTypeName: z.string().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectKey: z.string().min(1),
-      summary: z.string().min(1),
-      description: z.string().optional(),
-      issueTypeName: z.string().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  jiraIssueCreateSchema,
+  async (parsed) => {
     const { baseUrl, email, token } = requireJiraConfig();
     const fields: Record<string, unknown> = {
-      project: { key: parsed.data.projectKey },
-      summary: parsed.data.summary,
-      issuetype: { name: parsed.data.issueTypeName ?? "Task" },
+      project: { key: parsed.projectKey },
+      summary: parsed.summary,
+      issuetype: { name: parsed.issueTypeName ?? "Task" },
     };
-    if (parsed.data.description !== undefined && parsed.data.description !== "") {
-      fields["description"] = plainToAdf(parsed.data.description);
+    if (parsed.description !== undefined && parsed.description !== "") {
+      fields["description"] = plainToAdf(parsed.description);
     }
     const body = JSON.stringify({ fields });
     const res = await jiraFetch(baseUrl, email, token, "/rest/api/3/issue", {
       method: "POST",
       body,
     });
-    if (!res.ok) {
-      throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(res.text) as unknown;
-    } catch {
-      throw new Error("Jira: invalid JSON from issue create");
-    }
-    return jsonResult(data);
+    return jsonResult(jiraJsonFromResponse(res, "issue create"));
   },
 );
 
-registerSimpleTool(
+const jiraIssueUpdateSchema = z.object({
+  issueKey: z.string().min(1),
+  summary: z.string().min(1).optional(),
+  description: z.string().optional(),
+});
+
+reg(
   "jira_issue_update",
   "Update summary and/or description on a Jira issue (PUT /rest/api/3/issue/{key}).",
-  {
-    issueKey: z.string().min(1),
-    summary: z.string().min(1).optional(),
-    description: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      issueKey: z.string().min(1),
-      summary: z.string().min(1).optional(),
-      description: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    if (parsed.data.summary === undefined && parsed.data.description === undefined) {
+  jiraIssueUpdateSchema,
+  async (parsed) => {
+    if (parsed.summary === undefined && parsed.description === undefined) {
       throw new Error("Provide summary and/or description to update");
     }
     const { baseUrl, email, token } = requireJiraConfig();
     const fields: Record<string, unknown> = {};
-    if (parsed.data.summary !== undefined) {
-      fields["summary"] = parsed.data.summary;
+    if (parsed.summary !== undefined) {
+      fields["summary"] = parsed.summary;
     }
-    if (parsed.data.description !== undefined) {
-      fields["description"] = plainToAdf(parsed.data.description);
+    if (parsed.description !== undefined) {
+      fields["description"] = plainToAdf(parsed.description);
     }
-    const key = encodeURIComponent(parsed.data.issueKey);
+    const key = encodeURIComponent(parsed.issueKey);
     const body = JSON.stringify({ fields });
     const res = await jiraFetch(baseUrl, email, token, `/rest/api/3/issue/${key}`, {
       method: "PUT",
@@ -242,167 +215,105 @@ registerSimpleTool(
     if (!res.ok) {
       throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
     }
-    return jsonResult({ ok: true, issueKey: parsed.data.issueKey });
+    return jsonResult({ ok: true, issueKey: parsed.issueKey });
   },
 );
 
-registerSimpleTool(
+const jiraCommentAddSchema = z.object({
+  issueKey: z.string().min(1),
+  body: z.string().min(1),
+});
+
+reg(
   "jira_comment_add",
   "Add a comment to a Jira issue (POST /rest/api/3/issue/{key}/comment).",
-  { issueKey: z.string().min(1), body: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      issueKey: z.string().min(1),
-      body: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  jiraCommentAddSchema,
+  async (parsed) => {
     const { baseUrl, email, token } = requireJiraConfig();
-    const key = encodeURIComponent(parsed.data.issueKey);
-    const payload = JSON.stringify({ body: plainToAdf(parsed.data.body) });
+    const key = encodeURIComponent(parsed.issueKey);
+    const payload = JSON.stringify({ body: plainToAdf(parsed.body) });
     const res = await jiraFetch(baseUrl, email, token, `/rest/api/3/issue/${key}/comment`, {
       method: "POST",
       body: payload,
     });
-    if (!res.ok) {
-      throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(res.text) as unknown;
-    } catch {
-      throw new Error("Jira: invalid JSON from comment add");
-    }
-    return jsonResult(data);
+    return jsonResult(jiraJsonFromResponse(res, "comment add"));
   },
 );
 
-registerSimpleTool(
+const jiraBoardListSchema = z.object({
+  startAt: z.number().int().min(0).optional(),
+  maxResults: z.number().int().min(1).max(50).optional(),
+});
+
+reg(
   "jira_board_list",
   "List Jira boards (GET /rest/agile/1.0/board).",
-  {
-    startAt: z.number().int().min(0).optional(),
-    maxResults: z.number().int().min(1).max(50).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      startAt: z.number().int().min(0).optional(),
-      maxResults: z.number().int().min(1).max(50).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  jiraBoardListSchema,
+  async (parsed) => {
     const { baseUrl, email, token } = requireJiraConfig();
-    const start = parsed.data.startAt ?? 0;
-    const max = parsed.data.maxResults ?? 50;
+    const start = parsed.startAt ?? 0;
+    const max = parsed.maxResults ?? 50;
     const res = await jiraFetch(
       baseUrl,
       email,
       token,
       `/rest/agile/1.0/board?startAt=${String(start)}&maxResults=${String(max)}`,
     );
-    if (!res.ok) {
-      throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(res.text) as unknown;
-    } catch {
-      throw new Error("Jira: invalid JSON from board list");
-    }
-    return jsonResult(data);
+    return jsonResult(jiraJsonFromResponse(res, "board list"));
   },
 );
 
-registerSimpleTool(
+const jiraSprintListSchema = z.object({
+  boardId: z.number().int().min(1),
+  startAt: z.number().int().min(0).optional(),
+  maxResults: z.number().int().min(1).max(50).optional(),
+});
+
+reg(
   "jira_sprint_list",
   "List sprints for a board (GET /rest/agile/1.0/board/{boardId}/sprint).",
-  {
-    boardId: z.number().int().min(1),
-    startAt: z.number().int().min(0).optional(),
-    maxResults: z.number().int().min(1).max(50).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      boardId: z.number().int().min(1),
-      startAt: z.number().int().min(0).optional(),
-      maxResults: z.number().int().min(1).max(50).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  jiraSprintListSchema,
+  async (parsed) => {
     const { baseUrl, email, token } = requireJiraConfig();
-    const start = parsed.data.startAt ?? 0;
-    const max = parsed.data.maxResults ?? 50;
-    const bid = String(parsed.data.boardId);
+    const start = parsed.startAt ?? 0;
+    const max = parsed.maxResults ?? 50;
+    const bid = String(parsed.boardId);
     const res = await jiraFetch(
       baseUrl,
       email,
       token,
       `/rest/agile/1.0/board/${bid}/sprint?startAt=${String(start)}&maxResults=${String(max)}`,
     );
-    if (!res.ok) {
-      throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(res.text) as unknown;
-    } catch {
-      throw new Error("Jira: invalid JSON from sprint list");
-    }
-    return jsonResult(data);
+    return jsonResult(jiraJsonFromResponse(res, "sprint list"));
   },
 );
 
-registerSimpleTool(
+const jiraEpicListSchema = z.object({
+  projectKey: z.string().min(1),
+  maxResults: z.number().int().min(1).max(100).optional(),
+});
+
+reg(
   "jira_epic_list",
   "List epics in a project via JQL search.",
-  {
-    projectKey: z.string().min(1),
-    maxResults: z.number().int().min(1).max(100).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      projectKey: z.string().min(1),
-      maxResults: z.number().int().min(1).max(100).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  jiraEpicListSchema,
+  async (parsed) => {
     const { baseUrl, email, token } = requireJiraConfig();
-    const pk = parsed.data.projectKey;
+    const pk = parsed.projectKey;
     const jql = `project = ${pk} AND issuetype = Epic ORDER BY updated DESC`;
     const body = JSON.stringify({
       jql,
       startAt: 0,
-      maxResults: parsed.data.maxResults ?? 50,
+      maxResults: parsed.maxResults ?? 50,
       fields: ["summary", "updated", "status"],
     });
     const res = await jiraFetch(baseUrl, email, token, "/rest/api/3/search", {
       method: "POST",
       body,
     });
-    if (!res.ok) {
-      throw new Error(`Jira ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(res.text) as unknown;
-    } catch {
-      throw new Error("Jira: invalid JSON from epic search");
-    }
-    return jsonResult(data);
+    return jsonResult(jiraJsonFromResponse(res, "epic search"));
   },
 );
 
-async function main(): Promise<void> {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-
-void main();
+const transport = new StdioServerTransport();
+await server.connect(transport);

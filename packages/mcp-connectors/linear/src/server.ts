@@ -12,7 +12,9 @@ import {
   createRegisterSimpleTool,
   mcpJsonResult as jsonResult,
   type McpListResult,
+  registerZodTool,
   requireProcessEnv,
+  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 const LINEAR_GQL = "https://api.linear.app/graphql";
@@ -56,40 +58,50 @@ async function linearGraphql<T>(
   return { ok: true, data: body.data, text };
 }
 
+function linearGqlData<T>(
+  res: { ok: true; data: T; text: string } | { ok: false; status: number; text: string },
+): T {
+  if (!res.ok) {
+    throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
+  }
+  return res.data;
+}
+
 const server = new McpServer({ name: "nimbus-linear", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
 
-registerSimpleTool(
+function reg<T>(
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerZodTool(registerSimpleTool, name, description, schema, handler);
+}
+
+const linearIssueListSchema = z.object({
+  first: z.number().int().min(1).max(100).optional(),
+  teamId: z.string().min(1).optional(),
+  stateName: z.string().min(1).optional(),
+  assigneeId: z.string().min(1).optional(),
+});
+
+reg(
   "linear_issue_list",
   "List Linear issues with optional filters (team id, state name, assignee id).",
-  {
-    first: z.number().int().min(1).max(100).optional(),
-    teamId: z.string().min(1).optional(),
-    stateName: z.string().min(1).optional(),
-    assigneeId: z.string().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      first: z.number().int().min(1).max(100).optional(),
-      teamId: z.string().min(1).optional(),
-      stateName: z.string().min(1).optional(),
-      assigneeId: z.string().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearIssueListSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const filter: Record<string, unknown> = {};
-    if (parsed.data.teamId !== undefined) {
-      filter["team"] = { id: { eq: parsed.data.teamId } };
+    if (parsed.teamId !== undefined) {
+      filter["team"] = { id: { eq: parsed.teamId } };
     }
-    if (parsed.data.stateName !== undefined) {
-      filter["state"] = { name: { eq: parsed.data.stateName } };
+    if (parsed.stateName !== undefined) {
+      filter["state"] = { name: { eq: parsed.stateName } };
     }
-    if (parsed.data.assigneeId !== undefined) {
-      filter["assignee"] = { id: { eq: parsed.data.assigneeId } };
+    if (parsed.assigneeId !== undefined) {
+      filter["assignee"] = { id: { eq: parsed.assigneeId } };
     }
     const hasFilter = Object.keys(filter).length > 0;
     const q = hasFilter
@@ -128,28 +140,22 @@ registerSimpleTool(
         nodes: ReadonlyArray<Record<string, unknown>>;
       };
     };
-    const vars: Record<string, unknown> = { first: parsed.data.first ?? 50 };
+    const vars: Record<string, unknown> = { first: parsed.first ?? 50 };
     if (hasFilter) {
       vars["filter"] = filter;
     }
     const res = await linearGraphql<Out>(apiKey, q, vars);
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    return jsonResult(linearGqlData(res));
   },
 );
 
-registerSimpleTool(
+const linearIssueIdSchema = z.object({ issueId: z.string().min(1) });
+
+reg(
   "linear_issue_get",
   "Get a single Linear issue by UUID id.",
-  { issueId: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({ issueId: z.string().min(1) });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearIssueIdSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query IssueGet($id: String!) {
@@ -169,54 +175,41 @@ registerSimpleTool(
       }
     `;
     type Out = { issue: Record<string, unknown> | null };
-    const res = await linearGraphql<Out>(apiKey, q, { id: parsed.data.issueId });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    const res = await linearGraphql<Out>(apiKey, q, { id: parsed.issueId });
+    return jsonResult(linearGqlData(res));
   },
 );
 
-registerSimpleTool(
+const linearIssueCreateSchema = z.object({
+  teamId: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  priority: z.number().int().min(0).max(4).optional(),
+  stateId: z.string().min(1).optional(),
+  assigneeId: z.string().min(1).optional(),
+});
+
+reg(
   "linear_issue_create",
   "Create a Linear issue (requires teamId and title).",
-  {
-    teamId: z.string().min(1),
-    title: z.string().min(1),
-    description: z.string().optional(),
-    priority: z.number().int().min(0).max(4).optional(),
-    stateId: z.string().min(1).optional(),
-    assigneeId: z.string().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      teamId: z.string().min(1),
-      title: z.string().min(1),
-      description: z.string().optional(),
-      priority: z.number().int().min(0).max(4).optional(),
-      stateId: z.string().min(1).optional(),
-      assigneeId: z.string().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearIssueCreateSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const input: Record<string, unknown> = {
-      teamId: parsed.data.teamId,
-      title: parsed.data.title,
+      teamId: parsed.teamId,
+      title: parsed.title,
     };
-    if (parsed.data.description !== undefined) {
-      input["description"] = parsed.data.description;
+    if (parsed.description !== undefined) {
+      input["description"] = parsed.description;
     }
-    if (parsed.data.priority !== undefined) {
-      input["priority"] = parsed.data.priority;
+    if (parsed.priority !== undefined) {
+      input["priority"] = parsed.priority;
     }
-    if (parsed.data.stateId !== undefined) {
-      input["stateId"] = parsed.data.stateId;
+    if (parsed.stateId !== undefined) {
+      input["stateId"] = parsed.stateId;
     }
-    if (parsed.data.assigneeId !== undefined) {
-      input["assigneeId"] = parsed.data.assigneeId;
+    if (parsed.assigneeId !== undefined) {
+      input["assigneeId"] = parsed.assigneeId;
     }
     const q = `
       mutation IssueCreate($input: IssueCreateInput!) {
@@ -228,53 +221,40 @@ registerSimpleTool(
     `;
     type Out = { issueCreate: { success: boolean; issue: Record<string, unknown> | null } };
     const res = await linearGraphql<Out>(apiKey, q, { input });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    return jsonResult(linearGqlData(res));
   },
 );
 
-registerSimpleTool(
+const linearIssueUpdateSchema = z.object({
+  issueId: z.string().min(1),
+  title: z.string().min(1).optional(),
+  description: z.string().optional(),
+  stateId: z.string().min(1).optional(),
+  priority: z.number().int().min(0).max(4).optional(),
+  assigneeId: z.string().min(1).optional(),
+});
+
+reg(
   "linear_issue_update",
   "Update a Linear issue by id.",
-  {
-    issueId: z.string().min(1),
-    title: z.string().min(1).optional(),
-    description: z.string().optional(),
-    stateId: z.string().min(1).optional(),
-    priority: z.number().int().min(0).max(4).optional(),
-    assigneeId: z.string().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      issueId: z.string().min(1),
-      title: z.string().min(1).optional(),
-      description: z.string().optional(),
-      stateId: z.string().min(1).optional(),
-      priority: z.number().int().min(0).max(4).optional(),
-      assigneeId: z.string().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearIssueUpdateSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const input: Record<string, unknown> = {};
-    if (parsed.data.title !== undefined) {
-      input["title"] = parsed.data.title;
+    if (parsed.title !== undefined) {
+      input["title"] = parsed.title;
     }
-    if (parsed.data.description !== undefined) {
-      input["description"] = parsed.data.description;
+    if (parsed.description !== undefined) {
+      input["description"] = parsed.description;
     }
-    if (parsed.data.stateId !== undefined) {
-      input["stateId"] = parsed.data.stateId;
+    if (parsed.stateId !== undefined) {
+      input["stateId"] = parsed.stateId;
     }
-    if (parsed.data.priority !== undefined) {
-      input["priority"] = parsed.data.priority;
+    if (parsed.priority !== undefined) {
+      input["priority"] = parsed.priority;
     }
-    if (parsed.data.assigneeId !== undefined) {
-      input["assigneeId"] = parsed.data.assigneeId;
+    if (parsed.assigneeId !== undefined) {
+      input["assigneeId"] = parsed.assigneeId;
     }
     const q = `
       mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
@@ -288,29 +268,23 @@ registerSimpleTool(
       issueUpdate: { success: boolean; issue: Record<string, unknown> | null };
     };
     const res = await linearGraphql<Out>(apiKey, q, {
-      id: parsed.data.issueId,
+      id: parsed.issueId,
       input,
     });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    return jsonResult(linearGqlData(res));
   },
 );
 
-registerSimpleTool(
+const linearCommentCreateSchema = z.object({
+  issueId: z.string().min(1),
+  body: z.string().min(1),
+});
+
+reg(
   "linear_comment_create",
   "Add a comment to a Linear issue.",
-  { issueId: z.string().min(1), body: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      issueId: z.string().min(1),
-      body: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearCommentCreateSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       mutation CommentCreate($input: CommentCreateInput!) {
@@ -324,29 +298,19 @@ registerSimpleTool(
       commentCreate: { success: boolean; comment: Record<string, unknown> | null };
     };
     const res = await linearGraphql<Out>(apiKey, q, {
-      input: { issueId: parsed.data.issueId, body: parsed.data.body },
+      input: { issueId: parsed.issueId, body: parsed.body },
     });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    return jsonResult(linearGqlData(res));
   },
 );
 
-registerSimpleTool(
-  "linear_project_list",
-  "List Linear projects.",
-  { first: z.number().int().min(1).max(100).optional() },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      first: z.number().int().min(1).max(100).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const apiKey = requireProcessEnv("LINEAR_API_KEY");
-    const q = `
+const linearFirstOptionalSchema = z.object({
+  first: z.number().int().min(1).max(100).optional(),
+});
+
+reg("linear_project_list", "List Linear projects.", linearFirstOptionalSchema, async (parsed) => {
+  const apiKey = requireProcessEnv("LINEAR_API_KEY");
+  const q = `
       query ProjectList($first: Int!) {
         projects(first: $first) {
           nodes {
@@ -361,27 +325,16 @@ registerSimpleTool(
         }
       }
     `;
-    type Out = { projects: { nodes: ReadonlyArray<Record<string, unknown>> } };
-    const res = await linearGraphql<Out>(apiKey, q, { first: parsed.data.first ?? 50 });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
-  },
-);
+  type Out = { projects: { nodes: ReadonlyArray<Record<string, unknown>> } };
+  const res = await linearGraphql<Out>(apiKey, q, { first: parsed.first ?? 50 });
+  return jsonResult(linearGqlData(res));
+});
 
-registerSimpleTool(
-  "linear_project_get",
-  "Get a Linear project by id.",
-  { projectId: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({ projectId: z.string().min(1) });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const apiKey = requireProcessEnv("LINEAR_API_KEY");
-    const q = `
+const linearProjectIdSchema = z.object({ projectId: z.string().min(1) });
+
+reg("linear_project_get", "Get a Linear project by id.", linearProjectIdSchema, async (parsed) => {
+  const apiKey = requireProcessEnv("LINEAR_API_KEY");
+  const q = `
       query ProjectGet($id: String!) {
         project(id: $id) {
           id
@@ -395,28 +348,21 @@ registerSimpleTool(
         }
       }
     `;
-    type Out = { project: Record<string, unknown> | null };
-    const res = await linearGraphql<Out>(apiKey, q, { id: parsed.data.projectId });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
-  },
-);
+  type Out = { project: Record<string, unknown> | null };
+  const res = await linearGraphql<Out>(apiKey, q, { id: parsed.projectId });
+  return jsonResult(linearGqlData(res));
+});
 
-registerSimpleTool(
+const linearCycleListSchema = z.object({
+  teamId: z.string().min(1),
+  first: z.number().int().min(1).max(50).optional(),
+});
+
+reg(
   "linear_cycle_list",
   "List Linear cycles for a team.",
-  { teamId: z.string().min(1), first: z.number().int().min(1).max(50).optional() },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      teamId: z.string().min(1),
-      first: z.number().int().min(1).max(50).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearCycleListSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query CycleList($teamId: ID!, $first: Int!) {
@@ -442,28 +388,22 @@ registerSimpleTool(
       } | null;
     };
     const res = await linearGraphql<Out>(apiKey, q, {
-      teamId: parsed.data.teamId,
-      first: parsed.data.first ?? 20,
+      teamId: parsed.teamId,
+      first: parsed.first ?? 20,
     });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    return jsonResult(linearGqlData(res));
   },
 );
 
-registerSimpleTool(
+const linearRoadmapFirstSchema = z.object({
+  first: z.number().int().min(1).max(50).optional(),
+});
+
+reg(
   "linear_roadmap_list",
   "List Linear initiatives (roadmap).",
-  { first: z.number().int().min(1).max(50).optional() },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      first: z.number().int().min(1).max(50).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearRoadmapFirstSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query InitiativeList($first: Int!) {
@@ -480,26 +420,16 @@ registerSimpleTool(
       }
     `;
     type Out = { initiatives: { nodes: ReadonlyArray<Record<string, unknown>> } };
-    const res = await linearGraphql<Out>(apiKey, q, { first: parsed.data.first ?? 30 });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    const res = await linearGraphql<Out>(apiKey, q, { first: parsed.first ?? 30 });
+    return jsonResult(linearGqlData(res));
   },
 );
 
-registerSimpleTool(
+reg(
   "linear_member_list",
   "List users in the workspace.",
-  { first: z.number().int().min(1).max(100).optional() },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      first: z.number().int().min(1).max(100).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  linearFirstOptionalSchema,
+  async (parsed) => {
     const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query Users($first: Int!) {
@@ -515,17 +445,10 @@ registerSimpleTool(
       }
     `;
     type Out = { users: { nodes: ReadonlyArray<Record<string, unknown>> } };
-    const res = await linearGraphql<Out>(apiKey, q, { first: parsed.data.first ?? 50 });
-    if (!res.ok) {
-      throw new Error(`Linear ${String(res.status)}: ${res.text.slice(0, 300)}`);
-    }
-    return jsonResult(res.data);
+    const res = await linearGraphql<Out>(apiKey, q, { first: parsed.first ?? 50 });
+    return jsonResult(linearGqlData(res));
   },
 );
 
-async function main(): Promise<void> {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-
-void main();
+const transport = new StdioServerTransport();
+await server.connect(transport);

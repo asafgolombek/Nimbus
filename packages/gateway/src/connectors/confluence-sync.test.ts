@@ -6,26 +6,23 @@ import {
   createStubVault,
   describeWithFetchRestore,
   EMPTY_NIMBUS_VAULT,
+  expectServiceItemCount,
+  type SyncTestFetchParams,
   silentSyncContextExtras,
+  testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 
 describeWithFetchRestore("confluence-sync", () => {
-  test("no-op when credentials missing", async () => {
-    const db = createMemoryIndexDb();
-    const sync = createConfluenceSyncable({ ensureConfluenceMcpRunning: async () => {} });
-    const r = await sync.sync(
-      { vault: EMPTY_NIMBUS_VAULT, db, ...silentSyncContextExtras() },
-      null,
-    );
-    expect(r.itemsUpserted).toBe(0);
-    expect(r.cursor).toBeNull();
-  });
+  testConnectorSyncNoop(
+    "no-op when credentials missing",
+    () => createConfluenceSyncable({ ensureConfluenceMcpRunning: async () => {} }),
+    EMPTY_NIMBUS_VAULT,
+  );
 
   test("indexes pages from Confluence CQL search and advances cursor", async () => {
     const db = createMemoryIndexDb();
-    type FetchParams = Parameters<typeof fetch>;
-    globalThis.fetch = (async (input: FetchParams[0]): Promise<Response> => {
+    globalThis.fetch = (async (input: SyncTestFetchParams[0]): Promise<Response> => {
       const u = urlFromFetchInput(input);
       expect(u).toContain("example.atlassian.net/wiki/rest/api/content/search");
       expect(u).toContain("cql=");
@@ -59,11 +56,6 @@ describeWithFetchRestore("confluence-sync", () => {
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-cfl1:");
-    const row = db
-      .prepare("SELECT COUNT(*) AS c FROM item WHERE service = ?")
-      .get("confluence") as {
-      c: number;
-    };
-    expect(row.c).toBe(1);
+    expectServiceItemCount(db, "confluence", 1);
   });
 });

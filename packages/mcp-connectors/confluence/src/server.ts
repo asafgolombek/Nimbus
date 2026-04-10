@@ -13,6 +13,8 @@ import {
   encodeBasicAuthHeader,
   mcpJsonResult as jsonResult,
   type McpListResult,
+  registerZodTool,
+  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
@@ -73,277 +75,214 @@ async function confFetch(
   return { ok: res.ok, status: res.status, text };
 }
 
+function confJsonFromResponse(res: { ok: boolean; status: number; text: string }): unknown {
+  if (!res.ok) {
+    throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
+  }
+  return JSON.parse(res.text) as unknown;
+}
+
 const server = new McpServer({ name: "nimbus-confluence", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
 
-registerSimpleTool(
+function reg<T>(
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerZodTool(registerSimpleTool, name, description, schema, handler);
+}
+
+const confluenceLimitStartSchema = z.object({
+  limit: z.number().int().min(1).max(100).optional(),
+  start: z.number().int().min(0).optional(),
+});
+
+reg(
   "confluence_space_list",
   "List Confluence spaces (GET /space).",
-  { limit: z.number().int().min(1).max(100).optional(), start: z.number().int().min(0).optional() },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      limit: z.number().int().min(1).max(100).optional(),
-      start: z.number().int().min(0).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  confluenceLimitStartSchema,
+  async (parsed) => {
     const qs = new URLSearchParams({
-      limit: String(parsed.data.limit ?? 25),
-      start: String(parsed.data.start ?? 0),
+      limit: String(parsed.limit ?? 25),
+      start: String(parsed.start ?? 0),
     });
     const res = await confFetch(`/space?${qs.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+const confluenceSpaceContentSchema = z.object({
+  spaceKey: z.string().min(1),
+  limit: z.number().int().min(1).max(100).optional(),
+  start: z.number().int().min(0).optional(),
+});
+
+reg(
   "confluence_page_list",
   "List pages in a space (GET /content, type=page).",
-  {
-    spaceKey: z.string().min(1),
-    limit: z.number().int().min(1).max(100).optional(),
-    start: z.number().int().min(0).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      spaceKey: z.string().min(1),
-      limit: z.number().int().min(1).max(100).optional(),
-      start: z.number().int().min(0).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  confluenceSpaceContentSchema,
+  async (parsed) => {
     const qs = new URLSearchParams({
       type: "page",
-      spaceKey: parsed.data.spaceKey,
-      limit: String(parsed.data.limit ?? 50),
-      start: String(parsed.data.start ?? 0),
+      spaceKey: parsed.spaceKey,
+      limit: String(parsed.limit ?? 50),
+      start: String(parsed.start ?? 0),
       expand: "history.lastUpdated,version",
     });
     const res = await confFetch(`/content?${qs.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+const confluencePageIdSchema = z.object({ pageId: z.string().min(1) });
+
+reg(
   "confluence_page_get",
   "Get a Confluence page with body.storage (GET /content/{id}).",
-  { pageId: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({ pageId: z.string().min(1) });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.pageId);
+  confluencePageIdSchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.pageId);
     const res = await confFetch(
       `/content/${id}?expand=body.storage,version,history.lastUpdated,space`,
     );
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+reg(
   "confluence_blogpost_list",
   "List blog posts in a space (GET /content, type=blogpost).",
-  {
-    spaceKey: z.string().min(1),
-    limit: z.number().int().min(1).max(100).optional(),
-    start: z.number().int().min(0).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      spaceKey: z.string().min(1),
-      limit: z.number().int().min(1).max(100).optional(),
-      start: z.number().int().min(0).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  confluenceSpaceContentSchema,
+  async (parsed) => {
     const qs = new URLSearchParams({
       type: "blogpost",
-      spaceKey: parsed.data.spaceKey,
-      limit: String(parsed.data.limit ?? 25),
-      start: String(parsed.data.start ?? 0),
+      spaceKey: parsed.spaceKey,
+      limit: String(parsed.limit ?? 25),
+      start: String(parsed.start ?? 0),
       expand: "history.lastUpdated,version",
     });
     const res = await confFetch(`/content?${qs.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+const confluencePostIdSchema = z.object({ postId: z.string().min(1) });
+
+reg(
   "confluence_blogpost_get",
   "Get a blog post by id (GET /content/{id}).",
-  { postId: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({ postId: z.string().min(1) });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.postId);
+  confluencePostIdSchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.postId);
     const res = await confFetch(
       `/content/${id}?expand=body.storage,version,history.lastUpdated,space`,
     );
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+const confluenceCommentListSchema = z.object({
+  pageId: z.string().min(1),
+  limit: z.number().int().min(1).max(100).optional(),
+  start: z.number().int().min(0).optional(),
+});
+
+reg(
   "confluence_comment_list",
   "List footer comments on a page (GET /content/{id}/child/comment).",
-  {
-    pageId: z.string().min(1),
-    limit: z.number().int().min(1).max(100).optional(),
-    start: z.number().int().min(0).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      pageId: z.string().min(1),
-      limit: z.number().int().min(1).max(100).optional(),
-      start: z.number().int().min(0).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.pageId);
+  confluenceCommentListSchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.pageId);
     const qs = new URLSearchParams({
-      limit: String(parsed.data.limit ?? 50),
-      start: String(parsed.data.start ?? 0),
+      limit: String(parsed.limit ?? 50),
+      start: String(parsed.start ?? 0),
       expand: "body.storage,version",
     });
     const res = await confFetch(`/content/${id}/child/comment?${qs.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+const confluencePageCreateSchema = z.object({
+  spaceKey: z.string().min(1),
+  title: z.string().min(1),
+  storageHtml: z.string().min(1),
+  parentPageId: z.string().min(1).optional(),
+});
+
+reg(
   "confluence_page_create",
   "Create a page in a space (POST /content). Optional parentPageId.",
-  {
-    spaceKey: z.string().min(1),
-    title: z.string().min(1),
-    storageHtml: z.string().min(1),
-    parentPageId: z.string().min(1).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      spaceKey: z.string().min(1),
-      title: z.string().min(1),
-      storageHtml: z.string().min(1),
-      parentPageId: z.string().min(1).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  confluencePageCreateSchema,
+  async (parsed) => {
     const body: Record<string, unknown> = {
       type: "page",
-      title: parsed.data.title,
-      space: { key: parsed.data.spaceKey },
+      title: parsed.title,
+      space: { key: parsed.spaceKey },
       body: {
         storage: {
-          value: parsed.data.storageHtml,
+          value: parsed.storageHtml,
           representation: "storage",
         },
       },
     };
-    if (parsed.data.parentPageId !== undefined) {
-      body["ancestors"] = [{ id: parsed.data.parentPageId }];
+    if (parsed.parentPageId !== undefined) {
+      body["ancestors"] = [{ id: parsed.parentPageId }];
     }
     const res = await confFetch("/content", { method: "POST", body: JSON.stringify(body) });
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+const confluencePageUpdateSchema = z.object({
+  pageId: z.string().min(1),
+  versionNumber: z.number().int().min(1),
+  title: z.string().min(1),
+  storageHtml: z.string().min(1),
+});
+
+reg(
   "confluence_page_update",
   "Update page body and bump version (PUT /content/{id}). Pass current version number and title.",
-  {
-    pageId: z.string().min(1),
-    versionNumber: z.number().int().min(1),
-    title: z.string().min(1),
-    storageHtml: z.string().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      pageId: z.string().min(1),
-      versionNumber: z.number().int().min(1),
-      title: z.string().min(1),
-      storageHtml: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.pageId);
+  confluencePageUpdateSchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.pageId);
     const body: Record<string, unknown> = {
       type: "page",
-      title: parsed.data.title,
-      version: { number: parsed.data.versionNumber + 1, message: "nimbus" },
+      title: parsed.title,
+      version: { number: parsed.versionNumber + 1, message: "nimbus" },
       body: {
         storage: {
-          value: parsed.data.storageHtml,
+          value: parsed.storageHtml,
           representation: "storage",
         },
       },
     };
     const res = await confFetch(`/content/${id}`, { method: "PUT", body: JSON.stringify(body) });
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-registerSimpleTool(
+const confluenceCommentAddSchema = z.object({
+  pageId: z.string().min(1),
+  storageHtml: z.string().min(1),
+});
+
+reg(
   "confluence_comment_add",
   "Add a footer comment to a page (POST /content/{id}/child/comment).",
-  { pageId: z.string().min(1), storageHtml: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      pageId: z.string().min(1),
-      storageHtml: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const id = encodeURIComponent(parsed.data.pageId);
+  confluenceCommentAddSchema,
+  async (parsed) => {
+    const id = encodeURIComponent(parsed.pageId);
     const body = {
       type: "comment",
-      container: { id: parsed.data.pageId, type: "page" },
+      container: { id: parsed.pageId, type: "page" },
       body: {
         storage: {
-          value: parsed.data.storageHtml,
+          value: parsed.storageHtml,
           representation: "storage",
         },
       },
@@ -352,16 +291,9 @@ registerSimpleTool(
       method: "POST",
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      throw new Error(`Confluence ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(JSON.parse(res.text) as unknown);
+    return jsonResult(confJsonFromResponse(res));
   },
 );
 
-async function main(): Promise<void> {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-
-void main();
+const transport = new StdioServerTransport();
+await server.connect(transport);

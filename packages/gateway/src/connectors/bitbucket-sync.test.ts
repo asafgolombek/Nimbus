@@ -4,32 +4,27 @@ import {
   createMemoryIndexDb,
   createStubVault,
   describeWithFetchRestore,
+  expectServiceItemCount,
+  type SyncTestFetchParams,
   silentSyncContextExtras,
+  testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 
 describeWithFetchRestore("bitbucket-sync", () => {
-  test("no-op when credentials missing", async () => {
-    const db = createMemoryIndexDb();
-    const sync = createBitbucketSyncable({ ensureBitbucketMcpRunning: async () => {} });
-    const r = await sync.sync(
-      {
-        vault: createStubVault({ "bitbucket.username": null, "bitbucket.app_password": null }),
-        db,
-        ...silentSyncContextExtras(),
-      },
-      null,
-    );
-    expect(r.itemsUpserted).toBe(0);
-    expect(r.itemsDeleted).toBe(0);
-    expect(r.cursor).toBeNull();
-  });
+  testConnectorSyncNoop(
+    "no-op when credentials missing",
+    () => createBitbucketSyncable({ ensureBitbucketMcpRunning: async () => {} }),
+    createStubVault({ "bitbucket.username": null, "bitbucket.app_password": null }),
+  );
 
   test("indexes pull request after repository list and returns cursor", async () => {
     const db = createMemoryIndexDb();
-    type FetchParams = Parameters<typeof fetch>;
     let call = 0;
-    globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
+    globalThis.fetch = (async (
+      input: SyncTestFetchParams[0],
+      init?: SyncTestFetchParams[1],
+    ): Promise<Response> => {
       const u = urlFromFetchInput(input);
       call += 1;
       if (call === 1) {
@@ -74,9 +69,6 @@ describeWithFetchRestore("bitbucket-sync", () => {
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-bbkt1:");
-    const row = db.prepare("SELECT COUNT(*) AS c FROM item WHERE service = ?").get("bitbucket") as {
-      c: number;
-    };
-    expect(row.c).toBe(1);
+    expectServiceItemCount(db, "bitbucket", 1);
   });
 });
