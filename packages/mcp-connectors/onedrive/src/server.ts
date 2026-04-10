@@ -23,12 +23,16 @@ async function graphRequest(
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; json: unknown; text: string; bytes: number }> {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${GRAPH}${pathOrUrl}`;
+  const mergedHeaders = new Headers({ Authorization: `Bearer ${token}` });
+  if (init?.headers !== undefined) {
+    const extra = new Headers(init.headers);
+    for (const [k, v] of extra) {
+      mergedHeaders.set(k, v);
+    }
+  }
   const res = await fetch(url, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
+    headers: mergedHeaders,
   });
   const buf = await res.arrayBuffer();
   const text = new TextDecoder("utf-8", { fatal: false }).decode(buf);

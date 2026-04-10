@@ -73,6 +73,116 @@ type DownloadOk = {
   content: string;
 };
 
+function jsonFileTooLarge(sizeBytes: number, maxBytes: number, message: string): string {
+  return JSON.stringify({
+    code: "FILE_TOO_LARGE",
+    sizeBytes,
+    maxBytes,
+    message,
+  });
+}
+
+async function driveDownloadGoogleAppsExport(
+  token: string,
+  fileId: string,
+  name: string,
+  mimeType: string,
+  exportMime: string,
+  maxBytes: number,
+): Promise<{ ok: true; payload: DownloadOk } | { ok: false; message: string }> {
+  const exportUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(exportMime)}`;
+  const res = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const body = await res.text();
+    return { ok: false, message: `export ${String(res.status)}: ${body.slice(0, 200)}` };
+  }
+  const buf = new Uint8Array(await res.arrayBuffer());
+  const truncated = buf.byteLength > maxBytes;
+  const slice = truncated ? buf.slice(0, maxBytes) : buf;
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(slice);
+  return {
+    ok: true,
+    payload: {
+      fileId,
+      name,
+      mimeType,
+      encoding: "utf-8",
+      exportMimeType: exportMime,
+      truncated,
+      content: text,
+    },
+  };
+}
+
+async function driveDownloadMediaPayload(
+  token: string,
+  fileId: string,
+  name: string,
+  mimeType: string,
+  meta: Record<string, unknown>,
+  maxBytes: number,
+): Promise<{ ok: true; payload: DownloadOk } | { ok: false; message: string }> {
+  const sizeStr = meta["size"];
+  if (typeof sizeStr === "string" && sizeStr !== "") {
+    const n = Number.parseInt(sizeStr, 10);
+    if (Number.isFinite(n) && n > maxBytes) {
+      return {
+        ok: false,
+        message: jsonFileTooLarge(n, maxBytes, "File exceeds maxBytes."),
+      };
+    }
+  }
+
+  const mediaUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
+  const res = await fetch(mediaUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const body = await res.text();
+    return { ok: false, message: `download ${String(res.status)}: ${body.slice(0, 200)}` };
+  }
+  const contentLength = res.headers.get("content-length");
+  if (contentLength !== null && contentLength !== "") {
+    const n = Number.parseInt(contentLength, 10);
+    if (Number.isFinite(n) && n > maxBytes) {
+      return {
+        ok: false,
+        message: jsonFileTooLarge(n, maxBytes, "File exceeds maxBytes."),
+      };
+    }
+  }
+  const buf = new Uint8Array(await res.arrayBuffer());
+  if (buf.byteLength > maxBytes) {
+    return {
+      ok: false,
+      message: jsonFileTooLarge(buf.byteLength, maxBytes, "Downloaded content exceeds maxBytes."),
+    };
+  }
+  const isTextLike = mimeType === "text/plain" || mimeType.startsWith("text/");
+  if (isTextLike) {
+    return {
+      ok: true,
+      payload: {
+        fileId,
+        name,
+        mimeType,
+        encoding: "utf-8",
+        truncated: false,
+        content: new TextDecoder("utf-8", { fatal: false }).decode(buf),
+      },
+    };
+  }
+  return {
+    ok: true,
+    payload: {
+      fileId,
+      name,
+      mimeType,
+      encoding: "base64",
+      truncated: false,
+      content: Buffer.from(buf).toString("base64"),
+    },
+  };
+}
+
 async function driveDownloadFile(
   token: string,
   fileId: string,
@@ -112,104 +222,10 @@ async function driveDownloadFile(
         }),
       };
     }
-    const exportUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(exportMime)}`;
-    const res = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) {
-      const body = await res.text();
-      return { ok: false, message: `export ${String(res.status)}: ${body.slice(0, 200)}` };
-    }
-    const buf = new Uint8Array(await res.arrayBuffer());
-    const truncated = buf.byteLength > maxBytes;
-    const slice = truncated ? buf.slice(0, maxBytes) : buf;
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(slice);
-    return {
-      ok: true,
-      payload: {
-        fileId,
-        name,
-        mimeType,
-        encoding: "utf-8",
-        exportMimeType: exportMime,
-        truncated,
-        content: text,
-      },
-    };
+    return driveDownloadGoogleAppsExport(token, fileId, name, mimeType, exportMime, maxBytes);
   }
 
-  const sizeStr = meta["size"];
-  if (typeof sizeStr === "string" && sizeStr !== "") {
-    const n = Number.parseInt(sizeStr, 10);
-    if (Number.isFinite(n) && n > maxBytes) {
-      return {
-        ok: false,
-        message: JSON.stringify({
-          code: "FILE_TOO_LARGE",
-          sizeBytes: n,
-          maxBytes,
-          message: "File exceeds maxBytes.",
-        }),
-      };
-    }
-  }
-
-  const mediaUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
-  const res = await fetch(mediaUrl, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) {
-    const body = await res.text();
-    return { ok: false, message: `download ${String(res.status)}: ${body.slice(0, 200)}` };
-  }
-  const contentLength = res.headers.get("content-length");
-  if (contentLength !== null && contentLength !== "") {
-    const n = Number.parseInt(contentLength, 10);
-    if (Number.isFinite(n) && n > maxBytes) {
-      return {
-        ok: false,
-        message: JSON.stringify({
-          code: "FILE_TOO_LARGE",
-          sizeBytes: n,
-          maxBytes,
-          message: "File exceeds maxBytes.",
-        }),
-      };
-    }
-  }
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength > maxBytes) {
-    return {
-      ok: false,
-      message: JSON.stringify({
-        code: "FILE_TOO_LARGE",
-        sizeBytes: buf.byteLength,
-        maxBytes,
-        message: "Downloaded content exceeds maxBytes.",
-      }),
-    };
-  }
-  const isTextLike = mimeType === "text/plain" || mimeType.startsWith("text/");
-  if (isTextLike) {
-    return {
-      ok: true,
-      payload: {
-        fileId,
-        name,
-        mimeType,
-        encoding: "utf-8",
-        truncated: false,
-        content: new TextDecoder("utf-8", { fatal: false }).decode(buf),
-      },
-    };
-  }
-  return {
-    ok: true,
-    payload: {
-      fileId,
-      name,
-      mimeType,
-      encoding: "base64",
-      truncated: false,
-      content: Buffer.from(buf).toString("base64"),
-    },
-  };
+  return driveDownloadMediaPayload(token, fileId, name, mimeType, meta, maxBytes);
 }
 
 async function drivePatchJson(

@@ -123,6 +123,159 @@ function createMocks(initialApprove = true): {
 }
 
 describe("ToolExecutor", () => {
+  function hitlEmailRejectPayload(
+    emailAction: "email.send" | "email.draft.send" | "email.draft.create",
+  ): Record<string, unknown> {
+    if (emailAction === "email.send") {
+      return {
+        mcpToolId: "gmail_gmail_message_send",
+        input: { to: "a@b.com", subject: "s", body: "x" },
+      };
+    }
+    if (emailAction === "email.draft.send") {
+      return { mcpToolId: "gmail_gmail_draft_send", input: { draftId: "d1" } };
+    }
+    return {
+      mcpToolId: "gmail_gmail_draft_create",
+      input: { to: "a@b.com", subject: "s", body: "x" },
+    };
+  }
+
+  function hitlTeamsRejectPayload(
+    teamsAction: "teams.message.post" | "teams.message.postChat",
+  ): Record<string, unknown> {
+    if (teamsAction === "teams.message.post") {
+      return {
+        mcpToolId: "teams_teams_message_post",
+        input: { teamId: "t1", channelId: "c1", body: "hi" },
+      };
+    }
+    return {
+      mcpToolId: "teams_teams_message_post_chat",
+      input: { chatId: "ch1", body: "hi" },
+    };
+  }
+
+  function hitlLinearRejectPayload(
+    linearAction: "linear.issue.create" | "linear.issue.update" | "linear.comment.create",
+  ): Record<string, unknown> {
+    if (linearAction === "linear.issue.create") {
+      return {
+        mcpToolId: "linear_linear_issue_create",
+        input: { teamId: "t1", title: "x" },
+      };
+    }
+    if (linearAction === "linear.issue.update") {
+      return {
+        mcpToolId: "linear_linear_issue_update",
+        input: { issueId: "i1", title: "y" },
+      };
+    }
+    return {
+      mcpToolId: "linear_linear_comment_create",
+      input: { issueId: "i1", body: "c" },
+    };
+  }
+
+  function hitlJiraRejectPayload(
+    jiraAction: "jira.issue.create" | "jira.issue.update" | "jira.comment.add",
+  ): Record<string, unknown> {
+    if (jiraAction === "jira.issue.create") {
+      return {
+        mcpToolId: "jira_jira_issue_create",
+        input: { projectKey: "NIM", summary: "x" },
+      };
+    }
+    if (jiraAction === "jira.issue.update") {
+      return {
+        mcpToolId: "jira_jira_issue_update",
+        input: { issueKey: "NIM-1", summary: "y" },
+      };
+    }
+    return {
+      mcpToolId: "jira_jira_comment_add",
+      input: { issueKey: "NIM-1", body: "c" },
+    };
+  }
+
+  function hitlNotionRejectPayload(
+    notionAction:
+      | "notion.page.create"
+      | "notion.page.update"
+      | "notion.block.append"
+      | "notion.comment.create",
+  ): Record<string, unknown> {
+    if (notionAction === "notion.page.create") {
+      return {
+        mcpToolId: "notion_notion_page_create",
+        input: { parentPageId: "p1", title: "t" },
+      };
+    }
+    if (notionAction === "notion.page.update") {
+      return {
+        mcpToolId: "notion_notion_page_update",
+        input: { pageId: "p1", propertiesJson: "{}" },
+      };
+    }
+    if (notionAction === "notion.block.append") {
+      return {
+        mcpToolId: "notion_notion_block_append",
+        input: { parentBlockId: "b1", childrenJson: "[]" },
+      };
+    }
+    return {
+      mcpToolId: "notion_notion_comment_create",
+      input: { pageId: "p1", text: "c" },
+    };
+  }
+
+  function hitlConfluenceRejectPayload(
+    confluenceAction:
+      | "confluence.page.create"
+      | "confluence.page.update"
+      | "confluence.comment.add",
+  ): Record<string, unknown> {
+    if (confluenceAction === "confluence.page.create") {
+      return {
+        mcpToolId: "confluence_confluence_page_create",
+        input: { spaceKey: "S", title: "t", storageHtml: "<p>x</p>" },
+      };
+    }
+    if (confluenceAction === "confluence.page.update") {
+      return {
+        mcpToolId: "confluence_confluence_page_update",
+        input: {
+          pageId: "1",
+          versionNumber: 1,
+          title: "t",
+          storageHtml: "<p>y</p>",
+        },
+      };
+    }
+    return {
+      mcpToolId: "confluence_confluence_comment_add",
+      input: { pageId: "1", storageHtml: "<p>c</p>" },
+    };
+  }
+
+  function hitlFileRejectPayload(
+    fileAction: "file.create" | "file.move" | "file.rename",
+  ): Record<string, unknown> {
+    if (fileAction === "file.create") {
+      return { mcpToolId: "google_drive_gdrive_file_create", input: { name: "n.txt" } };
+    }
+    if (fileAction === "file.move") {
+      return {
+        mcpToolId: "google_drive_gdrive_file_move",
+        input: { fileId: "x", newParentId: "y" },
+      };
+    }
+    return {
+      mcpToolId: "google_drive_gdrive_file_rename",
+      input: { fileId: "x", newName: "z" },
+    };
+  }
+
   test("every HITL_REQUIRED action type triggers the consent channel", async () => {
     for (const actionType of HITL_REQUIRED) {
       const m = createMocks(true);
@@ -157,18 +310,7 @@ describe("ToolExecutor", () => {
       const m = createMocks(true);
       m.approveNext = false;
       const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-      const payload =
-        emailAction === "email.send"
-          ? {
-              mcpToolId: "gmail_gmail_message_send",
-              input: { to: "a@b.com", subject: "s", body: "x" },
-            }
-          : emailAction === "email.draft.send"
-            ? { mcpToolId: "gmail_gmail_draft_send", input: { draftId: "d1" } }
-            : {
-                mcpToolId: "gmail_gmail_draft_create",
-                input: { to: "a@b.com", subject: "s", body: "x" },
-              };
+      const payload = hitlEmailRejectPayload(emailAction);
       const out = await exec.execute({ type: emailAction, payload });
       expect(out.status).toBe("rejected");
       expect(m.dispatchCalls.length).toBe(0);
@@ -201,16 +343,7 @@ describe("ToolExecutor", () => {
       const m = createMocks(true);
       m.approveNext = false;
       const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-      const payload =
-        teamsAction === "teams.message.post"
-          ? {
-              mcpToolId: "teams_teams_message_post",
-              input: { teamId: "t1", channelId: "c1", body: "hi" },
-            }
-          : {
-              mcpToolId: "teams_teams_message_post_chat",
-              input: { chatId: "ch1", body: "hi" },
-            };
+      const payload = hitlTeamsRejectPayload(teamsAction);
       const out = await exec.execute({ type: teamsAction, payload });
       expect(out.status).toBe("rejected");
       expect(m.dispatchCalls.length).toBe(0);
@@ -229,21 +362,7 @@ describe("ToolExecutor", () => {
       const m = createMocks(true);
       m.approveNext = false;
       const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-      const payload =
-        linearAction === "linear.issue.create"
-          ? {
-              mcpToolId: "linear_linear_issue_create",
-              input: { teamId: "t1", title: "x" },
-            }
-          : linearAction === "linear.issue.update"
-            ? {
-                mcpToolId: "linear_linear_issue_update",
-                input: { issueId: "i1", title: "y" },
-              }
-            : {
-                mcpToolId: "linear_linear_comment_create",
-                input: { issueId: "i1", body: "c" },
-              };
+      const payload = hitlLinearRejectPayload(linearAction);
       const out = await exec.execute({ type: linearAction, payload });
       expect(out.status).toBe("rejected");
       expect(m.dispatchCalls.length).toBe(0);
@@ -262,21 +381,7 @@ describe("ToolExecutor", () => {
       const m = createMocks(true);
       m.approveNext = false;
       const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-      const payload =
-        jiraAction === "jira.issue.create"
-          ? {
-              mcpToolId: "jira_jira_issue_create",
-              input: { projectKey: "NIM", summary: "x" },
-            }
-          : jiraAction === "jira.issue.update"
-            ? {
-                mcpToolId: "jira_jira_issue_update",
-                input: { issueKey: "NIM-1", summary: "y" },
-              }
-            : {
-                mcpToolId: "jira_jira_comment_add",
-                input: { issueKey: "NIM-1", body: "c" },
-              };
+      const payload = hitlJiraRejectPayload(jiraAction);
       const out = await exec.execute({ type: jiraAction, payload });
       expect(out.status).toBe("rejected");
       expect(m.dispatchCalls.length).toBe(0);
@@ -296,26 +401,7 @@ describe("ToolExecutor", () => {
       const m = createMocks(true);
       m.approveNext = false;
       const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-      const payload =
-        notionAction === "notion.page.create"
-          ? {
-              mcpToolId: "notion_notion_page_create",
-              input: { parentPageId: "p1", title: "t" },
-            }
-          : notionAction === "notion.page.update"
-            ? {
-                mcpToolId: "notion_notion_page_update",
-                input: { pageId: "p1", propertiesJson: "{}" },
-              }
-            : notionAction === "notion.block.append"
-              ? {
-                  mcpToolId: "notion_notion_block_append",
-                  input: { parentBlockId: "b1", childrenJson: "[]" },
-                }
-              : {
-                  mcpToolId: "notion_notion_comment_create",
-                  input: { pageId: "p1", text: "c" },
-                };
+      const payload = hitlNotionRejectPayload(notionAction);
       const out = await exec.execute({ type: notionAction, payload });
       expect(out.status).toBe("rejected");
       expect(m.dispatchCalls.length).toBe(0);
@@ -334,26 +420,7 @@ describe("ToolExecutor", () => {
       const m = createMocks(true);
       m.approveNext = false;
       const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-      const payload =
-        confluenceAction === "confluence.page.create"
-          ? {
-              mcpToolId: "confluence_confluence_page_create",
-              input: { spaceKey: "S", title: "t", storageHtml: "<p>x</p>" },
-            }
-          : confluenceAction === "confluence.page.update"
-            ? {
-                mcpToolId: "confluence_confluence_page_update",
-                input: {
-                  pageId: "1",
-                  versionNumber: 1,
-                  title: "t",
-                  storageHtml: "<p>y</p>",
-                },
-              }
-            : {
-                mcpToolId: "confluence_confluence_comment_add",
-                input: { pageId: "1", storageHtml: "<p>c</p>" },
-              };
+      const payload = hitlConfluenceRejectPayload(confluenceAction);
       const out = await exec.execute({ type: confluenceAction, payload });
       expect(out.status).toBe("rejected");
       expect(m.dispatchCalls.length).toBe(0);
@@ -368,18 +435,7 @@ describe("ToolExecutor", () => {
       const m = createMocks(true);
       m.approveNext = false;
       const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
-      const payload =
-        fileAction === "file.create"
-          ? { mcpToolId: "google_drive_gdrive_file_create", input: { name: "n.txt" } }
-          : fileAction === "file.move"
-            ? {
-                mcpToolId: "google_drive_gdrive_file_move",
-                input: { fileId: "x", newParentId: "y" },
-              }
-            : {
-                mcpToolId: "google_drive_gdrive_file_rename",
-                input: { fileId: "x", newName: "z" },
-              };
+      const payload = hitlFileRejectPayload(fileAction);
       const out = await exec.execute({ type: fileAction, payload });
       expect(out.status).toBe("rejected");
       expect(m.dispatchCalls.length).toBe(0);

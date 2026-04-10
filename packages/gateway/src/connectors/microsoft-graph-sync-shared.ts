@@ -27,7 +27,7 @@ export function decodeMicrosoftGraphDeltaCursor(
   if (nextUrl !== null && typeof nextUrl !== "string") {
     return undefined;
   }
-  return { v: 1, nextUrl: nextUrl === null ? null : nextUrl };
+  return { v: 1, nextUrl };
 }
 
 export type ODataDeltaPage = {

@@ -59,9 +59,38 @@ export function encodeGmailSyncCursor(c: GmailSyncCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
+function decodeGmailListPhasePayload(r: Record<string, unknown>): GmailSyncCursorV1 | undefined {
+  const q = r["q"];
+  const pageToken = r["pageToken"];
+  if (typeof q !== "string") {
+    return undefined;
+  }
+  if (pageToken !== null && typeof pageToken !== "string") {
+    return undefined;
+  }
+  return { v: 1, phase: "list", q, pageToken };
+}
+
+function decodeGmailDeltaPhasePayload(r: Record<string, unknown>): GmailSyncCursorV1 | undefined {
+  const startHistoryId = r["startHistoryId"];
+  const pageToken = r["pageToken"];
+  if (typeof startHistoryId !== "string" || startHistoryId === "") {
+    return undefined;
+  }
+  if (pageToken !== null && typeof pageToken !== "string") {
+    return undefined;
+  }
+  return {
+    v: 1,
+    phase: "delta",
+    startHistoryId,
+    pageToken,
+  };
+}
+
 export function decodeGmailSyncCursor(raw: string): GmailSyncCursorV1 | undefined {
   const o = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
-  if (o === null || typeof o !== "object" || Array.isArray(o)) {
+  if (o == null || typeof o !== "object" || Array.isArray(o)) {
     return undefined;
   }
   const r = o as Record<string, unknown>;
@@ -70,31 +99,10 @@ export function decodeGmailSyncCursor(raw: string): GmailSyncCursorV1 | undefine
   }
   const phase = r["phase"];
   if (phase === "list") {
-    const q = r["q"];
-    const pageToken = r["pageToken"];
-    if (typeof q !== "string") {
-      return undefined;
-    }
-    if (pageToken !== null && typeof pageToken !== "string") {
-      return undefined;
-    }
-    return { v: 1, phase: "list", q, pageToken: pageToken === null ? null : pageToken };
+    return decodeGmailListPhasePayload(r);
   }
   if (phase === "delta") {
-    const startHistoryId = r["startHistoryId"];
-    const pageToken = r["pageToken"];
-    if (typeof startHistoryId !== "string" || startHistoryId === "") {
-      return undefined;
-    }
-    if (pageToken !== null && typeof pageToken !== "string") {
-      return undefined;
-    }
-    return {
-      v: 1,
-      phase: "delta",
-      startHistoryId,
-      pageToken: pageToken === null ? null : pageToken,
-    };
+    return decodeGmailDeltaPhasePayload(r);
   }
   return undefined;
 }
@@ -125,15 +133,15 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
   const subject = headerFrom(m.payload, "Subject") ?? "(no subject)";
   const snippet = typeof m.snippet === "string" ? m.snippet : "";
   const preview = snippet.length > 512 ? snippet.slice(0, 512) : snippet;
-  const internal = m.internalDate !== undefined ? Number(m.internalDate) : now;
+  const internal = m.internalDate === undefined ? now : Number(m.internalDate);
   const modifiedAt = Number.isFinite(internal) ? internal : now;
   const threadId = typeof m.threadId === "string" ? m.threadId : "";
   const from = headerFrom(m.payload, "From");
   const to = headerFrom(m.payload, "To");
   const url =
-    threadId !== ""
-      ? `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(threadId)}`
-      : `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(id)}`;
+    threadId === ""
+      ? `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(id)}`
+      : `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(threadId)}`;
 
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
@@ -146,7 +154,7 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
     modifiedAt,
     authorId: null,
     metadata: {
-      threadId: threadId !== "" ? threadId : undefined,
+      threadId: threadId === "" ? undefined : threadId,
       labelIds: m.labelIds,
       from,
       to,
@@ -163,12 +171,16 @@ async function gmailFetchJson(
   init?: RequestInit,
 ): Promise<{ json: unknown; bytes: number }> {
   await ctx.rateLimiter.acquire("google");
+  const mergedHeaders = new Headers({ Authorization: `Bearer ${token}` });
+  if (init?.headers !== undefined) {
+    const extra = new Headers(init.headers);
+    for (const [k, v] of extra) {
+      mergedHeaders.set(k, v);
+    }
+  }
   const res = await fetch(url, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
+    headers: mergedHeaders,
   });
   const text = await res.text();
   const bytes = Buffer.byteLength(text, "utf8");
@@ -220,6 +232,50 @@ function parseMessagesList(json: unknown): MessagesListResponse {
 
 function parseHistoryList(json: unknown): HistoryListResponse {
   return asUnknownObjectRecord(json) as HistoryListResponse;
+}
+
+async function applyGmailHistoryRecords(
+  ctx: SyncContext,
+  accessToken: string,
+  now: number,
+  historyJson: unknown,
+): Promise<{
+  itemsUpserted: number;
+  itemsDeleted: number;
+  hist: HistoryListResponse;
+}> {
+  const hist = parseHistoryList(historyJson);
+  const records = hist.history ?? [];
+  let itemsUpserted = 0;
+  let itemsDeleted = 0;
+  for (const rec of records) {
+    const added = rec.messagesAdded ?? [];
+    for (const a of added) {
+      const m = a.message;
+      if (m === undefined) {
+        continue;
+      }
+      const mid = m.id;
+      if (mid === undefined || mid === "") {
+        continue;
+      }
+      const full =
+        m.payload !== undefined && headerFrom(m.payload, "Subject") !== null
+          ? m
+          : await fetchMessageMetadata(ctx, accessToken, mid);
+      upsertGmailMessage(ctx, full, now);
+      itemsUpserted += 1;
+    }
+    const deleted = rec.messagesDeleted ?? [];
+    for (const d of deleted) {
+      const mid = d.message?.id;
+      if (typeof mid === "string" && mid !== "") {
+        deleteItemByServiceExternal(ctx.db, SERVICE_ID, mid);
+        itemsDeleted += 1;
+      }
+    }
+  }
+  return { itemsUpserted, itemsDeleted, hist };
 }
 
 export type GmailSyncableOptions = {
@@ -344,7 +400,7 @@ export function createGmailSyncable(options: GmailSyncableOptions): Syncable {
         historyJson = res.json;
         bytesTransferred += res.bytes;
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "Request failed";
         if (msg.includes("404")) {
           ctx.logger.warn(
             { service: SERVICE_ID },
@@ -356,35 +412,10 @@ export function createGmailSyncable(options: GmailSyncableOptions): Syncable {
         throw e;
       }
 
-      const hist = parseHistoryList(historyJson);
-      const records = hist.history ?? [];
-      for (const rec of records) {
-        const added = rec.messagesAdded ?? [];
-        for (const a of added) {
-          const m = a.message;
-          if (m === undefined) {
-            continue;
-          }
-          const mid = m.id;
-          if (mid === undefined || mid === "") {
-            continue;
-          }
-          const full =
-            m.payload !== undefined && headerFrom(m.payload, "Subject") !== null
-              ? m
-              : await fetchMessageMetadata(ctx, accessToken, mid);
-          upsertGmailMessage(ctx, full, now);
-          itemsUpserted += 1;
-        }
-        const deleted = rec.messagesDeleted ?? [];
-        for (const d of deleted) {
-          const mid = d.message?.id;
-          if (typeof mid === "string" && mid !== "") {
-            deleteItemByServiceExternal(ctx.db, SERVICE_ID, mid);
-            itemsDeleted += 1;
-          }
-        }
-      }
+      const applied = await applyGmailHistoryRecords(ctx, accessToken, now, historyJson);
+      itemsUpserted += applied.itemsUpserted;
+      itemsDeleted += applied.itemsDeleted;
+      const hist = applied.hist;
 
       const nextPage = hist.nextPageToken;
       if (nextPage !== undefined && nextPage !== "") {

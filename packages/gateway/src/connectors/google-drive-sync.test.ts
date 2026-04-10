@@ -13,6 +13,8 @@ import {
   encodeDriveSyncCursor,
 } from "./google-drive-sync.ts";
 
+type FetchMockInput = string | URL | Request;
+
 const sampleFile = {
   id: "f1",
   name: "doc.txt",
@@ -62,7 +64,7 @@ describe("createGoogleDriveSyncable", () => {
       },
     ];
 
-    globalThis.fetch = (async (input: string | URL | Request) => {
+    globalThis.fetch = (async (input: FetchMockInput) => {
       const url = requestUrlString(input);
       const next = responses.shift();
       if (next === undefined) {
@@ -95,7 +97,7 @@ describe("createGoogleDriveSyncable", () => {
     const { db, ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
-    globalThis.fetch = (async (input: string | URL | Request) => {
+    globalThis.fetch = (async (input: FetchMockInput) => {
       const url = requestUrlString(input);
       if (url.includes("/drive/v3/changes")) {
         return new Response(
@@ -131,7 +133,7 @@ describe("createGoogleDriveSyncable", () => {
     const { ctx } = await createOAuthConnectorTestSetup("google");
     const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
 
-    globalThis.fetch = (async (input: string | URL | Request) => {
+    globalThis.fetch = (async (input: FetchMockInput) => {
       const url = requestUrlString(input);
       if (url.includes("startPageToken")) {
         return new Response(JSON.stringify({ startPageToken: "freshT0" }), { status: 200 });

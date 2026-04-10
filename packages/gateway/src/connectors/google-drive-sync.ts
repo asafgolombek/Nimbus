@@ -63,10 +63,38 @@ export function encodeDriveSyncCursor(c: DriveSyncCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
+function decodeDriveInitListPayload(r: Record<string, unknown>): DriveSyncCursorV1 | undefined {
+  const t0 = r["t0"];
+  const listToken = r["listToken"];
+  if (typeof t0 !== "string" || t0 === "") {
+    return undefined;
+  }
+  if (listToken !== null && typeof listToken !== "string") {
+    return undefined;
+  }
+  return { v: 1, phase: "init_list", t0, listToken };
+}
+
+function decodeDriveDrainPayload(r: Record<string, unknown>): DriveSyncCursorV1 | undefined {
+  const changePage = r["changePage"];
+  if (typeof changePage !== "string" || changePage === "") {
+    return undefined;
+  }
+  return { v: 1, phase: "drain", changePage };
+}
+
+function decodeDriveDeltaPayload(r: Record<string, unknown>): DriveSyncCursorV1 | undefined {
+  const pageToken = r["pageToken"];
+  if (typeof pageToken !== "string" || pageToken === "") {
+    return undefined;
+  }
+  return { v: 1, phase: "delta", pageToken };
+}
+
 /** Exported for unit tests (cursor round-trip and migration). */
 export function decodeDriveSyncCursor(raw: string): DriveSyncCursorV1 | undefined {
   const o = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
-  if (o === null || typeof o !== "object" || Array.isArray(o)) {
+  if (o == null || typeof o !== "object" || Array.isArray(o)) {
     return undefined;
   }
   const r = o as Record<string, unknown>;
@@ -75,29 +103,13 @@ export function decodeDriveSyncCursor(raw: string): DriveSyncCursorV1 | undefine
   }
   const phase = r["phase"];
   if (phase === "init_list") {
-    const t0 = r["t0"];
-    const listToken = r["listToken"];
-    if (typeof t0 !== "string" || t0 === "") {
-      return undefined;
-    }
-    if (listToken !== null && typeof listToken !== "string") {
-      return undefined;
-    }
-    return { v: 1, phase: "init_list", t0, listToken: listToken === null ? null : listToken };
+    return decodeDriveInitListPayload(r);
   }
   if (phase === "drain") {
-    const changePage = r["changePage"];
-    if (typeof changePage !== "string" || changePage === "") {
-      return undefined;
-    }
-    return { v: 1, phase: "drain", changePage };
+    return decodeDriveDrainPayload(r);
   }
   if (phase === "delta") {
-    const pageToken = r["pageToken"];
-    if (typeof pageToken !== "string" || pageToken === "") {
-      return undefined;
-    }
-    return { v: 1, phase: "delta", pageToken };
+    return decodeDriveDeltaPayload(r);
   }
   return undefined;
 }
@@ -118,10 +130,10 @@ function upsertDriveFile(ctx: SyncContext, f: DriveFile, now: number): void {
   }
   const mime = f.mimeType ?? "";
   const isFolder = mime === "application/vnd.google-apps.folder";
-  const modifiedMs = f.modifiedTime !== undefined ? Date.parse(f.modifiedTime) : now;
+  const modifiedMs = f.modifiedTime === undefined ? now : Date.parse(f.modifiedTime);
   const safeModified = Number.isFinite(modifiedMs) ? modifiedMs : now;
   const desc = f.description ?? "";
-  const previewBase = desc !== "" ? desc : name;
+  const previewBase = desc === "" ? name : desc;
   const bodyPreview = previewBase.length > 512 ? previewBase.slice(0, 512) : previewBase;
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
@@ -165,6 +177,24 @@ function applyChange(ctx: SyncContext, ch: DriveChange, now: number): "upsert" |
   }
   upsertDriveFile(ctx, file, now);
   return "upsert";
+}
+
+function countAppliedDriveChanges(
+  ctx: SyncContext,
+  changes: DriveChange[],
+  now: number,
+): { itemsUpserted: number; itemsDeleted: number } {
+  let itemsUpserted = 0;
+  let itemsDeleted = 0;
+  for (const ch of changes) {
+    const r = applyChange(ctx, ch, now);
+    if (r === "upsert") {
+      itemsUpserted += 1;
+    } else if (r === "delete") {
+      itemsDeleted += 1;
+    }
+  }
+  return { itemsUpserted, itemsDeleted };
 }
 
 async function driveFetchJson(
@@ -341,14 +371,9 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
             ctx.logger.warn({ service: SERVICE_ID }, "Drive changes.list incompleteSearch=true");
           }
           const changes = data.changes ?? [];
-          for (const ch of changes) {
-            const r = applyChange(ctx, ch, now);
-            if (r === "upsert") {
-              itemsUpserted += 1;
-            } else if (r === "delete") {
-              itemsDeleted += 1;
-            }
-          }
+          const drainCounts = countAppliedDriveChanges(ctx, changes, now);
+          itemsUpserted += drainCounts.itemsUpserted;
+          itemsDeleted += drainCounts.itemsDeleted;
           const next = data.nextPageToken;
           if (next !== undefined && next !== "") {
             return {
@@ -380,14 +405,9 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
           ctx.logger.warn({ service: SERVICE_ID }, "Drive changes.list incompleteSearch=true");
         }
         const changes = data.changes ?? [];
-        for (const ch of changes) {
-          const r = applyChange(ctx, ch, now);
-          if (r === "upsert") {
-            itemsUpserted += 1;
-          } else if (r === "delete") {
-            itemsDeleted += 1;
-          }
-        }
+        const deltaCounts = countAppliedDriveChanges(ctx, changes, now);
+        itemsUpserted += deltaCounts.itemsUpserted;
+        itemsDeleted += deltaCounts.itemsDeleted;
         const next = data.nextPageToken;
         if (next !== undefined && next !== "") {
           return {

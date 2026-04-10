@@ -231,112 +231,122 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     params.scopes = scopes;
   }
   const normalized = service.trim().toLowerCase().replaceAll("-", "_");
-  if (normalized === "linear") {
-    const apiKey = token ?? process.env["NIMBUS_LINEAR_API_KEY"]?.trim();
-    if (apiKey === undefined || apiKey === "") {
-      throw new Error(
-        "Linear requires an API key: nimbus connector auth linear --token <key>  (or set NIMBUS_LINEAR_API_KEY)",
-      );
+  switch (normalized) {
+    case "linear": {
+      const apiKey = token ?? process.env["NIMBUS_LINEAR_API_KEY"]?.trim();
+      if (apiKey === undefined || apiKey === "") {
+        throw new Error(
+          "Linear requires an API key: nimbus connector auth linear --token <key>  (or set NIMBUS_LINEAR_API_KEY)",
+        );
+      }
+      params.personalAccessToken = apiKey;
+      break;
     }
-    params.personalAccessToken = apiKey;
-  }
-  if (normalized === "github") {
-    const pat = token ?? process.env["NIMBUS_GITHUB_PAT"]?.trim();
-    if (pat === undefined || pat === "") {
-      throw new Error(
-        "GitHub requires a PAT: nimbus connector auth github --token <pat>  (or set NIMBUS_GITHUB_PAT in the environment)",
-      );
+    case "github": {
+      const pat = token ?? process.env["NIMBUS_GITHUB_PAT"]?.trim();
+      if (pat === undefined || pat === "") {
+        throw new Error(
+          "GitHub requires a PAT: nimbus connector auth github --token <pat>  (or set NIMBUS_GITHUB_PAT in the environment)",
+        );
+      }
+      params.personalAccessToken = pat;
+      break;
     }
-    params.personalAccessToken = pat;
-  }
-  if (normalized === "gitlab") {
-    const pat = token ?? process.env["NIMBUS_GITLAB_PAT"]?.trim();
-    if (pat === undefined || pat === "") {
-      throw new Error(
-        "GitLab requires a PAT: nimbus connector auth gitlab --token <pat>  (or set NIMBUS_GITLAB_PAT in the environment)",
-      );
+    case "gitlab": {
+      const pat = token ?? process.env["NIMBUS_GITLAB_PAT"]?.trim();
+      if (pat === undefined || pat === "") {
+        throw new Error(
+          "GitLab requires a PAT: nimbus connector auth gitlab --token <pat>  (or set NIMBUS_GITLAB_PAT in the environment)",
+        );
+      }
+      params.personalAccessToken = pat;
+      if (apiBase !== undefined) {
+        params.apiBaseUrl = apiBase;
+      }
+      break;
     }
-    params.personalAccessToken = pat;
-    if (apiBase !== undefined) {
-      params.apiBaseUrl = apiBase;
+    case "bitbucket": {
+      const u =
+        username ??
+        process.env["NIMBUS_BITBUCKET_USERNAME"]?.trim() ??
+        process.env["BITBUCKET_USERNAME"]?.trim();
+      if (u === undefined || u === "") {
+        throw new Error(
+          "Bitbucket requires username: nimbus connector auth bitbucket --username <atlassian_username> --token <app_password>  (or set NIMBUS_BITBUCKET_USERNAME)",
+        );
+      }
+      const appPass = token ?? process.env["NIMBUS_BITBUCKET_APP_PASSWORD"]?.trim();
+      if (appPass === undefined || appPass === "") {
+        throw new Error(
+          "Bitbucket requires an app password: nimbus connector auth bitbucket --username ... --token <app_password>  (or set NIMBUS_BITBUCKET_APP_PASSWORD)",
+        );
+      }
+      params.bitbucketUsername = u;
+      params.personalAccessToken = appPass;
+      break;
     }
-  }
-  if (normalized === "bitbucket") {
-    const u =
-      username ??
-      process.env["NIMBUS_BITBUCKET_USERNAME"]?.trim() ??
-      process.env["BITBUCKET_USERNAME"]?.trim();
-    if (u === undefined || u === "") {
-      throw new Error(
-        "Bitbucket requires username: nimbus connector auth bitbucket --username <atlassian_username> --token <app_password>  (or set NIMBUS_BITBUCKET_USERNAME)",
-      );
+    case "jira": {
+      const mail =
+        username ??
+        process.env["NIMBUS_JIRA_EMAIL"]?.trim() ??
+        process.env["ATLASSIAN_EMAIL"]?.trim();
+      if (mail === undefined || mail === "") {
+        throw new Error(
+          "Jira requires your Atlassian account email: nimbus connector auth jira --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_EMAIL)",
+        );
+      }
+      const apiTok = token ?? process.env["NIMBUS_JIRA_API_TOKEN"]?.trim();
+      if (apiTok === undefined || apiTok === "") {
+        throw new Error(
+          "Jira requires an API token: nimbus connector auth jira --username <email> --token <api_token> --api-base <url>  (or set NIMBUS_JIRA_API_TOKEN)",
+        );
+      }
+      const base =
+        apiBase ??
+        process.env["NIMBUS_JIRA_BASE_URL"]?.trim() ??
+        process.env["JIRA_BASE_URL"]?.trim();
+      if (base === undefined || base === "") {
+        throw new Error(
+          "Jira requires the site URL: nimbus connector auth jira ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_BASE_URL)",
+        );
+      }
+      params.atlassianEmail = mail;
+      params.personalAccessToken = apiTok;
+      params.apiBaseUrl = base.replace(/\/+$/, "");
+      break;
     }
-    const appPass = token ?? process.env["NIMBUS_BITBUCKET_APP_PASSWORD"]?.trim();
-    if (appPass === undefined || appPass === "") {
-      throw new Error(
-        "Bitbucket requires an app password: nimbus connector auth bitbucket --username ... --token <app_password>  (or set NIMBUS_BITBUCKET_APP_PASSWORD)",
-      );
+    case "confluence": {
+      const mail =
+        username ??
+        process.env["NIMBUS_CONFLUENCE_EMAIL"]?.trim() ??
+        process.env["ATLASSIAN_EMAIL"]?.trim();
+      if (mail === undefined || mail === "") {
+        throw new Error(
+          "Confluence requires your Atlassian account email: nimbus connector auth confluence --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_EMAIL)",
+        );
+      }
+      const apiTok = token ?? process.env["NIMBUS_CONFLUENCE_API_TOKEN"]?.trim();
+      if (apiTok === undefined || apiTok === "") {
+        throw new Error(
+          "Confluence requires an API token: nimbus connector auth confluence ... (or set NIMBUS_CONFLUENCE_API_TOKEN)",
+        );
+      }
+      const base =
+        apiBase ??
+        process.env["NIMBUS_CONFLUENCE_BASE_URL"]?.trim() ??
+        process.env["CONFLUENCE_BASE_URL"]?.trim();
+      if (base === undefined || base === "") {
+        throw new Error(
+          "Confluence requires the site URL: ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_BASE_URL)",
+        );
+      }
+      params.atlassianEmail = mail;
+      params.personalAccessToken = apiTok;
+      params.apiBaseUrl = base.replace(/\/+$/, "");
+      break;
     }
-    params.bitbucketUsername = u;
-    params.personalAccessToken = appPass;
-  }
-  if (normalized === "jira") {
-    const mail =
-      username ??
-      process.env["NIMBUS_JIRA_EMAIL"]?.trim() ??
-      process.env["ATLASSIAN_EMAIL"]?.trim();
-    if (mail === undefined || mail === "") {
-      throw new Error(
-        "Jira requires your Atlassian account email: nimbus connector auth jira --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_EMAIL)",
-      );
-    }
-    const apiTok = token ?? process.env["NIMBUS_JIRA_API_TOKEN"]?.trim();
-    if (apiTok === undefined || apiTok === "") {
-      throw new Error(
-        "Jira requires an API token: nimbus connector auth jira --username <email> --token <api_token> --api-base <url>  (or set NIMBUS_JIRA_API_TOKEN)",
-      );
-    }
-    const base =
-      apiBase ??
-      process.env["NIMBUS_JIRA_BASE_URL"]?.trim() ??
-      process.env["JIRA_BASE_URL"]?.trim();
-    if (base === undefined || base === "") {
-      throw new Error(
-        "Jira requires the site URL: nimbus connector auth jira ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_BASE_URL)",
-      );
-    }
-    params.atlassianEmail = mail;
-    params.personalAccessToken = apiTok;
-    params.apiBaseUrl = base.replace(/\/+$/, "");
-  }
-  if (normalized === "confluence") {
-    const mail =
-      username ??
-      process.env["NIMBUS_CONFLUENCE_EMAIL"]?.trim() ??
-      process.env["ATLASSIAN_EMAIL"]?.trim();
-    if (mail === undefined || mail === "") {
-      throw new Error(
-        "Confluence requires your Atlassian account email: nimbus connector auth confluence --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_EMAIL)",
-      );
-    }
-    const apiTok = token ?? process.env["NIMBUS_CONFLUENCE_API_TOKEN"]?.trim();
-    if (apiTok === undefined || apiTok === "") {
-      throw new Error(
-        "Confluence requires an API token: nimbus connector auth confluence ... (or set NIMBUS_CONFLUENCE_API_TOKEN)",
-      );
-    }
-    const base =
-      apiBase ??
-      process.env["NIMBUS_CONFLUENCE_BASE_URL"]?.trim() ??
-      process.env["CONFLUENCE_BASE_URL"]?.trim();
-    if (base === undefined || base === "") {
-      throw new Error(
-        "Confluence requires the site URL: ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_BASE_URL)",
-      );
-    }
-    params.atlassianEmail = mail;
-    params.personalAccessToken = apiTok;
-    params.apiBaseUrl = base.replace(/\/+$/, "");
+    default:
+      break;
   }
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
@@ -406,9 +416,9 @@ function parseStatusArgs(tail: string[]): { service: string; stats: boolean } {
   for (const a of tail) {
     if (a === "--stats") {
       stats = true;
-      continue;
+    } else {
+      rest.push(a);
     }
-    rest.push(a);
   }
   const service = rest[0];
   if (service === undefined) {

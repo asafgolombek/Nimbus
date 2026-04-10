@@ -17,8 +17,8 @@ describe("pkceCodeChallengeS256", () => {
     const digest = await crypto.subtle.digest("SHA-256", data);
     const bytes = new Uint8Array(digest);
     let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i] ?? 0);
+    for (const b of bytes) {
+      binary += String.fromCodePoint(b);
     }
     const expected = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
     expect(challenge).toBe(expected);

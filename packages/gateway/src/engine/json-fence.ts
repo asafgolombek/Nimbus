@@ -16,8 +16,12 @@ export function extractFirstMarkdownFenceBody(trimmed: string): string | undefin
   if (trimmed.startsWith("json", i)) {
     i += 4;
   }
-  while (i < trimmed.length && isAsciiSpace(trimmed.charCodeAt(i))) {
-    i += 1;
+  while (i < trimmed.length) {
+    const cp = trimmed.codePointAt(i);
+    if (cp === undefined || !isAsciiSpace(cp)) {
+      break;
+    }
+    i += cp > 0xffff ? 2 : 1;
   }
   const close = trimmed.indexOf(FENCE, i);
   if (close < 0) {

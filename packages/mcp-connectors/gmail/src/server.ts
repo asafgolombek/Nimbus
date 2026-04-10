@@ -34,18 +34,15 @@ function buildRfc822Message(params: {
   cc?: string;
   bcc?: string;
 }): string {
-  const lines: string[] = [];
-  lines.push(`To: ${params.to}`);
-  if (params.cc !== undefined && params.cc !== "") {
-    lines.push(`Cc: ${params.cc}`);
-  }
-  if (params.bcc !== undefined && params.bcc !== "") {
-    lines.push(`Bcc: ${params.bcc}`);
-  }
-  lines.push(`Subject: ${params.subject}`);
-  lines.push("Content-Type: text/plain; charset=UTF-8");
-  lines.push("");
-  lines.push(params.body);
+  const lines: string[] = [
+    `To: ${params.to}`,
+    ...(params.cc !== undefined && params.cc !== "" ? [`Cc: ${params.cc}`] : []),
+    ...(params.bcc !== undefined && params.bcc !== "" ? [`Bcc: ${params.bcc}`] : []),
+    `Subject: ${params.subject}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    params.body,
+  ];
   return lines.join("\r\n");
 }
 

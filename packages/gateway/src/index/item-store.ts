@@ -107,7 +107,7 @@ export function upsertNimbusItemIntoItemTable(
   syncedAt: number,
 ): void {
   const externalId = itemExternalIdFromInput(item.service, item.id);
-  const meta: Record<string, unknown> = { ...(item.rawMeta ?? {}) };
+  const meta: Record<string, unknown> = item.rawMeta !== undefined ? { ...item.rawMeta } : {};
   if (item.mimeType !== undefined) {
     meta["mime_type"] = item.mimeType;
   }
@@ -130,10 +130,10 @@ export function upsertNimbusItemIntoItemTable(
     metadata: meta,
     syncedAt,
   };
-  if (item.url !== undefined) {
-    upsertIndexedItem(db, { ...row, url: item.url });
-  } else {
+  if (item.url === undefined) {
     upsertIndexedItem(db, row);
+  } else {
+    upsertIndexedItem(db, { ...row, url: item.url });
   }
 }
 

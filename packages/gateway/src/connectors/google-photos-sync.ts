@@ -36,7 +36,7 @@ export function encodeGooglePhotosSyncCursor(c: GooglePhotosSyncCursorV1): strin
 
 export function decodeGooglePhotosSyncCursor(raw: string): GooglePhotosSyncCursorV1 | undefined {
   const o = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
-  if (o === null || typeof o !== "object" || Array.isArray(o)) {
+  if (o == null || typeof o !== "object" || Array.isArray(o)) {
     return undefined;
   }
   const r = o as Record<string, unknown>;
@@ -47,7 +47,7 @@ export function decodeGooglePhotosSyncCursor(raw: string): GooglePhotosSyncCurso
   if (pageToken !== null && typeof pageToken !== "string") {
     return undefined;
   }
-  return { v: 1, pageToken: pageToken === null ? null : pageToken };
+  return { v: 1, pageToken };
 }
 
 function parseSearch(json: unknown): SearchResponse {

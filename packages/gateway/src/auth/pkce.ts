@@ -70,11 +70,11 @@ function assertValidPort(p: number): void {
 }
 
 function isAddrInUse(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) {
-    return false;
+  if (typeof err === "object" && err !== null) {
+    const code = (err as { code?: string }).code;
+    return code === "EADDRINUSE";
   }
-  const code = (err as { code?: string }).code;
-  return code === "EADDRINUSE";
+  return false;
 }
 
 function randomUrlSafeString(byteLength: number): string {
@@ -86,7 +86,7 @@ function randomUrlSafeString(byteLength: number): string {
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) {
-    binary += String.fromCharCode(b);
+    binary += String.fromCodePoint(b);
   }
   const b64 = btoa(binary);
   return b64.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");

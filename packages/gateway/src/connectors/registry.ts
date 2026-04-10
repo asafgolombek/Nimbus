@@ -1,9 +1,9 @@
 import type { ConnectorDispatcher, PlannedAction } from "../engine/types.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
-import { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
+import { createLazyConnectorMesh, type LazyConnectorMesh } from "./lazy-mesh.ts";
 
-export { createLazyConnectorMesh, LazyConnectorMesh };
+export { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
 
 /**
  * Filesystem MCP (always) + lazy Google bundle (Drive, Gmail, Photos) when `google.oauth` exists +

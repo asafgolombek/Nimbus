@@ -5,7 +5,7 @@
 export interface NimbusItem {
   id: string;
   service: string;
-  itemType: "file" | "email" | "event" | "photo" | "task" | string;
+  itemType: "file" | "folder" | "email" | "event" | "photo" | "task";
   name: string;
   mimeType?: string;
   sizeBytes?: number;

@@ -14,7 +14,8 @@ export async function openUrlInDefaultBrowser(url: string): Promise<void> {
     const os = process.platform;
     let child: ReturnType<typeof spawn>;
     if (os === "win32") {
-      const systemRoot = process.env["SystemRoot"] ?? process.env["windir"] ?? "C:\\Windows";
+      const systemRoot =
+        process.env["SystemRoot"] ?? process.env["windir"] ?? String.raw`C:\Windows`;
       const cmdExe = pathWin32.join(systemRoot, "System32", "cmd.exe");
       child = spawn(cmdExe, ["/c", "start", "", url], {
         ...detachedIgnore,

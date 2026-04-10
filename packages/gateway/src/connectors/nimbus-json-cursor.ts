@@ -3,7 +3,7 @@ export function encodeNimbusJsonCursor(prefix: string, payload: unknown): string
   return prefix + Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
 
-export function decodeNimbusJsonCursorPayload(raw: string, prefix: string): unknown | undefined {
+export function decodeNimbusJsonCursorPayload(raw: string, prefix: string): unknown {
   if (!raw.startsWith(prefix)) {
     return undefined;
   }

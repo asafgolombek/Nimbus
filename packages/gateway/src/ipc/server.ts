@@ -316,6 +316,37 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     }
   }
 
+  const connectorRpcSkipped = Symbol("connectorRpcSkipped");
+
+  async function tryDispatchConnectorRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("connector.") || options.localIndex === undefined) {
+      return connectorRpcSkipped;
+    }
+    const openUrl = options.openUrl;
+    if (openUrl === undefined && method === "connector.auth") {
+      throw new RpcMethodError(-32603, "Gateway is not configured for OAuth (missing openUrl)");
+    }
+    try {
+      const out = await dispatchConnectorRpc({
+        method,
+        params,
+        vault: options.vault,
+        localIndex: options.localIndex,
+        openUrl: openUrl ?? (async () => {}),
+        syncScheduler: options.syncScheduler,
+      });
+      if (out.kind === "hit") {
+        return out.value;
+      }
+    } catch (e) {
+      if (e instanceof ConnectorRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+    return connectorRpcSkipped;
+  }
+
   async function dispatchMethod(
     clientId: string,
     session: ClientSession,
@@ -324,29 +355,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const { method } = req;
     const params = req.params;
 
-    if (method.startsWith("connector.") && options.localIndex !== undefined) {
-      const openUrl = options.openUrl;
-      if (openUrl === undefined && method === "connector.auth") {
-        throw new RpcMethodError(-32603, "Gateway is not configured for OAuth (missing openUrl)");
-      }
-      try {
-        const out = await dispatchConnectorRpc({
-          method,
-          params,
-          vault: options.vault,
-          localIndex: options.localIndex,
-          openUrl: openUrl ?? (async () => {}),
-          syncScheduler: options.syncScheduler,
-        });
-        if (out.kind === "hit") {
-          return out.value;
-        }
-      } catch (e) {
-        if (e instanceof ConnectorRpcError) {
-          throw new RpcMethodError(e.rpcCode, e.message);
-        }
-        throw e;
-      }
+    const connectorOutcome = await tryDispatchConnectorRpc(method, params);
+    if (connectorOutcome !== connectorRpcSkipped) {
+      return connectorOutcome;
     }
 
     switch (method) {
