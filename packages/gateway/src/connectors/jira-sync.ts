@@ -1,18 +1,16 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import {
+  asRecord,
+  basicAuthHeader,
+  normalizeAtlassianSiteBaseUrl,
+  stringField,
+} from "./atlassian-api-sync-helpers.ts";
 
 const SERVICE_ID = "jira";
 const CURSOR_PREFIX = "nimbus-jra1:";
 
 type JiraSyncCursorV1 = { v: 1; floorJql: string | null };
-
-function normalizeBaseUrl(raw: string): string {
-  const t = raw.trim().replace(/\/+$/, "");
-  if (t === "") {
-    return "";
-  }
-  return t.startsWith("http") ? t : `https://${t}`;
-}
 
 function encodeCursor(c: JiraSyncCursorV1): string {
   const payload = JSON.stringify(c);
@@ -43,12 +41,6 @@ function decodeCursor(raw: string | null): JiraSyncCursorV1 | null {
   }
 }
 
-function basicAuthHeader(email: string, token: string): string {
-  const raw = `${email}:${token}`;
-  const b64 = Buffer.from(raw, "utf8").toString("base64");
-  return `Basic ${b64}`;
-}
-
 /** Jira JQL datetime literal after `updated >` (exclusive), one second after API `fields.updated`. */
 function isoToJqlExclusiveFloor(iso: string): string {
   const d = new Date(iso);
@@ -66,18 +58,6 @@ function isoToJqlExclusiveFloor(iso: string): string {
 
 function maxIso(a: string, b: string): string {
   return Date.parse(a) >= Date.parse(b) ? a : b;
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
-}
-
-function stringField(r: Record<string, unknown>, key: string): string | undefined {
-  const v = r[key];
-  return typeof v === "string" ? v : undefined;
 }
 
 function descriptionPreview(fields: Record<string, unknown>): string {
@@ -134,7 +114,7 @@ export function createJiraSyncable(options: JiraSyncableOptions): Syncable {
           durationMs: Math.round(performance.now() - t0),
         };
       }
-      const baseUrl = normalizeBaseUrl(baseRaw);
+      const baseUrl = normalizeAtlassianSiteBaseUrl(baseRaw);
       if (baseUrl === "") {
         return {
           cursor,

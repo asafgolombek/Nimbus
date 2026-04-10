@@ -8,19 +8,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
-
-function requirePat(): string {
-  const t = process.env["GITLAB_PAT"];
-  if (t === undefined || t === "") {
-    throw new Error("GITLAB_PAT is not set");
-  }
-  return t;
-}
+import {
+  createRegisterSimpleTool,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
 
 function apiBase(): string {
   const b = process.env["GITLAB_API_BASE_URL"];
@@ -56,12 +49,7 @@ async function glFetch(
 
 const server = new McpServer({ name: "nimbus-gitlab", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 const projectPathArg = z.object({
   projectPath: z
@@ -77,7 +65,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       perPage: z.number().int().min(1).max(100).optional(),
       page: z.number().int().min(1).optional(),
@@ -86,7 +74,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const u = new URL(`${apiBase()}/projects`);
     u.searchParams.set("membership", "true");
     u.searchParams.set("order_by", "last_activity_at");
@@ -112,7 +100,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       state: z.enum(["opened", "closed", "locked", "merged", "all"]).optional(),
@@ -123,7 +111,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const u = new URL(`${apiBase()}/projects/${enc}/merge_requests`);
     u.searchParams.set("state", parsed.data.state ?? "opened");
@@ -146,7 +134,7 @@ registerSimpleTool(
     ...projectPathArg.shape,
     mergeRequestIid: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       mergeRequestIid: z.number().int().min(1),
@@ -155,7 +143,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const path = `/projects/${enc}/merge_requests/${String(parsed.data.mergeRequestIid)}`;
     const res = await glFetch(token, path);
@@ -176,7 +164,7 @@ registerSimpleTool(
     squash: z.boolean().optional(),
     shouldRemoveSourceBranch: z.boolean().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       mergeRequestIid: z.number().int().min(1),
@@ -188,7 +176,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const path = `/projects/${enc}/merge_requests/${String(parsed.data.mergeRequestIid)}/merge`;
     const body: Record<string, unknown> = {};
@@ -222,7 +210,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       state: z.enum(["opened", "closed", "all"]).optional(),
@@ -233,7 +221,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const u = new URL(`${apiBase()}/projects/${enc}/issues`);
     u.searchParams.set("state", parsed.data.state ?? "opened");
@@ -256,7 +244,7 @@ registerSimpleTool(
     ...projectPathArg.shape,
     issueIid: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       issueIid: z.number().int().min(1),
@@ -265,7 +253,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const path = `/projects/${enc}/issues/${String(parsed.data.issueIid)}`;
     const res = await glFetch(token, path);
@@ -286,7 +274,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       ref: z.string().max(500).optional(),
@@ -298,7 +286,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const u = new URL(`${apiBase()}/projects/${enc}/pipelines`);
     u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
@@ -326,7 +314,7 @@ registerSimpleTool(
     ...projectPathArg.shape,
     pipelineId: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       pipelineId: z.number().int().min(1),
@@ -335,7 +323,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const path = `/projects/${enc}/pipelines/${String(parsed.data.pipelineId)}`;
     const res = await glFetch(token, path);
@@ -353,7 +341,7 @@ registerSimpleTool(
     ...projectPathArg.shape,
     jobId: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectPath: z.string().min(1),
       jobId: z.number().int().min(1),
@@ -362,7 +350,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITLAB_PAT");
     const enc = encodeURIComponent(parsed.data.projectPath);
     const url = `${apiBase()}/projects/${enc}/jobs/${String(parsed.data.jobId)}/trace`;
     const res = await fetch(url, { headers: { "PRIVATE-TOKEN": token } });

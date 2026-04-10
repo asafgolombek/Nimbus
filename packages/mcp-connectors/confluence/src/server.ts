@@ -8,11 +8,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
+import {
+  createRegisterSimpleTool,
+  encodeBasicAuthHeader,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+} from "../../shared/mcp-tool-kit.ts";
 
 function normalizeSiteBase(raw: string): string {
   const t = raw.trim().replace(/\/+$/, "");
@@ -47,12 +48,6 @@ function requireConfluenceConfig(): { wikiApi: string; email: string; token: str
   };
 }
 
-function basicAuthHeader(email: string, token: string): string {
-  const raw = `${email}:${token}`;
-  const b64 = Buffer.from(raw, "utf8").toString("base64");
-  return `Basic ${b64}`;
-}
-
 async function confFetch(
   path: string,
   init?: RequestInit,
@@ -63,7 +58,7 @@ async function confFetch(
     : `${wikiApi}${path.startsWith("/") ? path : `/${path}`}`;
   const headers: Record<string, string> = {
     Accept: "application/json",
-    Authorization: basicAuthHeader(email, token),
+    Authorization: encodeBasicAuthHeader(email, token),
   };
   if (init?.body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -81,18 +76,13 @@ async function confFetch(
 
 const server = new McpServer({ name: "nimbus-confluence", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 registerSimpleTool(
   "confluence_space_list",
   "List Confluence spaces (GET /space).",
   { limit: z.number().int().min(1).max(100).optional(), start: z.number().int().min(0).optional() },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       limit: z.number().int().min(1).max(100).optional(),
       start: z.number().int().min(0).optional(),
@@ -121,7 +111,7 @@ registerSimpleTool(
     limit: z.number().int().min(1).max(100).optional(),
     start: z.number().int().min(0).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       spaceKey: z.string().min(1),
       limit: z.number().int().min(1).max(100).optional(),
@@ -150,7 +140,7 @@ registerSimpleTool(
   "confluence_page_get",
   "Get a Confluence page with body.storage (GET /content/{id}).",
   { pageId: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({ pageId: z.string().min(1) });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
@@ -175,7 +165,7 @@ registerSimpleTool(
     limit: z.number().int().min(1).max(100).optional(),
     start: z.number().int().min(0).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       spaceKey: z.string().min(1),
       limit: z.number().int().min(1).max(100).optional(),
@@ -204,7 +194,7 @@ registerSimpleTool(
   "confluence_blogpost_get",
   "Get a blog post by id (GET /content/{id}).",
   { postId: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({ postId: z.string().min(1) });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
@@ -229,7 +219,7 @@ registerSimpleTool(
     limit: z.number().int().min(1).max(100).optional(),
     start: z.number().int().min(0).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       pageId: z.string().min(1),
       limit: z.number().int().min(1).max(100).optional(),
@@ -262,7 +252,7 @@ registerSimpleTool(
     storageHtml: z.string().min(1),
     parentPageId: z.string().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       spaceKey: z.string().min(1),
       title: z.string().min(1),
@@ -304,7 +294,7 @@ registerSimpleTool(
     title: z.string().min(1),
     storageHtml: z.string().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       pageId: z.string().min(1),
       versionNumber: z.number().int().min(1),
@@ -339,7 +329,7 @@ registerSimpleTool(
   "confluence_comment_add",
   "Add a footer comment to a page (POST /content/{id}/child/comment).",
   { pageId: z.string().min(1), storageHtml: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       pageId: z.string().min(1),
       storageHtml: z.string().min(1),

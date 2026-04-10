@@ -8,19 +8,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-function requireUserToken(): string {
-  const t = process.env["SLACK_USER_ACCESS_TOKEN"];
-  if (t === undefined || t === "") {
-    throw new Error("SLACK_USER_ACCESS_TOKEN is not set");
-  }
-  return t;
-}
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
+import {
+  createRegisterSimpleTool,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
 
 type SlackApiRecord = Record<string, unknown>;
 
@@ -54,12 +47,7 @@ async function slackApi(
 
 const server = new McpServer({ name: "nimbus-slack", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 registerSimpleTool(
   "slack_channel_list",
@@ -69,7 +57,7 @@ registerSimpleTool(
     limit: z.number().int().min(1).max(200).optional(),
     cursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       types: z.string().optional(),
       limit: z.number().int().min(1).max(200).optional(),
@@ -79,7 +67,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       types: parsed.data.types ?? "public_channel,private_channel,mpim,im",
       limit: parsed.data.limit ?? 200,
@@ -106,7 +94,7 @@ registerSimpleTool(
     oldest: z.string().optional(),
     inclusive: z.boolean().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       channel: z.string().min(1),
       limit: z.number().int().min(1).max(200).optional(),
@@ -118,7 +106,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       channel: parsed.data.channel,
       limit: parsed.data.limit ?? 50,
@@ -149,7 +137,7 @@ registerSimpleTool(
     limit: z.number().int().min(1).max(200).optional(),
     cursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       channel: z.string().min(1),
       ts: z.string().min(1),
@@ -160,7 +148,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       channel: parsed.data.channel,
       ts: parsed.data.ts,
@@ -184,7 +172,7 @@ registerSimpleTool(
     limit: z.number().int().min(1).max(200).optional(),
     cursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       limit: z.number().int().min(1).max(200).optional(),
       cursor: z.string().optional(),
@@ -193,7 +181,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       types: "im,mpim",
       limit: parsed.data.limit ?? 200,
@@ -220,7 +208,7 @@ registerSimpleTool(
     oldest: z.string().optional(),
     inclusive: z.boolean().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       channel: z.string().min(1),
       limit: z.number().int().min(1).max(200).optional(),
@@ -232,7 +220,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       channel: parsed.data.channel,
       limit: parsed.data.limit ?? 50,
@@ -261,7 +249,7 @@ registerSimpleTool(
     limit: z.number().int().min(1).max(200).optional(),
     cursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       limit: z.number().int().min(1).max(200).optional(),
       cursor: z.string().optional(),
@@ -270,7 +258,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = { limit: parsed.data.limit ?? 100 };
     if (parsed.data.cursor !== undefined && parsed.data.cursor !== "") {
       body["cursor"] = parsed.data.cursor;
@@ -287,13 +275,13 @@ registerSimpleTool(
   "slack_user_get",
   "Get a single user profile by ID.",
   { user: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({ user: z.string().min(1) });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const res = await slackApi(token, "users.info", { user: parsed.data.user });
     if (!res.ok) {
       throw new Error(`Slack users.info: ${res.text.slice(0, 400)}`);
@@ -312,7 +300,7 @@ registerSimpleTool(
     sort: z.enum(["timestamp", "score"]).optional(),
     sort_dir: z.enum(["asc", "desc"]).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       query: z.string().min(1),
       count: z.number().int().min(1).max(100).optional(),
@@ -324,7 +312,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       query: parsed.data.query,
       count: parsed.data.count ?? 20,
@@ -352,7 +340,7 @@ registerSimpleTool(
     text: z.string().min(1),
     thread_ts: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       channel: z.string().min(1),
       text: z.string().min(1),
@@ -362,7 +350,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       channel: parsed.data.channel,
       text: parsed.data.text,
@@ -385,7 +373,7 @@ registerSimpleTool(
     user_ids: z.string().min(1),
     text: z.string().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       user_ids: z.string().min(1),
       text: z.string().min(1),
@@ -394,7 +382,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireUserToken();
+    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const open = await slackApi(token, "conversations.open", {
       users: parsed.data.user_ids,
       return_im: true,

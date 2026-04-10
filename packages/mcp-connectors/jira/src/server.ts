@@ -8,11 +8,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
+import {
+  createRegisterSimpleTool,
+  encodeBasicAuthHeader,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+} from "../../shared/mcp-tool-kit.ts";
 
 function normalizeBaseUrl(raw: string): string {
   const t = raw.trim().replace(/\/+$/, "");
@@ -38,12 +39,6 @@ function requireJiraConfig(): { baseUrl: string; email: string; token: string } 
   return { baseUrl: normalizeBaseUrl(baseRaw), email: email.trim(), token: token.trim() };
 }
 
-function basicAuthHeader(email: string, token: string): string {
-  const raw = `${email}:${token}`;
-  const b64 = Buffer.from(raw, "utf8").toString("base64");
-  return `Basic ${b64}`;
-}
-
 async function jiraFetch(
   baseUrl: string,
   email: string,
@@ -54,7 +49,7 @@ async function jiraFetch(
   const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
   const headers: Record<string, string> = {
     Accept: "application/json",
-    Authorization: basicAuthHeader(email, token),
+    Authorization: encodeBasicAuthHeader(email, token),
   };
   if (init?.body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -85,12 +80,7 @@ function plainToAdf(text: string): Record<string, unknown> {
 
 const server = new McpServer({ name: "nimbus-jira", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 registerSimpleTool(
   "jira_issue_list",
@@ -100,7 +90,7 @@ registerSimpleTool(
     startAt: z.number().int().min(0).optional(),
     maxResults: z.number().int().min(1).max(100).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       jql: z.string().min(1).optional(),
       startAt: z.number().int().min(0).optional(),
@@ -139,7 +129,7 @@ registerSimpleTool(
   "jira_issue_get",
   "Get a Jira issue by key or id (GET /rest/api/3/issue/{issueIdOrKey}).",
   { issueKey: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({ issueKey: z.string().min(1) });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
@@ -175,7 +165,7 @@ registerSimpleTool(
     description: z.string().optional(),
     issueTypeName: z.string().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectKey: z.string().min(1),
       summary: z.string().min(1),
@@ -221,7 +211,7 @@ registerSimpleTool(
     summary: z.string().min(1).optional(),
     description: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       issueKey: z.string().min(1),
       summary: z.string().min(1).optional(),
@@ -259,7 +249,7 @@ registerSimpleTool(
   "jira_comment_add",
   "Add a comment to a Jira issue (POST /rest/api/3/issue/{key}/comment).",
   { issueKey: z.string().min(1), body: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       issueKey: z.string().min(1),
       body: z.string().min(1),
@@ -295,7 +285,7 @@ registerSimpleTool(
     startAt: z.number().int().min(0).optional(),
     maxResults: z.number().int().min(1).max(50).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       startAt: z.number().int().min(0).optional(),
       maxResults: z.number().int().min(1).max(50).optional(),
@@ -334,7 +324,7 @@ registerSimpleTool(
     startAt: z.number().int().min(0).optional(),
     maxResults: z.number().int().min(1).max(50).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       boardId: z.number().int().min(1),
       startAt: z.number().int().min(0).optional(),
@@ -374,7 +364,7 @@ registerSimpleTool(
     projectKey: z.string().min(1),
     maxResults: z.number().int().min(1).max(100).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       projectKey: z.string().min(1),
       maxResults: z.number().int().min(1).max(100).optional(),

@@ -1,21 +1,19 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import {
+  asRecord,
+  basicAuthHeader,
+  normalizeAtlassianSiteBaseUrl,
+  stringField,
+} from "./atlassian-api-sync-helpers.ts";
 
 const SERVICE_ID = "confluence";
 const CURSOR_PREFIX = "nimbus-cfl1:";
 
 type ConfluenceSyncCursorV1 = { v: 1; watermark: string | null };
 
-function normalizeBaseUrl(raw: string): string {
-  const t = raw.trim().replace(/\/+$/, "");
-  if (t === "") {
-    return "";
-  }
-  return t.startsWith("http") ? t : `https://${t}`;
-}
-
 function wikiApiBase(siteBase: string): string {
-  const b = normalizeBaseUrl(siteBase);
+  const b = normalizeAtlassianSiteBaseUrl(siteBase);
   if (b === "") {
     return "";
   }
@@ -50,24 +48,6 @@ function decodeCursor(raw: string | null): ConfluenceSyncCursorV1 | null {
   } catch {
     return null;
   }
-}
-
-function basicAuthHeader(email: string, token: string): string {
-  const raw = `${email}:${token}`;
-  const b64 = Buffer.from(raw, "utf8").toString("base64");
-  return `Basic ${b64}`;
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
-}
-
-function stringField(r: Record<string, unknown>, key: string): string | undefined {
-  const v = r[key];
-  return typeof v === "string" ? v : undefined;
 }
 
 function isoMs(s: string): number {
@@ -205,7 +185,7 @@ export function createConfluenceSyncable(options: ConfluenceSyncableOptions): Sy
             }
             maxEdited = maxEdited === "" ? when : maxIso(maxEdited, when);
           }
-          const site = normalizeBaseUrl(baseRaw);
+          const site = normalizeAtlassianSiteBaseUrl(baseRaw);
           const webUi = `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
           const modified = when !== undefined && when !== "" ? isoMs(when) : syncTime;
           upserted += 1;

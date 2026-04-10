@@ -7,28 +7,21 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import {
+  createRegisterSimpleTool,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
+
 const NOTION_VERSION = "2022-06-28";
 const API = "https://api.notion.com/v1";
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
-
-function requireToken(): string {
-  const t = process.env["NOTION_ACCESS_TOKEN"];
-  if (t === undefined || t === "") {
-    throw new Error("NOTION_ACCESS_TOKEN is not set");
-  }
-  return t;
-}
 
 async function notionFetch(
   path: string,
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; text: string }> {
-  const token = requireToken();
+  const token = requireProcessEnv("NOTION_ACCESS_TOKEN");
   const url = path.startsWith("http") ? path : `${API}${path.startsWith("/") ? path : `/${path}`}`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -54,12 +47,7 @@ function richText(content: string): ReadonlyArray<Record<string, unknown>> {
 
 const server = new McpServer({ name: "nimbus-notion", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 registerSimpleTool(
   "notion_page_list",
@@ -69,7 +57,7 @@ registerSimpleTool(
     pageSize: z.number().int().min(1).max(100).optional(),
     startCursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       query: z.string().optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
@@ -101,7 +89,7 @@ registerSimpleTool(
   "notion_page_get",
   "Retrieve a Notion page and its direct child blocks.",
   { pageId: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({ pageId: z.string().min(1) });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
@@ -131,7 +119,7 @@ registerSimpleTool(
     pageSize: z.number().int().min(1).max(100).optional(),
     startCursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       query: z.string().optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
@@ -167,7 +155,7 @@ registerSimpleTool(
     pageSize: z.number().int().min(1).max(100).optional(),
     startCursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       databaseId: z.string().min(1),
       pageSize: z.number().int().min(1).max(100).optional(),
@@ -203,7 +191,7 @@ registerSimpleTool(
     pageSize: z.number().int().min(1).max(100).optional(),
     startCursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       blockId: z.string().min(1),
       pageSize: z.number().int().min(1).max(100).optional(),
@@ -236,7 +224,7 @@ registerSimpleTool(
     pageSize: z.number().int().min(1).max(100).optional(),
     startCursor: z.string().optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       blockId: z.string().min(1),
       pageSize: z.number().int().min(1).max(100).optional(),
@@ -269,7 +257,7 @@ registerSimpleTool(
     title: z.string().min(1),
     titlePropertyName: z.string().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       parentPageId: z.string().min(1),
       title: z.string().min(1),
@@ -300,7 +288,7 @@ registerSimpleTool(
   "notion_page_update",
   "Update page properties (PATCH /v1/pages/{id}). Pass properties JSON as string.",
   { pageId: z.string().min(1), propertiesJson: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       pageId: z.string().min(1),
       propertiesJson: z.string().min(1),
@@ -334,7 +322,7 @@ registerSimpleTool(
   "notion_block_append",
   "Append blocks to a parent block (PATCH /v1/blocks/{id}/children). childrenJson is a JSON array of block objects.",
   { parentBlockId: z.string().min(1), childrenJson: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       parentBlockId: z.string().min(1),
       childrenJson: z.string().min(1),
@@ -368,7 +356,7 @@ registerSimpleTool(
   "notion_comment_create",
   "Create a comment thread on a page (POST /v1/comments).",
   { pageId: z.string().min(1), text: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       pageId: z.string().min(1),
       text: z.string().min(1),

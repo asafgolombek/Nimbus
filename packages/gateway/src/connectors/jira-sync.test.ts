@@ -1,31 +1,13 @@
-import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import pino from "pino";
 
-import { LocalIndex } from "../index/local-index.ts";
-import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import {
+  createMemoryIndexDb,
+  createStubVault,
+  EMPTY_NIMBUS_VAULT,
+  silentSyncContextExtras,
+  urlFromFetchInput,
+} from "./connector-sync-test-helpers.ts";
 import { createJiraSyncable } from "./jira-sync.ts";
-
-function stubVault(email: string, token: string, base: string): NimbusVault {
-  return {
-    set: async () => {},
-    get: async (k: string) => {
-      if (k === "jira.email") {
-        return email;
-      }
-      if (k === "jira.api_token") {
-        return token;
-      }
-      if (k === "jira.base_url") {
-        return base;
-      }
-      return null;
-    },
-    delete: async () => {},
-    listKeys: async () => [],
-  };
-}
 
 describe("jira-sync", () => {
   const origFetch = globalThis.fetch;
@@ -35,22 +17,10 @@ describe("jira-sync", () => {
   });
 
   test("no-op when credentials missing", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     const sync = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
-    const emptyVault: NimbusVault = {
-      set: async () => {},
-      get: async () => null,
-      delete: async () => {},
-      listKeys: async () => [],
-    };
     const r = await sync.sync(
-      {
-        vault: emptyVault,
-        db,
-        logger: pino({ level: "silent" }),
-        rateLimiter: new ProviderRateLimiter(),
-      },
+      { vault: EMPTY_NIMBUS_VAULT, db, ...silentSyncContextExtras() },
       null,
     );
     expect(r.itemsUpserted).toBe(0);
@@ -59,12 +29,10 @@ describe("jira-sync", () => {
   });
 
   test("indexes issues from Jira search response and advances cursor", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     type FetchParams = Parameters<typeof fetch>;
     globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
-      const u =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const u = urlFromFetchInput(input);
       expect(u).toContain("example.atlassian.net/rest/api/3/search");
       const body =
         init?.body !== undefined && typeof init.body === "string" ? JSON.parse(init.body) : {};
@@ -92,10 +60,13 @@ describe("jira-sync", () => {
 
     const sync = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
     const ctx = {
-      vault: stubVault("u@example.com", "tok", "https://example.atlassian.net"),
+      vault: createStubVault({
+        "jira.email": "u@example.com",
+        "jira.api_token": "tok",
+        "jira.base_url": "https://example.atlassian.net",
+      }),
       db,
-      logger: pino({ level: "silent" }),
-      rateLimiter: new ProviderRateLimiter(),
+      ...silentSyncContextExtras(),
     };
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);

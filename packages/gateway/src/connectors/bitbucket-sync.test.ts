@@ -1,28 +1,11 @@
-import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import pino from "pino";
-
-import { LocalIndex } from "../index/local-index.ts";
-import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { createBitbucketSyncable } from "./bitbucket-sync.ts";
-
-function stubVault(user: string | null, pass: string | null): NimbusVault {
-  return {
-    set: async () => {},
-    get: async (key: string) => {
-      if (key === "bitbucket.username") {
-        return user;
-      }
-      if (key === "bitbucket.app_password") {
-        return pass;
-      }
-      return null;
-    },
-    delete: async () => {},
-    listKeys: async () => [],
-  };
-}
+import {
+  createMemoryIndexDb,
+  createStubVault,
+  silentSyncContextExtras,
+  urlFromFetchInput,
+} from "./connector-sync-test-helpers.ts";
 
 describe("bitbucket-sync", () => {
   const origFetch = globalThis.fetch;
@@ -32,15 +15,13 @@ describe("bitbucket-sync", () => {
   });
 
   test("no-op when credentials missing", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     const sync = createBitbucketSyncable({ ensureBitbucketMcpRunning: async () => {} });
     const r = await sync.sync(
       {
-        vault: stubVault(null, null),
+        vault: createStubVault({ "bitbucket.username": null, "bitbucket.app_password": null }),
         db,
-        logger: pino({ level: "silent" }),
-        rateLimiter: new ProviderRateLimiter(),
+        ...silentSyncContextExtras(),
       },
       null,
     );
@@ -50,21 +31,17 @@ describe("bitbucket-sync", () => {
   });
 
   test("indexes pull request after repository list and returns cursor", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     type FetchParams = Parameters<typeof fetch>;
     let call = 0;
     globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
-      const u =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const u = urlFromFetchInput(input);
       call += 1;
       if (call === 1) {
         expect(u).toContain("api.bitbucket.org/2.0/repositories");
         expect(u).toContain("role=member");
-        const h = new Headers(
-          init?.headers !== undefined && init?.headers !== null ? init.headers : undefined,
-        );
-        expect(h.get("Authorization")?.startsWith("Basic ")).toBe(true);
+        const h = new Headers(init?.headers ?? undefined);
+        expect((h.get("Authorization") ?? "").startsWith("Basic ")).toBe(true);
         return new Response(
           JSON.stringify({
             values: [{ full_name: "acme/app" }],
@@ -95,10 +72,9 @@ describe("bitbucket-sync", () => {
 
     const sync = createBitbucketSyncable({ ensureBitbucketMcpRunning: async () => {} });
     const ctx = {
-      vault: stubVault("me", "app_pass"),
+      vault: createStubVault({ "bitbucket.username": "me", "bitbucket.app_password": "app_pass" }),
       db,
-      logger: pino({ level: "silent" }),
-      rateLimiter: new ProviderRateLimiter(),
+      ...silentSyncContextExtras(),
     };
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);

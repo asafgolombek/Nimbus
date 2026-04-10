@@ -9,18 +9,14 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { fetchBearerAuthorizedJson, resolveUrlWithBase } from "../../shared/fetch-bearer-json.ts";
+import {
+  createRegisterSimpleTool,
+  type McpListResult,
+  mcpJsonResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
-
-function requireAccessToken(): string {
-  const t = process.env["MICROSOFT_OAUTH_ACCESS_TOKEN"];
-  if (t === undefined || t === "") {
-    throw new Error("MICROSOFT_OAUTH_ACCESS_TOKEN is not set");
-  }
-  return t;
-}
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
 
 async function graphRequest(
   token: string,
@@ -33,12 +29,7 @@ async function graphRequest(
 
 const server = new McpServer({ name: "nimbus-outlook", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 const outlookMailFoldersArgs = z.object({
   top: z.number().int().min(1).max(200).optional(),
@@ -49,12 +40,12 @@ registerSimpleTool(
   "outlook_mail_folders",
   "List mail folders (pagination via nextLink).",
   outlookMailFoldersArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookMailFoldersArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -66,7 +57,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -82,12 +73,12 @@ registerSimpleTool(
   "outlook_mail_list",
   "List mail messages (default folder inbox if folderId omitted). Pagination via nextLink.",
   outlookMailListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookMailListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const top = parsed.data.top ?? 25;
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
@@ -114,7 +105,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -126,12 +117,12 @@ registerSimpleTool(
   "outlook_mail_read",
   "Read a single message (body, headers, attachments metadata).",
   outlookMailReadArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookMailReadArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const r = await graphRequest(
       token,
       `/me/messages/${encodeURIComponent(parsed.data.messageId)}?$expand=attachments`,
@@ -139,7 +130,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -155,12 +146,12 @@ registerSimpleTool(
   "outlook_mail_send",
   "Send an email via Microsoft Graph. Requires Gateway HITL email.send.",
   outlookMailSendArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookMailSendArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const toList = parsed.data.to
       .split(",")
       .map((s) => s.trim())
@@ -192,7 +183,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+    return mcpJsonResult({ ok: true });
   },
 );
 
@@ -207,12 +198,12 @@ registerSimpleTool(
   "outlook_calendar_list",
   "List calendar events in a time window (ISO 8601 startDateTime / endDateTime).",
   outlookCalendarListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookCalendarListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -226,7 +217,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -238,17 +229,17 @@ registerSimpleTool(
   "outlook_calendar_get",
   "Get a single calendar event by id.",
   outlookCalendarGetArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookCalendarGetArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const r = await graphRequest(token, `/me/events/${encodeURIComponent(parsed.data.eventId)}`);
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -265,12 +256,12 @@ registerSimpleTool(
   "outlook_calendar_create",
   "Create a calendar event. Requires Gateway HITL calendar.event.create.",
   outlookCalendarCreateArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookCalendarCreateArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const tz = parsed.data.timeZone ?? "UTC";
     const body: Record<string, unknown> = {
       subject: parsed.data.subject,
@@ -298,7 +289,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -310,19 +301,19 @@ registerSimpleTool(
   "outlook_calendar_delete",
   "Delete a calendar event. Requires Gateway HITL calendar.event.delete.",
   outlookCalendarDeleteArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookCalendarDeleteArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const r = await graphRequest(token, `/me/events/${encodeURIComponent(parsed.data.eventId)}`, {
       method: "DELETE",
     });
     if (!r.ok && r.status !== 204) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+    return mcpJsonResult({ ok: true });
   },
 );
 
@@ -336,12 +327,12 @@ registerSimpleTool(
   "outlook_contact_list",
   "List contacts from the default folder.",
   outlookContactListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookContactListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -354,7 +345,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -366,12 +357,12 @@ registerSimpleTool(
   "outlook_contact_get",
   "Get a single contact by id.",
   outlookContactGetArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = outlookContactGetArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const r = await graphRequest(
       token,
       `/me/contacts/${encodeURIComponent(parsed.data.contactId)}`,
@@ -379,7 +370,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 

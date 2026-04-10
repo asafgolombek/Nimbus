@@ -1,20 +1,12 @@
-import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import pino from "pino";
 
-import { LocalIndex } from "../index/local-index.ts";
-import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import {
+  createMemoryIndexDb,
+  createStubVault,
+  silentSyncContextExtras,
+  urlFromFetchInput,
+} from "./connector-sync-test-helpers.ts";
 import { createGithubSyncable } from "./github-sync.ts";
-
-function stubVault(pat: string | null): NimbusVault {
-  return {
-    set: async () => {},
-    get: async (key: string) => (key === "github.pat" ? pat : null),
-    delete: async () => {},
-    listKeys: async () => [],
-  };
-}
 
 describe("github-sync", () => {
   const origFetch = globalThis.fetch;
@@ -24,15 +16,13 @@ describe("github-sync", () => {
   });
 
   test("no-op when PAT missing", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     const sync = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
     const r = await sync.sync(
       {
-        vault: stubVault(null),
+        vault: createStubVault({ "github.pat": null }),
         db,
-        logger: pino({ level: "silent" }),
-        rateLimiter: new ProviderRateLimiter(),
+        ...silentSyncContextExtras(),
       },
       null,
     );
@@ -42,12 +32,10 @@ describe("github-sync", () => {
   });
 
   test("indexes PullRequestEvent and stores cursor with etag", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     type FetchParams = Parameters<typeof fetch>;
     globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
-      const u =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const u = urlFromFetchInput(input);
       expect(u).toContain("api.github.com/user/events");
       expect(init?.headers).toBeDefined();
       return new Response(
@@ -77,10 +65,9 @@ describe("github-sync", () => {
 
     const sync = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
     const ctx = {
-      vault: stubVault("ghp_test"),
+      vault: createStubVault({ "github.pat": "ghp_test" }),
       db,
-      logger: pino({ level: "silent" }),
-      rateLimiter: new ProviderRateLimiter(),
+      ...silentSyncContextExtras(),
     };
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);
@@ -92,14 +79,12 @@ describe("github-sync", () => {
   });
 
   test("304 uses If-None-Match and returns zero upserts", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     let calls = 0;
     type FetchParams = Parameters<typeof fetch>;
     globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
       calls += 1;
-      const u =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const u = urlFromFetchInput(input);
       expect(u).toContain("api.github.com/user/events");
       if (calls === 1) {
         return new Response(JSON.stringify([]), {
@@ -108,19 +93,16 @@ describe("github-sync", () => {
         });
       }
       const headersInit = init?.headers;
-      const h = new Headers(
-        headersInit !== undefined && headersInit !== null ? headersInit : undefined,
-      );
+      const h = new Headers(headersInit ?? undefined);
       expect(h.get("If-None-Match")).toBe('"abc"');
       return new Response("", { status: 304 });
     }) as typeof fetch;
 
     const sync = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
     const ctx = {
-      vault: stubVault("ghp_x"),
+      vault: createStubVault({ "github.pat": "ghp_x" }),
       db,
-      logger: pino({ level: "silent" }),
-      rateLimiter: new ProviderRateLimiter(),
+      ...silentSyncContextExtras(),
     };
     const first = await sync.sync(ctx, null);
     expect(first.cursor).toContain("nimbus-ghub1:");

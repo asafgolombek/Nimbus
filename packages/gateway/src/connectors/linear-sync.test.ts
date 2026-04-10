@@ -1,20 +1,12 @@
-import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import pino from "pino";
 
-import { LocalIndex } from "../index/local-index.ts";
-import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import {
+  createMemoryIndexDb,
+  createStubVault,
+  silentSyncContextExtras,
+  urlFromFetchInput,
+} from "./connector-sync-test-helpers.ts";
 import { createLinearSyncable } from "./linear-sync.ts";
-
-function stubVault(key: string | null): NimbusVault {
-  return {
-    set: async () => {},
-    get: async (k: string) => (k === "linear.api_key" ? key : null),
-    delete: async () => {},
-    listKeys: async () => [],
-  };
-}
 
 describe("linear-sync", () => {
   const origFetch = globalThis.fetch;
@@ -24,15 +16,13 @@ describe("linear-sync", () => {
   });
 
   test("no-op when API key missing", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     const sync = createLinearSyncable({ ensureLinearMcpRunning: async () => {} });
     const r = await sync.sync(
       {
-        vault: stubVault(null),
+        vault: createStubVault({ "linear.api_key": null }),
         db,
-        logger: pino({ level: "silent" }),
-        rateLimiter: new ProviderRateLimiter(),
+        ...silentSyncContextExtras(),
       },
       null,
     );
@@ -42,12 +32,10 @@ describe("linear-sync", () => {
   });
 
   test("indexes issues from GraphQL response and advances cursor", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = createMemoryIndexDb();
     type FetchParams = Parameters<typeof fetch>;
     globalThis.fetch = (async (input: FetchParams[0], init?: FetchParams[1]): Promise<Response> => {
-      const u =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const u = urlFromFetchInput(input);
       expect(u).toContain("api.linear.app/graphql");
       const body =
         init?.body !== undefined && typeof init.body === "string" ? JSON.parse(init.body) : {};
@@ -76,10 +64,9 @@ describe("linear-sync", () => {
 
     const sync = createLinearSyncable({ ensureLinearMcpRunning: async () => {} });
     const ctx = {
-      vault: stubVault("lin_api_test"),
+      vault: createStubVault({ "linear.api_key": "lin_api_test" }),
       db,
-      logger: pino({ level: "silent" }),
-      rateLimiter: new ProviderRateLimiter(),
+      ...silentSyncContextExtras(),
     };
     const r = await sync.sync(ctx, null);
     expect(r.itemsUpserted).toBe(1);

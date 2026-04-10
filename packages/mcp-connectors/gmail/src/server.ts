@@ -9,18 +9,14 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { fetchBearerAuthorizedJson, resolveUrlWithBase } from "../../shared/fetch-bearer-json.ts";
+import {
+  createRegisterSimpleTool,
+  type McpListResult,
+  mcpJsonResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
 
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
-
-function requireAccessToken(): string {
-  const t = process.env["GOOGLE_OAUTH_ACCESS_TOKEN"];
-  if (t === undefined || t === "") {
-    throw new Error("GOOGLE_OAUTH_ACCESS_TOKEN is not set");
-  }
-  return t;
-}
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
 
 async function gmailFetch(
   token: string,
@@ -59,12 +55,7 @@ function toRawBase64Url(rfc822: string): string {
 
 const server = new McpServer({ name: "nimbus-gmail", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 const gmailMessageListArgs = z.object({
   maxResults: z.number().int().min(1).max(100).optional(),
@@ -78,12 +69,12 @@ registerSimpleTool(
   "gmail_message_list",
   "List Gmail message ids (metadata). Optional Gmail search query `q` (same syntax as Gmail UI).",
   gmailMessageListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = gmailMessageListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("GOOGLE_OAUTH_ACCESS_TOKEN");
     const u = new URL(`${GMAIL_BASE}/messages`);
     u.searchParams.set("maxResults", String(parsed.data.maxResults ?? 25));
     if (parsed.data.pageToken !== undefined && parsed.data.pageToken !== "") {
@@ -104,7 +95,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Gmail API ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -117,12 +108,12 @@ registerSimpleTool(
   "gmail_message_read",
   "Read a single Gmail message (format minimal | metadata | full | raw).",
   gmailMessageReadArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = gmailMessageReadArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("GOOGLE_OAUTH_ACCESS_TOKEN");
     const fmt = parsed.data.format ?? "metadata";
     const u = new URL(`${GMAIL_BASE}/messages/${encodeURIComponent(parsed.data.messageId)}`);
     u.searchParams.set("format", fmt);
@@ -136,7 +127,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Gmail API ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -149,12 +140,12 @@ registerSimpleTool(
   "gmail_thread_read",
   "Read a Gmail thread and its messages.",
   gmailThreadReadArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = gmailThreadReadArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("GOOGLE_OAUTH_ACCESS_TOKEN");
     const fmt = parsed.data.format ?? "metadata";
     const u = new URL(`${GMAIL_BASE}/threads/${encodeURIComponent(parsed.data.threadId)}`);
     u.searchParams.set("format", fmt);
@@ -162,7 +153,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Gmail API ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -172,13 +163,13 @@ registerSimpleTool(
   "gmail_label_list",
   "List all Gmail labels.",
   gmailLabelListArgs.shape,
-  async (_args: unknown): Promise<ListResult> => {
-    const token = requireAccessToken();
+  async (_args: unknown): Promise<McpListResult> => {
+    const token = requireProcessEnv("GOOGLE_OAUTH_ACCESS_TOKEN");
     const r = await gmailFetch(token, `${GMAIL_BASE}/labels`);
     if (!r.ok) {
       throw new Error(`Gmail API ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -194,12 +185,12 @@ registerSimpleTool(
   "gmail_draft_create",
   "Create a Gmail draft. Requires Gateway HITL email.draft.create.",
   gmailDraftCreateArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = gmailDraftCreateArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("GOOGLE_OAUTH_ACCESS_TOKEN");
     const msgParams: { to: string; subject: string; body: string; cc?: string; bcc?: string } = {
       to: parsed.data.to,
       subject: parsed.data.subject,
@@ -220,7 +211,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Gmail API ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -232,12 +223,12 @@ registerSimpleTool(
   "gmail_draft_send",
   "Send an existing Gmail draft by id. Requires Gateway HITL email.draft.send.",
   gmailDraftSendArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = gmailDraftSendArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("GOOGLE_OAUTH_ACCESS_TOKEN");
     const r = await gmailFetch(token, `${GMAIL_BASE}/drafts/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -246,7 +237,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Gmail API ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -262,12 +253,12 @@ registerSimpleTool(
   "gmail_message_send",
   "Send a new Gmail message (not a draft). Requires Gateway HITL email.send.",
   gmailMessageSendArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = gmailMessageSendArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("GOOGLE_OAUTH_ACCESS_TOKEN");
     const sendParams: { to: string; subject: string; body: string; cc?: string; bcc?: string } = {
       to: parsed.data.to,
       subject: parsed.data.subject,
@@ -288,7 +279,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Gmail API ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 

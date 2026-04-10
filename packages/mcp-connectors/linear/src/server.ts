@@ -8,21 +8,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import {
+  createRegisterSimpleTool,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
+
 const LINEAR_GQL = "https://api.linear.app/graphql";
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
-
-function requireApiKey(): string {
-  const t = process.env["LINEAR_API_KEY"];
-  if (t === undefined || t === "") {
-    throw new Error("LINEAR_API_KEY is not set");
-  }
-  return t;
-}
 
 type LinearGqlResponse<T> = {
   data?: T;
@@ -65,12 +58,7 @@ async function linearGraphql<T>(
 
 const server = new McpServer({ name: "nimbus-linear", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 registerSimpleTool(
   "linear_issue_list",
@@ -81,7 +69,7 @@ registerSimpleTool(
     stateName: z.string().min(1).optional(),
     assigneeId: z.string().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       first: z.number().int().min(1).max(100).optional(),
       teamId: z.string().min(1).optional(),
@@ -92,7 +80,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const filter: Record<string, unknown> = {};
     if (parsed.data.teamId !== undefined) {
       filter["team"] = { id: { eq: parsed.data.teamId } };
@@ -156,13 +144,13 @@ registerSimpleTool(
   "linear_issue_get",
   "Get a single Linear issue by UUID id.",
   { issueId: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({ issueId: z.string().min(1) });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query IssueGet($id: String!) {
         issue(id: $id) {
@@ -200,7 +188,7 @@ registerSimpleTool(
     stateId: z.string().min(1).optional(),
     assigneeId: z.string().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       teamId: z.string().min(1),
       title: z.string().min(1),
@@ -213,7 +201,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const input: Record<string, unknown> = {
       teamId: parsed.data.teamId,
       title: parsed.data.title,
@@ -258,7 +246,7 @@ registerSimpleTool(
     priority: z.number().int().min(0).max(4).optional(),
     assigneeId: z.string().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       issueId: z.string().min(1),
       title: z.string().min(1).optional(),
@@ -271,7 +259,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const input: Record<string, unknown> = {};
     if (parsed.data.title !== undefined) {
       input["title"] = parsed.data.title;
@@ -314,7 +302,7 @@ registerSimpleTool(
   "linear_comment_create",
   "Add a comment to a Linear issue.",
   { issueId: z.string().min(1), body: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       issueId: z.string().min(1),
       body: z.string().min(1),
@@ -323,7 +311,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       mutation CommentCreate($input: CommentCreateInput!) {
         commentCreate(input: $input) {
@@ -349,7 +337,7 @@ registerSimpleTool(
   "linear_project_list",
   "List Linear projects.",
   { first: z.number().int().min(1).max(100).optional() },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       first: z.number().int().min(1).max(100).optional(),
     });
@@ -357,7 +345,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query ProjectList($first: Int!) {
         projects(first: $first) {
@@ -386,13 +374,13 @@ registerSimpleTool(
   "linear_project_get",
   "Get a Linear project by id.",
   { projectId: z.string().min(1) },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({ projectId: z.string().min(1) });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query ProjectGet($id: String!) {
         project(id: $id) {
@@ -420,7 +408,7 @@ registerSimpleTool(
   "linear_cycle_list",
   "List Linear cycles for a team.",
   { teamId: z.string().min(1), first: z.number().int().min(1).max(50).optional() },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       teamId: z.string().min(1),
       first: z.number().int().min(1).max(50).optional(),
@@ -429,7 +417,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query CycleList($teamId: ID!, $first: Int!) {
         team(id: $teamId) {
@@ -468,7 +456,7 @@ registerSimpleTool(
   "linear_roadmap_list",
   "List Linear initiatives (roadmap).",
   { first: z.number().int().min(1).max(50).optional() },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       first: z.number().int().min(1).max(50).optional(),
     });
@@ -476,7 +464,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query InitiativeList($first: Int!) {
         initiatives(first: $first) {
@@ -504,7 +492,7 @@ registerSimpleTool(
   "linear_member_list",
   "List users in the workspace.",
   { first: z.number().int().min(1).max(100).optional() },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       first: z.number().int().min(1).max(100).optional(),
     });
@@ -512,7 +500,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const apiKey = requireApiKey();
+    const apiKey = requireProcessEnv("LINEAR_API_KEY");
     const q = `
       query Users($first: Int!) {
         users(first: $first) {

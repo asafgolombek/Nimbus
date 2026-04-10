@@ -8,18 +8,14 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { fetchBearerAuthorizedJson, resolveUrlWithBase } from "../../shared/fetch-bearer-json.ts";
+import {
+  createRegisterSimpleTool,
+  type McpListResult,
+  mcpJsonResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
-
-function requireAccessToken(): string {
-  const t = process.env["MICROSOFT_OAUTH_ACCESS_TOKEN"];
-  if (t === undefined || t === "") {
-    throw new Error("MICROSOFT_OAUTH_ACCESS_TOKEN is not set");
-  }
-  return t;
-}
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
 
 async function graphRequest(
   token: string,
@@ -32,12 +28,7 @@ async function graphRequest(
 
 const server = new McpServer({ name: "nimbus-teams", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 const teamsTeamListArgs = z.object({
   top: z.number().int().min(1).max(100).optional(),
@@ -48,12 +39,12 @@ registerSimpleTool(
   "teams_team_list",
   "List Microsoft Teams the signed-in user has joined (pagination via nextLink).",
   teamsTeamListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = teamsTeamListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -65,7 +56,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -79,12 +70,12 @@ registerSimpleTool(
   "teams_channel_list",
   "List channels in a team (standard + private the app can read).",
   teamsChannelListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = teamsChannelListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -97,7 +88,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -112,12 +103,12 @@ registerSimpleTool(
   "teams_channel_messages",
   "List recent messages in a team channel (not delta; for interactive reads).",
   teamsChannelMessagesArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = teamsChannelMessagesArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -131,7 +122,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -144,12 +135,12 @@ registerSimpleTool(
   "teams_chat_list",
   "List 1:1 and group chats for the signed-in user.",
   teamsChatListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = teamsChatListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -161,7 +152,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -175,12 +166,12 @@ registerSimpleTool(
   "teams_chat_messages",
   "List messages in a chat.",
   teamsChatMessagesArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = teamsChatMessagesArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       path = parsed.data.nextLink;
@@ -193,7 +184,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -208,12 +199,12 @@ registerSimpleTool(
   "teams_message_post",
   "Post a message to a team channel (requires HITL teams.message.post).",
   teamsMessagePostArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = teamsMessagePostArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const tid = encodeURIComponent(parsed.data.teamId);
     const cid = encodeURIComponent(parsed.data.channelId);
     const ct = parsed.data.contentType ?? "text";
@@ -230,7 +221,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -244,12 +235,12 @@ registerSimpleTool(
   "teams_message_post_chat",
   "Post a message to a chat (requires HITL teams.message.postChat).",
   teamsMessagePostChatArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = teamsMessagePostChatArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const id = encodeURIComponent(parsed.data.chatId);
     const ct = parsed.data.contentType ?? "text";
     const r = await graphRequest(token, `/chats/${id}/messages`, {
@@ -265,7 +256,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 

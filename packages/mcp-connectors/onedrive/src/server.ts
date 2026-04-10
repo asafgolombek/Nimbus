@@ -8,17 +8,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import {
+  createRegisterSimpleTool,
+  type McpListResult,
+  mcpJsonResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
+
 const GRAPH = "https://graph.microsoft.com/v1.0";
-
-function requireAccessToken(): string {
-  const t = process.env["MICROSOFT_OAUTH_ACCESS_TOKEN"];
-  if (t === undefined || t === "") {
-    throw new Error("MICROSOFT_OAUTH_ACCESS_TOKEN is not set");
-  }
-  return t;
-}
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
 
 async function graphRequest(
   token: string,
@@ -46,12 +43,7 @@ async function graphRequest(
 
 const server = new McpServer({ name: "nimbus-onedrive", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 const onedriveItemListArgs = z.object({
   parentId: z.string().min(1).optional(),
@@ -63,19 +55,19 @@ registerSimpleTool(
   "onedrive_item_list",
   "List drive items under root or a folder (by parentId). Use nextLink from prior response for pagination.",
   onedriveItemListArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = onedriveItemListArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
       const r = await graphRequest(token, parsed.data.nextLink);
       if (!r.ok) {
         throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
       }
-      return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+      return mcpJsonResult(r.json);
     }
     const pageSize = parsed.data.pageSize ?? 50;
     if (parsed.data.parentId !== undefined && parsed.data.parentId !== "") {
@@ -87,7 +79,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -99,12 +91,12 @@ registerSimpleTool(
   "onedrive_item_get",
   "Get OneDrive item metadata by id (file or folder).",
   onedriveItemGetArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = onedriveItemGetArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const r = await graphRequest(
       token,
       `/me/drive/items/${encodeURIComponent(parsed.data.itemId)}`,
@@ -112,7 +104,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -130,12 +122,12 @@ registerSimpleTool(
   "onedrive_item_download",
   "Download file content as base64 (capped by maxBytes, default 256 KiB). Folders are rejected.",
   onedriveItemDownloadArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = onedriveItemDownloadArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const maxBytes = parsed.data.maxBytes ?? 256 * 1024;
     const meta = await graphRequest(
       token,
@@ -172,7 +164,7 @@ registerSimpleTool(
       returnedBytes: slice.byteLength,
       content: b64,
     };
-    return { content: [{ type: "text", text: JSON.stringify(out) }] };
+    return mcpJsonResult(out);
   },
 );
 
@@ -186,12 +178,12 @@ registerSimpleTool(
   "onedrive_item_search",
   "Search OneDrive under /me/drive/root/search.",
   onedriveItemSearchArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = onedriveItemSearchArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const pageSize = parsed.data.pageSize ?? 25;
     let path: string;
     if (parsed.data.nextLink !== undefined && parsed.data.nextLink !== "") {
@@ -204,7 +196,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 
@@ -216,12 +208,12 @@ registerSimpleTool(
   "onedrive_item_delete",
   "Permanently delete a OneDrive item. Requires Gateway HITL onedrive.delete.",
   onedriveItemDeleteArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = onedriveItemDeleteArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const r = await graphRequest(
       token,
       `/me/drive/items/${encodeURIComponent(parsed.data.itemId)}`,
@@ -230,7 +222,7 @@ registerSimpleTool(
     if (!r.ok && r.status !== 204) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+    return mcpJsonResult({ ok: true });
   },
 );
 
@@ -244,12 +236,12 @@ registerSimpleTool(
   "onedrive_item_move",
   "Move (and optionally rename) a drive item. Requires Gateway HITL onedrive.move.",
   onedriveItemMoveArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = onedriveItemMoveArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requireAccessToken();
+    const token = requireProcessEnv("MICROSOFT_OAUTH_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       parentReference: { id: parsed.data.newParentId },
     };
@@ -268,7 +260,7 @@ registerSimpleTool(
     if (!r.ok) {
       throw new Error(`Graph ${String(r.status)}: ${r.text.slice(0, 200)}`);
     }
-    return { content: [{ type: "text", text: JSON.stringify(r.json) }] };
+    return mcpJsonResult(r.json);
   },
 );
 

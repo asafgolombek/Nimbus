@@ -8,13 +8,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import {
+  createRegisterSimpleTool,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+} from "../../shared/mcp-tool-kit.ts";
+
 const BB_API = "https://api.bitbucket.org/2.0";
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
 
 function requireUsername(): string {
   const t = process.env["BITBUCKET_USERNAME"];
@@ -74,12 +74,7 @@ async function bbFetch(
 
 const server = new McpServer({ name: "nimbus-bitbucket", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 const repoFullArg = z.object({
   repoFull: z
@@ -99,7 +94,7 @@ registerSimpleTool(
       .optional()
       .describe("Opaque page URL or token from a prior next link"),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       pagelen: z.number().int().min(1).max(100).optional(),
       page: z.string().max(2000).optional(),
@@ -135,7 +130,7 @@ registerSimpleTool(
     pagelen: z.number().int().min(1).max(100).optional(),
     page: z.string().max(2000).optional().describe("Opaque next URL from a prior response"),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       repoFull: z.string().min(3),
       state: z.enum(["OPEN", "MERGED", "DECLINED", "SUPERSEDED"]).optional(),
@@ -176,7 +171,7 @@ registerSimpleTool(
     ...repoFullArg.shape,
     pullRequestId: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       repoFull: z.string().min(3),
       pullRequestId: z.number().int().min(1),
@@ -204,7 +199,7 @@ registerSimpleTool(
     mergeStrategy: z.enum(["merge_commit", "squash", "fast_forward"]).optional(),
     message: z.string().max(32_768).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       repoFull: z.string().min(3),
       pullRequestId: z.number().int().min(1),
@@ -244,7 +239,7 @@ registerSimpleTool(
     pagelen: z.number().int().min(1).max(100).optional(),
     page: z.string().max(2000).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       repoFull: z.string().min(3),
       pagelen: z.number().int().min(1).max(100).optional(),
@@ -280,7 +275,7 @@ registerSimpleTool(
     ...repoFullArg.shape,
     pipelineUuid: z.string().min(8).max(128),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       repoFull: z.string().min(3),
       pipelineUuid: z.string().min(8).max(128),
@@ -308,7 +303,7 @@ registerSimpleTool(
     pagelen: z.number().int().min(1).max(100).optional(),
     page: z.string().max(2000).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       repoFull: z.string().min(3),
       pagelen: z.number().int().min(1).max(100).optional(),

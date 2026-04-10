@@ -9,26 +9,18 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { fetchBearerAuthorizedJson } from "../../shared/fetch-bearer-json.ts";
+import {
+  createRegisterSimpleTool,
+  mcpJsonResult as jsonResult,
+  type McpListResult,
+  requireProcessEnv,
+} from "../../shared/mcp-tool-kit.ts";
 
 const GH_API = "https://api.github.com";
 const GH_HEADERS: Record<string, string> = {
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
 };
-
-function requirePat(): string {
-  const t = process.env["GITHUB_PAT"];
-  if (t === undefined || t === "") {
-    throw new Error("GITHUB_PAT is not set");
-  }
-  return t;
-}
-
-type ListResult = { content: Array<{ type: "text"; text: string }> };
-
-function jsonResult(data: unknown): ListResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
 
 async function ghFetch(
   token: string,
@@ -41,12 +33,7 @@ async function ghFetch(
 
 const server = new McpServer({ name: "nimbus-github", version: "0.1.0" });
 
-const registerSimpleTool = server.tool.bind(server) as (
-  name: string,
-  description: string,
-  inputShape: Record<string, z.ZodTypeAny>,
-  handler: (args: unknown) => Promise<ListResult>,
-) => unknown;
+const registerSimpleTool = createRegisterSimpleTool(server);
 
 const repoSlugArgs = z.object({
   owner: z.string().min(1),
@@ -60,7 +47,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       perPage: z.number().int().min(1).max(100).optional(),
       page: z.number().int().min(1).optional(),
@@ -69,7 +56,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const u = new URL(`${GH_API}/user/repos`);
     u.searchParams.set("per_page", String(parsed.data.perPage ?? 30));
     if (parsed.data.page !== undefined) {
@@ -89,12 +76,12 @@ registerSimpleTool(
   "github_repo_get",
   "Get repository metadata (owner/repo).",
   repoSlugArgs.shape,
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const parsed = repoSlugArgs.safeParse(args);
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}`;
     const res = await ghFetch(token, path);
     if (!res.ok) {
@@ -113,7 +100,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -125,7 +112,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const u = new URL(
       `${GH_API}/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls`,
     );
@@ -151,7 +138,7 @@ registerSimpleTool(
     ...repoSlugArgs.shape,
     pullNumber: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -161,7 +148,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls/${String(parsed.data.pullNumber)}`;
     const res = await ghFetch(token, path);
     if (!res.ok) {
@@ -180,7 +167,7 @@ registerSimpleTool(
     mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
     commitTitle: z.string().max(500).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -192,7 +179,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls/${String(parsed.data.pullNumber)}/merge`;
     const body: Record<string, string> = {};
     if (parsed.data.mergeMethod !== undefined) {
@@ -220,7 +207,7 @@ registerSimpleTool(
     ...repoSlugArgs.shape,
     pullNumber: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -230,7 +217,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/pulls/${String(parsed.data.pullNumber)}`;
     const res = await ghFetch(token, path, {
       method: "PATCH",
@@ -253,7 +240,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -265,7 +252,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const u = new URL(
       `${GH_API}/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/issues`,
     );
@@ -291,7 +278,7 @@ registerSimpleTool(
     ...repoSlugArgs.shape,
     issueNumber: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -301,7 +288,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/issues/${String(parsed.data.issueNumber)}`;
     const res = await ghFetch(token, path);
     if (!res.ok) {
@@ -319,7 +306,7 @@ registerSimpleTool(
     title: z.string().min(1).max(500),
     body: z.string().max(65_000).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -330,7 +317,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/issues`;
     const res = await ghFetch(token, path, {
       method: "POST",
@@ -355,7 +342,7 @@ registerSimpleTool(
     perPage: z.number().int().min(1).max(100).optional(),
     page: z.number().int().min(1).optional(),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -366,7 +353,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const u = new URL(
       `${GH_API}/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/actions/runs`,
     );
@@ -389,7 +376,7 @@ registerSimpleTool(
     ...repoSlugArgs.shape,
     runId: z.number().int().min(1),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -399,7 +386,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/actions/runs/${String(parsed.data.runId)}`;
     const res = await ghFetch(token, path);
     if (!res.ok) {
@@ -416,7 +403,7 @@ registerSimpleTool(
     ...repoSlugArgs.shape,
     branch: z.string().min(1).max(255),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -426,7 +413,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const ref = `heads/${parsed.data.branch}`;
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/git/refs/${encodeURIComponent(ref)}`;
     const res = await ghFetch(token, path, { method: "DELETE" });
@@ -445,7 +432,7 @@ registerSimpleTool(
     tag: z.string().min(1).max(255),
     sha: z.string().min(7).max(40),
   },
-  async (args: unknown): Promise<ListResult> => {
+  async (args: unknown): Promise<McpListResult> => {
     const schema = z.object({
       owner: z.string().min(1),
       repo: z.string().min(1),
@@ -456,7 +443,7 @@ registerSimpleTool(
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const token = requirePat();
+    const token = requireProcessEnv("GITHUB_PAT");
     const path = `/repos/${encodeURIComponent(parsed.data.owner)}/${encodeURIComponent(parsed.data.repo)}/git/refs`;
     const res = await ghFetch(token, path, {
       method: "POST",
@@ -480,7 +467,7 @@ registerSimpleTool(
     ...repoSlugArgs.shape,
     branch: z.string().min(1).optional(),
   },
-  async (_args: unknown): Promise<ListResult> => {
+  async (_args: unknown): Promise<McpListResult> => {
     return jsonResult({
       code: "NOT_IMPLEMENTED",
       message:
