@@ -59,6 +59,13 @@ describe("HITL_REQUIRED", () => {
       "jira.issue.create",
       "jira.issue.update",
       "jira.comment.add",
+      "notion.page.create",
+      "notion.page.update",
+      "notion.block.append",
+      "notion.comment.create",
+      "confluence.page.create",
+      "confluence.page.update",
+      "confluence.comment.add",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -276,6 +283,83 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(jiraAction);
+    });
+  }
+
+  for (const notionAction of [
+    "notion.page.create",
+    "notion.page.update",
+    "notion.block.append",
+    "notion.comment.create",
+  ] as const) {
+    test(`rejected consent for ${notionAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload =
+        notionAction === "notion.page.create"
+          ? {
+              mcpToolId: "notion_notion_page_create",
+              input: { parentPageId: "p1", title: "t" },
+            }
+          : notionAction === "notion.page.update"
+            ? {
+                mcpToolId: "notion_notion_page_update",
+                input: { pageId: "p1", propertiesJson: "{}" },
+              }
+            : notionAction === "notion.block.append"
+              ? {
+                  mcpToolId: "notion_notion_block_append",
+                  input: { parentBlockId: "b1", childrenJson: "[]" },
+                }
+              : {
+                  mcpToolId: "notion_notion_comment_create",
+                  input: { pageId: "p1", text: "c" },
+                };
+      const out = await exec.execute({ type: notionAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(notionAction);
+    });
+  }
+
+  for (const confluenceAction of [
+    "confluence.page.create",
+    "confluence.page.update",
+    "confluence.comment.add",
+  ] as const) {
+    test(`rejected consent for ${confluenceAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload =
+        confluenceAction === "confluence.page.create"
+          ? {
+              mcpToolId: "confluence_confluence_page_create",
+              input: { spaceKey: "S", title: "t", storageHtml: "<p>x</p>" },
+            }
+          : confluenceAction === "confluence.page.update"
+            ? {
+                mcpToolId: "confluence_confluence_page_update",
+                input: {
+                  pageId: "1",
+                  versionNumber: 1,
+                  title: "t",
+                  storageHtml: "<p>y</p>",
+                },
+              }
+            : {
+                mcpToolId: "confluence_confluence_comment_add",
+                input: { pageId: "1", storageHtml: "<p>c</p>" },
+              };
+      const out = await exec.execute({ type: confluenceAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(confluenceAction);
     });
   }
 

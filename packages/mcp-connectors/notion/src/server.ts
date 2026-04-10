@@ -1,0 +1,397 @@
+/**
+ * nimbus-mcp-notion — Notion REST MCP server.
+ * Token: NOTION_ACCESS_TOKEN (never logged). Mutations require Gateway HITL.
+ */
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const NOTION_VERSION = "2022-06-28";
+const API = "https://api.notion.com/v1";
+
+type ListResult = { content: Array<{ type: "text"; text: string }> };
+
+function jsonResult(data: unknown): ListResult {
+  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+}
+
+function requireToken(): string {
+  const t = process.env["NOTION_ACCESS_TOKEN"];
+  if (t === undefined || t === "") {
+    throw new Error("NOTION_ACCESS_TOKEN is not set");
+  }
+  return t;
+}
+
+async function notionFetch(
+  path: string,
+  init?: RequestInit,
+): Promise<{ ok: boolean; status: number; text: string }> {
+  const token = requireToken();
+  const url = path.startsWith("http") ? path : `${API}${path.startsWith("/") ? path : `/${path}`}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Notion-Version": NOTION_VERSION,
+  };
+  if (init?.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      ...headers,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, text };
+}
+
+function richText(content: string): ReadonlyArray<Record<string, unknown>> {
+  return [{ type: "text", text: { content: content.slice(0, 2000) } }];
+}
+
+const server = new McpServer({ name: "nimbus-notion", version: "0.1.0" });
+
+const registerSimpleTool = server.tool.bind(server) as (
+  name: string,
+  description: string,
+  inputShape: Record<string, z.ZodTypeAny>,
+  handler: (args: unknown) => Promise<ListResult>,
+) => unknown;
+
+registerSimpleTool(
+  "notion_page_list",
+  "Search Notion pages the integration can access (POST /v1/search, object filter page).",
+  {
+    query: z.string().optional(),
+    pageSize: z.number().int().min(1).max(100).optional(),
+    startCursor: z.string().optional(),
+  },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      query: z.string().optional(),
+      pageSize: z.number().int().min(1).max(100).optional(),
+      startCursor: z.string().optional(),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const body: Record<string, unknown> = {
+      filter: { property: "object", value: "page" },
+      page_size: parsed.data.pageSize ?? 50,
+    };
+    if (parsed.data.query !== undefined && parsed.data.query !== "") {
+      body["query"] = parsed.data.query;
+    }
+    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
+      body["start_cursor"] = parsed.data.startCursor;
+    }
+    const res = await notionFetch("/search", { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_page_get",
+  "Retrieve a Notion page and its direct child blocks.",
+  { pageId: z.string().min(1) },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({ pageId: z.string().min(1) });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const id = encodeURIComponent(parsed.data.pageId);
+    const page = await notionFetch(`/pages/${id}`);
+    if (!page.ok) {
+      throw new Error(`Notion ${String(page.status)}: ${page.text.slice(0, 400)}`);
+    }
+    const blocks = await notionFetch(`/blocks/${id}/children?page_size=100`);
+    if (!blocks.ok) {
+      throw new Error(`Notion blocks ${String(blocks.status)}: ${blocks.text.slice(0, 400)}`);
+    }
+    return jsonResult({
+      page: JSON.parse(page.text) as unknown,
+      blockChildren: JSON.parse(blocks.text) as unknown,
+    });
+  },
+);
+
+registerSimpleTool(
+  "notion_database_list",
+  "Search Notion databases (POST /v1/search, object filter database).",
+  {
+    query: z.string().optional(),
+    pageSize: z.number().int().min(1).max(100).optional(),
+    startCursor: z.string().optional(),
+  },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      query: z.string().optional(),
+      pageSize: z.number().int().min(1).max(100).optional(),
+      startCursor: z.string().optional(),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const body: Record<string, unknown> = {
+      filter: { property: "object", value: "database" },
+      page_size: parsed.data.pageSize ?? 50,
+    };
+    if (parsed.data.query !== undefined && parsed.data.query !== "") {
+      body["query"] = parsed.data.query;
+    }
+    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
+      body["start_cursor"] = parsed.data.startCursor;
+    }
+    const res = await notionFetch("/search", { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_database_query",
+  "Query a Notion database (POST /v1/databases/{id}/query).",
+  {
+    databaseId: z.string().min(1),
+    pageSize: z.number().int().min(1).max(100).optional(),
+    startCursor: z.string().optional(),
+  },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      databaseId: z.string().min(1),
+      pageSize: z.number().int().min(1).max(100).optional(),
+      startCursor: z.string().optional(),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const id = encodeURIComponent(parsed.data.databaseId);
+    const body: Record<string, unknown> = {
+      page_size: parsed.data.pageSize ?? 50,
+    };
+    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
+      body["start_cursor"] = parsed.data.startCursor;
+    }
+    const res = await notionFetch(`/databases/${id}/query`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_block_children",
+  "List child blocks of a block or page (GET /v1/blocks/{id}/children).",
+  {
+    blockId: z.string().min(1),
+    pageSize: z.number().int().min(1).max(100).optional(),
+    startCursor: z.string().optional(),
+  },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      blockId: z.string().min(1),
+      pageSize: z.number().int().min(1).max(100).optional(),
+      startCursor: z.string().optional(),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const id = encodeURIComponent(parsed.data.blockId);
+    const qs = new URLSearchParams({
+      page_size: String(parsed.data.pageSize ?? 50),
+    });
+    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
+      qs.set("start_cursor", parsed.data.startCursor);
+    }
+    const res = await notionFetch(`/blocks/${id}/children?${qs.toString()}`);
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_comment_list",
+  "List comments for a block or page (GET /v1/comments).",
+  {
+    blockId: z.string().min(1),
+    pageSize: z.number().int().min(1).max(100).optional(),
+    startCursor: z.string().optional(),
+  },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      blockId: z.string().min(1),
+      pageSize: z.number().int().min(1).max(100).optional(),
+      startCursor: z.string().optional(),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const qs = new URLSearchParams({
+      block_id: parsed.data.blockId,
+      page_size: String(parsed.data.pageSize ?? 50),
+    });
+    if (parsed.data.startCursor !== undefined && parsed.data.startCursor !== "") {
+      qs.set("start_cursor", parsed.data.startCursor);
+    }
+    const res = await notionFetch(`/comments?${qs.toString()}`);
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_page_create",
+  "Create a page under a parent page (POST /v1/pages).",
+  {
+    parentPageId: z.string().min(1),
+    title: z.string().min(1),
+    titlePropertyName: z.string().min(1).optional(),
+  },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      parentPageId: z.string().min(1),
+      title: z.string().min(1),
+      titlePropertyName: z.string().min(1).optional(),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const prop = parsed.data.titlePropertyName ?? "title";
+    const body = {
+      parent: { page_id: parsed.data.parentPageId },
+      properties: {
+        [prop]: {
+          title: richText(parsed.data.title),
+        },
+      },
+    };
+    const res = await notionFetch("/pages", { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_page_update",
+  "Update page properties (PATCH /v1/pages/{id}). Pass properties JSON as string.",
+  { pageId: z.string().min(1), propertiesJson: z.string().min(1) },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      pageId: z.string().min(1),
+      propertiesJson: z.string().min(1),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    let props: unknown;
+    try {
+      props = JSON.parse(parsed.data.propertiesJson) as unknown;
+    } catch {
+      throw new Error("propertiesJson must be valid JSON");
+    }
+    if (props === null || typeof props !== "object" || Array.isArray(props)) {
+      throw new Error("propertiesJson must be a JSON object");
+    }
+    const id = encodeURIComponent(parsed.data.pageId);
+    const res = await notionFetch(`/pages/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ properties: props }),
+    });
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_block_append",
+  "Append blocks to a parent block (PATCH /v1/blocks/{id}/children). childrenJson is a JSON array of block objects.",
+  { parentBlockId: z.string().min(1), childrenJson: z.string().min(1) },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      parentBlockId: z.string().min(1),
+      childrenJson: z.string().min(1),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    let children: unknown;
+    try {
+      children = JSON.parse(parsed.data.childrenJson) as unknown;
+    } catch {
+      throw new Error("childrenJson must be valid JSON");
+    }
+    if (!Array.isArray(children)) {
+      throw new Error("childrenJson must be a JSON array");
+    }
+    const id = encodeURIComponent(parsed.data.parentBlockId);
+    const res = await notionFetch(`/blocks/${id}/children`, {
+      method: "PATCH",
+      body: JSON.stringify({ children }),
+    });
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+registerSimpleTool(
+  "notion_comment_create",
+  "Create a comment thread on a page (POST /v1/comments).",
+  { pageId: z.string().min(1), text: z.string().min(1) },
+  async (args: unknown): Promise<ListResult> => {
+    const schema = z.object({
+      pageId: z.string().min(1),
+      text: z.string().min(1),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
+    const body = {
+      parent: { page_id: parsed.data.pageId },
+      rich_text: richText(parsed.data.text),
+    };
+    const res = await notionFetch("/comments", { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) {
+      throw new Error(`Notion ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return jsonResult(JSON.parse(res.text) as unknown);
+  },
+);
+
+async function main(): Promise<void> {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+void main();

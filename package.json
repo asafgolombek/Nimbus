@@ -18,7 +18,9 @@
     "packages/mcp-connectors/slack",
     "packages/mcp-connectors/teams",
     "packages/mcp-connectors/linear",
-    "packages/mcp-connectors/jira"
+    "packages/mcp-connectors/jira",
+    "packages/mcp-connectors/notion",
+    "packages/mcp-connectors/confluence"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",

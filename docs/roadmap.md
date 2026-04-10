@@ -169,6 +169,10 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
   - Semantic code search: indexes function signatures, class names, exported symbols; links to GitHub PR history
   - Dependency graph: parses `package.json`, `go.mod`, `Cargo.toml`, `requirements.txt`; flags known-vulnerable versions
 
+### Interaction Layer
+
+- [ ] **Session CLI** — `nimbus` with no arguments launches an interactive session; conversation history maintained in the Gateway across turns using the RAG conversational memory foundation; context-aware follow-up queries understood without re-specifying prior results (e.g. "now move the ones from last month"); HITL consent rendered as inline conversation turns rather than one-shot interruptions; command mode (`nimbus ask "..."`) remains fully supported for scripting, automation, and CI pipelines; session state persists across CLI reconnects if the Gateway is still running
+
 ### Agent Specialization
 
 - [ ] **DevOps agent** — domain-tuned system prompt; pre-registered tool set scoped to CI/CD, infrastructure, and incident connectors; dedicated memory scope (deployment history, alert patterns)
@@ -219,7 +223,7 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 ### Terminal Power Users
 
-- [ ] **Rich TUI** (Ink-based):
+- [ ] **Rich TUI** (Ink-based) — builds on the Q3 Session CLI interaction layer; extends it with a full pane layout:
   - Pane layout: query input, result stream, connector health sidebar, active watcher list
   - Keyboard navigation; no mouse required; works fully over SSH
   - Real-time HITL consent prompts inline (no separate process)

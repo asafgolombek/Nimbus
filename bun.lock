@@ -53,6 +53,21 @@
         "@types/bun": "latest",
       },
     },
+    "packages/mcp-connectors/confluence": {
+      "name": "nimbus-mcp-confluence",
+      "version": "0.1.0",
+      "bin": {
+        "nimbus-mcp-confluence": "./dist/server.js",
+      },
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.27.1",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^3.25.0",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/mcp-connectors/github": {
       "name": "nimbus-mcp-github",
       "version": "0.1.0",
@@ -142,6 +157,21 @@
       "version": "0.1.0",
       "bin": {
         "nimbus-mcp-linear": "./dist/server.js",
+      },
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.27.1",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^3.25.0",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/mcp-connectors/notion": {
+      "name": "nimbus-mcp-notion",
+      "version": "0.1.0",
+      "bin": {
+        "nimbus-mcp-notion": "./dist/server.js",
       },
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.27.1",
@@ -1078,6 +1108,8 @@
 
     "nimbus-mcp-bitbucket": ["nimbus-mcp-bitbucket@workspace:packages/mcp-connectors/bitbucket"],
 
+    "nimbus-mcp-confluence": ["nimbus-mcp-confluence@workspace:packages/mcp-connectors/confluence"],
+
     "nimbus-mcp-github": ["nimbus-mcp-github@workspace:packages/mcp-connectors/github"],
 
     "nimbus-mcp-gitlab": ["nimbus-mcp-gitlab@workspace:packages/mcp-connectors/gitlab"],
@@ -1091,6 +1123,8 @@
     "nimbus-mcp-jira": ["nimbus-mcp-jira@workspace:packages/mcp-connectors/jira"],
 
     "nimbus-mcp-linear": ["nimbus-mcp-linear@workspace:packages/mcp-connectors/linear"],
+
+    "nimbus-mcp-notion": ["nimbus-mcp-notion@workspace:packages/mcp-connectors/notion"],
 
     "nimbus-mcp-onedrive": ["nimbus-mcp-onedrive@workspace:packages/mcp-connectors/onedrive"],
 

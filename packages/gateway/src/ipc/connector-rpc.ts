@@ -207,6 +207,16 @@ export async function dispatchConnectorRpc(options: {
           await vault.delete("jira.base_url");
           vaultKeys.push("jira.api_token", "jira.email", "jira.base_url");
         }
+        if (id === "notion") {
+          await vault.delete("notion.oauth");
+          vaultKeys.push("notion.oauth");
+        }
+        if (id === "confluence") {
+          await vault.delete("confluence.api_token");
+          await vault.delete("confluence.email");
+          await vault.delete("confluence.base_url");
+          vaultKeys.push("confluence.api_token", "confluence.email", "confluence.base_url");
+        }
       } catch (removeErr) {
         if (googleOAuthBackup !== null) {
           await vault.set("google.oauth", googleOAuthBackup);
@@ -332,6 +342,44 @@ export async function dispatchConnectorRpc(options: {
           },
         };
       }
+      if (id === "confluence") {
+        const emailRaw = rec?.["atlassianEmail"] ?? rec?.["email"];
+        const email = typeof emailRaw === "string" && emailRaw.trim() !== "" ? emailRaw.trim() : "";
+        const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"] ?? rec?.["apiToken"];
+        const apiToken =
+          typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+        const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["baseUrl"];
+        const baseStr = typeof baseRaw === "string" && baseRaw.trim() !== "" ? baseRaw.trim() : "";
+        if (email === "") {
+          throw new ConnectorRpcError(
+            -32602,
+            "Missing Atlassian account email for confluence (atlassianEmail)",
+          );
+        }
+        if (apiToken === "") {
+          throw new ConnectorRpcError(-32602, "Missing API token for confluence");
+        }
+        if (baseStr === "") {
+          throw new ConnectorRpcError(
+            -32602,
+            "Missing Confluence site base URL (apiBaseUrl), e.g. https://your-domain.atlassian.net",
+          );
+        }
+        const baseNormalized = baseStr.replace(/\/+$/, "");
+        await vault.set("confluence.email", email);
+        await vault.set("confluence.api_token", apiToken);
+        await vault.set("confluence.base_url", baseNormalized);
+        const interval = defaultSyncIntervalMsForService(id);
+        localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
+        return {
+          kind: "hit",
+          value: {
+            ok: true,
+            serviceId: id,
+            scopesGranted: [] as string[],
+          },
+        };
+      }
       if (id === "bitbucket") {
         const userRaw = rec?.["bitbucketUsername"] ?? rec?.["username"];
         const user = typeof userRaw === "string" && userRaw.trim() !== "" ? userRaw.trim() : "";
@@ -379,7 +427,10 @@ export async function dispatchConnectorRpc(options: {
             "Set NIMBUS_OAUTH_SLACK_CLIENT_ID to a Slack app client id with PKCE enabled";
           break;
         case "notion":
-          throw new ConnectorRpcError(-32603, "Notion OAuth is not implemented yet");
+          clientId = Config.oauthNotionClientId;
+          emptyClientIdMessage =
+            "Set NIMBUS_OAUTH_NOTION_CLIENT_ID to your Notion public integration OAuth client id";
+          break;
         default: {
           const _ex: never = profile.provider;
           throw new ConnectorRpcError(-32602, `Unsupported OAuth provider: ${_ex}`);
@@ -387,6 +438,14 @@ export async function dispatchConnectorRpc(options: {
       }
       if (clientId === "") {
         throw new ConnectorRpcError(-32602, emptyClientIdMessage);
+      }
+      const notionSecret =
+        profile.provider === "notion" ? Config.oauthNotionClientSecret : undefined;
+      if (profile.provider === "notion" && (notionSecret === undefined || notionSecret === "")) {
+        throw new ConnectorRpcError(
+          -32602,
+          "Set NIMBUS_OAUTH_NOTION_CLIENT_SECRET (required for Notion token exchange)",
+        );
       }
       let scopes = profile.defaultScopes;
       const scopeParam = rec?.["scopes"];
@@ -413,6 +472,9 @@ export async function dispatchConnectorRpc(options: {
         provider: profile.provider,
         vault,
         openUrl,
+        ...(notionSecret !== undefined && notionSecret !== ""
+          ? { oauthClientSecret: notionSecret }
+          : {}),
       };
       const tokens = await runPKCEFlow(
         redirectPort !== undefined ? { ...pkceBase, redirectPort } : pkceBase,

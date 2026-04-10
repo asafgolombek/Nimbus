@@ -5,6 +5,7 @@ import { MCPClient } from "@mastra/mcp";
 
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
+import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
@@ -69,8 +70,18 @@ function jiraMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "jira", "src", "server.ts");
 }
 
+function notionMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "notion", "src", "server.ts");
+}
+
+function confluenceMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "confluence", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear / Jira credential MCP when vault keys exist (Q2 §1.6 / Phase 2–5).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence credential MCP when vault keys exist (Q2 §1.6 / Phase 2–5).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -90,6 +101,10 @@ export class LazyConnectorMesh {
   private linearIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private jiraClient: MCPClient | undefined;
   private jiraIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private notionClient: MCPClient | undefined;
+  private notionIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private confluenceClient: MCPClient | undefined;
+  private confluenceIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -173,6 +188,20 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearNotionIdleTimer(): void {
+    if (this.notionIdleTimer !== undefined) {
+      clearTimeout(this.notionIdleTimer);
+      this.notionIdleTimer = undefined;
+    }
+  }
+
+  private clearConfluenceIdleTimer(): void {
+    if (this.confluenceIdleTimer !== undefined) {
+      clearTimeout(this.confluenceIdleTimer);
+      this.confluenceIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -234,6 +263,22 @@ export class LazyConnectorMesh {
     this.jiraIdleTimer = setTimeout(() => {
       this.jiraIdleTimer = undefined;
       void this.stopJiraClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleNotionDisconnect(): void {
+    this.clearNotionIdleTimer();
+    this.notionIdleTimer = setTimeout(() => {
+      this.notionIdleTimer = undefined;
+      void this.stopNotionClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleConfluenceDisconnect(): void {
+    this.clearConfluenceIdleTimer();
+    this.confluenceIdleTimer = setTimeout(() => {
+      this.confluenceIdleTimer = undefined;
+      void this.stopConfluenceClient();
     }, this.inactivityMs);
   }
 
@@ -331,6 +376,32 @@ export class LazyConnectorMesh {
   private async stopJiraClient(): Promise<void> {
     const c = this.jiraClient;
     this.jiraClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopNotionClient(): Promise<void> {
+    const c = this.notionClient;
+    this.notionClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopConfluenceClient(): Promise<void> {
+    const c = this.confluenceClient;
+    this.confluenceClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -601,6 +672,83 @@ export class LazyConnectorMesh {
     this.scheduleJiraDisconnect();
   }
 
+  /**
+   * Starts Notion MCP when `notion.oauth` is present and a valid access token can be resolved.
+   */
+  async ensureNotionRunning(): Promise<void> {
+    this.clearNotionIdleTimer();
+    if (this.notionClient !== undefined) {
+      this.scheduleNotionDisconnect();
+      return;
+    }
+    const raw = await this.vault.get("notion.oauth");
+    if (raw === null || raw === "") {
+      return;
+    }
+    let accessToken: string;
+    try {
+      accessToken = await getValidNotionAccessToken(this.vault);
+    } catch {
+      return;
+    }
+    if (accessToken === "") {
+      return;
+    }
+    this.notionClient = new MCPClient({
+      id: `nimbus-notion-${String(Date.now())}`,
+      servers: {
+        notion: {
+          command: "bun",
+          args: [notionMcpScriptPath()],
+          env: { ...process.env, NOTION_ACCESS_TOKEN: accessToken },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleNotionDisconnect();
+  }
+
+  /**
+   * Starts Confluence MCP when Confluence vault keys are present.
+   */
+  async ensureConfluenceRunning(): Promise<void> {
+    this.clearConfluenceIdleTimer();
+    if (this.confluenceClient !== undefined) {
+      this.scheduleConfluenceDisconnect();
+      return;
+    }
+    const token = await this.vault.get("confluence.api_token");
+    const em = await this.vault.get("confluence.email");
+    const baseUrl = await this.vault.get("confluence.base_url");
+    if (
+      token === null ||
+      token === "" ||
+      em === null ||
+      em === "" ||
+      baseUrl === null ||
+      baseUrl === ""
+    ) {
+      return;
+    }
+    this.confluenceClient = new MCPClient({
+      id: `nimbus-confluence-${String(Date.now())}`,
+      servers: {
+        confluence: {
+          command: "bun",
+          args: [confluenceMcpScriptPath()],
+          env: {
+            ...process.env,
+            CONFLUENCE_API_TOKEN: token,
+            CONFLUENCE_EMAIL: em,
+            CONFLUENCE_BASE_URL: baseUrl,
+          },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleConfluenceDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
@@ -639,6 +787,16 @@ export class LazyConnectorMesh {
     if (jt !== null && jt !== "" && je !== null && je !== "" && jb !== null && jb !== "") {
       await this.ensureJiraRunning();
     }
+    const rawNotion = await this.vault.get("notion.oauth");
+    if (rawNotion !== null && rawNotion !== "") {
+      await this.ensureNotionRunning();
+    }
+    const ct = await this.vault.get("confluence.api_token");
+    const ce = await this.vault.get("confluence.email");
+    const cb = await this.vault.get("confluence.base_url");
+    if (ct !== null && ct !== "" && ce !== null && ce !== "" && cb !== null && cb !== "") {
+      await this.ensureConfluenceRunning();
+    }
 
     const fsTools = await this.filesystem.listTools();
     const gdTools =
@@ -652,6 +810,9 @@ export class LazyConnectorMesh {
     const slackTools = this.slackClient !== undefined ? await this.slackClient.listTools() : {};
     const linearTools = this.linearClient !== undefined ? await this.linearClient.listTools() : {};
     const jiraTools = this.jiraClient !== undefined ? await this.jiraClient.listTools() : {};
+    const notionTools = this.notionClient !== undefined ? await this.notionClient.listTools() : {};
+    const confluenceTools =
+      this.confluenceClient !== undefined ? await this.confluenceClient.listTools() : {};
     return {
       ...fsTools,
       ...gdTools,
@@ -662,6 +823,8 @@ export class LazyConnectorMesh {
       ...slackTools,
       ...linearTools,
       ...jiraTools,
+      ...notionTools,
+      ...confluenceTools,
     } as Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>;
   }
 
@@ -674,6 +837,8 @@ export class LazyConnectorMesh {
     this.clearSlackIdleTimer();
     this.clearLinearIdleTimer();
     this.clearJiraIdleTimer();
+    this.clearNotionIdleTimer();
+    this.clearConfluenceIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
@@ -682,6 +847,8 @@ export class LazyConnectorMesh {
     await this.stopSlackClient();
     await this.stopLinearClient();
     await this.stopJiraClient();
+    await this.stopNotionClient();
+    await this.stopConfluenceClient();
     try {
       await this.filesystem.disconnect();
     } catch {

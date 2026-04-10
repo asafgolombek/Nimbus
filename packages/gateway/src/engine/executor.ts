@@ -41,6 +41,13 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "jira.issue.create",
   "jira.issue.update",
   "jira.comment.add",
+  "notion.page.create",
+  "notion.page.update",
+  "notion.block.append",
+  "notion.comment.create",
+  "confluence.page.create",
+  "confluence.page.update",
+  "confluence.comment.add",
   // Source control
   "repo.pr.merge",
   "repo.pr.close",

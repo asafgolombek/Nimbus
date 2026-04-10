@@ -284,6 +284,8 @@ const HITL_REQUIRED: ReadonlySet<string> = Object.freeze(new Set([
   // Linear & Jira
   "linear.issue.create", "linear.issue.update", "linear.comment.create",
   "jira.issue.create", "jira.issue.update", "jira.comment.add",
+  "notion.page.create", "notion.page.update", "notion.block.append", "notion.comment.create",
+  "confluence.page.create", "confluence.page.update", "confluence.comment.add",
   // Source control
   "repo.pr.merge", "repo.pr.close",
   "repo.branch.delete", "repo.tag.create",

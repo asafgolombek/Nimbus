@@ -73,6 +73,14 @@ export type McpToolListingClient = {
  *
  * Jira (HITL): `jira.issue.create` → `jira_jira_issue_create`;
  * `jira.issue.update` → `jira_jira_issue_update`; `jira.comment.add` → `jira_jira_comment_add`.
+ *
+ * Notion (HITL): `notion.page.create` → `notion_notion_page_create`;
+ * `notion.page.update` → `notion_notion_page_update`; `notion.block.append` → `notion_notion_block_append`;
+ * `notion.comment.create` → `notion_notion_comment_create`.
+ *
+ * Confluence (HITL): `confluence.page.create` → `confluence_confluence_page_create`;
+ * `confluence.page.update` → `confluence_confluence_page_update`;
+ * `confluence.comment.add` → `confluence_confluence_comment_add`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

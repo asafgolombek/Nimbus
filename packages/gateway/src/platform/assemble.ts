@@ -3,6 +3,7 @@ import { join } from "node:path";
 import pino from "pino";
 
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
+import { createConfluenceSyncable } from "../connectors/confluence-sync.ts";
 import { createGithubSyncable } from "../connectors/github-sync.ts";
 import { createGitlabSyncable } from "../connectors/gitlab-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
@@ -11,6 +12,7 @@ import { createGooglePhotosSyncable } from "../connectors/google-photos-sync.ts"
 import { createJiraSyncable } from "../connectors/jira-sync.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { createLinearSyncable } from "../connectors/linear-sync.ts";
+import { createNotionSyncable } from "../connectors/notion-sync.ts";
 import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
 import { createSlackSyncable } from "../connectors/slack-sync.ts";
@@ -119,6 +121,16 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createJiraSyncable({
       ensureJiraMcpRunning: () => connectorMesh.ensureJiraRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createNotionSyncable({
+      ensureNotionMcpRunning: () => connectorMesh.ensureNotionRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createConfluenceSyncable({
+      ensureConfluenceMcpRunning: () => connectorMesh.ensureConfluenceRunning(),
     }),
   );
   syncScheduler.start();

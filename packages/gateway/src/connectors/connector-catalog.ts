@@ -14,6 +14,8 @@ export const CONNECTOR_SERVICE_IDS = [
   "bitbucket",
   "linear",
   "jira",
+  "notion",
+  "confluence",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -47,7 +49,10 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
     case "outlook":
     case "teams":
     case "slack":
+    case "notion":
       return 5 * 60 * 1000;
+    case "confluence":
+      return 10 * 60 * 1000;
     case "google_photos":
       return 6 * 60 * 60 * 1000;
     case "github":
@@ -160,6 +165,12 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "jira":
       throw new Error(
         "oauthProfileForService: jira uses email + API token + base URL (connector.auth)",
+      );
+    case "notion":
+      return { provider: "notion", defaultScopes: [] };
+    case "confluence":
+      throw new Error(
+        "oauthProfileForService: confluence uses email + API token + base URL (connector.auth)",
       );
     default: {
       const _never: never = serviceId;

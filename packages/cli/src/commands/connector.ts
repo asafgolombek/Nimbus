@@ -309,6 +309,35 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     params.personalAccessToken = apiTok;
     params.apiBaseUrl = base.replace(/\/+$/, "");
   }
+  if (normalized === "confluence") {
+    const mail =
+      username ??
+      process.env["NIMBUS_CONFLUENCE_EMAIL"]?.trim() ??
+      process.env["ATLASSIAN_EMAIL"]?.trim();
+    if (mail === undefined || mail === "") {
+      throw new Error(
+        "Confluence requires your Atlassian account email: nimbus connector auth confluence --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_EMAIL)",
+      );
+    }
+    const apiTok = token ?? process.env["NIMBUS_CONFLUENCE_API_TOKEN"]?.trim();
+    if (apiTok === undefined || apiTok === "") {
+      throw new Error(
+        "Confluence requires an API token: nimbus connector auth confluence ... (or set NIMBUS_CONFLUENCE_API_TOKEN)",
+      );
+    }
+    const base =
+      apiBase ??
+      process.env["NIMBUS_CONFLUENCE_BASE_URL"]?.trim() ??
+      process.env["CONFLUENCE_BASE_URL"]?.trim();
+    if (base === undefined || base === "") {
+      throw new Error(
+        "Confluence requires the site URL: ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_BASE_URL)",
+      );
+    }
+    params.atlassianEmail = mail;
+    params.personalAccessToken = apiTok;
+    params.apiBaseUrl = base.replace(/\/+$/, "");
+  }
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
@@ -318,7 +347,8 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     res.serviceId === "gitlab" ||
     res.serviceId === "bitbucket" ||
     res.serviceId === "linear" ||
-    res.serviceId === "jira"
+    res.serviceId === "jira" ||
+    res.serviceId === "confluence"
   ) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");
   } else {
@@ -510,7 +540,7 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence
 
 OAuth client ids (required for Google/Microsoft auth):
   NIMBUS_OAUTH_GOOGLE_CLIENT_ID
@@ -521,6 +551,8 @@ GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-ba
 Linear: use --token or env NIMBUS_LINEAR_API_KEY (linear.api_key).
 Jira: use --username (Atlassian email), --token (API token), --api-base https://your-domain.atlassian.net
   or env NIMBUS_JIRA_EMAIL, NIMBUS_JIRA_API_TOKEN, NIMBUS_JIRA_BASE_URL (jira.email, jira.api_token, jira.base_url).
+Notion: OAuth in the browser (notion.oauth). Requires NIMBUS_OAUTH_NOTION_CLIENT_ID and NIMBUS_OAUTH_NOTION_CLIENT_SECRET.
+Confluence: same flags/env pattern as Jira (NIMBUS_CONFLUENCE_* → confluence.email, confluence.api_token, confluence.base_url).
 
 Credentials are stored in the OS vault only (never printed here).
 `);
