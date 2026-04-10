@@ -762,9 +762,8 @@ export class LazyConnectorMesh {
     this.scheduleConfluenceDisconnect();
   }
 
-  async listTools(): Promise<
-    Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
-  > {
+  /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
+  private async ensureCredentialConnectorsRunning(): Promise<void> {
     const rawGoogle = await this.vault.get("google.oauth");
     if (rawGoogle !== null && rawGoogle !== "") {
       await this.ensureGoogleDriveRunning();
@@ -810,6 +809,12 @@ export class LazyConnectorMesh {
     if (ct !== null && ct !== "" && ce !== null && ce !== "" && cb !== null && cb !== "") {
       await this.ensureConfluenceRunning();
     }
+  }
+
+  async listTools(): Promise<
+    Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
+  > {
+    await this.ensureCredentialConnectorsRunning();
 
     const fsTools = await this.filesystem.listTools();
     const gdTools = await listLazyMeshClientTools(this.googleBundleClient);

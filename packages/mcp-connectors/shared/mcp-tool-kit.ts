@@ -23,7 +23,7 @@ export function registerZodTool<T>(
   registerSimpleTool(
     name,
     description,
-    schema.shape as Record<string, unknown>,
+    schema.shape,
     async (args: unknown): Promise<McpListResult> => {
       const parsed = schema.safeParse(args);
       if (!parsed.success) {

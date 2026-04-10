@@ -153,25 +153,25 @@ function hitlNotionRejectPayload(
   };
 }
 
-describe("ToolExecutor", () => {
-  function hitlEmailRejectPayload(
-    emailAction: "email.send" | "email.draft.send" | "email.draft.create",
-  ): Record<string, unknown> {
-    if (emailAction === "email.send") {
-      return {
-        mcpToolId: "gmail_gmail_message_send",
-        input: { to: "a@b.com", subject: "s", body: "x" },
-      };
-    }
-    if (emailAction === "email.draft.send") {
-      return { mcpToolId: "gmail_gmail_draft_send", input: { draftId: "d1" } };
-    }
+function hitlEmailRejectPayload(
+  emailAction: "email.send" | "email.draft.send" | "email.draft.create",
+): Record<string, unknown> {
+  if (emailAction === "email.send") {
     return {
-      mcpToolId: "gmail_gmail_draft_create",
+      mcpToolId: "gmail_gmail_message_send",
       input: { to: "a@b.com", subject: "s", body: "x" },
     };
   }
+  if (emailAction === "email.draft.send") {
+    return { mcpToolId: "gmail_gmail_draft_send", input: { draftId: "d1" } };
+  }
+  return {
+    mcpToolId: "gmail_gmail_draft_create",
+    input: { to: "a@b.com", subject: "s", body: "x" },
+  };
+}
 
+describe("ToolExecutor", () => {
   function hitlTeamsRejectPayload(
     teamsAction: "teams.message.post" | "teams.message.postChat",
   ): Record<string, unknown> {

@@ -107,7 +107,7 @@ export function upsertNimbusItemIntoItemTable(
   syncedAt: number,
 ): void {
   const externalId = itemExternalIdFromInput(item.service, item.id);
-  const meta: Record<string, unknown> = item.rawMeta !== undefined ? { ...item.rawMeta } : {};
+  const meta: Record<string, unknown> = item.rawMeta === undefined ? {} : { ...item.rawMeta };
   if (item.mimeType !== undefined) {
     meta["mime_type"] = item.mimeType;
   }

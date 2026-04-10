@@ -122,35 +122,34 @@ function processEvent(
   const createdAt = stringField(ev, "created_at") ?? new Date(now).toISOString();
   const project = asRecord(ev["project"]);
   const pathWithNamespace =
-    project !== undefined ? stringField(project, "path_with_namespace") : undefined;
-  if (pathWithNamespace === undefined || pathWithNamespace === "" || targetIid === undefined) {
-    return false;
-  }
-  if (targetType === "MergeRequest") {
-    upsertFromMergeRequestEvent({
-      ctx,
-      pathWithNamespace,
-      iid: targetIid,
-      title,
-      actionName,
-      createdAt,
-      now,
-      webOrigin,
-    });
-    return true;
-  }
-  if (targetType === "Issue") {
-    upsertFromIssueEvent({
-      ctx,
-      pathWithNamespace,
-      iid: targetIid,
-      title,
-      actionName,
-      createdAt,
-      now,
-      webOrigin,
-    });
-    return true;
+    project === undefined ? undefined : stringField(project, "path_with_namespace");
+  if (pathWithNamespace !== undefined && pathWithNamespace !== "" && targetIid !== undefined) {
+    if (targetType === "MergeRequest") {
+      upsertFromMergeRequestEvent({
+        ctx,
+        pathWithNamespace,
+        iid: targetIid,
+        title,
+        actionName,
+        createdAt,
+        now,
+        webOrigin,
+      });
+      return true;
+    }
+    if (targetType === "Issue") {
+      upsertFromIssueEvent({
+        ctx,
+        pathWithNamespace,
+        iid: targetIid,
+        title,
+        actionName,
+        createdAt,
+        now,
+        webOrigin,
+      });
+      return true;
+    }
   }
   return false;
 }
@@ -192,11 +191,11 @@ export function createGitlabSyncable(options: GitlabSyncableOptions): Syncable {
       const prev = decodeCursor(cursor);
       const nowMs = Date.now();
       const initialAfter =
-        prev !== null
-          ? prev.after
-          : new Date(nowMs - initialSyncDepthDays * 86_400_000).toISOString();
-      let page = prev !== null ? prev.page : 1;
-      const floorAfter = prev !== null ? prev.after : initialAfter;
+        prev === null
+          ? new Date(nowMs - initialSyncDepthDays * 86_400_000).toISOString()
+          : prev.after;
+      let page = prev === null ? 1 : prev.page;
+      const floorAfter = prev === null ? initialAfter : prev.after;
 
       let upserted = 0;
       let bytesTransferred = 0;

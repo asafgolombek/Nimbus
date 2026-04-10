@@ -218,7 +218,7 @@ function parseGithubEventsPayload(text: string): unknown[] {
     throw new TypeError("GitHub events: invalid JSON");
   }
   if (!Array.isArray(parsed)) {
-    throw new Error("GitHub events: expected array");
+    throw new TypeError("GitHub events: expected array");
   }
   return parsed;
 }

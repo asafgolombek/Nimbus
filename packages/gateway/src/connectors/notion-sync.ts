@@ -22,41 +22,49 @@ function decodeCursor(raw: string | null): WatermarkCursorV1 | null {
   return decodeWatermarkCursorV1(raw, CURSOR_PREFIX);
 }
 
+function titlePartsFromNotionTitleRichText(titleArr: unknown): string[] {
+  if (!Array.isArray(titleArr)) {
+    return [];
+  }
+  const parts: string[] = [];
+  for (const item of titleArr) {
+    const ir = asRecord(item);
+    if (ir === undefined) {
+      continue;
+    }
+    if (stringField(ir, "type") !== "text") {
+      continue;
+    }
+    const tx = asRecord(ir["text"]);
+    const c = tx === undefined ? undefined : stringField(tx, "content");
+    if (c !== undefined && c !== "") {
+      parts.push(c);
+    }
+  }
+  return parts;
+}
+
+function titleFromNotionPropertyValue(val: unknown): string | null {
+  const p = asRecord(val);
+  if (p === undefined) {
+    return null;
+  }
+  if (stringField(p, "type") !== "title") {
+    return null;
+  }
+  const joined = titlePartsFromNotionTitleRichText(p["title"]).join("");
+  return joined !== "" ? joined : null;
+}
+
 function extractTitleFromProperties(properties: unknown): string {
   const rec = asRecord(properties);
   if (rec === undefined) {
     return "Untitled";
   }
   for (const val of Object.values(rec)) {
-    const p = asRecord(val);
-    if (p === undefined) {
-      continue;
-    }
-    if (stringField(p, "type") !== "title") {
-      continue;
-    }
-    const titleArr = p["title"];
-    if (!Array.isArray(titleArr)) {
-      continue;
-    }
-    const parts: string[] = [];
-    for (const item of titleArr) {
-      const ir = asRecord(item);
-      if (ir === undefined) {
-        continue;
-      }
-      if (stringField(ir, "type") !== "text") {
-        continue;
-      }
-      const tx = asRecord(ir["text"]);
-      const c = tx === undefined ? undefined : stringField(tx, "content");
-      if (c !== undefined && c !== "") {
-        parts.push(c);
-      }
-    }
-    const joined = parts.join("");
-    if (joined !== "") {
-      return joined;
+    const t = titleFromNotionPropertyValue(val);
+    if (t !== null) {
+      return t;
     }
   }
   return "Untitled";

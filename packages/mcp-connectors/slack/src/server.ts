@@ -47,6 +47,63 @@ async function slackApi(
   return { ok: okField === true && res.ok, json, text };
 }
 
+function putOptionalNonEmptyString(
+  body: Record<string, unknown>,
+  key: string,
+  value: string | undefined,
+): void {
+  if (value !== undefined && value !== "") {
+    body[key] = value;
+  }
+}
+
+function putOptionalBoolean(
+  body: Record<string, unknown>,
+  key: string,
+  value: boolean | undefined,
+): void {
+  if (value !== undefined) {
+    body[key] = value;
+  }
+}
+
+async function slackInvokeJson(
+  method: string,
+  body: Record<string, unknown>,
+  errorLabel: string,
+): Promise<McpListResult> {
+  const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
+  const res = await slackApi(token, method, body);
+  if (!res.ok) {
+    throw new Error(`${errorLabel}: ${res.text.slice(0, 400)}`);
+  }
+  return jsonResult(res.json);
+}
+
+const slackConversationsHistorySchema = z.object({
+  channel: z.string().min(1),
+  limit: z.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+  oldest: z.string().optional(),
+  inclusive: z.boolean().optional(),
+});
+
+type SlackConversationsHistoryParsed = z.infer<typeof slackConversationsHistorySchema>;
+
+/** Shared shape for `conversations.history` (channels + DMs). */
+function buildConversationsHistoryBody(
+  parsed: SlackConversationsHistoryParsed,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    channel: parsed.channel,
+    limit: parsed.limit ?? 50,
+  };
+  putOptionalNonEmptyString(body, "cursor", parsed.cursor);
+  putOptionalNonEmptyString(body, "oldest", parsed.oldest);
+  putOptionalBoolean(body, "inclusive", parsed.inclusive);
+  return body;
+}
+
 const server = new McpServer({ name: "nimbus-slack", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
@@ -71,56 +128,26 @@ reg(
   "List channels the user is a member of (public, private, mpim, im).",
   slackChannelListSchema,
   async (parsed) => {
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       types: parsed.types ?? "public_channel,private_channel,mpim,im",
       limit: parsed.limit ?? 200,
       exclude_archived: true,
     };
-    if (parsed.cursor !== undefined && parsed.cursor !== "") {
-      body["cursor"] = parsed.cursor;
-    }
-    const res = await slackApi(token, "conversations.list", body);
-    if (!res.ok) {
-      throw new Error(`Slack conversations.list: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
+    putOptionalNonEmptyString(body, "cursor", parsed.cursor);
+    return slackInvokeJson("conversations.list", body, "Slack conversations.list");
   },
 );
-
-const slackChannelHistorySchema = z.object({
-  channel: z.string().min(1),
-  limit: z.number().int().min(1).max(200).optional(),
-  cursor: z.string().optional(),
-  oldest: z.string().optional(),
-  inclusive: z.boolean().optional(),
-});
 
 reg(
   "slack_channel_history",
   "Fetch message history for a channel, DM, or mpim.",
-  slackChannelHistorySchema,
-  async (parsed) => {
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
-    const body: Record<string, unknown> = {
-      channel: parsed.channel,
-      limit: parsed.limit ?? 50,
-    };
-    if (parsed.cursor !== undefined && parsed.cursor !== "") {
-      body["cursor"] = parsed.cursor;
-    }
-    if (parsed.oldest !== undefined && parsed.oldest !== "") {
-      body["oldest"] = parsed.oldest;
-    }
-    if (parsed.inclusive !== undefined) {
-      body["inclusive"] = parsed.inclusive;
-    }
-    const res = await slackApi(token, "conversations.history", body);
-    if (!res.ok) {
-      throw new Error(`Slack conversations.history: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
-  },
+  slackConversationsHistorySchema,
+  async (parsed) =>
+    slackInvokeJson(
+      "conversations.history",
+      buildConversationsHistoryBody(parsed),
+      "Slack conversations.history",
+    ),
 );
 
 const slackThreadRepliesSchema = z.object({
@@ -135,20 +162,13 @@ reg(
   "Fetch replies in a thread (channel + thread parent ts).",
   slackThreadRepliesSchema,
   async (parsed) => {
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       channel: parsed.channel,
       ts: parsed.ts,
       limit: parsed.limit ?? 50,
     };
-    if (parsed.cursor !== undefined && parsed.cursor !== "") {
-      body["cursor"] = parsed.cursor;
-    }
-    const res = await slackApi(token, "conversations.replies", body);
-    if (!res.ok) {
-      throw new Error(`Slack conversations.replies: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
+    putOptionalNonEmptyString(body, "cursor", parsed.cursor);
+    return slackInvokeJson("conversations.replies", body, "Slack conversations.replies");
   },
 );
 
@@ -162,56 +182,26 @@ reg(
   "List direct message conversations (im + mpim).",
   slackDmListSchema,
   async (parsed) => {
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       types: "im,mpim",
       limit: parsed.limit ?? 200,
       exclude_archived: true,
     };
-    if (parsed.cursor !== undefined && parsed.cursor !== "") {
-      body["cursor"] = parsed.cursor;
-    }
-    const res = await slackApi(token, "conversations.list", body);
-    if (!res.ok) {
-      throw new Error(`Slack dm list: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
+    putOptionalNonEmptyString(body, "cursor", parsed.cursor);
+    return slackInvokeJson("conversations.list", body, "Slack dm list");
   },
 );
-
-const slackDmHistorySchema = z.object({
-  channel: z.string().min(1),
-  limit: z.number().int().min(1).max(200).optional(),
-  cursor: z.string().optional(),
-  oldest: z.string().optional(),
-  inclusive: z.boolean().optional(),
-});
 
 reg(
   "slack_dm_history",
   "Fetch DM / mpim history (same as channel history; convenience alias).",
-  slackDmHistorySchema,
-  async (parsed) => {
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
-    const body: Record<string, unknown> = {
-      channel: parsed.channel,
-      limit: parsed.limit ?? 50,
-    };
-    if (parsed.cursor !== undefined && parsed.cursor !== "") {
-      body["cursor"] = parsed.cursor;
-    }
-    if (parsed.oldest !== undefined && parsed.oldest !== "") {
-      body["oldest"] = parsed.oldest;
-    }
-    if (parsed.inclusive !== undefined) {
-      body["inclusive"] = parsed.inclusive;
-    }
-    const res = await slackApi(token, "conversations.history", body);
-    if (!res.ok) {
-      throw new Error(`Slack dm history: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
-  },
+  slackConversationsHistorySchema,
+  async (parsed) =>
+    slackInvokeJson(
+      "conversations.history",
+      buildConversationsHistoryBody(parsed),
+      "Slack dm history",
+    ),
 );
 
 const slackUserListSchema = z.object({
@@ -224,29 +214,17 @@ reg(
   "List users in the workspace (paginated).",
   slackUserListSchema,
   async (parsed) => {
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = { limit: parsed.limit ?? 100 };
-    if (parsed.cursor !== undefined && parsed.cursor !== "") {
-      body["cursor"] = parsed.cursor;
-    }
-    const res = await slackApi(token, "users.list", body);
-    if (!res.ok) {
-      throw new Error(`Slack users.list: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
+    putOptionalNonEmptyString(body, "cursor", parsed.cursor);
+    return slackInvokeJson("users.list", body, "Slack users.list");
   },
 );
 
 const slackUserGetSchema = z.object({ user: z.string().min(1) });
 
-reg("slack_user_get", "Get a single user profile by ID.", slackUserGetSchema, async (parsed) => {
-  const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
-  const res = await slackApi(token, "users.info", { user: parsed.user });
-  if (!res.ok) {
-    throw new Error(`Slack users.info: ${res.text.slice(0, 400)}`);
-  }
-  return jsonResult(res.json);
-});
+reg("slack_user_get", "Get a single user profile by ID.", slackUserGetSchema, async (parsed) =>
+  slackInvokeJson("users.info", { user: parsed.user }, "Slack users.info"),
+);
 
 const slackSearchSchema = z.object({
   query: z.string().min(1),
@@ -257,7 +235,6 @@ const slackSearchSchema = z.object({
 });
 
 reg("slack_search", "Search messages (workspace search).", slackSearchSchema, async (parsed) => {
-  const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
   const body: Record<string, unknown> = {
     query: parsed.query,
     count: parsed.count ?? 20,
@@ -269,11 +246,7 @@ reg("slack_search", "Search messages (workspace search).", slackSearchSchema, as
   if (parsed.sort_dir !== undefined) {
     body["sort_dir"] = parsed.sort_dir;
   }
-  const res = await slackApi(token, "search.messages", body);
-  if (!res.ok) {
-    throw new Error(`Slack search.messages: ${res.text.slice(0, 400)}`);
-  }
-  return jsonResult(res.json);
+  return slackInvokeJson("search.messages", body, "Slack search.messages");
 });
 
 const slackMessagePostSchema = z.object({
@@ -287,19 +260,12 @@ reg(
   "Post a message to a channel (requires HITL slack.message.post).",
   slackMessagePostSchema,
   async (parsed) => {
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       channel: parsed.channel,
       text: parsed.text,
     };
-    if (parsed.thread_ts !== undefined && parsed.thread_ts !== "") {
-      body["thread_ts"] = parsed.thread_ts;
-    }
-    const res = await slackApi(token, "chat.postMessage", body);
-    if (!res.ok) {
-      throw new Error(`Slack chat.postMessage: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
+    putOptionalNonEmptyString(body, "thread_ts", parsed.thread_ts);
+    return slackInvokeJson("chat.postMessage", body, "Slack chat.postMessage");
   },
 );
 

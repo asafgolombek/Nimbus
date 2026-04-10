@@ -46,6 +46,50 @@ function initialCursor(): TeamsSyncCursorV1 {
   };
 }
 
+function teamsCursorTeamsEntriesOk(teams: unknown): boolean {
+  if (!Array.isArray(teams)) {
+    return false;
+  }
+  for (const t of teams) {
+    if (t === null || typeof t !== "object" || Array.isArray(t)) {
+      return false;
+    }
+    const tr = t as Record<string, unknown>;
+    if (typeof tr["id"] !== "string" || tr["id"] === "") {
+      return false;
+    }
+  }
+  return true;
+}
+
+function teamsCursorPairsEntriesOk(pairs: unknown): boolean {
+  if (!Array.isArray(pairs)) {
+    return false;
+  }
+  for (const p of pairs) {
+    if (p === null || typeof p !== "object" || Array.isArray(p)) {
+      return false;
+    }
+    const pr = p as Record<string, unknown>;
+    if (typeof pr["teamId"] !== "string" || typeof pr["channelId"] !== "string") {
+      return false;
+    }
+  }
+  return true;
+}
+
+function teamsCursorDeltaValuesOk(deltaByKey: unknown): boolean {
+  if (deltaByKey === null || typeof deltaByKey !== "object" || Array.isArray(deltaByKey)) {
+    return false;
+  }
+  for (const v of Object.values(deltaByKey as Record<string, unknown>)) {
+    if (v !== null && typeof v !== "string") {
+      return false;
+    }
+  }
+  return true;
+}
+
 function isTeamsCursorV1(o: unknown): o is TeamsSyncCursorV1 {
   if (o === null || typeof o !== "object" || Array.isArray(o)) {
     return false;
@@ -58,18 +102,8 @@ function isTeamsCursorV1(o: unknown): o is TeamsSyncCursorV1 {
   if (phase !== "teams" && phase !== "channels" && phase !== "messages") {
     return false;
   }
-  const teams = r["teams"];
-  if (!Array.isArray(teams)) {
+  if (!teamsCursorTeamsEntriesOk(r["teams"])) {
     return false;
-  }
-  for (const t of teams) {
-    if (t === null || typeof t !== "object" || Array.isArray(t)) {
-      return false;
-    }
-    const tr = t as Record<string, unknown>;
-    if (typeof tr["id"] !== "string" || tr["id"] === "") {
-      return false;
-    }
   }
   const teamsNext = r["teamsNext"];
   if (teamsNext !== null && typeof teamsNext !== "string") {
@@ -95,33 +129,14 @@ function isTeamsCursorV1(o: unknown): o is TeamsSyncCursorV1 {
   if (chanNext !== null && typeof chanNext !== "string") {
     return false;
   }
-  const pairs = r["pairs"];
-  if (!Array.isArray(pairs)) {
+  if (!teamsCursorPairsEntriesOk(r["pairs"])) {
     return false;
-  }
-  for (const p of pairs) {
-    if (p === null || typeof p !== "object" || Array.isArray(p)) {
-      return false;
-    }
-    const pr = p as Record<string, unknown>;
-    if (typeof pr["teamId"] !== "string" || typeof pr["channelId"] !== "string") {
-      return false;
-    }
   }
   const pairIdx = r["pairIdx"];
   if (typeof pairIdx !== "number" || !Number.isInteger(pairIdx) || pairIdx < 0) {
     return false;
   }
-  const deltaByKey = r["deltaByKey"];
-  if (deltaByKey === null || typeof deltaByKey !== "object" || Array.isArray(deltaByKey)) {
-    return false;
-  }
-  for (const v of Object.values(deltaByKey as Record<string, unknown>)) {
-    if (v !== null && typeof v !== "string") {
-      return false;
-    }
-  }
-  return true;
+  return teamsCursorDeltaValuesOk(r["deltaByKey"]);
 }
 
 function parseCursor(raw: string | null): TeamsSyncCursorV1 {
