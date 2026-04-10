@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -112,7 +113,7 @@ function upsertFromPullRequest(
     type: "pr",
     externalId,
     title: title.length > 512 ? title.slice(0, 512) : title,
-    bodyPreview: desc.replace(/<[^>]+>/g, " ").slice(0, 512),
+    bodyPreview: plainTextPreviewFromHtml(desc, 512),
     url,
     canonicalUrl: url,
     modifiedAt: Number.isFinite(modified) ? modified : now,

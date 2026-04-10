@@ -1,5 +1,6 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import {
@@ -160,14 +161,6 @@ function flattenPairs(
   return out;
 }
 
-function stripHtmlPreview(raw: string, maxLen: number): string {
-  const plain = raw
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return plain.length > maxLen ? plain.slice(0, maxLen) : plain;
-}
-
 type GraphTeamsMessage = {
   id?: string;
   createdDateTime?: string;
@@ -190,7 +183,7 @@ function upsertChannelMessage(
   }
   const externalId = `${teamId}:${channelId}:${id}`;
   const content = m.body !== undefined && typeof m.body.content === "string" ? m.body.content : "";
-  const preview = stripHtmlPreview(content, 512);
+  const preview = plainTextPreviewFromHtml(content, 512);
   const fromName =
     m.from?.user?.displayName !== undefined && m.from.user.displayName !== ""
       ? m.from.user.displayName
