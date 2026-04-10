@@ -1,0 +1,57 @@
+/**
+ * Q2 §7.2 — deterministic composite score for index search (FTS + recency + service weight).
+ */
+
+const WEIGHT_FTS = 0.5;
+const WEIGHT_RECENCY = 0.3;
+const WEIGHT_SERVICE = 0.2;
+
+export function recencyScore(modifiedAtMs: number, nowMs: number): number {
+  const days = Math.max(0, (nowMs - modifiedAtMs) / 86_400_000);
+  return 1 / (1 + days);
+}
+
+export function servicePriorityScore(
+  service: string,
+  priorities: ReadonlyMap<string, number>,
+): number {
+  const v = priorities.get(service);
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return Math.min(1, Math.max(0, v));
+  }
+  return 0.5;
+}
+
+/**
+ * Lower BM25 is a better match. Map batch to [0,1] where 1 = best (lowest BM25).
+ */
+export function normalizeBm25LowerIsBetter(values: readonly number[]): number[] {
+  if (values.length === 0) {
+    return [];
+  }
+  const head = values[0];
+  if (head === undefined) {
+    return [];
+  }
+  let min = head;
+  let max = head;
+  for (const v of values) {
+    if (Number.isFinite(v)) {
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    }
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+    return values.map(() => 1);
+  }
+  return values.map((v) => {
+    if (!Number.isFinite(v)) {
+      return 0.5;
+    }
+    return (max - v) / (max - min);
+  });
+}
+
+export function compositeSearchScore(normBm25: number, recency: number, serviceP: number): number {
+  return WEIGHT_FTS * normBm25 + WEIGHT_RECENCY * recency + WEIGHT_SERVICE * serviceP;
+}

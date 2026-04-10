@@ -41,7 +41,7 @@ export function runCiTestSuite(): void {
 
   runBunTest(["packages/gateway/test/integration/", "packages/cli/test/integration/"], false);
 
-  runBunTest(["packages/cli/test/e2e/"], false);
+  runBunTest(["packages/gateway/test/e2e/", "packages/cli/test/e2e/"], false);
 
   run(["bun", "run", "--filter", "@nimbus/ui", "test"], REPO_ROOT, CI_ENV);
 }

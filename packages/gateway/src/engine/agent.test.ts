@@ -15,6 +15,7 @@ describe("createNimbusEngineAgent", () => {
     });
     expect(mastra).toBeDefined();
     expect(agent.id).toBe("nimbus-q1");
+    // Mastra does not expose tool ids on the Agent instance; tools are registered in createNimbusEngineAgent.
     localIndex.close();
   });
 });

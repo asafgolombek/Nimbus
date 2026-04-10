@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
+import { upsertIndexedItem } from "./item-store.ts";
 import { type AuditEntry, LocalIndex, RAW_META_MAX_BYTES } from "./local-index.ts";
 
 function openMemoryIndex(): LocalIndex {
@@ -37,6 +38,36 @@ describe("LocalIndex", () => {
 
     const hits = idx.search({ name: "quarterly report", limit: 10 });
     expect(hits.map((h) => h.id)).toEqual(["a1"]);
+  });
+
+  test("searchRanked collapses duplicate canonical_url", () => {
+    const idx = openMemoryIndex();
+    const db = idx.getDatabase();
+    const t = Date.now();
+    const canon = "https://example.com/shared";
+    upsertIndexedItem(db, {
+      service: "slack",
+      type: "message",
+      externalId: "m1",
+      title: "hello world",
+      modifiedAt: t,
+      syncedAt: t,
+      canonicalUrl: canon,
+      url: canon,
+    });
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "pr",
+      externalId: "p1",
+      title: "hello world thread",
+      modifiedAt: t - 1,
+      syncedAt: t,
+      canonicalUrl: canon,
+      url: canon,
+    });
+    const ranked = idx.searchRanked({ name: "hello", limit: 20 }, {});
+    expect(ranked.length).toBe(1);
+    expect(ranked[0]?.duplicates?.includes("github")).toBe(true);
   });
 
   test("search filters by service and itemType", () => {

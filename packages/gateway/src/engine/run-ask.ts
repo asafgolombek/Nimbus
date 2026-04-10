@@ -1,3 +1,5 @@
+import type { Agent } from "@mastra/core/agent";
+
 import type { LocalIndex } from "../index/local-index.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
@@ -5,6 +7,7 @@ import { bindConsentChannel, ToolExecutor } from "./executor.ts";
 import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { planFromIntent } from "./planner.ts";
 import { type ClassifiedIntent, classifyIntent } from "./router.ts";
+import { runConversationalAgent } from "./run-conversational-agent.ts";
 import type { ConnectorDispatcher } from "./types.ts";
 
 export type RunAskParams = {
@@ -16,6 +19,8 @@ export type RunAskParams = {
   localIndex: LocalIndex;
   dispatcher: ConnectorDispatcher;
   sendChunk: (text: string) => void;
+  /** Mastra agent with local index tools; when set, high-confidence `unknown` intent uses this path (Q2 §7.0). */
+  conversationalAgent?: Agent;
 };
 
 function formatResultSummary(results: unknown[]): string {
@@ -45,6 +50,19 @@ export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
       throw e;
     }
     throw new GatewayAgentUnavailableError();
+  }
+
+  if (
+    classified.intent === "unknown" &&
+    classified.confidence >= 0.6 &&
+    p.conversationalAgent !== undefined
+  ) {
+    return await runConversationalAgent({
+      agent: p.conversationalAgent,
+      input: p.input,
+      stream: p.stream,
+      sendChunk: p.sendChunk,
+    });
   }
 
   const plan = planFromIntent(classified, p.paths);
