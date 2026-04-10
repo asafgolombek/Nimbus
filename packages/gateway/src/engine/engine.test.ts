@@ -56,6 +56,9 @@ describe("HITL_REQUIRED", () => {
       "linear.issue.create",
       "linear.issue.update",
       "linear.comment.create",
+      "jira.issue.create",
+      "jira.issue.update",
+      "jira.comment.add",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -240,6 +243,39 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(linearAction);
+    });
+  }
+
+  for (const jiraAction of [
+    "jira.issue.create",
+    "jira.issue.update",
+    "jira.comment.add",
+  ] as const) {
+    test(`rejected consent for ${jiraAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload =
+        jiraAction === "jira.issue.create"
+          ? {
+              mcpToolId: "jira_jira_issue_create",
+              input: { projectKey: "NIM", summary: "x" },
+            }
+          : jiraAction === "jira.issue.update"
+            ? {
+                mcpToolId: "jira_jira_issue_update",
+                input: { issueKey: "NIM-1", summary: "y" },
+              }
+            : {
+                mcpToolId: "jira_jira_comment_add",
+                input: { issueKey: "NIM-1", body: "c" },
+              };
+      const out = await exec.execute({ type: jiraAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(jiraAction);
     });
   }
 

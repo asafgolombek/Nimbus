@@ -70,6 +70,9 @@ export type McpToolListingClient = {
  * Linear (HITL): `linear.issue.create` → `linear_linear_issue_create`;
  * `linear.issue.update` → `linear_linear_issue_update`;
  * `linear.comment.create` → `linear_linear_comment_create`.
+ *
+ * Jira (HITL): `jira.issue.create` → `jira_jira_issue_create`;
+ * `jira.issue.update` → `jira_jira_issue_update`; `jira.comment.add` → `jira_jira_comment_add`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

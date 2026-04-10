@@ -13,6 +13,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "gitlab",
   "bitbucket",
   "linear",
+  "jira",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -53,6 +54,7 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
     case "gitlab":
     case "bitbucket":
     case "linear":
+    case "jira":
       return 60 * 1000;
     default: {
       const _exhaustive: never = serviceId;
@@ -154,6 +156,10 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "linear":
       throw new Error(
         "oauthProfileForService: linear uses an API key (connector.auth personalAccessToken)",
+      );
+    case "jira":
+      throw new Error(
+        "oauthProfileForService: jira uses email + API token + base URL (connector.auth)",
       );
     default: {
       const _never: never = serviceId;

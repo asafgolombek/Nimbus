@@ -303,6 +303,8 @@ Nimbus's security model is structural, not promissory.
 
 **Audit log.** Every action the agent takes — including every HITL decision — is recorded in a local SQLite table. You can always reconstruct exactly what Nimbus did on your behalf.
 
+**Shared responsibility.** Nimbus's guarantees hold at the process boundary. What sits below it — OS login strength, screen locking, disk encryption, and endpoint protection — is the user's responsibility. The local-first model returns full control to the user; that control carries the corresponding accountability. See [The Security Compact](./mission.md#the-security-compact) for the full boundary definition.
+
 ---
 
 ## Extensions

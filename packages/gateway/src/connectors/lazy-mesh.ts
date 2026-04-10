@@ -64,8 +64,13 @@ function linearMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "linear", "src", "server.ts");
 }
 
+function jiraMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "jira", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear credential MCP when vault keys exist (Q2 §1.6 / Phase 2–5).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear / Jira credential MCP when vault keys exist (Q2 §1.6 / Phase 2–5).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -83,6 +88,8 @@ export class LazyConnectorMesh {
   private slackIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private linearClient: MCPClient | undefined;
   private linearIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private jiraClient: MCPClient | undefined;
+  private jiraIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -159,6 +166,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearJiraIdleTimer(): void {
+    if (this.jiraIdleTimer !== undefined) {
+      clearTimeout(this.jiraIdleTimer);
+      this.jiraIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -212,6 +226,14 @@ export class LazyConnectorMesh {
     this.linearIdleTimer = setTimeout(() => {
       this.linearIdleTimer = undefined;
       void this.stopLinearClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleJiraDisconnect(): void {
+    this.clearJiraIdleTimer();
+    this.jiraIdleTimer = setTimeout(() => {
+      this.jiraIdleTimer = undefined;
+      void this.stopJiraClient();
     }, this.inactivityMs);
   }
 
@@ -296,6 +318,19 @@ export class LazyConnectorMesh {
   private async stopLinearClient(): Promise<void> {
     const c = this.linearClient;
     this.linearClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopJiraClient(): Promise<void> {
+    const c = this.jiraClient;
+    this.jiraClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -525,6 +560,47 @@ export class LazyConnectorMesh {
     this.scheduleLinearDisconnect();
   }
 
+  /**
+   * Starts Jira MCP when `jira.api_token`, `jira.email`, and `jira.base_url` are present in the Vault.
+   */
+  async ensureJiraRunning(): Promise<void> {
+    this.clearJiraIdleTimer();
+    if (this.jiraClient !== undefined) {
+      this.scheduleJiraDisconnect();
+      return;
+    }
+    const token = await this.vault.get("jira.api_token");
+    const email = await this.vault.get("jira.email");
+    const baseUrl = await this.vault.get("jira.base_url");
+    if (
+      token === null ||
+      token === "" ||
+      email === null ||
+      email === "" ||
+      baseUrl === null ||
+      baseUrl === ""
+    ) {
+      return;
+    }
+    this.jiraClient = new MCPClient({
+      id: `nimbus-jira-${String(Date.now())}`,
+      servers: {
+        jira: {
+          command: "bun",
+          args: [jiraMcpScriptPath()],
+          env: {
+            ...process.env,
+            JIRA_API_TOKEN: token,
+            JIRA_EMAIL: email,
+            JIRA_BASE_URL: baseUrl,
+          },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleJiraDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
@@ -557,6 +633,12 @@ export class LazyConnectorMesh {
     if (rawLinear !== null && rawLinear !== "") {
       await this.ensureLinearRunning();
     }
+    const jt = await this.vault.get("jira.api_token");
+    const je = await this.vault.get("jira.email");
+    const jb = await this.vault.get("jira.base_url");
+    if (jt !== null && jt !== "" && je !== null && je !== "" && jb !== null && jb !== "") {
+      await this.ensureJiraRunning();
+    }
 
     const fsTools = await this.filesystem.listTools();
     const gdTools =
@@ -569,6 +651,7 @@ export class LazyConnectorMesh {
       this.bitbucketClient !== undefined ? await this.bitbucketClient.listTools() : {};
     const slackTools = this.slackClient !== undefined ? await this.slackClient.listTools() : {};
     const linearTools = this.linearClient !== undefined ? await this.linearClient.listTools() : {};
+    const jiraTools = this.jiraClient !== undefined ? await this.jiraClient.listTools() : {};
     return {
       ...fsTools,
       ...gdTools,
@@ -578,6 +661,7 @@ export class LazyConnectorMesh {
       ...bbTools,
       ...slackTools,
       ...linearTools,
+      ...jiraTools,
     } as Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>;
   }
 
@@ -589,6 +673,7 @@ export class LazyConnectorMesh {
     this.clearBitbucketIdleTimer();
     this.clearSlackIdleTimer();
     this.clearLinearIdleTimer();
+    this.clearJiraIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
@@ -596,6 +681,7 @@ export class LazyConnectorMesh {
     await this.stopBitbucketClient();
     await this.stopSlackClient();
     await this.stopLinearClient();
+    await this.stopJiraClient();
     try {
       await this.filesystem.disconnect();
     } catch {

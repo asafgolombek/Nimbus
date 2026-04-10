@@ -279,6 +279,11 @@ const HITL_REQUIRED: ReadonlySet<string> = Object.freeze(new Set([
   "calendar.event.create", "calendar.event.delete",
   "photo.delete",
   "onedrive.delete", "onedrive.move",
+  "slack.message.post",
+  "teams.message.post", "teams.message.postChat",
+  // Linear & Jira
+  "linear.issue.create", "linear.issue.update", "linear.comment.create",
+  "jira.issue.create", "jira.issue.update", "jira.comment.add",
   // Source control
   "repo.pr.merge", "repo.pr.close",
   "repo.branch.delete", "repo.tag.create",

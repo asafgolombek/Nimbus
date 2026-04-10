@@ -221,6 +221,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     scopes?: string[];
     personalAccessToken?: string;
     bitbucketUsername?: string;
+    atlassianEmail?: string;
     apiBaseUrl?: string;
   } = { service };
   if (port !== undefined) {
@@ -279,6 +280,35 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     params.bitbucketUsername = u;
     params.personalAccessToken = appPass;
   }
+  if (normalized === "jira") {
+    const mail =
+      username ??
+      process.env["NIMBUS_JIRA_EMAIL"]?.trim() ??
+      process.env["ATLASSIAN_EMAIL"]?.trim();
+    if (mail === undefined || mail === "") {
+      throw new Error(
+        "Jira requires your Atlassian account email: nimbus connector auth jira --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_EMAIL)",
+      );
+    }
+    const apiTok = token ?? process.env["NIMBUS_JIRA_API_TOKEN"]?.trim();
+    if (apiTok === undefined || apiTok === "") {
+      throw new Error(
+        "Jira requires an API token: nimbus connector auth jira --username <email> --token <api_token> --api-base <url>  (or set NIMBUS_JIRA_API_TOKEN)",
+      );
+    }
+    const base =
+      apiBase ??
+      process.env["NIMBUS_JIRA_BASE_URL"]?.trim() ??
+      process.env["JIRA_BASE_URL"]?.trim();
+    if (base === undefined || base === "") {
+      throw new Error(
+        "Jira requires the site URL: nimbus connector auth jira ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_BASE_URL)",
+      );
+    }
+    params.atlassianEmail = mail;
+    params.personalAccessToken = apiTok;
+    params.apiBaseUrl = base.replace(/\/+$/, "");
+  }
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
@@ -287,7 +317,8 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     res.serviceId === "github" ||
     res.serviceId === "gitlab" ||
     res.serviceId === "bitbucket" ||
-    res.serviceId === "linear"
+    res.serviceId === "linear" ||
+    res.serviceId === "jira"
   ) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");
   } else {
@@ -479,7 +510,7 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira
 
 OAuth client ids (required for Google/Microsoft auth):
   NIMBUS_OAUTH_GOOGLE_CLIENT_ID
@@ -488,6 +519,8 @@ OAuth client ids (required for Google/Microsoft auth):
 GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).
 GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-base https://git.example.com/api/v4 (gitlab.api_base).
 Linear: use --token or env NIMBUS_LINEAR_API_KEY (linear.api_key).
+Jira: use --username (Atlassian email), --token (API token), --api-base https://your-domain.atlassian.net
+  or env NIMBUS_JIRA_EMAIL, NIMBUS_JIRA_API_TOKEN, NIMBUS_JIRA_BASE_URL (jira.email, jira.api_token, jira.base_url).
 
 Credentials are stored in the OS vault only (never printed here).
 `);

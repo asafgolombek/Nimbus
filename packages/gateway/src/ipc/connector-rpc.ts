@@ -201,6 +201,12 @@ export async function dispatchConnectorRpc(options: {
           await vault.delete("linear.api_key");
           vaultKeys.push("linear.api_key");
         }
+        if (id === "jira") {
+          await vault.delete("jira.api_token");
+          await vault.delete("jira.email");
+          await vault.delete("jira.base_url");
+          vaultKeys.push("jira.api_token", "jira.email", "jira.base_url");
+        }
       } catch (removeErr) {
         if (googleOAuthBackup !== null) {
           await vault.set("google.oauth", googleOAuthBackup);
@@ -277,6 +283,44 @@ export async function dispatchConnectorRpc(options: {
           throw new ConnectorRpcError(-32602, "Missing API key for linear");
         }
         await vault.set("linear.api_key", token);
+        const interval = defaultSyncIntervalMsForService(id);
+        localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
+        return {
+          kind: "hit",
+          value: {
+            ok: true,
+            serviceId: id,
+            scopesGranted: [] as string[],
+          },
+        };
+      }
+      if (id === "jira") {
+        const emailRaw = rec?.["atlassianEmail"] ?? rec?.["email"];
+        const email = typeof emailRaw === "string" && emailRaw.trim() !== "" ? emailRaw.trim() : "";
+        const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"] ?? rec?.["apiToken"];
+        const apiToken =
+          typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+        const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["baseUrl"];
+        const baseStr = typeof baseRaw === "string" && baseRaw.trim() !== "" ? baseRaw.trim() : "";
+        if (email === "") {
+          throw new ConnectorRpcError(
+            -32602,
+            "Missing Atlassian account email for jira (atlassianEmail)",
+          );
+        }
+        if (apiToken === "") {
+          throw new ConnectorRpcError(-32602, "Missing API token for jira");
+        }
+        if (baseStr === "") {
+          throw new ConnectorRpcError(
+            -32602,
+            "Missing Jira site base URL for jira (apiBaseUrl), e.g. https://your-domain.atlassian.net",
+          );
+        }
+        const baseNormalized = baseStr.replace(/\/+$/, "");
+        await vault.set("jira.email", email);
+        await vault.set("jira.api_token", apiToken);
+        await vault.set("jira.base_url", baseNormalized);
         const interval = defaultSyncIntervalMsForService(id);
         localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
         return {

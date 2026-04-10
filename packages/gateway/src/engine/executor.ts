@@ -38,6 +38,9 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "linear.issue.create",
   "linear.issue.update",
   "linear.comment.create",
+  "jira.issue.create",
+  "jira.issue.update",
+  "jira.comment.add",
   // Source control
   "repo.pr.merge",
   "repo.pr.close",

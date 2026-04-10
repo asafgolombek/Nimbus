@@ -110,6 +110,44 @@ The hard problems — OAuth token management, credential storage, sync schedulin
 
 ---
 
+## The Security Compact
+
+Sovereignty carries responsibility. When your machine is the source of truth, the perimeter of that trust is the machine itself — not a remote server with a dedicated security team, not a cloud vault behind multi-factor authentication enforced by a third party.
+
+Nimbus secures everything within its boundary rigorously. Credentials are stored in the OS-native keystore — there is no code path that writes them elsewhere. The HITL gate blocks destructive actions architecturally — an LLM cannot reason around it. The local index is never transmitted to a relay server. Extensions run in sandboxed child processes with declared, enforced permissions. Every security contract is verified by automated tests on every commit, across all three platforms.
+
+But Nimbus's security boundary ends at the process edge. What sits below it — the operating system, the disk, the physical machine — is outside Nimbus's control. And that boundary matters.
+
+If your machine is logged in and unattended, Nimbus's internal protections are intact — but an attacker already has access to everything the operating system exposes. The OS-native keystore (DPAPI, Keychain, libsecret) protects against offline attacks such as a stolen disk or cold boot. It does not protect against malware running live on your machine with user-level privileges, which can call the same keystore APIs Nimbus uses. If someone with physical access can boot from a USB drive or pull the disk without encountering encryption, OS-level protections do not hold.
+
+This is not a gap to patch. It is a direct consequence of the model. You chose local sovereignty. That sovereignty is real — and so is the responsibility that comes with it.
+
+**Nimbus assumes the following on your side:**
+
+- Your machine is protected by a strong login password or biometric authentication
+- You lock your screen when stepping away — especially in shared or semi-public environments
+- You store your machine in a location where untrusted parties cannot freely access it
+- Your disk is encrypted — FileVault on macOS, BitLocker on Windows, LUKS on Linux; your OS provides this natively
+- Antivirus or endpoint protection is active — resident malware with user privileges can reach the same secrets Nimbus holds
+- You apply OS security updates in a reasonable timeframe
+- Nimbus runs under your personal user account, not a shared one
+
+These are not onerous requirements. They are the baseline expectations of any system where the machine, not a cloud server, holds the keys. The cloud model outsources these responsibilities to vendors — and charges you data sovereignty for the privilege. The Nimbus model returns those responsibilities to you — and with them, the control.
+
+### The Consent Checkpoint Is Not a Formality
+
+There is a second dimension to shared responsibility, distinct from physical security. Every destructive, outgoing, or irreversible action in Nimbus requires your explicit approval before it executes. That checkpoint is not a speed bump — it is the moment of ownership transfer.
+
+When Nimbus proposes to delete a file, send a message, push a commit, or apply a Terraform plan, and you confirm, you own the outcome. Nimbus cannot act on your behalf without your active authorisation. That means the authorisation is meaningful.
+
+This places an obligation on both sides. Nimbus's obligation is to describe every proposed action accurately and completely — in plain, unambiguous language — before asking for your approval. If Nimbus describes an action misleadingly and you approve based on that description, the failure is Nimbus's. The responsibility transfer is only valid when the information you acted on was honest.
+
+Your obligation is to read what is proposed, understand it, and approve only when you intend to. The consent checkpoint exists precisely so that no action can be attributed to automation, miscommunication, or assumption. When you approve, you are the final authority — and the final accountable party.
+
+The cloud model diffuses this accountability deliberately. Who deleted that file — was it the sync client, the automation rule, the SaaS workflow? In Nimbus, the answer is always traceable to a specific approved action, and the approval is always yours. This is not a burden. It is what agency actually looks like.
+
+---
+
 ## The Developer Dimension
 
 Software engineers are not a secondary audience for Nimbus — they are the audience most acutely harmed by the fragmentation problem and best positioned to leverage a platform that fixes it.

@@ -8,6 +8,7 @@ import { createGitlabSyncable } from "../connectors/gitlab-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
 import { createGoogleDriveSyncable } from "../connectors/google-drive-sync.ts";
 import { createGooglePhotosSyncable } from "../connectors/google-photos-sync.ts";
+import { createJiraSyncable } from "../connectors/jira-sync.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { createLinearSyncable } from "../connectors/linear-sync.ts";
 import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
@@ -113,6 +114,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createLinearSyncable({
       ensureLinearMcpRunning: () => connectorMesh.ensureLinearRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createJiraSyncable({
+      ensureJiraMcpRunning: () => connectorMesh.ensureJiraRunning(),
     }),
   );
   syncScheduler.start();
