@@ -246,8 +246,13 @@ function hitlLinearRejectPayload(
   };
 }
 
+type ConfluenceHitlRejectAction =
+  | "confluence.page.create"
+  | "confluence.page.update"
+  | "confluence.comment.add";
+
 function hitlConfluenceRejectPayload(
-  confluenceAction: "confluence.page.create" | "confluence.page.update" | "confluence.comment.add",
+  confluenceAction: ConfluenceHitlRejectAction,
 ): Record<string, unknown> {
   if (confluenceAction === "confluence.page.create") {
     return {
