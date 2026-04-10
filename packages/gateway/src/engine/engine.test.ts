@@ -51,6 +51,8 @@ describe("HITL_REQUIRED", () => {
       "k8s.delete",
       "incident.resolve",
       "slack.message.post",
+      "teams.message.post",
+      "teams.message.postChat",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -180,6 +182,30 @@ describe("ToolExecutor", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("slack.message.post");
   });
+
+  for (const teamsAction of ["teams.message.post", "teams.message.postChat"] as const) {
+    test(`rejected consent for ${teamsAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload =
+        teamsAction === "teams.message.post"
+          ? {
+              mcpToolId: "teams_teams_message_post",
+              input: { teamId: "t1", channelId: "c1", body: "hi" },
+            }
+          : {
+              mcpToolId: "teams_teams_message_post_chat",
+              input: { chatId: "ch1", body: "hi" },
+            };
+      const out = await exec.execute({ type: teamsAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(teamsAction);
+    });
+  }
 
   for (const fileAction of ["file.create", "file.move", "file.rename"] as const) {
     test(`rejected consent for ${fileAction} does not call the connector; audit rejected`, async () => {

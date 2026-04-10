@@ -34,6 +34,11 @@ function outlookMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "outlook", "src", "server.ts");
 }
 
+function teamsMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "teams", "src", "server.ts");
+}
+
 function githubMcpScriptPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return join(here, "..", "..", "..", "mcp-connectors", "github", "src", "server.ts");
@@ -55,7 +60,7 @@ function slackMcpScriptPath(): string {
 }
 
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub / GitLab / Bitbucket / Slack credential MCP when vault keys exist (Q2 §1.6 / Phase 2–4).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack credential MCP when vault keys exist (Q2 §1.6 / Phase 2–4).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -301,7 +306,7 @@ export class LazyConnectorMesh {
   }
 
   /**
-   * Starts OneDrive + Outlook MCP subprocesses when `microsoft.oauth` is present (shared token).
+   * Starts OneDrive + Outlook + Teams MCP subprocesses when `microsoft.oauth` is present (shared token).
    */
   async ensureMicrosoftBundleRunning(): Promise<void> {
     this.clearMicrosoftIdleTimer();
@@ -321,6 +326,11 @@ export class LazyConnectorMesh {
         outlook: {
           command: "bun",
           args: [outlookMcpScriptPath()],
+          env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+        },
+        teams: {
+          command: "bun",
+          args: [teamsMcpScriptPath()],
           env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
         },
       },

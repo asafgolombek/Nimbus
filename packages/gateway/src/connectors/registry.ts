@@ -7,7 +7,7 @@ export { createLazyConnectorMesh, LazyConnectorMesh };
 
 /**
  * Filesystem MCP (always) + lazy Google bundle (Drive, Gmail, Photos) when `google.oauth` exists +
- * lazy Microsoft bundle (OneDrive, Outlook) when `microsoft.oauth` exists.
+ * lazy Microsoft bundle (OneDrive, Outlook, Teams) when `microsoft.oauth` exists.
  */
 export async function buildConnectorMesh(
   paths: PlatformPaths,
@@ -63,6 +63,9 @@ export type McpToolListingClient = {
  *
  * Slack (HITL): `slack.message.post` → `slack_slack_message_post` or
  * `slack_slack_message_post_dm` (set `payload.mcpToolId` + `input`).
+ *
+ * Teams (HITL): `teams.message.post` → `teams_teams_message_post`;
+ * `teams.message.postChat` → `teams_teams_message_post_chat`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

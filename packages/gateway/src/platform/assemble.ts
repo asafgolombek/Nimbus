@@ -12,6 +12,7 @@ import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
 import { createSlackSyncable } from "../connectors/slack-sync.ts";
+import { createTeamsSyncable } from "../connectors/teams-sync.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
@@ -101,6 +102,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createSlackSyncable({
       ensureSlackMcpRunning: () => connectorMesh.ensureSlackRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createTeamsSyncable({
+      ensureMicrosoftMcpRunning: () => connectorMesh.ensureMicrosoftBundleRunning(),
     }),
   );
   syncScheduler.start();

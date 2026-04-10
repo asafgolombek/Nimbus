@@ -107,8 +107,12 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
       return {
         provider: "microsoft",
         defaultScopes: [
+          "Team.ReadBasic.All",
+          "Channel.ReadBasic.All",
           "ChannelMessage.Read.All",
+          "ChannelMessage.Send",
           "Chat.Read",
+          "ChatMessage.Send",
           "User.Read",
           "offline_access",
           "openid",
