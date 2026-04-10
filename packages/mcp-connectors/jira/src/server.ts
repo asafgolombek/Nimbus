@@ -48,7 +48,8 @@ async function jiraFetch(
   path: string,
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; text: string }> {
-  const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const relativePath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${baseUrl}${relativePath}`;
   const headers: Record<string, string> = {
     Accept: "application/json",
     Authorization: encodeBasicAuthHeader(email, token),

@@ -25,6 +25,77 @@ import {
   sumItemsSiblingServices,
 } from "./connector-rpc-shared.ts";
 
+/** PATs / API keys cleared when removing a connector (OAuth keys use {@link clearOAuthVaultIfProviderUnused}). */
+async function deleteConnectorPatAndTokenKeys(
+  vault: NimbusVault,
+  id: ConnectorServiceId,
+): Promise<string[]> {
+  switch (id) {
+    case "github":
+      await vault.delete("github.pat");
+      return ["github.pat"];
+    case "gitlab":
+      await vault.delete("gitlab.pat");
+      await vault.delete("gitlab.api_base");
+      return ["gitlab.pat", "gitlab.api_base"];
+    case "bitbucket":
+      await vault.delete("bitbucket.username");
+      await vault.delete("bitbucket.app_password");
+      return ["bitbucket.username", "bitbucket.app_password"];
+    case "slack":
+      await vault.delete("slack.oauth");
+      return ["slack.oauth"];
+    case "linear":
+      await vault.delete("linear.api_key");
+      return ["linear.api_key"];
+    case "jira":
+      await vault.delete("jira.api_token");
+      await vault.delete("jira.email");
+      await vault.delete("jira.base_url");
+      return ["jira.api_token", "jira.email", "jira.base_url"];
+    case "notion":
+      await vault.delete("notion.oauth");
+      return ["notion.oauth"];
+    case "confluence":
+      await vault.delete("confluence.api_token");
+      await vault.delete("confluence.email");
+      await vault.delete("confluence.base_url");
+      return ["confluence.api_token", "confluence.email", "confluence.base_url"];
+    default:
+      return [];
+  }
+}
+
+function oauthScopesFromConnectorRequest(
+  rec: Record<string, unknown> | undefined,
+  defaultScopes: readonly string[],
+): string[] {
+  const scopeParam = rec?.["scopes"];
+  if (!Array.isArray(scopeParam)) {
+    return [...defaultScopes];
+  }
+  const next: string[] = [];
+  for (const s of scopeParam) {
+    if (typeof s === "string" && s.trim() !== "") {
+      next.push(s.trim());
+    }
+  }
+  return next.length > 0 ? next : [...defaultScopes];
+}
+
+function oauthRedirectPortFromRec(rec: Record<string, unknown> | undefined): number | undefined {
+  const portRaw = rec?.["port"];
+  if (
+    typeof portRaw === "number" &&
+    Number.isInteger(portRaw) &&
+    portRaw > 0 &&
+    portRaw <= 65_535
+  ) {
+    return portRaw;
+  }
+  return undefined;
+}
+
 export type ConnectorRpcHit = { kind: "hit"; value: unknown };
 
 export type ConnectorRpcHandlerContext = {
@@ -137,44 +208,7 @@ export async function handleConnectorRemove(
   let vaultKeys: string[] = [];
   try {
     vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
-    if (id === "github") {
-      await vault.delete("github.pat");
-      vaultKeys.push("github.pat");
-    }
-    if (id === "gitlab") {
-      await vault.delete("gitlab.pat");
-      await vault.delete("gitlab.api_base");
-      vaultKeys.push("gitlab.pat", "gitlab.api_base");
-    }
-    if (id === "bitbucket") {
-      await vault.delete("bitbucket.username");
-      await vault.delete("bitbucket.app_password");
-      vaultKeys.push("bitbucket.username", "bitbucket.app_password");
-    }
-    if (id === "slack") {
-      await vault.delete("slack.oauth");
-      vaultKeys.push("slack.oauth");
-    }
-    if (id === "linear") {
-      await vault.delete("linear.api_key");
-      vaultKeys.push("linear.api_key");
-    }
-    if (id === "jira") {
-      await vault.delete("jira.api_token");
-      await vault.delete("jira.email");
-      await vault.delete("jira.base_url");
-      vaultKeys.push("jira.api_token", "jira.email", "jira.base_url");
-    }
-    if (id === "notion") {
-      await vault.delete("notion.oauth");
-      vaultKeys.push("notion.oauth");
-    }
-    if (id === "confluence") {
-      await vault.delete("confluence.api_token");
-      await vault.delete("confluence.email");
-      await vault.delete("confluence.base_url");
-      vaultKeys.push("confluence.api_token", "confluence.email", "confluence.base_url");
-    }
+    vaultKeys.push(...(await deleteConnectorPatAndTokenKeys(vault, id)));
   } catch (removeErr) {
     if (googleOAuthBackup !== null) {
       await vault.set("google.oauth", googleOAuthBackup);
@@ -345,39 +379,22 @@ async function connectorAuthOAuthPkce(
       "Set NIMBUS_OAUTH_NOTION_CLIENT_SECRET (required for Notion token exchange)",
     );
   }
-  let scopes = profile.defaultScopes;
-  const scopeParam = rec?.["scopes"];
-  if (Array.isArray(scopeParam)) {
-    const next: string[] = [];
-    for (const s of scopeParam) {
-      if (typeof s === "string" && s.trim() !== "") {
-        next.push(s.trim());
-      }
-    }
-    if (next.length > 0) {
-      scopes = next;
-    }
-  }
-  const portRaw = rec?.["port"];
-  const redirectPort =
-    typeof portRaw === "number" && Number.isInteger(portRaw) && portRaw > 0 && portRaw <= 65_535
-      ? portRaw
-      : undefined;
+  const scopes = oauthScopesFromConnectorRequest(rec, profile.defaultScopes);
+  const redirectPort = oauthRedirectPortFromRec(rec);
 
-  const pkceBase = {
+  const pkceBase: PKCEOptions = {
     clientId,
     scopes,
     provider: profile.provider,
     vault,
     openUrl,
-    ...(notionSecret !== undefined && notionSecret !== ""
-      ? { oauthClientSecret: notionSecret }
-      : {}),
   };
-  let pkceFlowInput: PKCEOptions = pkceBase;
-  if (redirectPort !== undefined) {
-    pkceFlowInput = { ...pkceBase, redirectPort };
-  }
+  const withSecret: PKCEOptions =
+    notionSecret !== undefined && notionSecret !== ""
+      ? { ...pkceBase, oauthClientSecret: notionSecret }
+      : pkceBase;
+  const pkceFlowInput: PKCEOptions =
+    redirectPort !== undefined ? { ...withSecret, redirectPort } : withSecret;
   const tokens = await runPKCEFlow(pkceFlowInput);
 
   const interval = defaultSyncIntervalMsForService(id);

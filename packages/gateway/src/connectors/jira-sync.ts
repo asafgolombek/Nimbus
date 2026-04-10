@@ -36,7 +36,7 @@ function decodeCursor(raw: string | null): JiraSyncCursorV1 | null {
   if (fj !== null && fj !== undefined && typeof fj !== "string") {
     return null;
   }
-  return { v: 1, floorJql: fj === null || fj === undefined ? null : fj };
+  return { v: 1, floorJql: typeof fj === "string" ? fj : null };
 }
 
 /** Jira JQL datetime literal after `updated >` (exclusive), one second after API `fields.updated`. */

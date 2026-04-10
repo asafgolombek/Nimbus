@@ -200,7 +200,12 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
       const drainPenalty = (res: Response, text: string): void => {
         if (res.status === 429) {
           const ra = res.headers.get("retry-after");
-          const sec = ra !== null ? Number.parseInt(ra, 10) : 60;
+          let sec: number;
+          if (ra === null) {
+            sec = 60;
+          } else {
+            sec = Number.parseInt(ra, 10);
+          }
           const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
           ctx.rateLimiter.penalise("bitbucket", ms);
           throw new Error(`Bitbucket 429: ${text.slice(0, 200)}`);
@@ -229,97 +234,13 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
         return { res, text, json };
       }
 
-      // Resume PR pagination for active repo
-      if (state.activeRepo !== null && state.prNext !== null) {
+      async function resumeActiveRepoPagination(): Promise<SyncResult | null> {
+        if (state.activeRepo === null || state.prNext === null) {
+          return null;
+        }
         let prUrl: string | null = state.prNext;
         let prPages = 0;
-        while (prUrl !== null && prPages < MAX_PR_PAGES_PER_REPO && state.activeRepo !== null) {
-          const { json } = await fetchJson(prUrl);
-          prPages += 1;
-          const rec = asRecord(json);
-          const values = rec !== undefined && Array.isArray(rec["values"]) ? rec["values"] : [];
-          const now = Date.now();
-          for (const v of values) {
-            const pr = asRecord(v);
-            if (pr === undefined) {
-              continue;
-            }
-            const uo = stringField(pr, "updated_on");
-            if (uo !== undefined) {
-              maxUpdated = maxIso(maxUpdated, uo);
-            }
-            upsertFromPullRequest(ctx, state.activeRepo, pr, now);
-            upserted += 1;
-          }
-          const next = stringFieldFromBody(json, "next");
-          prUrl = next !== undefined && next !== "" ? next : null;
-        }
-        state = {
-          ...state,
-          prNext: prUrl,
-          activeRepo: prUrl === null ? null : state.activeRepo,
-        };
-        if (state.prNext !== null || state.activeRepo !== null) {
-          return {
-            cursor: encodeCursor(state),
-            itemsUpserted: upserted,
-            itemsDeleted: 0,
-            hasMore: true,
-            durationMs: Math.round(performance.now() - t0),
-            bytesTransferred,
-          };
-        }
-      }
-
-      // Refill pending repo names from workspace repository list (bounded pages per sync).
-      let repoListPagesFetched = 0;
-      while (
-        state.pendingRepos.length === 0 &&
-        repoListPagesFetched < MAX_REPO_LIST_PAGES_PER_SYNC
-      ) {
-        if (state.reposNext === null && state.repositoryPagesExhausted) {
-          break;
-        }
-        const listUrl =
-          state.reposNext ??
-          `${API_ROOT}/repositories?${new URLSearchParams({ role: "member", pagelen: "30" })}`;
-        const { json } = await fetchJson(listUrl);
-        repoListPagesFetched += 1;
-        const names = parseRepositoryFullNames(json);
-        const nextLink = stringFieldFromBody(json, "next") ?? null;
-        state = {
-          ...state,
-          pendingRepos: [...state.pendingRepos, ...names],
-          reposNext: nextLink,
-          repositoryPagesExhausted: nextLink === null,
-        };
-        if (nextLink === null) {
-          break;
-        }
-      }
-
-      // Scan pull requests for up to MAX_REPOS_PER_SYNC repositories
-      while (reposScannedThisSync < MAX_REPOS_PER_SYNC && state.pendingRepos.length > 0) {
-        const repoFull = state.pendingRepos.shift();
-        if (repoFull === undefined) {
-          break;
-        }
-        reposScannedThisSync += 1;
-        const segments = repoFull.split("/");
-        const workspace = segments[0] ?? "";
-        const repoSlug = segments.slice(1).join("/");
-        if (workspace === "" || repoSlug === "") {
-          continue;
-        }
-        const q = `updated_on>${state.since}`;
-        const qs = new URLSearchParams();
-        qs.set("pagelen", "50");
-        qs.set("sort", "-updated_on");
-        qs.set("q", q);
-        const firstUrl = `${API_ROOT}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests?${qs.toString()}`;
-
-        let prUrl: string | null = firstUrl;
-        let prPages = 0;
+        const active = state.activeRepo;
         while (prUrl !== null && prPages < MAX_PR_PAGES_PER_REPO) {
           const { json } = await fetchJson(prUrl);
           prPages += 1;
@@ -335,30 +256,133 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
             if (uo !== undefined) {
               maxUpdated = maxIso(maxUpdated, uo);
             }
-            upsertFromPullRequest(ctx, repoFull, pr, now);
+            upsertFromPullRequest(ctx, active, pr, now);
             upserted += 1;
           }
           const next = stringFieldFromBody(json, "next");
           prUrl = next !== undefined && next !== "" ? next : null;
-          if (prUrl !== null && prPages >= MAX_PR_PAGES_PER_REPO) {
-            state = {
-              since: state.since,
-              pendingRepos: state.pendingRepos,
-              reposNext: state.reposNext,
-              activeRepo: repoFull,
-              prNext: prUrl,
-              repositoryPagesExhausted: state.repositoryPagesExhausted,
-            };
-            return {
-              cursor: encodeCursor(state),
-              itemsUpserted: upserted,
-              itemsDeleted: 0,
-              hasMore: true,
-              durationMs: Math.round(performance.now() - t0),
-              bytesTransferred,
-            };
+        }
+        state = {
+          ...state,
+          prNext: prUrl,
+          activeRepo: prUrl === null ? null : active,
+        };
+        if (state.prNext !== null || state.activeRepo !== null) {
+          return {
+            cursor: encodeCursor(state),
+            itemsUpserted: upserted,
+            itemsDeleted: 0,
+            hasMore: true,
+            durationMs: Math.round(performance.now() - t0),
+            bytesTransferred,
+          };
+        }
+        return null;
+      }
+
+      async function refillPendingReposFromWorkspace(): Promise<void> {
+        let repoListPagesFetched = 0;
+        while (
+          state.pendingRepos.length === 0 &&
+          repoListPagesFetched < MAX_REPO_LIST_PAGES_PER_SYNC
+        ) {
+          if (state.reposNext === null && state.repositoryPagesExhausted) {
+            break;
+          }
+          const listUrl =
+            state.reposNext ??
+            `${API_ROOT}/repositories?${new URLSearchParams({ role: "member", pagelen: "30" })}`;
+          const { json } = await fetchJson(listUrl);
+          repoListPagesFetched += 1;
+          const names = parseRepositoryFullNames(json);
+          const nextLink = stringFieldFromBody(json, "next") ?? null;
+          state = {
+            ...state,
+            pendingRepos: [...state.pendingRepos, ...names],
+            reposNext: nextLink,
+            repositoryPagesExhausted: nextLink === null,
+          };
+          if (nextLink === null) {
+            break;
           }
         }
+      }
+
+      async function scanPullRequestsForPendingRepos(): Promise<SyncResult | null> {
+        while (reposScannedThisSync < MAX_REPOS_PER_SYNC && state.pendingRepos.length > 0) {
+          const repoFull = state.pendingRepos.shift();
+          if (repoFull === undefined) {
+            break;
+          }
+          reposScannedThisSync += 1;
+          const segments = repoFull.split("/");
+          const workspace = segments[0] ?? "";
+          const repoSlug = segments.slice(1).join("/");
+          if (workspace === "" || repoSlug === "") {
+            continue;
+          }
+          const q = `updated_on>${state.since}`;
+          const qs = new URLSearchParams();
+          qs.set("pagelen", "50");
+          qs.set("sort", "-updated_on");
+          qs.set("q", q);
+          const firstUrl = `${API_ROOT}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests?${qs.toString()}`;
+
+          let prUrl: string | null = firstUrl;
+          let prPages = 0;
+          while (prUrl !== null && prPages < MAX_PR_PAGES_PER_REPO) {
+            const { json } = await fetchJson(prUrl);
+            prPages += 1;
+            const rec = asRecord(json);
+            const values = rec !== undefined && Array.isArray(rec["values"]) ? rec["values"] : [];
+            const now = Date.now();
+            for (const v of values) {
+              const pr = asRecord(v);
+              if (pr === undefined) {
+                continue;
+              }
+              const uo = stringField(pr, "updated_on");
+              if (uo !== undefined) {
+                maxUpdated = maxIso(maxUpdated, uo);
+              }
+              upsertFromPullRequest(ctx, repoFull, pr, now);
+              upserted += 1;
+            }
+            const next = stringFieldFromBody(json, "next");
+            prUrl = next !== undefined && next !== "" ? next : null;
+            if (prUrl !== null && prPages >= MAX_PR_PAGES_PER_REPO) {
+              state = {
+                since: state.since,
+                pendingRepos: state.pendingRepos,
+                reposNext: state.reposNext,
+                activeRepo: repoFull,
+                prNext: prUrl,
+                repositoryPagesExhausted: state.repositoryPagesExhausted,
+              };
+              return {
+                cursor: encodeCursor(state),
+                itemsUpserted: upserted,
+                itemsDeleted: 0,
+                hasMore: true,
+                durationMs: Math.round(performance.now() - t0),
+                bytesTransferred,
+              };
+            }
+          }
+        }
+        return null;
+      }
+
+      const resumed = await resumeActiveRepoPagination();
+      if (resumed !== null) {
+        return resumed;
+      }
+
+      await refillPendingReposFromWorkspace();
+
+      const mid = await scanPullRequestsForPendingRepos();
+      if (mid !== null) {
+        return mid;
       }
 
       const cycleIncomplete =

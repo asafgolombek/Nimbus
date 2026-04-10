@@ -416,7 +416,14 @@ export function createGmailSyncable(options: GmailSyncableOptions): Syncable {
         historyJson = res.json;
         bytesTransferred += res.bytes;
       } catch (e) {
-        const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "Request failed";
+        let msg: string;
+        if (e instanceof Error) {
+          msg = e.message;
+        } else if (typeof e === "string") {
+          msg = e;
+        } else {
+          msg = "Request failed";
+        }
         if (msg.includes("404")) {
           ctx.logger.warn(
             { service: SERVICE_ID },

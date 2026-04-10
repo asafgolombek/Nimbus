@@ -53,7 +53,7 @@ function titleFromNotionPropertyValue(val: unknown): string | null {
     return null;
   }
   const joined = titlePartsFromNotionTitleRichText(p["title"]).join("");
-  return joined !== "" ? joined : null;
+  return joined === "" ? null : joined;
 }
 
 function extractTitleFromProperties(properties: unknown): string {
@@ -68,6 +68,120 @@ function extractTitleFromProperties(properties: unknown): string {
     }
   }
   return "Untitled";
+}
+
+function notionSearchRequestBody(nextCursor: string | undefined): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    filter: { property: "object", value: "page" },
+    sort: { direction: "descending", timestamp: "last_edited_time" },
+    page_size: 100,
+  };
+  if (nextCursor !== undefined && nextCursor !== "") {
+    body["start_cursor"] = nextCursor;
+  }
+  return body;
+}
+
+type NotionSearchBatch = {
+  results: unknown[];
+  hasMore: boolean;
+  nextCursor: string | undefined;
+  bytesThisPage: number;
+};
+
+async function notionFetchSearchBatch(
+  ctx: SyncContext,
+  accessToken: string,
+  body: Record<string, unknown>,
+): Promise<NotionSearchBatch> {
+  const res = await fetch(SEARCH_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Notion-Version": NOTION_VERSION,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (res.status === 429) {
+    ctx.rateLimiter.penalise("notion", 60_000);
+    throw new Error("Notion sync: rate limited");
+  }
+  if (!res.ok) {
+    throw new Error(`Notion sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("Notion sync: invalid JSON");
+  }
+  const root = asRecord(parsed);
+  if (root === undefined) {
+    throw new Error("Notion sync: invalid response");
+  }
+  const results = root["results"];
+  if (!Array.isArray(results)) {
+    throw new TypeError("Notion sync: missing results");
+  }
+  const hasMore = root["has_more"] === true;
+  const startNext = stringField(root, "next_cursor");
+  const nextCursor = startNext !== undefined && startNext !== "" ? startNext : undefined;
+  return { results, hasMore, nextCursor, bytesThisPage: text.length };
+}
+
+type NotionRowProcessAcc = {
+  maxEdited: string;
+  upserted: number;
+  shouldStop: boolean;
+};
+
+function notionAccumulateSearchResults(
+  ctx: SyncContext,
+  results: unknown[],
+  opts: { watermarkMs: number; syncTime: number },
+  acc: NotionRowProcessAcc,
+): void {
+  for (const item of results) {
+    const row = asRecord(item);
+    if (row === undefined) {
+      continue;
+    }
+    if (stringField(row, "object") !== "page") {
+      continue;
+    }
+    const id = stringField(row, "id");
+    if (id === undefined || id === "") {
+      continue;
+    }
+    const edited = stringField(row, "last_edited_time");
+    if (edited !== undefined && edited !== "") {
+      if (opts.watermarkMs >= 0 && isoMs(edited) <= opts.watermarkMs) {
+        acc.shouldStop = true;
+        break;
+      }
+      acc.maxEdited = acc.maxEdited === "" ? edited : maxIso(acc.maxEdited, edited);
+    }
+    const title = extractTitleFromProperties(row["properties"]);
+    const url = `https://www.notion.so/${id.replaceAll("-", "")}`;
+    const modified = edited !== undefined && edited !== "" ? isoMs(edited) : opts.syncTime;
+    acc.upserted += 1;
+    upsertIndexedItem(ctx.db, {
+      service: SERVICE_ID,
+      type: "page",
+      externalId: id,
+      title: title.length > 512 ? title.slice(0, 512) : title,
+      bodyPreview: "",
+      url,
+      canonicalUrl: url,
+      modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
+      authorId: null,
+      metadata: { notionPageId: id },
+      pinned: false,
+      syncedAt: opts.syncTime,
+    });
+  }
 }
 
 export type NotionSyncableOptions = {
@@ -109,103 +223,25 @@ export function createNotionSyncable(options: NotionSyncableOptions): Syncable {
       let shouldStop = false;
 
       for (;;) {
-        const body: Record<string, unknown> = {
-          filter: { property: "object", value: "page" },
-          sort: { direction: "descending", timestamp: "last_edited_time" },
-          page_size: 100,
-        };
-        if (nextCursor !== undefined && nextCursor !== "") {
-          body["start_cursor"] = nextCursor;
-        }
-
-        const res = await fetch(SEARCH_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Notion-Version": NOTION_VERSION,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        });
-        const text = await res.text();
-        bytesTransferred += text.length;
-
-        if (res.status === 429) {
-          ctx.rateLimiter.penalise("notion", 60_000);
-          throw new Error("Notion sync: rate limited");
-        }
-        if (!res.ok) {
-          throw new Error(`Notion sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
-        }
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text) as unknown;
-        } catch {
-          throw new Error("Notion sync: invalid JSON");
-        }
-        const root = asRecord(parsed);
-        if (root === undefined) {
-          throw new Error("Notion sync: invalid response");
-        }
-        const results = root["results"];
-        if (!Array.isArray(results)) {
-          throw new TypeError("Notion sync: missing results");
-        }
-
-        const hasMore = root["has_more"] === true;
-        const startNext = stringField(root, "next_cursor");
-        nextCursor = startNext !== undefined && startNext !== "" ? startNext : undefined;
-
-        for (const item of results) {
-          const row = asRecord(item);
-          if (row === undefined) {
-            continue;
-          }
-          if (stringField(row, "object") !== "page") {
-            continue;
-          }
-          const id = stringField(row, "id");
-          if (id === undefined || id === "") {
-            continue;
-          }
-          const edited = stringField(row, "last_edited_time");
-          if (edited !== undefined && edited !== "") {
-            if (watermarkMs >= 0 && isoMs(edited) <= watermarkMs) {
-              shouldStop = true;
-              break;
-            }
-            maxEdited = maxEdited === "" ? edited : maxIso(maxEdited, edited);
-          }
-          const title = extractTitleFromProperties(row["properties"]);
-          const url = `https://www.notion.so/${id.replaceAll("-", "")}`;
-          const modified = edited !== undefined && edited !== "" ? isoMs(edited) : syncTime;
-          upserted += 1;
-          upsertIndexedItem(ctx.db, {
-            service: SERVICE_ID,
-            type: "page",
-            externalId: id,
-            title: title.length > 512 ? title.slice(0, 512) : title,
-            bodyPreview: "",
-            url,
-            canonicalUrl: url,
-            modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-            authorId: null,
-            metadata: { notionPageId: id },
-            pinned: false,
-            syncedAt: syncTime,
-          });
-        }
+        const body = notionSearchRequestBody(nextCursor);
+        const batch = await notionFetchSearchBatch(ctx, accessToken, body);
+        bytesTransferred += batch.bytesThisPage;
+        const acc: NotionRowProcessAcc = { maxEdited, upserted: 0, shouldStop: false };
+        notionAccumulateSearchResults(ctx, batch.results, { watermarkMs, syncTime }, acc);
+        upserted += acc.upserted;
+        maxEdited = acc.maxEdited;
+        shouldStop = acc.shouldStop;
 
         if (shouldStop) {
           break;
         }
-        if (!hasMore) {
+        if (!batch.hasMore) {
           break;
         }
-        if (nextCursor === undefined || nextCursor === "") {
+        if (batch.nextCursor === undefined || batch.nextCursor === "") {
           break;
         }
+        nextCursor = batch.nextCursor;
       }
 
       const nextW = maxEdited === "" ? watermark : maxEdited;

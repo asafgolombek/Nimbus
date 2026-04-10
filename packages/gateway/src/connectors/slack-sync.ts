@@ -122,6 +122,248 @@ function permalink(teamSub: string | null, channel: string, ts: string): string 
   return null;
 }
 
+async function slackTryFillTeamSubdomain(
+  token: string,
+  state: SlackSyncCursorV1,
+): Promise<SlackSyncCursorV1> {
+  if (state.teamSubdomain !== null) {
+    return state;
+  }
+  const who = await slackWebApi(token, "auth.test", {});
+  if (!who.ok) {
+    return state;
+  }
+  const urlRaw = who.json["url"];
+  if (typeof urlRaw !== "string" || urlRaw === "") {
+    return state;
+  }
+  try {
+    const host = new URL(urlRaw).hostname;
+    const sub = host.replace(/\.slack\.com$/i, "");
+    const teamSub = sub === host ? null : sub;
+    return { ...state, teamSubdomain: teamSub };
+  } catch {
+    return state;
+  }
+}
+
+function slackCollectMemberChannelIds(existing: string[], chans: unknown): string[] {
+  const nextIds = [...existing];
+  if (!Array.isArray(chans)) {
+    return nextIds;
+  }
+  for (const c of chans) {
+    const cr = asRecord(c);
+    if (cr === undefined) {
+      continue;
+    }
+    const id = cr["id"];
+    const member = cr["is_member"];
+    if (typeof id === "string" && id !== "" && member === true) {
+      nextIds.push(id);
+    }
+  }
+  return nextIds;
+}
+
+async function slackAdvanceListPhase(
+  ctx: SyncContext,
+  token: string,
+  state: SlackSyncCursorV1,
+  t0: number,
+  bytesTransferred: number,
+): Promise<
+  | { kind: "return"; result: SyncResult }
+  | { kind: "done_list"; state: SlackSyncCursorV1; bytesTransferred: number; hasMore: boolean }
+> {
+  const listBody: Record<string, unknown> = {
+    types: "public_channel,private_channel,mpim,im",
+    limit: 200,
+    exclude_archived: true,
+  };
+  if (state.listCursor !== null && state.listCursor !== "") {
+    listBody["cursor"] = state.listCursor;
+  }
+  const res = await slackWebApi(token, "conversations.list", listBody);
+  const bt = bytesTransferred + res.text.length;
+  if (!res.ok) {
+    if (res.json["error"] === "ratelimited") {
+      ctx.rateLimiter.penalise("slack", 60_000);
+    }
+    throw new Error(`Slack conversations.list: ${res.text.slice(0, 200)}`);
+  }
+  const nextIds = slackCollectMemberChannelIds(state.ids, res.json["channels"]);
+  const meta = asRecord(res.json["response_metadata"]);
+  const nextList =
+    meta !== undefined && typeof meta["next_cursor"] === "string" ? meta["next_cursor"] : "";
+  if (nextList !== "") {
+    return {
+      kind: "return",
+      result: {
+        cursor: encodeCursor({ ...state, ids: nextIds, listCursor: nextList }),
+        itemsUpserted: 0,
+        itemsDeleted: 0,
+        hasMore: true,
+        durationMs: Math.round(performance.now() - t0),
+        bytesTransferred: bt,
+      },
+    };
+  }
+  const unique = [...new Set(nextIds)].sort((a, b) => a.localeCompare(b));
+  const nextState: SlackSyncCursorV1 = {
+    ...state,
+    phase: "history",
+    ids: unique,
+    listCursor: null,
+    nextIdx: 0,
+    histCursor: null,
+  };
+  return {
+    kind: "done_list",
+    state: nextState,
+    bytesTransferred: bt,
+    hasMore: unique.length > 0,
+  };
+}
+
+function slackHistoryRequestBody(state: SlackSyncCursorV1, ch: string): Record<string, unknown> {
+  const hwVal = state.hw[ch] ?? null;
+  const histBody: Record<string, unknown> = {
+    channel: ch,
+    limit: 100,
+  };
+  if (state.histCursor !== null && state.histCursor !== "") {
+    histBody["cursor"] = state.histCursor;
+  } else if (hwVal !== null && hwVal !== "") {
+    histBody["oldest"] = hwVal;
+    histBody["inclusive"] = false;
+  } else {
+    histBody["oldest"] = state.floorTs;
+    histBody["inclusive"] = true;
+  }
+  return histBody;
+}
+
+function slackUpsertHistoryBatch(
+  ctx: SyncContext,
+  state: SlackSyncCursorV1,
+  ch: string,
+  messages: unknown,
+  itemsUpserted: number,
+  hwVal: string | null,
+): { itemsUpserted: number; maxTs: string | null } {
+  const now = Date.now();
+  let maxTs: string | null = hwVal;
+  let count = itemsUpserted;
+  if (!Array.isArray(messages)) {
+    return { itemsUpserted: count, maxTs };
+  }
+  for (const m of messages) {
+    const mr = asRecord(m);
+    if (mr === undefined) {
+      continue;
+    }
+    const ts = mr["ts"];
+    const text = mr["text"];
+    const user = mr["user"];
+    const threadTs = mr["thread_ts"];
+    if (typeof ts !== "string" || ts === "") {
+      continue;
+    }
+    if (mr["subtype"] !== undefined && mr["subtype"] !== "thread_broadcast") {
+      continue;
+    }
+    const preview = typeof text === "string" ? text.slice(0, 512) : "";
+    const title = shortIndexedMessageTitleFromPreview(preview, "(no text)");
+    const tsNum = Number.parseFloat(ts);
+    const modifiedAt = Number.isFinite(tsNum) ? Math.round(tsNum * 1000) : now;
+    const externalId = `${ch}:${ts}`;
+    const url = permalink(state.teamSubdomain, ch, ts);
+    upsertIndexedItem(ctx.db, {
+      service: SERVICE_ID,
+      type: "message",
+      externalId,
+      title: title.length > 512 ? title.slice(0, 512) : title,
+      bodyPreview: preview,
+      url,
+      canonicalUrl: url,
+      modifiedAt,
+      authorId: null,
+      metadata: {
+        channel: ch,
+        user: typeof user === "string" ? user : null,
+        thread_ts: typeof threadTs === "string" ? threadTs : null,
+      },
+      pinned: false,
+      syncedAt: now,
+    });
+    count += 1;
+    maxTs = maxTs === null || ts.localeCompare(maxTs) > 0 ? ts : maxTs;
+  }
+  return { itemsUpserted: count, maxTs };
+}
+
+async function slackRunHistoryPhase(
+  ctx: SyncContext,
+  token: string,
+  state: SlackSyncCursorV1,
+  t0: number,
+  itemsUpserted: number,
+  bytesTransferred: number,
+): Promise<SyncResult> {
+  const ch = state.ids[state.nextIdx % state.ids.length] ?? "";
+  if (ch === "") {
+    return {
+      cursor: encodeCursor(state),
+      itemsUpserted,
+      itemsDeleted: 0,
+      hasMore: false,
+      durationMs: Math.round(performance.now() - t0),
+      bytesTransferred,
+    };
+  }
+  const histBody = slackHistoryRequestBody(state, ch);
+  const hres = await slackWebApi(token, "conversations.history", histBody);
+  const bt = bytesTransferred + hres.text.length;
+  if (!hres.ok) {
+    if (hres.json["error"] === "ratelimited") {
+      ctx.rateLimiter.penalise("slack", 60_000);
+    }
+    throw new Error(`Slack conversations.history: ${hres.text.slice(0, 200)}`);
+  }
+  const hwVal = state.hw[ch] ?? null;
+  const up = slackUpsertHistoryBatch(ctx, state, ch, hres.json["messages"], itemsUpserted, hwVal);
+  const nextHw = { ...state.hw, [ch]: up.maxTs };
+  const meta = asRecord(hres.json["response_metadata"]);
+  const nextHist =
+    meta !== undefined && typeof meta["next_cursor"] === "string" ? meta["next_cursor"] : "";
+  if (nextHist !== "") {
+    return {
+      cursor: encodeCursor({ ...state, hw: nextHw, histCursor: nextHist }),
+      itemsUpserted: up.itemsUpserted,
+      itemsDeleted: 0,
+      hasMore: true,
+      durationMs: Math.round(performance.now() - t0),
+      bytesTransferred: bt,
+    };
+  }
+  const nextState: SlackSyncCursorV1 = {
+    ...state,
+    hw: nextHw,
+    histCursor: null,
+    nextIdx: state.nextIdx + 1,
+  };
+  const hasMore = nextState.nextIdx < nextState.ids.length;
+  return {
+    cursor: encodeCursor(nextState),
+    itemsUpserted: up.itemsUpserted,
+    itemsDeleted: 0,
+    hasMore,
+    durationMs: Math.round(performance.now() - t0),
+    bytesTransferred: bt,
+  };
+}
+
 export type SlackSyncableOptions = {
   ensureSlackMcpRunning: () => Promise<void>;
 };
@@ -168,88 +410,20 @@ export function createSlackSyncable(options: SlackSyncableOptions): Syncable {
 
       await ctx.rateLimiter.acquire("slack");
 
-      if (state.teamSubdomain === null) {
-        const who = await slackWebApi(token, "auth.test", {});
-        if (who.ok) {
-          const urlRaw = who.json["url"];
-          if (typeof urlRaw === "string" && urlRaw !== "") {
-            try {
-              const host = new URL(urlRaw).hostname;
-              const sub = host.replace(/\.slack\.com$/i, "");
-              const teamSub = sub === host ? null : sub;
-              state = { ...state, teamSubdomain: teamSub };
-            } catch {
-              /* ignore */
-            }
-          }
-        }
-      }
+      state = await slackTryFillTeamSubdomain(token, state);
 
-      let itemsUpserted = 0;
+      const itemsUpserted = 0;
       let bytesTransferred = 0;
       let hasMore = false;
 
       if (state.phase === "list") {
-        const listBody: Record<string, unknown> = {
-          types: "public_channel,private_channel,mpim,im",
-          limit: 200,
-          exclude_archived: true,
-        };
-        if (state.listCursor !== null && state.listCursor !== "") {
-          listBody["cursor"] = state.listCursor;
+        const listOut = await slackAdvanceListPhase(ctx, token, state, t0, bytesTransferred);
+        if (listOut.kind === "return") {
+          return listOut.result;
         }
-        const res = await slackWebApi(token, "conversations.list", listBody);
-        bytesTransferred += res.text.length;
-        if (!res.ok) {
-          if (res.json["error"] === "ratelimited") {
-            ctx.rateLimiter.penalise("slack", 60_000);
-          }
-          throw new Error(`Slack conversations.list: ${res.text.slice(0, 200)}`);
-        }
-        const chans = res.json["channels"];
-        const nextIds = [...state.ids];
-        if (Array.isArray(chans)) {
-          for (const c of chans) {
-            const cr = asRecord(c);
-            if (cr === undefined) {
-              continue;
-            }
-            const id = cr["id"];
-            const member = cr["is_member"];
-            if (typeof id === "string" && id !== "" && member === true) {
-              nextIds.push(id);
-            }
-          }
-        }
-        const meta = asRecord(res.json["response_metadata"]);
-        const nextList =
-          meta !== undefined && typeof meta["next_cursor"] === "string" ? meta["next_cursor"] : "";
-        if (nextList !== "") {
-          const nextState: SlackSyncCursorV1 = {
-            ...state,
-            ids: nextIds,
-            listCursor: nextList,
-          };
-          return {
-            cursor: encodeCursor(nextState),
-            itemsUpserted: 0,
-            itemsDeleted: 0,
-            hasMore: true,
-            durationMs: Math.round(performance.now() - t0),
-            bytesTransferred,
-          };
-        }
-        const unique = [...new Set(nextIds)].sort((a, b) => a.localeCompare(b));
-        const nextState: SlackSyncCursorV1 = {
-          ...state,
-          phase: "history",
-          ids: unique,
-          listCursor: null,
-          nextIdx: 0,
-          histCursor: null,
-        };
-        state = nextState;
-        hasMore = unique.length > 0;
+        state = listOut.state;
+        bytesTransferred = listOut.bytesTransferred;
+        hasMore = listOut.hasMore;
       }
 
       if (state.phase === "history" && state.ids.length === 0) {
@@ -264,126 +438,7 @@ export function createSlackSyncable(options: SlackSyncableOptions): Syncable {
       }
 
       if (state.phase === "history") {
-        const ch = state.ids[state.nextIdx % state.ids.length] ?? "";
-        if (ch === "") {
-          return {
-            cursor: encodeCursor(state),
-            itemsUpserted,
-            itemsDeleted: 0,
-            hasMore: false,
-            durationMs: Math.round(performance.now() - t0),
-            bytesTransferred,
-          };
-        }
-
-        const hwVal = state.hw[ch] ?? null;
-        const histBody: Record<string, unknown> = {
-          channel: ch,
-          limit: 100,
-        };
-        if (state.histCursor !== null && state.histCursor !== "") {
-          histBody["cursor"] = state.histCursor;
-        } else if (hwVal !== null && hwVal !== "") {
-          histBody["oldest"] = hwVal;
-          histBody["inclusive"] = false;
-        } else {
-          histBody["oldest"] = state.floorTs;
-          histBody["inclusive"] = true;
-        }
-
-        const hres = await slackWebApi(token, "conversations.history", histBody);
-        bytesTransferred += hres.text.length;
-        if (!hres.ok) {
-          if (hres.json["error"] === "ratelimited") {
-            ctx.rateLimiter.penalise("slack", 60_000);
-          }
-          throw new Error(`Slack conversations.history: ${hres.text.slice(0, 200)}`);
-        }
-
-        const messages = hres.json["messages"];
-        const now = Date.now();
-        let maxTs = hwVal;
-        if (Array.isArray(messages)) {
-          for (const m of messages) {
-            const mr = asRecord(m);
-            if (mr === undefined) {
-              continue;
-            }
-            const ts = mr["ts"];
-            const text = mr["text"];
-            const user = mr["user"];
-            const threadTs = mr["thread_ts"];
-            if (typeof ts !== "string" || ts === "") {
-              continue;
-            }
-            if (mr["subtype"] !== undefined && mr["subtype"] !== "thread_broadcast") {
-              continue;
-            }
-            const preview = typeof text === "string" ? text.slice(0, 512) : "";
-            const title = shortIndexedMessageTitleFromPreview(preview, "(no text)");
-            const tsNum = Number.parseFloat(ts);
-            const modifiedAt = Number.isFinite(tsNum) ? Math.round(tsNum * 1000) : now;
-            const externalId = `${ch}:${ts}`;
-            const url = permalink(state.teamSubdomain, ch, ts);
-            upsertIndexedItem(ctx.db, {
-              service: SERVICE_ID,
-              type: "message",
-              externalId,
-              title: title.length > 512 ? title.slice(0, 512) : title,
-              bodyPreview: preview,
-              url,
-              canonicalUrl: url,
-              modifiedAt,
-              authorId: null,
-              metadata: {
-                channel: ch,
-                user: typeof user === "string" ? user : null,
-                thread_ts: typeof threadTs === "string" ? threadTs : null,
-              },
-              pinned: false,
-              syncedAt: now,
-            });
-            itemsUpserted += 1;
-            maxTs = maxTs === null || ts.localeCompare(maxTs) > 0 ? ts : maxTs;
-          }
-        }
-
-        const nextHw = { ...state.hw, [ch]: maxTs };
-        const meta = asRecord(hres.json["response_metadata"]);
-        const nextHist =
-          meta !== undefined && typeof meta["next_cursor"] === "string" ? meta["next_cursor"] : "";
-
-        if (nextHist !== "") {
-          const nextState: SlackSyncCursorV1 = {
-            ...state,
-            hw: nextHw,
-            histCursor: nextHist,
-          };
-          return {
-            cursor: encodeCursor(nextState),
-            itemsUpserted,
-            itemsDeleted: 0,
-            hasMore: true,
-            durationMs: Math.round(performance.now() - t0),
-            bytesTransferred,
-          };
-        }
-
-        const nextState: SlackSyncCursorV1 = {
-          ...state,
-          hw: nextHw,
-          histCursor: null,
-          nextIdx: state.nextIdx + 1,
-        };
-        hasMore = nextState.nextIdx < nextState.ids.length;
-        return {
-          cursor: encodeCursor(nextState),
-          itemsUpserted,
-          itemsDeleted: 0,
-          hasMore,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred,
-        };
+        return slackRunHistoryPhase(ctx, token, state, t0, itemsUpserted, bytesTransferred);
       }
 
       return {

@@ -65,7 +65,7 @@ function upsertFromPullRequest(
   const htmlUrl = stringField(pr, "html_url");
   const modified = modifiedMsFromGithubTimestamps(pr, now);
   const user = asRecord(pr["user"]);
-  const login = user !== undefined ? stringField(user, "login") : undefined;
+  const login = user === undefined ? undefined : stringField(user, "login");
   const meta: Record<string, unknown> = {
     number: num,
     repo: repoFull,
@@ -106,7 +106,7 @@ function upsertFromIssue(
   const htmlUrl = stringField(issue, "html_url");
   const modified = modifiedMsFromGithubTimestamps(issue, now);
   const user = asRecord(issue["user"]);
-  const login = user !== undefined ? stringField(user, "login") : undefined;
+  const login = user === undefined ? undefined : stringField(user, "login");
   const meta: Record<string, unknown> = {
     number: num,
     repo: repoFull,
@@ -201,7 +201,12 @@ function applyGithubRateLimitPenaltyIfNeeded(ctx: SyncContext, res: Response): v
     const remaining = res.headers.get("x-ratelimit-remaining");
     if (remaining === "0" || remaining === null) {
       const retryAfter = res.headers.get("retry-after");
-      const sec = retryAfter !== null ? Number.parseInt(retryAfter, 10) : 60;
+      let sec: number;
+      if (retryAfter === null) {
+        sec = 60;
+      } else {
+        sec = Number.parseInt(retryAfter, 10);
+      }
       const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
       ctx.rateLimiter.penalise("github", ms);
     }

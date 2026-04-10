@@ -33,12 +33,14 @@ async function glFetch(
   const base = apiBase();
   const relativePath = path.startsWith("/") ? path : `/${path}`;
   const url = path.startsWith("http") ? path : `${base}${relativePath}`;
+  const baseHeaders: Record<string, string> = { "PRIVATE-TOKEN": token };
+  const mergedHeaders =
+    init?.headers !== undefined
+      ? { ...baseHeaders, ...(init.headers as Record<string, string>) }
+      : baseHeaders;
   const res = await fetch(url, {
     ...init,
-    headers: {
-      "PRIVATE-TOKEN": token,
-      ...(init?.headers ?? {}),
-    },
+    headers: mergedHeaders,
   });
   const text = await res.text();
   let json: unknown;

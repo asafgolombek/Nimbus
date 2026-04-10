@@ -818,7 +818,7 @@ export async function refreshNotionToken(
   const partial = pkceResultFromNotionTokenJson(parsed, [], true);
   const result: PKCEResult = {
     accessToken: partial.accessToken,
-    refreshToken: partial.refreshToken !== "" ? partial.refreshToken : refreshToken,
+    refreshToken: partial.refreshToken === "" ? refreshToken : partial.refreshToken,
     expiresAt: partial.expiresAt,
     scopes: partial.scopes,
   };

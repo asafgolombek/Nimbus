@@ -28,5 +28,5 @@ export function decodeWatermarkCursorV1(
   if (w !== null && w !== undefined && typeof w !== "string") {
     return null;
   }
-  return { v: 1, watermark: w === null || w === undefined ? null : w };
+  return { v: 1, watermark: typeof w === "string" ? w : null };
 }

@@ -210,43 +210,43 @@ function hitlFileRejectPayload(
   };
 }
 
+function hitlTeamsRejectPayload(
+  teamsAction: "teams.message.post" | "teams.message.postChat",
+): Record<string, unknown> {
+  if (teamsAction === "teams.message.post") {
+    return {
+      mcpToolId: "teams_teams_message_post",
+      input: { teamId: "t1", channelId: "c1", body: "hi" },
+    };
+  }
+  return {
+    mcpToolId: "teams_teams_message_post_chat",
+    input: { chatId: "ch1", body: "hi" },
+  };
+}
+
+function hitlLinearRejectPayload(
+  linearAction: "linear.issue.create" | "linear.issue.update" | "linear.comment.create",
+): Record<string, unknown> {
+  if (linearAction === "linear.issue.create") {
+    return {
+      mcpToolId: "linear_linear_issue_create",
+      input: { teamId: "t1", title: "x" },
+    };
+  }
+  if (linearAction === "linear.issue.update") {
+    return {
+      mcpToolId: "linear_linear_issue_update",
+      input: { issueId: "i1", title: "y" },
+    };
+  }
+  return {
+    mcpToolId: "linear_linear_comment_create",
+    input: { issueId: "i1", body: "c" },
+  };
+}
+
 describe("ToolExecutor", () => {
-  function hitlTeamsRejectPayload(
-    teamsAction: "teams.message.post" | "teams.message.postChat",
-  ): Record<string, unknown> {
-    if (teamsAction === "teams.message.post") {
-      return {
-        mcpToolId: "teams_teams_message_post",
-        input: { teamId: "t1", channelId: "c1", body: "hi" },
-      };
-    }
-    return {
-      mcpToolId: "teams_teams_message_post_chat",
-      input: { chatId: "ch1", body: "hi" },
-    };
-  }
-
-  function hitlLinearRejectPayload(
-    linearAction: "linear.issue.create" | "linear.issue.update" | "linear.comment.create",
-  ): Record<string, unknown> {
-    if (linearAction === "linear.issue.create") {
-      return {
-        mcpToolId: "linear_linear_issue_create",
-        input: { teamId: "t1", title: "x" },
-      };
-    }
-    if (linearAction === "linear.issue.update") {
-      return {
-        mcpToolId: "linear_linear_issue_update",
-        input: { issueId: "i1", title: "y" },
-      };
-    }
-    return {
-      mcpToolId: "linear_linear_comment_create",
-      input: { issueId: "i1", body: "c" },
-    };
-  }
-
   function hitlConfluenceRejectPayload(
     confluenceAction:
       | "confluence.page.create"
