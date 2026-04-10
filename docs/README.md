@@ -211,6 +211,41 @@ nimbus connector auth aws            # AWS credentials — stored in OS keystore
 nimbus connector list                # Shows all connectors + sync status
 ```
 
+### Run a Script File
+
+```bash
+nimbus run ./weekly-cleanup.yml
+```
+
+```yaml
+# weekly-cleanup.yml
+name: weekly-cleanup
+steps:
+  - Find all PDF files in Google Drive not opened in 90 days
+  - Summarize them by project folder
+  - Move the ones from the Zurich project to /Archive/2025
+  - Send me an email with the summary
+```
+
+```
+Script: weekly-cleanup (4 steps)
+
+  Step 1  Find PDFs not opened in 90 days       READ — no approval needed
+  Step 2  Summarize by project folder            READ — no approval needed
+  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL at runtime
+  Step 4  Send summary email                     ⚠ REQUIRES APPROVAL at runtime
+
+Proceed? [y/n]: y
+
+▶ Step 1...
+▶ Step 2...
+⚠  CONSENT REQUIRED — Move 12 files to /Archive/2025. Proceed? [y/n]: y
+▶ Step 3...
+⚠  CONSENT REQUIRED — Send email to you@company.com. Proceed? [y/n]: y
+▶ Step 4...
+✅  Done.
+```
+
 ### Install a Community Extension
 
 ```bash
@@ -448,6 +483,8 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 **Agent specialization**
 - **DevOps agent** — domain-tuned for CI/CD, infrastructure, and incident correlation; pre-built tool set, memory scope
 - **Research agent** — optimized for document synthesis and cross-service knowledge retrieval
+
+**Session CLI and Script Files:** `nimbus` (no arguments) opens a persistent interactive session — context-aware across turns, HITL consent as conversation steps. `nimbus run <file.yml>` executes a YAML script as a single session with a mandatory preview phase before any action runs; read-only scripts run unattended for automation.
 
 **Milestone:** `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, the GitHub PR, the Jenkins run, the CloudWatch error spike, and the Slack incident thread into a single local answer — without leaving the terminal. A community developer publishes a working Nimbus extension in under a day using the SDK scaffold.
 

@@ -70,6 +70,8 @@ For the engineer, that delegation extends to the entire development lifecycle: o
 
 The interaction model matches the task model. Single commands — `nimbus ask "..."` — remain available for scripting, automation, and quick queries. But complex, multi-step work unfolds naturally in a persistent session: you ask, Nimbus acts, you refine, Nimbus continues. The session holds context across turns; a follow-up like "now move the ones from last month to the archive" is understood without re-specifying the search. HITL consent becomes a conversation step, not an interruption to a one-shot command. The Gateway is already a persistent process with memory — the session CLI makes that continuity visible to the user.
 
+For work that repeats, script files extend this further. A YAML file containing an ordered sequence of natural language steps can be passed to `nimbus run` and executed as a single session — context accumulating across every step, HITL consent gates firing inline at each destructive action. Before any step executes, Nimbus presents a full preview of the plan and every action that will require approval. Nothing runs until you confirm. Scripts that contain only read operations run unattended — safe for automation and scheduled tasks.
+
 ### 3. Consent — The Ability to Refuse
 
 This is the constraint that most automation systems omit, and its absence is where trust collapses. Every destructive, outgoing, or irreversible action in Nimbus — every delete, every send, every move — is gated behind an explicit Human-in-the-Loop consent checkpoint. The agent proposes; you approve or reject. The system cannot act on your behalf without your active confirmation for actions that cannot be undone.
@@ -247,6 +249,7 @@ Q2 2026 is the active bridge quarter; detailed sequencing is in [`q2-2026-plan.m
 * **The DevOps Mesh:** Deep integration with GitHub, GitLab, Jenkins, Jira, and Linear.
 * **Context-Aware RAG:** Vector search (`sqlite-vec`) and semantic understanding. Ask questions, don't just search keywords.
 * **Session CLI:** An interactive session mode — `nimbus` with no arguments — for persistent, context-aware conversation with the agent. Each turn builds on the last; HITL consent is a conversation step, not an interruption.
+* **Script Files:** `nimbus run <file.yml>` executes an ordered sequence of natural language steps as a single session. A preview phase shows the full plan and every required approval before any action executes. Read-only scripts run unattended.
 * **Ambient Watchers:** Proactive, consent-gated notifications ("CI failed on your PR; I've summarized the logs").
 
 ### Phase 3: The Sovereign Workspace (Q4 2026)

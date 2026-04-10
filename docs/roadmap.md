@@ -153,7 +153,7 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 ### Workflow Automation
 
-- [ ] **Workflow pipelines** — multi-step workflows defined in natural language or YAML; versioned as files in `~/.config/nimbus/workflows/`; each step is a typed tool call; all write steps individually HITL-gated; pipelines are shareable (no credentials embedded)
+- [ ] **Workflow pipelines** — named, saved multi-step workflows stored in `~/.config/nimbus/workflows/`; same YAML format and execution engine as script files; all write steps individually HITL-gated; pipelines are shareable (no credentials embedded); `nimbus workflow save <path> --name <name>` promotes a script file into a saved pipeline
 - [ ] `nimbus workflow run <name>`, `list`, `edit`, `delete`, `history`
 - [ ] **Watcher system** — SQLite-backed event loop; watchers evaluate conditions on each sync cycle; fire notifications or trigger workflow pipelines
   - Condition types: `email_match`, `file_changed`, `file_not_changed`, `deploy_failed`, `alert_fired`, `pr_merged`, `schedule`
@@ -172,6 +172,12 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 ### Interaction Layer
 
 - [ ] **Session CLI** — `nimbus` with no arguments launches an interactive session; conversation history maintained in the Gateway across turns using the RAG conversational memory foundation; context-aware follow-up queries understood without re-specifying prior results (e.g. "now move the ones from last month"); HITL consent rendered as inline conversation turns rather than one-shot interruptions; command mode (`nimbus ask "..."`) remains fully supported for scripting, automation, and CI pipelines; session state persists across CLI reconnects if the Gateway is still running
+- [ ] **Script files** — `nimbus run <path>` executes a YAML script as a single session with shared context across steps:
+  - Format: `steps` array of natural language instructions; optional per-step `label` and `continue-on-error`
+  - **Preview phase (mandatory):** before any execution, the engine analyses all steps, identifies every action requiring HITL approval, and presents a structured plan summary; user must confirm before step 1 runs
+  - **Execution phase:** steps run sequentially; context accumulates; HITL consent gates fire inline per step with full action details — no bypass, no pre-approval
+  - **No-TTY safety:** if no interactive terminal is attached and the script contains HITL-required steps, the Gateway aborts before executing any step and emits a structured error listing the offending steps; read-only scripts (no HITL-required actions) run without a TTY — safe for automation and CI
+  - **Convergence with workflow pipelines:** `nimbus run <path>` and `nimbus workflow run <name>` share the same execution engine; `nimbus workflow save ./script.yml --name <name>` promotes an ad-hoc script into a saved, named pipeline
 
 ### Agent Specialization
 

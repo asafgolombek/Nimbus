@@ -331,6 +331,70 @@ export class ToolExecutor {
 }
 ```
 
+### Script Execution Mode
+
+`nimbus run <path>` executes a YAML script file as a single session. The execution engine is identical to interactive execution — same intent router, same planner, same HITL gate — with two additions: context is maintained across all steps as a single session, and execution is preceded by a mandatory preview phase.
+
+**Script format:**
+
+```yaml
+name: weekly-cleanup          # optional — used in audit log and preview output
+steps:
+  - Find all PDF files in Google Drive not opened in 90 days
+  - Summarize them by project folder
+  - Move the ones from the Zurich project to /Archive/2025
+  - Send me an email with the summary
+```
+
+Optional per-step metadata:
+
+```yaml
+steps:
+  - prompt: Move files older than 90 days to archive
+    label: archive-old-files   # displayed in preview and audit log
+    continue-on-error: false   # default false — abort script on step failure
+```
+
+**Two-phase execution:**
+
+*Phase 1 — Preview.* The engine routes and plans all steps without executing any tool calls. Every step that would require HITL is identified. A structured summary is printed and the user must confirm before phase 2 begins:
+
+```
+Script: weekly-cleanup (4 steps)
+
+  Step 1  Find PDFs not opened in 90 days       READ — no approval needed
+  Step 2  Summarize by project folder            READ — no approval needed
+  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL at runtime
+  Step 4  Send summary email to you@company.com  ⚠ REQUIRES APPROVAL at runtime
+
+Proceed? [y/n]:
+```
+
+*Phase 2 — Execution.* Steps run sequentially. Session context accumulates across steps — a follow-up like "move the ones from the Zurich project" resolves against what step 1 found. When a HITL gate is reached, execution pauses for inline consent with full action details. This is not a bypass of the HITL gate; it is the same gate as interactive mode.
+
+**No-TTY behaviour:**
+
+```typescript
+// packages/gateway/src/engine/script-runner.ts
+if (!process.stdin.isTTY && plan.hitlRequiredSteps.length > 0) {
+  throw new ScriptHITLError({
+    code: "HITL_REQUIRED_NO_TTY",
+    message: "Script contains steps requiring consent but no interactive terminal is attached.",
+    steps: plan.hitlRequiredSteps.map(s => s.index),
+  });
+}
+```
+
+Scripts containing only read-only steps (no HITL-required actions) run without a TTY — safe for automation, CI pipelines, and scheduled tasks.
+
+**Relationship to workflow pipelines:**
+
+`nimbus run <path>` and `nimbus workflow run <name>` share the same execution engine. The distinction is entry point only: `run` accepts a file path for ad-hoc execution; `workflow run` resolves a saved, named pipeline from `~/.config/nimbus/workflows/`. A script file can be promoted to a saved pipeline:
+
+```bash
+nimbus workflow save ./weekly-cleanup.yml --name weekly-cleanup
+```
+
 ### Memory Layer
 
 | Tier | Storage | Purpose |
