@@ -10,6 +10,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "teams",
   "github",
   "gitlab",
+  "bitbucket",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -47,6 +48,7 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
       return 6 * 60 * 60 * 1000;
     case "github":
     case "gitlab":
+    case "bitbucket":
       return 60 * 1000;
     default: {
       const _exhaustive: never = serviceId;
@@ -118,6 +120,10 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "gitlab":
       throw new Error(
         "oauthProfileForService: gitlab uses a PAT (connector.auth personalAccessToken)",
+      );
+    case "bitbucket":
+      throw new Error(
+        "oauthProfileForService: bitbucket uses app password (connector.auth username + token)",
       );
     default: {
       const _never: never = serviceId;

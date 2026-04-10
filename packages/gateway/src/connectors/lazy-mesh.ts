@@ -43,8 +43,13 @@ function gitlabMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "gitlab", "src", "server.ts");
 }
 
+function bitbucketMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "bitbucket", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub / GitLab PAT MCP when vault keys exist (Q2 §1.6 / Phase 2–3).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub / GitLab / Bitbucket credential MCP when vault keys exist (Q2 §1.6 / Phase 2–3).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -56,6 +61,8 @@ export class LazyConnectorMesh {
   private githubIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private gitlabClient: MCPClient | undefined;
   private gitlabIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private bitbucketClient: MCPClient | undefined;
+  private bitbucketIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -111,6 +118,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearBitbucketIdleTimer(): void {
+    if (this.bitbucketIdleTimer !== undefined) {
+      clearTimeout(this.bitbucketIdleTimer);
+      this.bitbucketIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -140,6 +154,14 @@ export class LazyConnectorMesh {
     this.gitlabIdleTimer = setTimeout(() => {
       this.gitlabIdleTimer = undefined;
       void this.stopGitlabClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleBitbucketDisconnect(): void {
+    this.clearBitbucketIdleTimer();
+    this.bitbucketIdleTimer = setTimeout(() => {
+      this.bitbucketIdleTimer = undefined;
+      void this.stopBitbucketClient();
     }, this.inactivityMs);
   }
 
@@ -185,6 +207,19 @@ export class LazyConnectorMesh {
   private async stopGitlabClient(): Promise<void> {
     const c = this.gitlabClient;
     this.gitlabClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopBitbucketClient(): Promise<void> {
+    const c = this.bitbucketClient;
+    this.bitbucketClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -318,6 +353,38 @@ export class LazyConnectorMesh {
     this.scheduleGitlabDisconnect();
   }
 
+  /**
+   * Starts Bitbucket Cloud MCP when `bitbucket.username` + `bitbucket.app_password` exist in the Vault.
+   */
+  async ensureBitbucketRunning(): Promise<void> {
+    this.clearBitbucketIdleTimer();
+    if (this.bitbucketClient !== undefined) {
+      this.scheduleBitbucketDisconnect();
+      return;
+    }
+    const user = await this.vault.get("bitbucket.username");
+    const pass = await this.vault.get("bitbucket.app_password");
+    if (user === null || user === "" || pass === null || pass === "") {
+      return;
+    }
+    this.bitbucketClient = new MCPClient({
+      id: `nimbus-bitbucket-${String(Date.now())}`,
+      servers: {
+        bitbucket: {
+          command: "bun",
+          args: [bitbucketMcpScriptPath()],
+          env: {
+            ...process.env,
+            BITBUCKET_USERNAME: user,
+            BITBUCKET_APP_PASSWORD: pass,
+          },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleBitbucketDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
@@ -337,6 +404,11 @@ export class LazyConnectorMesh {
     if (rawGl !== null && rawGl !== "") {
       await this.ensureGitlabRunning();
     }
+    const bbUser = await this.vault.get("bitbucket.username");
+    const bbPass = await this.vault.get("bitbucket.app_password");
+    if (bbUser !== null && bbUser !== "" && bbPass !== null && bbPass !== "") {
+      await this.ensureBitbucketRunning();
+    }
 
     const fsTools = await this.filesystem.listTools();
     const gdTools =
@@ -345,7 +417,9 @@ export class LazyConnectorMesh {
       this.microsoftBundleClient !== undefined ? await this.microsoftBundleClient.listTools() : {};
     const ghTools = this.githubClient !== undefined ? await this.githubClient.listTools() : {};
     const glTools = this.gitlabClient !== undefined ? await this.gitlabClient.listTools() : {};
-    return { ...fsTools, ...gdTools, ...msTools, ...ghTools, ...glTools } as Record<
+    const bbTools =
+      this.bitbucketClient !== undefined ? await this.bitbucketClient.listTools() : {};
+    return { ...fsTools, ...gdTools, ...msTools, ...ghTools, ...glTools, ...bbTools } as Record<
       string,
       { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
     >;
@@ -356,10 +430,12 @@ export class LazyConnectorMesh {
     this.clearMicrosoftIdleTimer();
     this.clearGithubIdleTimer();
     this.clearGitlabIdleTimer();
+    this.clearBitbucketIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
     await this.stopGitlabClient();
+    await this.stopBitbucketClient();
     try {
       await this.filesystem.disconnect();
     } catch {

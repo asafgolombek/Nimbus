@@ -188,6 +188,11 @@ export async function dispatchConnectorRpc(options: {
           await vault.delete("gitlab.api_base");
           vaultKeys.push("gitlab.pat", "gitlab.api_base");
         }
+        if (id === "bitbucket") {
+          await vault.delete("bitbucket.username");
+          await vault.delete("bitbucket.app_password");
+          vaultKeys.push("bitbucket.username", "bitbucket.app_password");
+        }
       } catch (removeErr) {
         if (googleOAuthBackup !== null) {
           await vault.set("google.oauth", googleOAuthBackup);
@@ -246,6 +251,33 @@ export async function dispatchConnectorRpc(options: {
         } else {
           await vault.delete("gitlab.api_base");
         }
+        const interval = defaultSyncIntervalMsForService(id);
+        localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
+        return {
+          kind: "hit",
+          value: {
+            ok: true,
+            serviceId: id,
+            scopesGranted: [] as string[],
+          },
+        };
+      }
+      if (id === "bitbucket") {
+        const userRaw = rec?.["bitbucketUsername"] ?? rec?.["username"];
+        const user = typeof userRaw === "string" && userRaw.trim() !== "" ? userRaw.trim() : "";
+        const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+        const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+        if (user === "") {
+          throw new ConnectorRpcError(-32602, "Missing username for bitbucket (Atlassian account)");
+        }
+        if (token === "") {
+          throw new ConnectorRpcError(
+            -32602,
+            "Missing app password for bitbucket (use token field)",
+          );
+        }
+        await vault.set("bitbucket.username", user);
+        await vault.set("bitbucket.app_password", token);
         const interval = defaultSyncIntervalMsForService(id);
         localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
         return {

@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
 
+import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
 import { createGithubSyncable } from "../connectors/github-sync.ts";
 import { createGitlabSyncable } from "../connectors/gitlab-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
@@ -89,6 +90,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createGitlabSyncable({
       ensureGitlabMcpRunning: () => connectorMesh.ensureGitlabRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createBitbucketSyncable({
+      ensureBitbucketMcpRunning: () => connectorMesh.ensureBitbucketRunning(),
     }),
   );
   syncScheduler.start();

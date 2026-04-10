@@ -31,6 +31,7 @@ type ConnectorFlags = {
   port?: number;
   scopes?: string[];
   token?: string;
+  username?: string;
   apiBase?: string;
   full?: boolean;
 };
@@ -103,6 +104,7 @@ function parseFlags(args: string[]): ConnectorFlags {
   let port: number | undefined;
   let scopes: string[] | undefined;
   let token: string | undefined;
+  let username: string | undefined;
   let apiBase: string | undefined;
   let full: boolean | undefined;
   const q = [...args];
@@ -146,6 +148,17 @@ function parseFlags(args: string[]): ConnectorFlags {
       token = v.trim();
       continue;
     }
+    if (a === "--username" || a === "-u") {
+      const v = q.shift();
+      if (v === undefined) {
+        throw new Error("Missing value for --username");
+      }
+      if (v.trim() === "") {
+        throw new Error("Invalid --username (empty)");
+      }
+      username = v.trim();
+      continue;
+    }
     if (a === "--full") {
       full = true;
       continue;
@@ -174,6 +187,9 @@ function parseFlags(args: string[]): ConnectorFlags {
   if (token !== undefined) {
     out.token = token;
   }
+  if (username !== undefined) {
+    out.username = username;
+  }
   if (apiBase !== undefined) {
     out.apiBase = apiBase;
   }
@@ -192,11 +208,11 @@ function repeatChar(ch: string, n: number): string {
 }
 
 async function runConnectorAuth(tail: string[]): Promise<void> {
-  const { rest, port, scopes, token, apiBase } = parseFlags(tail);
+  const { rest, port, scopes, token, username, apiBase } = parseFlags(tail);
   const service = rest[0];
   if (service === undefined) {
     throw new Error(
-      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>]",
+      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--username <u>] [--api-base <url>]",
     );
   }
   const params: {
@@ -204,6 +220,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     port?: number;
     scopes?: string[];
     personalAccessToken?: string;
+    bitbucketUsername?: string;
     apiBaseUrl?: string;
   } = { service };
   if (port !== undefined) {
@@ -234,12 +251,31 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
       params.apiBaseUrl = apiBase;
     }
   }
+  if (normalized === "bitbucket") {
+    const u =
+      username ??
+      process.env["NIMBUS_BITBUCKET_USERNAME"]?.trim() ??
+      process.env["BITBUCKET_USERNAME"]?.trim();
+    if (u === undefined || u === "") {
+      throw new Error(
+        "Bitbucket requires username: nimbus connector auth bitbucket --username <atlassian_username> --token <app_password>  (or set NIMBUS_BITBUCKET_USERNAME)",
+      );
+    }
+    const appPass = token ?? process.env["NIMBUS_BITBUCKET_APP_PASSWORD"]?.trim();
+    if (appPass === undefined || appPass === "") {
+      throw new Error(
+        "Bitbucket requires an app password: nimbus connector auth bitbucket --username ... --token <app_password>  (or set NIMBUS_BITBUCKET_APP_PASSWORD)",
+      );
+    }
+    params.bitbucketUsername = u;
+    params.personalAccessToken = appPass;
+  }
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
   console.log(`Signed in: ${res.serviceId}`);
-  if (res.serviceId === "github" || res.serviceId === "gitlab") {
-    console.log("Credential: personal access token stored in the OS vault (no OAuth scopes).");
+  if (res.serviceId === "github" || res.serviceId === "gitlab" || res.serviceId === "bitbucket") {
+    console.log("Credential: stored in the OS vault (no OAuth scopes).");
   } else {
     console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
   }

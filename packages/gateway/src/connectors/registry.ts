@@ -58,6 +58,8 @@ export type McpToolListingClient = {
  * (stub — not implemented server-side).
  *
  * GitLab (HITL): `repo.pr.merge` → `gitlab_gitlab_mr_merge` (set `payload.mcpToolId` + `input`).
+ *
+ * Bitbucket (HITL): `repo.pr.merge` → `bitbucket_bitbucket_pr_merge`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;
