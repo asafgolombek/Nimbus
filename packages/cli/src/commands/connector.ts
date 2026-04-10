@@ -1,6 +1,7 @@
 import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { parseDurationToMs } from "../lib/parse-duration.ts";
+import { stripTrailingSlashes } from "../lib/strip-trailing-slashes.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
 type SyncStatus = {
@@ -171,7 +172,7 @@ function parseFlags(args: string[]): ConnectorFlags {
       if (v.trim() === "") {
         throw new Error("Invalid --api-base (empty)");
       }
-      apiBase = v.trim().replace(/\/+$/, "");
+      apiBase = stripTrailingSlashes(v);
       continue;
     }
     rest.push(a);
@@ -312,7 +313,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
       }
       params.atlassianEmail = mail;
       params.personalAccessToken = apiTok;
-      params.apiBaseUrl = base.replace(/\/+$/, "");
+      params.apiBaseUrl = stripTrailingSlashes(base);
       break;
     }
     case "confluence": {
@@ -342,7 +343,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
       }
       params.atlassianEmail = mail;
       params.personalAccessToken = apiTok;
-      params.apiBaseUrl = base.replace(/\/+$/, "");
+      params.apiBaseUrl = stripTrailingSlashes(base);
       break;
     }
     default:

@@ -8,6 +8,7 @@ import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts"
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
+import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
 function googleDriveMcpScriptPath(): string {
@@ -522,7 +523,7 @@ export class LazyConnectorMesh {
     }
     const apiBase = await this.vault.get("gitlab.api_base");
     const trimmedBase =
-      apiBase !== null && apiBase.trim() !== "" ? apiBase.trim().replace(/\/+$/, "") : null;
+      apiBase !== null && apiBase.trim() !== "" ? stripTrailingSlashes(apiBase) : null;
     this.gitlabClient = new MCPClient({
       id: `nimbus-gitlab-${String(Date.now())}`,
       servers: {

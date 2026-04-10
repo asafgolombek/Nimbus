@@ -1,5 +1,3 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
 export type McpListResult = { content: Array<{ type: "text"; text: string }> };
 
 export function mcpJsonResult(data: unknown): McpListResult {
@@ -14,8 +12,19 @@ export type RegisterSimpleToolFn = (
   handler: (args: unknown) => Promise<McpListResult>,
 ) => unknown;
 
-export function createRegisterSimpleTool(server: McpServer): RegisterSimpleToolFn {
-  return server.tool.bind(server) as RegisterSimpleToolFn;
+export function createRegisterSimpleTool(server: unknown): RegisterSimpleToolFn {
+  /* Callers pass `McpServer` from `@modelcontextprotocol/sdk/server/mcp.js`. This file cannot import
+   * that module: `shared/` is not a workspace package, so `tsc` does not resolve the SDK for these paths. */
+  if (
+    typeof server !== "object" ||
+    server === null ||
+    !("tool" in server) ||
+    typeof (server as { tool: unknown }).tool !== "function"
+  ) {
+    throw new Error("createRegisterSimpleTool: expected MCP server with .tool");
+  }
+  const host = server as { tool: (...args: never) => unknown };
+  return host.tool.bind(server) as RegisterSimpleToolFn;
 }
 
 export function requireProcessEnv(envVarName: string): string {

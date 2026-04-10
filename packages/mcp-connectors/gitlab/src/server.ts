@@ -14,11 +14,12 @@ import {
   type McpListResult,
   requireProcessEnv,
 } from "../../shared/mcp-tool-kit.ts";
+import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
 function apiBase(): string {
   const b = process.env["GITLAB_API_BASE_URL"];
   if (b !== undefined && b.trim() !== "") {
-    return b.replace(/\/+$/, "");
+    return stripTrailingSlashes(b);
   }
   return "https://gitlab.com/api/v4";
 }

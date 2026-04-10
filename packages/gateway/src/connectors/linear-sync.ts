@@ -1,5 +1,6 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { asRecord, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "linear";
 const CURSOR_PREFIX = "nimbus-lnr1:";
@@ -47,18 +48,6 @@ function decodeCursor(raw: string | null): LinearSyncCursorV1 | null {
   } catch {
     return null;
   }
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
-}
-
-function stringField(r: Record<string, unknown>, key: string): string | undefined {
-  const v = r[key];
-  return typeof v === "string" ? v : undefined;
 }
 
 type SyncPage = {

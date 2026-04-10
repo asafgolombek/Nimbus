@@ -1,6 +1,7 @@
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { asRecord } from "./unknown-record.ts";
 
 const SERVICE_ID = "slack";
 const CURSOR_PREFIX = "nimbus-slk1:";
@@ -75,13 +76,6 @@ function decodeCursor(raw: string | null): SlackSyncCursorV1 | null {
 
 function slackTsFromMs(ms: number): string {
   return (ms / 1000).toFixed(6);
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
 }
 
 async function slackWebApi(

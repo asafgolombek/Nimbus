@@ -17,12 +17,7 @@ export class ConnectorRpcError extends Error {
   }
 }
 
-export function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
-}
+export { asRecord } from "../connectors/unknown-record.ts";
 
 export function requireServiceId(rec: Record<string, unknown> | undefined): ConnectorServiceId {
   const raw = rec !== undefined && typeof rec["serviceId"] === "string" ? rec["serviceId"] : "";

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
-
+import { asRecord } from "../connectors/unknown-record.ts";
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -32,13 +32,6 @@ class RpcMethodError extends Error {
     this.rpcCode = rpcCode;
     this.name = "RpcMethodError";
   }
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
 }
 
 function assertWellFormedVaultKey(key: string): void {

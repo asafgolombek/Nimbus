@@ -1,5 +1,6 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "github";
 const CURSOR_PREFIX = "nimbus-ghub1:";
@@ -13,7 +14,10 @@ function encodeCursor(c: GithubSyncCursorV1): string {
 }
 
 function decodeCursor(raw: string | null): GithubSyncCursorV1 | null {
-  if (raw === null || raw === "" || !raw.startsWith(CURSOR_PREFIX)) {
+  if (raw === null || raw === "") {
+    return null;
+  }
+  if (!raw.startsWith(CURSOR_PREFIX)) {
     return null;
   }
   try {
@@ -30,21 +34,25 @@ function decodeCursor(raw: string | null): GithubSyncCursorV1 | null {
   }
 }
 
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
+function modifiedMsFromGithubTimestamps(
+  record: Record<string, unknown>,
+  fallbackMs: number,
+): number {
+  const updatedRaw = stringField(record, "updated_at");
+  if (updatedRaw !== undefined) {
+    const t = Date.parse(updatedRaw);
+    if (Number.isFinite(t)) {
+      return t;
+    }
   }
-  return undefined;
-}
-
-function stringField(r: Record<string, unknown>, key: string): string | undefined {
-  const v = r[key];
-  return typeof v === "string" ? v : undefined;
-}
-
-function numberField(r: Record<string, unknown>, key: string): number | undefined {
-  const v = r[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  const createdRaw = stringField(record, "created_at");
+  if (createdRaw !== undefined) {
+    const t = Date.parse(createdRaw);
+    if (Number.isFinite(t)) {
+      return t;
+    }
+  }
+  return fallbackMs;
 }
 
 function upsertFromPullRequest(
@@ -60,13 +68,7 @@ function upsertFromPullRequest(
   const title = stringField(pr, "title") ?? `PR #${String(num)}`;
   const body = stringField(pr, "body");
   const htmlUrl = stringField(pr, "html_url");
-  const updatedAt = stringField(pr, "updated_at");
-  const modified =
-    updatedAt !== undefined
-      ? Date.parse(updatedAt)
-      : stringField(pr, "created_at") !== undefined
-        ? Date.parse(stringField(pr, "created_at") ?? "")
-        : now;
+  const modified = modifiedMsFromGithubTimestamps(pr, now);
   const user = asRecord(pr["user"]);
   const login = user !== undefined ? stringField(user, "login") : undefined;
   const meta: Record<string, unknown> = {
@@ -86,7 +88,7 @@ function upsertFromPullRequest(
     bodyPreview: (body ?? "").slice(0, 512),
     url: htmlUrl ?? null,
     canonicalUrl: htmlUrl ?? null,
-    modifiedAt: Number.isFinite(modified) ? modified : now,
+    modifiedAt: modified,
     authorId: null,
     metadata: meta,
     pinned: false,
@@ -107,13 +109,7 @@ function upsertFromIssue(
   const title = stringField(issue, "title") ?? `Issue #${String(num)}`;
   const body = stringField(issue, "body");
   const htmlUrl = stringField(issue, "html_url");
-  const updatedAt = stringField(issue, "updated_at");
-  const modified =
-    updatedAt !== undefined
-      ? Date.parse(updatedAt)
-      : stringField(issue, "created_at") !== undefined
-        ? Date.parse(stringField(issue, "created_at") ?? "")
-        : now;
+  const modified = modifiedMsFromGithubTimestamps(issue, now);
   const user = asRecord(issue["user"]);
   const login = user !== undefined ? stringField(user, "login") : undefined;
   const meta: Record<string, unknown> = {
@@ -131,12 +127,43 @@ function upsertFromIssue(
     bodyPreview: (body ?? "").slice(0, 512),
     url: htmlUrl ?? null,
     canonicalUrl: htmlUrl ?? null,
-    modifiedAt: Number.isFinite(modified) ? modified : now,
+    modifiedAt: modified,
     authorId: null,
     metadata: meta,
     pinned: false,
     syncedAt: now,
   });
+}
+
+function processPullRequestPayload(
+  ctx: SyncContext,
+  fullName: string,
+  payload: Record<string, unknown>,
+  now: number,
+): boolean {
+  const pr = asRecord(payload["pull_request"]);
+  if (pr === undefined) {
+    return false;
+  }
+  upsertFromPullRequest(ctx, fullName, pr, now);
+  return true;
+}
+
+function processIssuesPayload(
+  ctx: SyncContext,
+  fullName: string,
+  payload: Record<string, unknown>,
+  now: number,
+): boolean {
+  const issue = asRecord(payload["issue"]);
+  if (issue === undefined) {
+    return false;
+  }
+  if (issue["pull_request"] !== undefined) {
+    return false;
+  }
+  upsertFromIssue(ctx, fullName, issue, now);
+  return true;
 }
 
 function processEvent(ctx: SyncContext, ev: Record<string, unknown>, now: number): boolean {
@@ -152,21 +179,110 @@ function processEvent(ctx: SyncContext, ev: Record<string, unknown>, now: number
     return false;
   }
   if (type === "PullRequestEvent") {
-    const pr = asRecord(payload["pull_request"]);
-    if (pr !== undefined) {
-      upsertFromPullRequest(ctx, fullName, pr, now);
-      return true;
-    }
-    return false;
+    return processPullRequestPayload(ctx, fullName, payload, now);
   }
   if (type === "IssuesEvent") {
-    const issue = asRecord(payload["issue"]);
-    if (issue !== undefined && issue["pull_request"] === undefined) {
-      upsertFromIssue(ctx, fullName, issue, now);
-      return true;
-    }
+    return processIssuesPayload(ctx, fullName, payload, now);
   }
   return false;
+}
+
+function buildGithubEventHeaders(pat: string, etag: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    Authorization: `Bearer ${pat}`,
+  };
+  if (etag !== null && etag !== "") {
+    headers["If-None-Match"] = etag;
+  }
+  return headers;
+}
+
+function applyGithubRateLimitPenaltyIfNeeded(ctx: SyncContext, res: Response): void {
+  if (res.status !== 403) {
+    return;
+  }
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  if (remaining !== "0" && remaining !== null) {
+    return;
+  }
+  const retryAfter = res.headers.get("retry-after");
+  const sec = retryAfter !== null ? Number.parseInt(retryAfter, 10) : 60;
+  const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
+  ctx.rateLimiter.penalise("github", ms);
+}
+
+function parseGithubEventsPayload(text: string): unknown[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("GitHub events: invalid JSON");
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("GitHub events: expected array");
+  }
+  return parsed;
+}
+
+async function syncGithubUserEvents(
+  ctx: SyncContext,
+  cursor: string | null,
+  pat: string,
+  t0: number,
+): Promise<SyncResult> {
+  await ctx.rateLimiter.acquire("github");
+
+  const prev = decodeCursor(cursor);
+  const etag = prev?.etag ?? null;
+  const headers = buildGithubEventHeaders(pat, etag);
+
+  const res = await fetch(`https://api.github.com${EVENTS_PATH}`, { headers });
+  const text = await res.text();
+  const bytesTransferred = text.length;
+
+  if (res.status === 304) {
+    return {
+      cursor,
+      itemsUpserted: 0,
+      itemsDeleted: 0,
+      hasMore: false,
+      durationMs: Math.round(performance.now() - t0),
+      bytesTransferred,
+    };
+  }
+
+  applyGithubRateLimitPenaltyIfNeeded(ctx, res);
+
+  if (!res.ok) {
+    throw new Error(`GitHub events ${String(res.status)}: ${text.slice(0, 200)}`);
+  }
+
+  const parsed = parseGithubEventsPayload(text);
+  const now = Date.now();
+  let upserted = 0;
+  for (const item of parsed) {
+    const ev = asRecord(item);
+    if (ev === undefined) {
+      continue;
+    }
+    if (processEvent(ctx, ev, now)) {
+      upserted += 1;
+    }
+  }
+
+  const newEtag = res.headers.get("etag");
+  const nextCursor = encodeCursor({ etag: newEtag });
+
+  return {
+    cursor: nextCursor,
+    itemsUpserted: upserted,
+    itemsDeleted: 0,
+    hasMore: false,
+    durationMs: Math.round(performance.now() - t0),
+    bytesTransferred,
+  };
 }
 
 export type GithubSyncableOptions = {
@@ -192,79 +308,7 @@ export function createGithubSyncable(options: GithubSyncableOptions): Syncable {
         };
       }
 
-      await ctx.rateLimiter.acquire("github");
-
-      const prev = decodeCursor(cursor);
-      const etag = prev?.etag ?? null;
-      const headers: Record<string, string> = {
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        Authorization: `Bearer ${pat}`,
-      };
-      if (etag !== null && etag !== "") {
-        headers["If-None-Match"] = etag;
-      }
-
-      const res = await fetch(`https://api.github.com${EVENTS_PATH}`, { headers });
-      const text = await res.text();
-      const bytesTransferred = text.length;
-
-      if (res.status === 304) {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred,
-        };
-      }
-
-      const remaining = res.headers.get("x-ratelimit-remaining");
-      if (res.status === 403 && (remaining === "0" || remaining === null)) {
-        const retryAfter = res.headers.get("retry-after");
-        const sec = retryAfter !== null ? Number.parseInt(retryAfter, 10) : 60;
-        const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
-        ctx.rateLimiter.penalise("github", ms);
-      }
-
-      if (!res.ok) {
-        throw new Error(`GitHub events ${String(res.status)}: ${text.slice(0, 200)}`);
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text) as unknown;
-      } catch {
-        throw new Error("GitHub events: invalid JSON");
-      }
-      if (!Array.isArray(parsed)) {
-        throw new Error("GitHub events: expected array");
-      }
-
-      const now = Date.now();
-      let upserted = 0;
-      for (const item of parsed) {
-        const ev = asRecord(item);
-        if (ev === undefined) {
-          continue;
-        }
-        if (processEvent(ctx, ev, now)) {
-          upserted += 1;
-        }
-      }
-
-      const newEtag = res.headers.get("etag");
-      const nextCursor = encodeCursor({ etag: newEtag });
-
-      return {
-        cursor: nextCursor,
-        itemsUpserted: upserted,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred,
-      };
+      return syncGithubUserEvents(ctx, cursor, pat, t0);
     },
   };
 }

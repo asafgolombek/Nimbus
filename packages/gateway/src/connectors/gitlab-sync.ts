@@ -1,5 +1,7 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "gitlab";
 const CURSOR_PREFIX = "nimbus-glab1:";
@@ -36,25 +38,8 @@ function decodeCursor(raw: string | null): GitlabSyncCursorV1 | null {
   }
 }
 
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
-}
-
-function stringField(r: Record<string, unknown>, key: string): string | undefined {
-  const v = r[key];
-  return typeof v === "string" ? v : undefined;
-}
-
-function numberField(r: Record<string, unknown>, key: string): number | undefined {
-  const v = r[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-}
-
 function webOriginFromApiBase(apiBase: string): string {
-  const u = apiBase.replace(/\/+$/, "");
+  const u = stripTrailingSlashes(apiBase);
   if (u.endsWith("/api/v4")) {
     return u.slice(0, -"/api/v4".length);
   }
@@ -181,7 +166,7 @@ function normalisedApiBase(raw: string | null): string {
   if (raw === null || raw.trim() === "") {
     return DEFAULT_API_BASE;
   }
-  return raw.replace(/\/+$/, "");
+  return stripTrailingSlashes(raw);
 }
 
 export type GitlabSyncableOptions = {

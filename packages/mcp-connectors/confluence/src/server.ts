@@ -14,9 +14,10 @@ import {
   mcpJsonResult as jsonResult,
   type McpListResult,
 } from "../../shared/mcp-tool-kit.ts";
+import { stripTrailingSlashes } from "../../shared/strip-trailing-slashes.ts";
 
 function normalizeSiteBase(raw: string): string {
-  const t = raw.trim().replace(/\/+$/, "");
+  const t = stripTrailingSlashes(raw);
   if (t === "") {
     throw new Error("CONFLUENCE_BASE_URL is empty");
   }
