@@ -390,11 +390,11 @@ async function connectorAuthOAuthPkce(
     openUrl,
   };
   const withSecret: PKCEOptions =
-    notionSecret !== undefined && notionSecret !== ""
-      ? { ...pkceBase, oauthClientSecret: notionSecret }
-      : pkceBase;
+    notionSecret === undefined || notionSecret === ""
+      ? pkceBase
+      : { ...pkceBase, oauthClientSecret: notionSecret };
   const pkceFlowInput: PKCEOptions =
-    redirectPort !== undefined ? { ...withSecret, redirectPort } : withSecret;
+    redirectPort === undefined ? withSecret : { ...withSecret, redirectPort };
   const tokens = await runPKCEFlow(pkceFlowInput);
 
   const interval = defaultSyncIntervalMsForService(id);

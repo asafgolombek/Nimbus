@@ -35,9 +35,9 @@ async function glFetch(
   const url = path.startsWith("http") ? path : `${base}${relativePath}`;
   const baseHeaders: Record<string, string> = { "PRIVATE-TOKEN": token };
   const mergedHeaders =
-    init?.headers !== undefined
-      ? { ...baseHeaders, ...(init.headers as Record<string, string>) }
-      : baseHeaders;
+    init?.headers === undefined
+      ? baseHeaders
+      : { ...baseHeaders, ...(init.headers as Record<string, string>) };
   const res = await fetch(url, {
     ...init,
     headers: mergedHeaders,

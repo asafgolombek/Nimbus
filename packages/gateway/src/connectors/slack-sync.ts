@@ -244,6 +244,51 @@ function slackHistoryRequestBody(state: SlackSyncCursorV1, ch: string): Record<s
   return histBody;
 }
 
+/** Returns message `ts` when indexed; `null` when the row is skipped. */
+function slackTryUpsertIndexedHistoryMessage(
+  ctx: SyncContext,
+  state: SlackSyncCursorV1,
+  ch: string,
+  mr: Record<string, unknown>,
+  now: number,
+): string | null {
+  const ts = mr["ts"];
+  const text = mr["text"];
+  const user = mr["user"];
+  const threadTs = mr["thread_ts"];
+  if (typeof ts !== "string" || ts === "") {
+    return null;
+  }
+  if (mr["subtype"] !== undefined && mr["subtype"] !== "thread_broadcast") {
+    return null;
+  }
+  const preview = typeof text === "string" ? text.slice(0, 512) : "";
+  const title = shortIndexedMessageTitleFromPreview(preview, "(no text)");
+  const tsNum = Number.parseFloat(ts);
+  const modifiedAt = Number.isFinite(tsNum) ? Math.round(tsNum * 1000) : now;
+  const externalId = `${ch}:${ts}`;
+  const url = permalink(state.teamSubdomain, ch, ts);
+  upsertIndexedItem(ctx.db, {
+    service: SERVICE_ID,
+    type: "message",
+    externalId,
+    title: title.length > 512 ? title.slice(0, 512) : title,
+    bodyPreview: preview,
+    url,
+    canonicalUrl: url,
+    modifiedAt,
+    authorId: null,
+    metadata: {
+      channel: ch,
+      user: typeof user === "string" ? user : null,
+      thread_ts: typeof threadTs === "string" ? threadTs : null,
+    },
+    pinned: false,
+    syncedAt: now,
+  });
+  return ts;
+}
+
 function slackUpsertHistoryBatch(
   ctx: SyncContext,
   state: SlackSyncCursorV1,
@@ -263,40 +308,10 @@ function slackUpsertHistoryBatch(
     if (mr === undefined) {
       continue;
     }
-    const ts = mr["ts"];
-    const text = mr["text"];
-    const user = mr["user"];
-    const threadTs = mr["thread_ts"];
-    if (typeof ts !== "string" || ts === "") {
+    const ts = slackTryUpsertIndexedHistoryMessage(ctx, state, ch, mr, now);
+    if (ts === null) {
       continue;
     }
-    if (mr["subtype"] !== undefined && mr["subtype"] !== "thread_broadcast") {
-      continue;
-    }
-    const preview = typeof text === "string" ? text.slice(0, 512) : "";
-    const title = shortIndexedMessageTitleFromPreview(preview, "(no text)");
-    const tsNum = Number.parseFloat(ts);
-    const modifiedAt = Number.isFinite(tsNum) ? Math.round(tsNum * 1000) : now;
-    const externalId = `${ch}:${ts}`;
-    const url = permalink(state.teamSubdomain, ch, ts);
-    upsertIndexedItem(ctx.db, {
-      service: SERVICE_ID,
-      type: "message",
-      externalId,
-      title: title.length > 512 ? title.slice(0, 512) : title,
-      bodyPreview: preview,
-      url,
-      canonicalUrl: url,
-      modifiedAt,
-      authorId: null,
-      metadata: {
-        channel: ch,
-        user: typeof user === "string" ? user : null,
-        thread_ts: typeof threadTs === "string" ? threadTs : null,
-      },
-      pinned: false,
-      syncedAt: now,
-    });
     count += 1;
     maxTs = maxTs === null || ts.localeCompare(maxTs) > 0 ? ts : maxTs;
   }

@@ -246,36 +246,36 @@ function hitlLinearRejectPayload(
   };
 }
 
-describe("ToolExecutor", () => {
-  function hitlConfluenceRejectPayload(
-    confluenceAction:
-      | "confluence.page.create"
-      | "confluence.page.update"
-      | "confluence.comment.add",
-  ): Record<string, unknown> {
-    if (confluenceAction === "confluence.page.create") {
-      return {
-        mcpToolId: "confluence_confluence_page_create",
-        input: { spaceKey: "S", title: "t", storageHtml: "<p>x</p>" },
-      };
-    }
-    if (confluenceAction === "confluence.page.update") {
-      return {
-        mcpToolId: "confluence_confluence_page_update",
-        input: {
-          pageId: "1",
-          versionNumber: 1,
-          title: "t",
-          storageHtml: "<p>y</p>",
-        },
-      };
-    }
+function hitlConfluenceRejectPayload(
+  confluenceAction:
+    | "confluence.page.create"
+    | "confluence.page.update"
+    | "confluence.comment.add",
+): Record<string, unknown> {
+  if (confluenceAction === "confluence.page.create") {
     return {
-      mcpToolId: "confluence_confluence_comment_add",
-      input: { pageId: "1", storageHtml: "<p>c</p>" },
+      mcpToolId: "confluence_confluence_page_create",
+      input: { spaceKey: "S", title: "t", storageHtml: "<p>x</p>" },
     };
   }
+  if (confluenceAction === "confluence.page.update") {
+    return {
+      mcpToolId: "confluence_confluence_page_update",
+      input: {
+        pageId: "1",
+        versionNumber: 1,
+        title: "t",
+        storageHtml: "<p>y</p>",
+      },
+    };
+  }
+  return {
+    mcpToolId: "confluence_confluence_comment_add",
+    input: { pageId: "1", storageHtml: "<p>c</p>" },
+  };
+}
 
+describe("ToolExecutor", () => {
   test("every HITL_REQUIRED action type triggers the consent channel", async () => {
     for (const actionType of HITL_REQUIRED) {
       const m = createMocks(true);

@@ -137,6 +137,53 @@ type NotionRowProcessAcc = {
   shouldStop: boolean;
 };
 
+/** `true` when the caller should stop iterating (watermark hit). */
+function notionConsumeSearchResultRow(
+  ctx: SyncContext,
+  item: unknown,
+  opts: { watermarkMs: number; syncTime: number },
+  acc: NotionRowProcessAcc,
+): boolean {
+  const row = asRecord(item);
+  if (row === undefined) {
+    return false;
+  }
+  if (stringField(row, "object") !== "page") {
+    return false;
+  }
+  const id = stringField(row, "id");
+  if (id === undefined || id === "") {
+    return false;
+  }
+  const edited = stringField(row, "last_edited_time");
+  if (edited !== undefined && edited !== "") {
+    if (opts.watermarkMs >= 0 && isoMs(edited) <= opts.watermarkMs) {
+      acc.shouldStop = true;
+      return true;
+    }
+    acc.maxEdited = acc.maxEdited === "" ? edited : maxIso(acc.maxEdited, edited);
+  }
+  const title = extractTitleFromProperties(row["properties"]);
+  const url = `https://www.notion.so/${id.replaceAll("-", "")}`;
+  const modified = edited !== undefined && edited !== "" ? isoMs(edited) : opts.syncTime;
+  acc.upserted += 1;
+  upsertIndexedItem(ctx.db, {
+    service: SERVICE_ID,
+    type: "page",
+    externalId: id,
+    title: title.length > 512 ? title.slice(0, 512) : title,
+    bodyPreview: "",
+    url,
+    canonicalUrl: url,
+    modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
+    authorId: null,
+    metadata: { notionPageId: id },
+    pinned: false,
+    syncedAt: opts.syncTime,
+  });
+  return false;
+}
+
 function notionAccumulateSearchResults(
   ctx: SyncContext,
   results: unknown[],
@@ -144,43 +191,9 @@ function notionAccumulateSearchResults(
   acc: NotionRowProcessAcc,
 ): void {
   for (const item of results) {
-    const row = asRecord(item);
-    if (row === undefined) {
-      continue;
+    if (notionConsumeSearchResultRow(ctx, item, opts, acc)) {
+      break;
     }
-    if (stringField(row, "object") !== "page") {
-      continue;
-    }
-    const id = stringField(row, "id");
-    if (id === undefined || id === "") {
-      continue;
-    }
-    const edited = stringField(row, "last_edited_time");
-    if (edited !== undefined && edited !== "") {
-      if (opts.watermarkMs >= 0 && isoMs(edited) <= opts.watermarkMs) {
-        acc.shouldStop = true;
-        break;
-      }
-      acc.maxEdited = acc.maxEdited === "" ? edited : maxIso(acc.maxEdited, edited);
-    }
-    const title = extractTitleFromProperties(row["properties"]);
-    const url = `https://www.notion.so/${id.replaceAll("-", "")}`;
-    const modified = edited !== undefined && edited !== "" ? isoMs(edited) : opts.syncTime;
-    acc.upserted += 1;
-    upsertIndexedItem(ctx.db, {
-      service: SERVICE_ID,
-      type: "page",
-      externalId: id,
-      title: title.length > 512 ? title.slice(0, 512) : title,
-      bodyPreview: "",
-      url,
-      canonicalUrl: url,
-      modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
-      authorId: null,
-      metadata: { notionPageId: id },
-      pinned: false,
-      syncedAt: opts.syncTime,
-    });
   }
 }
 

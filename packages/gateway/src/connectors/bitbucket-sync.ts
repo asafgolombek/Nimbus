@@ -152,6 +152,40 @@ function stringFieldFromBody(body: unknown, key: string): string | undefined {
   return r === undefined ? undefined : stringField(r, key);
 }
 
+type BitbucketPrPageIngest = {
+  maxUpdated: string;
+  upsertedDelta: number;
+  nextPrUrl: string | null;
+};
+
+function ingestBitbucketPullRequestPage(
+  ctx: SyncContext,
+  repoFull: string,
+  json: unknown,
+  now: number,
+  priorMaxUpdated: string,
+): BitbucketPrPageIngest {
+  const rec = asRecord(json);
+  const values = rec !== undefined && Array.isArray(rec["values"]) ? rec["values"] : [];
+  let maxUpdated = priorMaxUpdated;
+  let upsertedDelta = 0;
+  for (const v of values) {
+    const pr = asRecord(v);
+    if (pr === undefined) {
+      continue;
+    }
+    const uo = stringField(pr, "updated_on");
+    if (uo !== undefined) {
+      maxUpdated = maxIso(maxUpdated, uo);
+    }
+    upsertFromPullRequest(ctx, repoFull, pr, now);
+    upsertedDelta += 1;
+  }
+  const next = stringFieldFromBody(json, "next");
+  const nextPrUrl = next !== undefined && next !== "" ? next : null;
+  return { maxUpdated, upsertedDelta, nextPrUrl };
+}
+
 export type BitbucketSyncableOptions = {
   ensureBitbucketMcpRunning: () => Promise<void>;
 };
@@ -244,23 +278,11 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
         while (prUrl !== null && prPages < MAX_PR_PAGES_PER_REPO) {
           const { json } = await fetchJson(prUrl);
           prPages += 1;
-          const rec = asRecord(json);
-          const values = rec !== undefined && Array.isArray(rec["values"]) ? rec["values"] : [];
           const now = Date.now();
-          for (const v of values) {
-            const pr = asRecord(v);
-            if (pr === undefined) {
-              continue;
-            }
-            const uo = stringField(pr, "updated_on");
-            if (uo !== undefined) {
-              maxUpdated = maxIso(maxUpdated, uo);
-            }
-            upsertFromPullRequest(ctx, active, pr, now);
-            upserted += 1;
-          }
-          const next = stringFieldFromBody(json, "next");
-          prUrl = next !== undefined && next !== "" ? next : null;
+          const page = ingestBitbucketPullRequestPage(ctx, active, json, now, maxUpdated);
+          maxUpdated = page.maxUpdated;
+          upserted += page.upsertedDelta;
+          prUrl = page.nextPrUrl;
         }
         state = {
           ...state,
@@ -333,23 +355,11 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
           while (prUrl !== null && prPages < MAX_PR_PAGES_PER_REPO) {
             const { json } = await fetchJson(prUrl);
             prPages += 1;
-            const rec = asRecord(json);
-            const values = rec !== undefined && Array.isArray(rec["values"]) ? rec["values"] : [];
             const now = Date.now();
-            for (const v of values) {
-              const pr = asRecord(v);
-              if (pr === undefined) {
-                continue;
-              }
-              const uo = stringField(pr, "updated_on");
-              if (uo !== undefined) {
-                maxUpdated = maxIso(maxUpdated, uo);
-              }
-              upsertFromPullRequest(ctx, repoFull, pr, now);
-              upserted += 1;
-            }
-            const next = stringFieldFromBody(json, "next");
-            prUrl = next !== undefined && next !== "" ? next : null;
+            const page = ingestBitbucketPullRequestPage(ctx, repoFull, json, now, maxUpdated);
+            maxUpdated = page.maxUpdated;
+            upserted += page.upsertedDelta;
+            prUrl = page.nextPrUrl;
             if (prUrl !== null && prPages >= MAX_PR_PAGES_PER_REPO) {
               state = {
                 since: state.since,
