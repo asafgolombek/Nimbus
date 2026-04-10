@@ -31,6 +31,7 @@ type ConnectorFlags = {
   port?: number;
   scopes?: string[];
   token?: string;
+  apiBase?: string;
   full?: boolean;
 };
 
@@ -102,6 +103,7 @@ function parseFlags(args: string[]): ConnectorFlags {
   let port: number | undefined;
   let scopes: string[] | undefined;
   let token: string | undefined;
+  let apiBase: string | undefined;
   let full: boolean | undefined;
   const q = [...args];
 
@@ -148,6 +150,17 @@ function parseFlags(args: string[]): ConnectorFlags {
       full = true;
       continue;
     }
+    if (a === "--api-base") {
+      const v = q.shift();
+      if (v === undefined) {
+        throw new Error("Missing value for --api-base");
+      }
+      if (v.trim() === "") {
+        throw new Error("Invalid --api-base (empty)");
+      }
+      apiBase = v.trim().replace(/\/+$/, "");
+      continue;
+    }
     rest.push(a);
   }
 
@@ -160,6 +173,9 @@ function parseFlags(args: string[]): ConnectorFlags {
   }
   if (token !== undefined) {
     out.token = token;
+  }
+  if (apiBase !== undefined) {
+    out.apiBase = apiBase;
   }
   if (full !== undefined) {
     out.full = full;
@@ -176,11 +192,11 @@ function repeatChar(ch: string, n: number): string {
 }
 
 async function runConnectorAuth(tail: string[]): Promise<void> {
-  const { rest, port, scopes, token } = parseFlags(tail);
+  const { rest, port, scopes, token, apiBase } = parseFlags(tail);
   const service = rest[0];
   if (service === undefined) {
     throw new Error(
-      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>]",
+      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>]",
     );
   }
   const params: {
@@ -188,6 +204,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     port?: number;
     scopes?: string[];
     personalAccessToken?: string;
+    apiBaseUrl?: string;
   } = { service };
   if (port !== undefined) {
     params.port = port;
@@ -205,11 +222,23 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     }
     params.personalAccessToken = pat;
   }
+  if (normalized === "gitlab") {
+    const pat = token ?? process.env["NIMBUS_GITLAB_PAT"]?.trim();
+    if (pat === undefined || pat === "") {
+      throw new Error(
+        "GitLab requires a PAT: nimbus connector auth gitlab --token <pat>  (or set NIMBUS_GITLAB_PAT in the environment)",
+      );
+    }
+    params.personalAccessToken = pat;
+    if (apiBase !== undefined) {
+      params.apiBaseUrl = apiBase;
+    }
+  }
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
   console.log(`Signed in: ${res.serviceId}`);
-  if (res.serviceId === "github") {
+  if (res.serviceId === "github" || res.serviceId === "gitlab") {
     console.log("Credential: personal access token stored in the OS vault (no OAuth scopes).");
   } else {
     console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
@@ -391,7 +420,7 @@ function printConnectorHelp(): void {
   console.log(`nimbus connector — cloud connector registration and sync (Q2)
 
 Usage:
-  nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>]
+  nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>]
   nimbus connector list
   nimbus connector status <service> [--stats]
   nimbus connector sync <service> [--full]
@@ -400,13 +429,14 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab
 
 OAuth client ids (required for Google/Microsoft auth):
   NIMBUS_OAUTH_GOOGLE_CLIENT_ID
   NIMBUS_OAUTH_MICROSOFT_CLIENT_ID
 
 GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).
+GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-base https://git.example.com/api/v4 (gitlab.api_base).
 
 Credentials are stored in the OS vault only (never printed here).
 `);

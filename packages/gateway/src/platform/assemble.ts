@@ -3,6 +3,7 @@ import { join } from "node:path";
 import pino from "pino";
 
 import { createGithubSyncable } from "../connectors/github-sync.ts";
+import { createGitlabSyncable } from "../connectors/gitlab-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
 import { createGoogleDriveSyncable } from "../connectors/google-drive-sync.ts";
 import { createGooglePhotosSyncable } from "../connectors/google-photos-sync.ts";
@@ -83,6 +84,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createGithubSyncable({
       ensureGithubMcpRunning: () => connectorMesh.ensureGithubRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createGitlabSyncable({
+      ensureGitlabMcpRunning: () => connectorMesh.ensureGitlabRunning(),
     }),
   );
   syncScheduler.start();

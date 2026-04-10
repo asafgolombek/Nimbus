@@ -38,8 +38,13 @@ function githubMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "github", "src", "server.ts");
 }
 
+function gitlabMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "gitlab", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub MCP when `github.pat` exists (Q2 §1.6 / Phase 2–3).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook) + GitHub / GitLab PAT MCP when vault keys exist (Q2 §1.6 / Phase 2–3).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -49,6 +54,8 @@ export class LazyConnectorMesh {
   private microsoftIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private githubClient: MCPClient | undefined;
   private githubIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private gitlabClient: MCPClient | undefined;
+  private gitlabIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -97,6 +104,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearGitlabIdleTimer(): void {
+    if (this.gitlabIdleTimer !== undefined) {
+      clearTimeout(this.gitlabIdleTimer);
+      this.gitlabIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -118,6 +132,14 @@ export class LazyConnectorMesh {
     this.githubIdleTimer = setTimeout(() => {
       this.githubIdleTimer = undefined;
       void this.stopGithubClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleGitlabDisconnect(): void {
+    this.clearGitlabIdleTimer();
+    this.gitlabIdleTimer = setTimeout(() => {
+      this.gitlabIdleTimer = undefined;
+      void this.stopGitlabClient();
     }, this.inactivityMs);
   }
 
@@ -150,6 +172,19 @@ export class LazyConnectorMesh {
   private async stopGithubClient(): Promise<void> {
     const c = this.githubClient;
     this.githubClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopGitlabClient(): Promise<void> {
+    const c = this.gitlabClient;
+    this.gitlabClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -250,6 +285,39 @@ export class LazyConnectorMesh {
     this.scheduleGithubDisconnect();
   }
 
+  /**
+   * Starts GitLab MCP when `gitlab.pat` is present in the Vault.
+   */
+  async ensureGitlabRunning(): Promise<void> {
+    this.clearGitlabIdleTimer();
+    if (this.gitlabClient !== undefined) {
+      this.scheduleGitlabDisconnect();
+      return;
+    }
+    const pat = await this.vault.get("gitlab.pat");
+    if (pat === null || pat === "") {
+      return;
+    }
+    const apiBase = await this.vault.get("gitlab.api_base");
+    const trimmedBase =
+      apiBase !== null && apiBase.trim() !== "" ? apiBase.trim().replace(/\/+$/, "") : null;
+    this.gitlabClient = new MCPClient({
+      id: `nimbus-gitlab-${String(Date.now())}`,
+      servers: {
+        gitlab: {
+          command: "bun",
+          args: [gitlabMcpScriptPath()],
+          env:
+            trimmedBase !== null
+              ? { ...process.env, GITLAB_PAT: pat, GITLAB_API_BASE_URL: trimmedBase }
+              : { ...process.env, GITLAB_PAT: pat },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleGitlabDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
@@ -265,6 +333,10 @@ export class LazyConnectorMesh {
     if (rawGh !== null && rawGh !== "") {
       await this.ensureGithubRunning();
     }
+    const rawGl = await this.vault.get("gitlab.pat");
+    if (rawGl !== null && rawGl !== "") {
+      await this.ensureGitlabRunning();
+    }
 
     const fsTools = await this.filesystem.listTools();
     const gdTools =
@@ -272,7 +344,8 @@ export class LazyConnectorMesh {
     const msTools =
       this.microsoftBundleClient !== undefined ? await this.microsoftBundleClient.listTools() : {};
     const ghTools = this.githubClient !== undefined ? await this.githubClient.listTools() : {};
-    return { ...fsTools, ...gdTools, ...msTools, ...ghTools } as Record<
+    const glTools = this.gitlabClient !== undefined ? await this.gitlabClient.listTools() : {};
+    return { ...fsTools, ...gdTools, ...msTools, ...ghTools, ...glTools } as Record<
       string,
       { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
     >;
@@ -282,9 +355,11 @@ export class LazyConnectorMesh {
     this.clearGoogleIdleTimer();
     this.clearMicrosoftIdleTimer();
     this.clearGithubIdleTimer();
+    this.clearGitlabIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
+    await this.stopGitlabClient();
     try {
       await this.filesystem.disconnect();
     } catch {

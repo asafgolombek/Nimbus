@@ -56,6 +56,8 @@ export type McpToolListingClient = {
  * `github_github_pr_close`; `repo.branch.delete` → `github_github_branch_delete`;
  * `repo.tag.create` → `github_github_tag_create`; `repo.commit.push` → `github_github_commit_push`
  * (stub — not implemented server-side).
+ *
+ * GitLab (HITL): `repo.pr.merge` → `gitlab_gitlab_mr_merge` (set `payload.mcpToolId` + `input`).
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

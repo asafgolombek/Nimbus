@@ -183,6 +183,11 @@ export async function dispatchConnectorRpc(options: {
           await vault.delete("github.pat");
           vaultKeys.push("github.pat");
         }
+        if (id === "gitlab") {
+          await vault.delete("gitlab.pat");
+          await vault.delete("gitlab.api_base");
+          vaultKeys.push("gitlab.pat", "gitlab.api_base");
+        }
       } catch (removeErr) {
         if (googleOAuthBackup !== null) {
           await vault.set("google.oauth", googleOAuthBackup);
@@ -217,6 +222,30 @@ export async function dispatchConnectorRpc(options: {
           throw new ConnectorRpcError(-32602, "Missing personalAccessToken for github");
         }
         await vault.set("github.pat", token);
+        const interval = defaultSyncIntervalMsForService(id);
+        localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
+        return {
+          kind: "hit",
+          value: {
+            ok: true,
+            serviceId: id,
+            scopesGranted: [] as string[],
+          },
+        };
+      }
+      if (id === "gitlab") {
+        const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+        const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+        if (token === "") {
+          throw new ConnectorRpcError(-32602, "Missing personalAccessToken for gitlab");
+        }
+        await vault.set("gitlab.pat", token);
+        const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["api_base"];
+        if (typeof baseRaw === "string" && baseRaw.trim() !== "") {
+          await vault.set("gitlab.api_base", baseRaw.trim().replace(/\/+$/, ""));
+        } else {
+          await vault.delete("gitlab.api_base");
+        }
         const interval = defaultSyncIntervalMsForService(id);
         localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
         return {
