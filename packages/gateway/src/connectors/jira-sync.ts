@@ -6,6 +6,7 @@ import {
   normalizeAtlassianSiteBaseUrl,
   stringField,
 } from "./atlassian-api-sync-helpers.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
 const SERVICE_ID = "jira";
 const CURSOR_PREFIX = "nimbus-jra1:";
@@ -13,32 +14,29 @@ const CURSOR_PREFIX = "nimbus-jra1:";
 type JiraSyncCursorV1 = { v: 1; floorJql: string | null };
 
 function encodeCursor(c: JiraSyncCursorV1): string {
-  const payload = JSON.stringify(c);
-  return `${CURSOR_PREFIX}${Buffer.from(payload, "utf8").toString("base64url")}`;
+  return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
 function decodeCursor(raw: string | null): JiraSyncCursorV1 | null {
-  if (raw === null || raw === "" || !raw.startsWith(CURSOR_PREFIX)) {
+  if (raw === null || raw === "") {
     return null;
   }
-  try {
-    const jsonText = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(jsonText);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    if (rec["v"] !== 1) {
-      return null;
-    }
-    const fj = rec["floorJql"];
-    if (fj !== null && fj !== undefined && typeof fj !== "string") {
-      return null;
-    }
-    return { v: 1, floorJql: fj === null || fj === undefined ? null : fj };
-  } catch {
+  const parsed = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (parsed === undefined) {
     return null;
   }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const rec = parsed as Record<string, unknown>;
+  if (rec["v"] !== 1) {
+    return null;
+  }
+  const fj = rec["floorJql"];
+  if (fj !== null && fj !== undefined && typeof fj !== "string") {
+    return null;
+  }
+  return { v: 1, floorJql: fj === null || fj === undefined ? null : fj };
 }
 
 /** Jira JQL datetime literal after `updated >` (exclusive), one second after API `fields.updated`. */

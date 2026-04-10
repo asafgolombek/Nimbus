@@ -1,19 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { createBitbucketSyncable } from "./bitbucket-sync.ts";
 import {
   createMemoryIndexDb,
   createStubVault,
+  describeWithFetchRestore,
   silentSyncContextExtras,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 
-describe("bitbucket-sync", () => {
-  const origFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = origFetch;
-  });
-
+describeWithFetchRestore("bitbucket-sync", () => {
   test("no-op when credentials missing", async () => {
     const db = createMemoryIndexDb();
     const sync = createBitbucketSyncable({ ensureBitbucketMcpRunning: async () => {} });

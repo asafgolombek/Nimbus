@@ -1,5 +1,6 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "github";
@@ -9,29 +10,23 @@ const EVENTS_PATH = "/user/events?per_page=100";
 type GithubSyncCursorV1 = { etag: string | null };
 
 function encodeCursor(c: GithubSyncCursorV1): string {
-  const payload = JSON.stringify(c);
-  return `${CURSOR_PREFIX}${Buffer.from(payload, "utf8").toString("base64url")}`;
+  return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
 function decodeCursor(raw: string | null): GithubSyncCursorV1 | null {
   if (raw === null || raw === "") {
     return null;
   }
-  if (!raw.startsWith(CURSOR_PREFIX)) {
+  const parsed = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (parsed === undefined) {
     return null;
   }
-  try {
-    const jsonText = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(jsonText);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    const etag = rec["etag"];
-    return { etag: typeof etag === "string" ? etag : null };
-  } catch {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return null;
   }
+  const rec = parsed as Record<string, unknown>;
+  const etag = rec["etag"];
+  return { etag: typeof etag === "string" ? etag : null };
 }
 
 function modifiedMsFromGithubTimestamps(

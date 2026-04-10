@@ -1,20 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import {
   createMemoryIndexDb,
   createStubVault,
+  describeWithFetchRestore,
   silentSyncContextExtras,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 import { createGithubSyncable } from "./github-sync.ts";
 
-describe("github-sync", () => {
-  const origFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = origFetch;
-  });
-
+describeWithFetchRestore("github-sync", () => {
   test("no-op when PAT missing", async () => {
     const db = createMemoryIndexDb();
     const sync = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });

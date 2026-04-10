@@ -4,6 +4,36 @@ export function mcpJsonResult(data: unknown): McpListResult {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
 }
 
+/** Shape of `z.object()` — structural so `shared/` does not depend on `zod` (not a workspace package). */
+export type ZodObjectSchema<T> = {
+  readonly shape: Record<string, unknown>;
+  safeParse: (
+    args: unknown,
+  ) => { success: true; data: T } | { success: false; error: { message: string } };
+};
+
+/** Registers a tool with one schema object — avoids duplicating the shape for MCP metadata vs `safeParse`. */
+export function registerZodTool<T>(
+  registerSimpleTool: RegisterSimpleToolFn,
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerSimpleTool(
+    name,
+    description,
+    schema.shape as Record<string, unknown>,
+    async (args: unknown): Promise<McpListResult> => {
+      const parsed = schema.safeParse(args);
+      if (!parsed.success) {
+        throw new Error(parsed.error.message);
+      }
+      return handler(parsed.data);
+    },
+  );
+}
+
 /** Input shape matches MCP `server.tool` zod fields; typed as unknown to avoid a zod import from this shared path. */
 export type RegisterSimpleToolFn = (
   name: string,

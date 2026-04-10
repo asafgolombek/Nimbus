@@ -6,11 +6,15 @@ import {
   normalizeAtlassianSiteBaseUrl,
   stringField,
 } from "./atlassian-api-sync-helpers.ts";
+import { isoMs, maxIso } from "./sync-iso-helpers.ts";
+import {
+  decodeWatermarkCursorV1,
+  encodeWatermarkCursorV1,
+  type WatermarkCursorV1,
+} from "./sync-watermark-cursor-v1.ts";
 
 const SERVICE_ID = "confluence";
 const CURSOR_PREFIX = "nimbus-cfl1:";
-
-type ConfluenceSyncCursorV1 = { v: 1; watermark: string | null };
 
 function wikiApiBase(siteBase: string): string {
   const b = normalizeAtlassianSiteBaseUrl(siteBase);
@@ -21,42 +25,12 @@ function wikiApiBase(siteBase: string): string {
   return `${root}/rest/api`;
 }
 
-function encodeCursor(c: ConfluenceSyncCursorV1): string {
-  const payload = JSON.stringify(c);
-  return `${CURSOR_PREFIX}${Buffer.from(payload, "utf8").toString("base64url")}`;
+function encodeCursor(c: WatermarkCursorV1): string {
+  return encodeWatermarkCursorV1(CURSOR_PREFIX, c);
 }
 
-function decodeCursor(raw: string | null): ConfluenceSyncCursorV1 | null {
-  if (raw === null || raw === "" || !raw.startsWith(CURSOR_PREFIX)) {
-    return null;
-  }
-  try {
-    const jsonText = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(jsonText);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    if (rec["v"] !== 1) {
-      return null;
-    }
-    const w = rec["watermark"];
-    if (w !== null && w !== undefined && typeof w !== "string") {
-      return null;
-    }
-    return { v: 1, watermark: w === null || w === undefined ? null : w };
-  } catch {
-    return null;
-  }
-}
-
-function isoMs(s: string): number {
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? t : 0;
-}
-
-function maxIso(a: string, b: string): string {
-  return isoMs(a) >= isoMs(b) ? a : b;
+function decodeCursor(raw: string | null): WatermarkCursorV1 | null {
+  return decodeWatermarkCursorV1(raw, CURSOR_PREFIX);
 }
 
 function lastModifiedFromContent(row: Record<string, unknown>): string | undefined {

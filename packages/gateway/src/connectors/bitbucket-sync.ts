@@ -1,6 +1,7 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "bitbucket";
@@ -22,49 +23,46 @@ type BitbucketCursorV1 = {
 };
 
 function encodeCursor(c: BitbucketCursorV1): string {
-  const payload = JSON.stringify(c);
-  return `${CURSOR_PREFIX}${Buffer.from(payload, "utf8").toString("base64url")}`;
+  return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
 function decodeCursor(raw: string | null): BitbucketCursorV1 | null {
-  if (raw === null || raw === "" || !raw.startsWith(CURSOR_PREFIX)) {
+  if (raw === null || raw === "") {
     return null;
   }
-  try {
-    const jsonText = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(jsonText);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    const since = rec["since"];
-    if (typeof since !== "string" || since === "") {
-      return null;
-    }
-    const pendingRepos = rec["pendingRepos"];
-    const pending: string[] = [];
-    if (Array.isArray(pendingRepos)) {
-      for (const x of pendingRepos) {
-        if (typeof x === "string" && x.includes("/")) {
-          pending.push(x);
-        }
+  const parsed = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (parsed === undefined) {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const rec = parsed as Record<string, unknown>;
+  const since = rec["since"];
+  if (typeof since !== "string" || since === "") {
+    return null;
+  }
+  const pendingRepos = rec["pendingRepos"];
+  const pending: string[] = [];
+  if (Array.isArray(pendingRepos)) {
+    for (const x of pendingRepos) {
+      if (typeof x === "string" && x.includes("/")) {
+        pending.push(x);
       }
     }
-    const reposNext = rec["reposNext"];
-    const activeRepo = rec["activeRepo"];
-    const prNext = rec["prNext"];
-    const repositoryPagesExhausted = rec["repositoryPagesExhausted"] === true;
-    return {
-      since,
-      pendingRepos: pending,
-      reposNext: typeof reposNext === "string" ? reposNext : null,
-      activeRepo: typeof activeRepo === "string" ? activeRepo : null,
-      prNext: typeof prNext === "string" ? prNext : null,
-      repositoryPagesExhausted,
-    };
-  } catch {
-    return null;
   }
+  const reposNext = rec["reposNext"];
+  const activeRepo = rec["activeRepo"];
+  const prNext = rec["prNext"];
+  const repositoryPagesExhausted = rec["repositoryPagesExhausted"] === true;
+  return {
+    since,
+    pendingRepos: pending,
+    reposNext: typeof reposNext === "string" ? reposNext : null,
+    activeRepo: typeof activeRepo === "string" ? activeRepo : null,
+    prNext: typeof prNext === "string" ? prNext : null,
+    repositoryPagesExhausted,
+  };
 }
 
 function basicAuthHeader(user: string, pass: string): string {

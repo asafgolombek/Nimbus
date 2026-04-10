@@ -1,21 +1,16 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import { createConfluenceSyncable } from "./confluence-sync.ts";
 import {
   createMemoryIndexDb,
   createStubVault,
+  describeWithFetchRestore,
   EMPTY_NIMBUS_VAULT,
   silentSyncContextExtras,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 
-describe("confluence-sync", () => {
-  const origFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = origFetch;
-  });
-
+describeWithFetchRestore("confluence-sync", () => {
   test("no-op when credentials missing", async () => {
     const db = createMemoryIndexDb();
     const sync = createConfluenceSyncable({ ensureConfluenceMcpRunning: async () => {} });

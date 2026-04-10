@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { afterEach, describe } from "bun:test";
 import pino from "pino";
 
 import { LocalIndex } from "../index/local-index.ts";
@@ -43,4 +44,15 @@ export function urlFromFetchInput(input: Parameters<typeof fetch>[0]): string {
     return input.toString();
   }
   return input.url;
+}
+
+/** Connector tests that stub `globalThis.fetch` — restores the original after each case. */
+export function describeWithFetchRestore(name: string, fn: () => void): void {
+  describe(name, () => {
+    const origFetch = globalThis.fetch;
+    afterEach(() => {
+      globalThis.fetch = origFetch;
+    });
+    fn();
+  });
 }

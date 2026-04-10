@@ -1,6 +1,7 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "gitlab";
@@ -11,31 +12,28 @@ const MAX_PAGES_PER_SYNC = 8;
 type GitlabSyncCursorV1 = { after: string; page: number };
 
 function encodeCursor(c: GitlabSyncCursorV1): string {
-  const payload = JSON.stringify(c);
-  return `${CURSOR_PREFIX}${Buffer.from(payload, "utf8").toString("base64url")}`;
+  return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
 function decodeCursor(raw: string | null): GitlabSyncCursorV1 | null {
-  if (raw === null || raw === "" || !raw.startsWith(CURSOR_PREFIX)) {
+  if (raw === null || raw === "") {
     return null;
   }
-  try {
-    const jsonText = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(jsonText);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    const after = rec["after"];
-    const page = rec["page"];
-    if (typeof after !== "string" || after === "") {
-      return null;
-    }
-    const p = typeof page === "number" && Number.isInteger(page) && page >= 1 ? page : 1;
-    return { after, page: p };
-  } catch {
+  const parsed = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (parsed === undefined) {
     return null;
   }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const rec = parsed as Record<string, unknown>;
+  const after = rec["after"];
+  const page = rec["page"];
+  if (typeof after !== "string" || after === "") {
+    return null;
+  }
+  const p = typeof page === "number" && Number.isInteger(page) && page >= 1 ? page : 1;
+  return { after, page: p };
 }
 
 function webOriginFromApiBase(apiBase: string): string {

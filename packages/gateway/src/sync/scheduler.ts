@@ -24,6 +24,9 @@ const DEFAULT_CONFIG: SyncSchedulerConfig = {
   retentionDays: 90,
 };
 
+/** If `next_sync_at` is only slightly before `start()`'s clock, treat as due now — not as backlog from a prior run. */
+const STARTUP_NEXT_SYNC_SLACK_MS = 250;
+
 type JobReason = "scheduled" | "continuation" | "force";
 
 type Job = {
@@ -118,7 +121,9 @@ export class SyncScheduler {
       for (const id of this.connectors.keys()) {
         const row = loadSchedulerState(this.db, id);
         if (row?.next_sync_at != null && row.next_sync_at < now) {
-          setNextSyncAt(this.db, id, now + row.interval_ms);
+          const overdueMs = now - row.next_sync_at;
+          const nextAt = overdueMs <= STARTUP_NEXT_SYNC_SLACK_MS ? now : now + row.interval_ms;
+          setNextSyncAt(this.db, id, nextAt);
         }
       }
     }

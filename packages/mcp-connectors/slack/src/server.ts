@@ -12,7 +12,9 @@ import {
   createRegisterSimpleTool,
   mcpJsonResult as jsonResult,
   type McpListResult,
+  registerZodTool,
   requireProcessEnv,
+  type ZodObjectSchema,
 } from "../../shared/mcp-tool-kit.ts";
 
 type SlackApiRecord = Record<string, unknown>;
@@ -49,32 +51,34 @@ const server = new McpServer({ name: "nimbus-slack", version: "0.1.0" });
 
 const registerSimpleTool = createRegisterSimpleTool(server);
 
-registerSimpleTool(
+function reg<T>(
+  name: string,
+  description: string,
+  schema: ZodObjectSchema<T>,
+  handler: (args: T) => Promise<McpListResult>,
+): void {
+  registerZodTool(registerSimpleTool, name, description, schema, handler);
+}
+
+const slackChannelListSchema = z.object({
+  types: z.string().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+});
+
+reg(
   "slack_channel_list",
   "List channels the user is a member of (public, private, mpim, im).",
-  {
-    types: z.string().optional(),
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      types: z.string().optional(),
-      limit: z.number().int().min(1).max(200).optional(),
-      cursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackChannelListSchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
-      types: parsed.data.types ?? "public_channel,private_channel,mpim,im",
-      limit: parsed.data.limit ?? 200,
+      types: parsed.types ?? "public_channel,private_channel,mpim,im",
+      limit: parsed.limit ?? 200,
       exclude_archived: true,
     };
-    if (parsed.data.cursor !== undefined && parsed.data.cursor !== "") {
-      body["cursor"] = parsed.data.cursor;
+    if (parsed.cursor !== undefined && parsed.cursor !== "") {
+      body["cursor"] = parsed.cursor;
     }
     const res = await slackApi(token, "conversations.list", body);
     if (!res.ok) {
@@ -84,41 +88,32 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const slackChannelHistorySchema = z.object({
+  channel: z.string().min(1),
+  limit: z.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+  oldest: z.string().optional(),
+  inclusive: z.boolean().optional(),
+});
+
+reg(
   "slack_channel_history",
   "Fetch message history for a channel, DM, or mpim.",
-  {
-    channel: z.string().min(1),
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().optional(),
-    oldest: z.string().optional(),
-    inclusive: z.boolean().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      channel: z.string().min(1),
-      limit: z.number().int().min(1).max(200).optional(),
-      cursor: z.string().optional(),
-      oldest: z.string().optional(),
-      inclusive: z.boolean().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackChannelHistorySchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
-      channel: parsed.data.channel,
-      limit: parsed.data.limit ?? 50,
+      channel: parsed.channel,
+      limit: parsed.limit ?? 50,
     };
-    if (parsed.data.cursor !== undefined && parsed.data.cursor !== "") {
-      body["cursor"] = parsed.data.cursor;
+    if (parsed.cursor !== undefined && parsed.cursor !== "") {
+      body["cursor"] = parsed.cursor;
     }
-    if (parsed.data.oldest !== undefined && parsed.data.oldest !== "") {
-      body["oldest"] = parsed.data.oldest;
+    if (parsed.oldest !== undefined && parsed.oldest !== "") {
+      body["oldest"] = parsed.oldest;
     }
-    if (parsed.data.inclusive !== undefined) {
-      body["inclusive"] = parsed.data.inclusive;
+    if (parsed.inclusive !== undefined) {
+      body["inclusive"] = parsed.inclusive;
     }
     const res = await slackApi(token, "conversations.history", body);
     if (!res.ok) {
@@ -128,34 +123,26 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const slackThreadRepliesSchema = z.object({
+  channel: z.string().min(1),
+  ts: z.string().min(1),
+  limit: z.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+});
+
+reg(
   "slack_thread_replies",
   "Fetch replies in a thread (channel + thread parent ts).",
-  {
-    channel: z.string().min(1),
-    ts: z.string().min(1),
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      channel: z.string().min(1),
-      ts: z.string().min(1),
-      limit: z.number().int().min(1).max(200).optional(),
-      cursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackThreadRepliesSchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
-      channel: parsed.data.channel,
-      ts: parsed.data.ts,
-      limit: parsed.data.limit ?? 50,
+      channel: parsed.channel,
+      ts: parsed.ts,
+      limit: parsed.limit ?? 50,
     };
-    if (parsed.data.cursor !== undefined && parsed.data.cursor !== "") {
-      body["cursor"] = parsed.data.cursor;
+    if (parsed.cursor !== undefined && parsed.cursor !== "") {
+      body["cursor"] = parsed.cursor;
     }
     const res = await slackApi(token, "conversations.replies", body);
     if (!res.ok) {
@@ -165,30 +152,24 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const slackDmListSchema = z.object({
+  limit: z.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+});
+
+reg(
   "slack_dm_list",
   "List direct message conversations (im + mpim).",
-  {
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      limit: z.number().int().min(1).max(200).optional(),
-      cursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackDmListSchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
       types: "im,mpim",
-      limit: parsed.data.limit ?? 200,
+      limit: parsed.limit ?? 200,
       exclude_archived: true,
     };
-    if (parsed.data.cursor !== undefined && parsed.data.cursor !== "") {
-      body["cursor"] = parsed.data.cursor;
+    if (parsed.cursor !== undefined && parsed.cursor !== "") {
+      body["cursor"] = parsed.cursor;
     }
     const res = await slackApi(token, "conversations.list", body);
     if (!res.ok) {
@@ -198,41 +179,32 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const slackDmHistorySchema = z.object({
+  channel: z.string().min(1),
+  limit: z.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+  oldest: z.string().optional(),
+  inclusive: z.boolean().optional(),
+});
+
+reg(
   "slack_dm_history",
   "Fetch DM / mpim history (same as channel history; convenience alias).",
-  {
-    channel: z.string().min(1),
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().optional(),
-    oldest: z.string().optional(),
-    inclusive: z.boolean().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      channel: z.string().min(1),
-      limit: z.number().int().min(1).max(200).optional(),
-      cursor: z.string().optional(),
-      oldest: z.string().optional(),
-      inclusive: z.boolean().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackDmHistorySchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
-      channel: parsed.data.channel,
-      limit: parsed.data.limit ?? 50,
+      channel: parsed.channel,
+      limit: parsed.limit ?? 50,
     };
-    if (parsed.data.cursor !== undefined && parsed.data.cursor !== "") {
-      body["cursor"] = parsed.data.cursor;
+    if (parsed.cursor !== undefined && parsed.cursor !== "") {
+      body["cursor"] = parsed.cursor;
     }
-    if (parsed.data.oldest !== undefined && parsed.data.oldest !== "") {
-      body["oldest"] = parsed.data.oldest;
+    if (parsed.oldest !== undefined && parsed.oldest !== "") {
+      body["oldest"] = parsed.oldest;
     }
-    if (parsed.data.inclusive !== undefined) {
-      body["inclusive"] = parsed.data.inclusive;
+    if (parsed.inclusive !== undefined) {
+      body["inclusive"] = parsed.inclusive;
     }
     const res = await slackApi(token, "conversations.history", body);
     if (!res.ok) {
@@ -242,26 +214,20 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const slackUserListSchema = z.object({
+  limit: z.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+});
+
+reg(
   "slack_user_list",
   "List users in the workspace (paginated).",
-  {
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      limit: z.number().int().min(1).max(200).optional(),
-      cursor: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackUserListSchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
-    const body: Record<string, unknown> = { limit: parsed.data.limit ?? 100 };
-    if (parsed.data.cursor !== undefined && parsed.data.cursor !== "") {
-      body["cursor"] = parsed.data.cursor;
+    const body: Record<string, unknown> = { limit: parsed.limit ?? 100 };
+    if (parsed.cursor !== undefined && parsed.cursor !== "") {
+      body["cursor"] = parsed.cursor;
     }
     const res = await slackApi(token, "users.list", body);
     if (!res.ok) {
@@ -271,92 +237,63 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
-  "slack_user_get",
-  "Get a single user profile by ID.",
-  { user: z.string().min(1) },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({ user: z.string().min(1) });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
-    const res = await slackApi(token, "users.info", { user: parsed.data.user });
-    if (!res.ok) {
-      throw new Error(`Slack users.info: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+const slackUserGetSchema = z.object({ user: z.string().min(1) });
 
-registerSimpleTool(
-  "slack_search",
-  "Search messages (workspace search).",
-  {
-    query: z.string().min(1),
-    count: z.number().int().min(1).max(100).optional(),
-    page: z.number().int().min(1).optional(),
-    sort: z.enum(["timestamp", "score"]).optional(),
-    sort_dir: z.enum(["asc", "desc"]).optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      query: z.string().min(1),
-      count: z.number().int().min(1).max(100).optional(),
-      page: z.number().int().min(1).optional(),
-      sort: z.enum(["timestamp", "score"]).optional(),
-      sort_dir: z.enum(["asc", "desc"]).optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
-    const body: Record<string, unknown> = {
-      query: parsed.data.query,
-      count: parsed.data.count ?? 20,
-      page: parsed.data.page ?? 1,
-    };
-    if (parsed.data.sort !== undefined) {
-      body["sort"] = parsed.data.sort;
-    }
-    if (parsed.data.sort_dir !== undefined) {
-      body["sort_dir"] = parsed.data.sort_dir;
-    }
-    const res = await slackApi(token, "search.messages", body);
-    if (!res.ok) {
-      throw new Error(`Slack search.messages: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
-  },
-);
+reg("slack_user_get", "Get a single user profile by ID.", slackUserGetSchema, async (parsed) => {
+  const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
+  const res = await slackApi(token, "users.info", { user: parsed.user });
+  if (!res.ok) {
+    throw new Error(`Slack users.info: ${res.text.slice(0, 400)}`);
+  }
+  return jsonResult(res.json);
+});
 
-registerSimpleTool(
+const slackSearchSchema = z.object({
+  query: z.string().min(1),
+  count: z.number().int().min(1).max(100).optional(),
+  page: z.number().int().min(1).optional(),
+  sort: z.enum(["timestamp", "score"]).optional(),
+  sort_dir: z.enum(["asc", "desc"]).optional(),
+});
+
+reg("slack_search", "Search messages (workspace search).", slackSearchSchema, async (parsed) => {
+  const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
+  const body: Record<string, unknown> = {
+    query: parsed.query,
+    count: parsed.count ?? 20,
+    page: parsed.page ?? 1,
+  };
+  if (parsed.sort !== undefined) {
+    body["sort"] = parsed.sort;
+  }
+  if (parsed.sort_dir !== undefined) {
+    body["sort_dir"] = parsed.sort_dir;
+  }
+  const res = await slackApi(token, "search.messages", body);
+  if (!res.ok) {
+    throw new Error(`Slack search.messages: ${res.text.slice(0, 400)}`);
+  }
+  return jsonResult(res.json);
+});
+
+const slackMessagePostSchema = z.object({
+  channel: z.string().min(1),
+  text: z.string().min(1),
+  thread_ts: z.string().optional(),
+});
+
+reg(
   "slack_message_post",
   "Post a message to a channel (requires HITL slack.message.post).",
-  {
-    channel: z.string().min(1),
-    text: z.string().min(1),
-    thread_ts: z.string().optional(),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      channel: z.string().min(1),
-      text: z.string().min(1),
-      thread_ts: z.string().optional(),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackMessagePostSchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const body: Record<string, unknown> = {
-      channel: parsed.data.channel,
-      text: parsed.data.text,
+      channel: parsed.channel,
+      text: parsed.text,
     };
-    if (parsed.data.thread_ts !== undefined && parsed.data.thread_ts !== "") {
-      body["thread_ts"] = parsed.data.thread_ts;
+    if (parsed.thread_ts !== undefined && parsed.thread_ts !== "") {
+      body["thread_ts"] = parsed.thread_ts;
     }
     const res = await slackApi(token, "chat.postMessage", body);
     if (!res.ok) {
@@ -366,25 +303,19 @@ registerSimpleTool(
   },
 );
 
-registerSimpleTool(
+const slackMessagePostDmSchema = z.object({
+  user_ids: z.string().min(1),
+  text: z.string().min(1),
+});
+
+reg(
   "slack_message_post_dm",
   "Open or find a DM with user id(s) and send a message (requires HITL slack.message.post).",
-  {
-    user_ids: z.string().min(1),
-    text: z.string().min(1),
-  },
-  async (args: unknown): Promise<McpListResult> => {
-    const schema = z.object({
-      user_ids: z.string().min(1),
-      text: z.string().min(1),
-    });
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
+  slackMessagePostDmSchema,
+  async (parsed) => {
     const token = requireProcessEnv("SLACK_USER_ACCESS_TOKEN");
     const open = await slackApi(token, "conversations.open", {
-      users: parsed.data.user_ids,
+      users: parsed.user_ids,
       return_im: true,
     });
     if (!open.ok) {
@@ -401,7 +332,7 @@ registerSimpleTool(
     }
     const post = await slackApi(token, "chat.postMessage", {
       channel: channelId,
-      text: parsed.data.text,
+      text: parsed.text,
     });
     if (!post.ok) {
       throw new Error(`Slack chat.postMessage (dm): ${post.text.slice(0, 400)}`);

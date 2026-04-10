@@ -1,20 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import {
   createMemoryIndexDb,
   createStubVault,
+  describeWithFetchRestore,
   silentSyncContextExtras,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 import { createLinearSyncable } from "./linear-sync.ts";
 
-describe("linear-sync", () => {
-  const origFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = origFetch;
-  });
-
+describeWithFetchRestore("linear-sync", () => {
   test("no-op when API key missing", async () => {
     const db = createMemoryIndexDb();
     const sync = createLinearSyncable({ ensureLinearMcpRunning: async () => {} });

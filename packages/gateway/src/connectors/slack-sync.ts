@@ -1,6 +1,7 @@
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord } from "./unknown-record.ts";
 
 const SERVICE_ID = "slack";
@@ -18,60 +19,57 @@ type SlackSyncCursorV1 = {
 };
 
 function encodeCursor(c: SlackSyncCursorV1): string {
-  const payload = JSON.stringify(c);
-  return `${CURSOR_PREFIX}${Buffer.from(payload, "utf8").toString("base64url")}`;
+  return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
 function decodeCursor(raw: string | null): SlackSyncCursorV1 | null {
-  if (raw === null || raw === "" || !raw.startsWith(CURSOR_PREFIX)) {
+  if (raw === null || raw === "") {
     return null;
   }
-  try {
-    const jsonText = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(jsonText);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    const phase = rec["phase"];
-    const floorTs = rec["floorTs"];
-    const ids = rec["ids"];
-    const nextIdx = rec["nextIdx"];
-    const hw = rec["hw"];
-    if (phase !== "list" && phase !== "history") {
-      return null;
-    }
-    if (typeof floorTs !== "string" || floorTs === "") {
-      return null;
-    }
-    if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string")) {
-      return null;
-    }
-    if (typeof nextIdx !== "number" || !Number.isInteger(nextIdx) || nextIdx < 0) {
-      return null;
-    }
-    const hwOut: Record<string, string | null> = {};
-    if (hw !== null && typeof hw === "object" && !Array.isArray(hw)) {
-      for (const [k, v] of Object.entries(hw as Record<string, unknown>)) {
-        hwOut[k] = typeof v === "string" ? v : null;
-      }
-    }
-    const listCursor = rec["listCursor"];
-    const histCursor = rec["histCursor"];
-    const teamSubdomain = rec["teamSubdomain"];
-    return {
-      phase,
-      floorTs,
-      ids: ids as string[],
-      nextIdx,
-      hw: hwOut,
-      listCursor: typeof listCursor === "string" ? listCursor : null,
-      histCursor: typeof histCursor === "string" ? histCursor : null,
-      teamSubdomain: typeof teamSubdomain === "string" ? teamSubdomain : null,
-    };
-  } catch {
+  const parsed = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (parsed === undefined) {
     return null;
   }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const rec = parsed as Record<string, unknown>;
+  const phase = rec["phase"];
+  const floorTs = rec["floorTs"];
+  const ids = rec["ids"];
+  const nextIdx = rec["nextIdx"];
+  const hw = rec["hw"];
+  if (phase !== "list" && phase !== "history") {
+    return null;
+  }
+  if (typeof floorTs !== "string" || floorTs === "") {
+    return null;
+  }
+  if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string")) {
+    return null;
+  }
+  if (typeof nextIdx !== "number" || !Number.isInteger(nextIdx) || nextIdx < 0) {
+    return null;
+  }
+  const hwOut: Record<string, string | null> = {};
+  if (hw !== null && typeof hw === "object" && !Array.isArray(hw)) {
+    for (const [k, v] of Object.entries(hw as Record<string, unknown>)) {
+      hwOut[k] = typeof v === "string" ? v : null;
+    }
+  }
+  const listCursor = rec["listCursor"];
+  const histCursor = rec["histCursor"];
+  const teamSubdomain = rec["teamSubdomain"];
+  return {
+    phase,
+    floorTs,
+    ids: ids as string[],
+    nextIdx,
+    hw: hwOut,
+    listCursor: typeof listCursor === "string" ? listCursor : null,
+    histCursor: typeof histCursor === "string" ? histCursor : null,
+    teamSubdomain: typeof teamSubdomain === "string" ? teamSubdomain : null,
+  };
 }
 
 function slackTsFromMs(ms: number): string {

@@ -1,21 +1,16 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import {
   createMemoryIndexDb,
   createStubVault,
+  describeWithFetchRestore,
   EMPTY_NIMBUS_VAULT,
   silentSyncContextExtras,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
 import { createJiraSyncable } from "./jira-sync.ts";
 
-describe("jira-sync", () => {
-  const origFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = origFetch;
-  });
-
+describeWithFetchRestore("jira-sync", () => {
   test("no-op when credentials missing", async () => {
     const db = createMemoryIndexDb();
     const sync = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });

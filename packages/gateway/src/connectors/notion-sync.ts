@@ -1,6 +1,12 @@
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { isoMs, maxIso } from "./sync-iso-helpers.ts";
+import {
+  decodeWatermarkCursorV1,
+  encodeWatermarkCursorV1,
+  type WatermarkCursorV1,
+} from "./sync-watermark-cursor-v1.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "notion";
@@ -8,44 +14,12 @@ const CURSOR_PREFIX = "nimbus-ntn1:";
 const NOTION_VERSION = "2022-06-28";
 const SEARCH_URL = "https://api.notion.com/v1/search";
 
-type NotionSyncCursorV1 = { v: 1; watermark: string | null };
-
-function encodeCursor(c: NotionSyncCursorV1): string {
-  const payload = JSON.stringify(c);
-  return `${CURSOR_PREFIX}${Buffer.from(payload, "utf8").toString("base64url")}`;
+function encodeCursor(c: WatermarkCursorV1): string {
+  return encodeWatermarkCursorV1(CURSOR_PREFIX, c);
 }
 
-function decodeCursor(raw: string | null): NotionSyncCursorV1 | null {
-  if (raw === null || raw === "" || !raw.startsWith(CURSOR_PREFIX)) {
-    return null;
-  }
-  try {
-    const jsonText = Buffer.from(raw.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(jsonText);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    if (rec["v"] !== 1) {
-      return null;
-    }
-    const w = rec["watermark"];
-    if (w !== null && w !== undefined && typeof w !== "string") {
-      return null;
-    }
-    return { v: 1, watermark: w ?? null };
-  } catch {
-    return null;
-  }
-}
-
-function isoMs(s: string): number {
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? t : 0;
-}
-
-function maxIso(a: string, b: string): string {
-  return isoMs(a) >= isoMs(b) ? a : b;
+function decodeCursor(raw: string | null): WatermarkCursorV1 | null {
+  return decodeWatermarkCursorV1(raw, CURSOR_PREFIX);
 }
 
 function extractTitleFromProperties(properties: unknown): string {

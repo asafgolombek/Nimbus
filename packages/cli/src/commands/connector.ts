@@ -208,6 +208,42 @@ function repeatChar(ch: string, n: number): string {
   return ch.repeat(Math.max(0, n));
 }
 
+function firstEnvTrimmed(keys: readonly string[]): string {
+  for (const k of keys) {
+    const v = process.env[k]?.trim();
+    if (v !== undefined && v !== "") {
+      return v;
+    }
+  }
+  return "";
+}
+
+function resolveAtlassianSiteCredentials(opts: {
+  username: string | undefined;
+  token: string | undefined;
+  apiBase: string | undefined;
+  emailEnvKeys: readonly string[];
+  tokenEnvKeys: readonly string[];
+  baseEnvKeys: readonly string[];
+  errEmail: string;
+  errToken: string;
+  errBase: string;
+}): { email: string; token: string; base: string } {
+  const mail = opts.username?.trim() || firstEnvTrimmed(opts.emailEnvKeys);
+  if (mail === "") {
+    throw new Error(opts.errEmail);
+  }
+  const apiTok = opts.token?.trim() || firstEnvTrimmed(opts.tokenEnvKeys);
+  if (apiTok === "") {
+    throw new Error(opts.errToken);
+  }
+  const baseRaw = opts.apiBase?.trim() || firstEnvTrimmed(opts.baseEnvKeys);
+  if (baseRaw === "") {
+    throw new Error(opts.errBase);
+  }
+  return { email: mail, token: apiTok, base: stripTrailingSlashes(baseRaw) };
+}
+
 async function runConnectorAuth(tail: string[]): Promise<void> {
   const { rest, port, scopes, token, username, apiBase } = parseFlags(tail);
   const service = rest[0];
@@ -287,63 +323,51 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
       break;
     }
     case "jira": {
-      const mail =
-        username ??
-        process.env["NIMBUS_JIRA_EMAIL"]?.trim() ??
-        process.env["ATLASSIAN_EMAIL"]?.trim();
-      if (mail === undefined || mail === "") {
-        throw new Error(
+      const {
+        email,
+        token: apiTok,
+        base,
+      } = resolveAtlassianSiteCredentials({
+        username,
+        token,
+        apiBase,
+        emailEnvKeys: ["NIMBUS_JIRA_EMAIL", "ATLASSIAN_EMAIL"],
+        tokenEnvKeys: ["NIMBUS_JIRA_API_TOKEN"],
+        baseEnvKeys: ["NIMBUS_JIRA_BASE_URL", "JIRA_BASE_URL"],
+        errEmail:
           "Jira requires your Atlassian account email: nimbus connector auth jira --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_EMAIL)",
-        );
-      }
-      const apiTok = token ?? process.env["NIMBUS_JIRA_API_TOKEN"]?.trim();
-      if (apiTok === undefined || apiTok === "") {
-        throw new Error(
+        errToken:
           "Jira requires an API token: nimbus connector auth jira --username <email> --token <api_token> --api-base <url>  (or set NIMBUS_JIRA_API_TOKEN)",
-        );
-      }
-      const base =
-        apiBase ??
-        process.env["NIMBUS_JIRA_BASE_URL"]?.trim() ??
-        process.env["JIRA_BASE_URL"]?.trim();
-      if (base === undefined || base === "") {
-        throw new Error(
+        errBase:
           "Jira requires the site URL: nimbus connector auth jira ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_BASE_URL)",
-        );
-      }
-      params.atlassianEmail = mail;
+      });
+      params.atlassianEmail = email;
       params.personalAccessToken = apiTok;
-      params.apiBaseUrl = stripTrailingSlashes(base);
+      params.apiBaseUrl = base;
       break;
     }
     case "confluence": {
-      const mail =
-        username ??
-        process.env["NIMBUS_CONFLUENCE_EMAIL"]?.trim() ??
-        process.env["ATLASSIAN_EMAIL"]?.trim();
-      if (mail === undefined || mail === "") {
-        throw new Error(
+      const {
+        email,
+        token: apiTok,
+        base,
+      } = resolveAtlassianSiteCredentials({
+        username,
+        token,
+        apiBase,
+        emailEnvKeys: ["NIMBUS_CONFLUENCE_EMAIL", "ATLASSIAN_EMAIL"],
+        tokenEnvKeys: ["NIMBUS_CONFLUENCE_API_TOKEN"],
+        baseEnvKeys: ["NIMBUS_CONFLUENCE_BASE_URL", "CONFLUENCE_BASE_URL"],
+        errEmail:
           "Confluence requires your Atlassian account email: nimbus connector auth confluence --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_EMAIL)",
-        );
-      }
-      const apiTok = token ?? process.env["NIMBUS_CONFLUENCE_API_TOKEN"]?.trim();
-      if (apiTok === undefined || apiTok === "") {
-        throw new Error(
+        errToken:
           "Confluence requires an API token: nimbus connector auth confluence ... (or set NIMBUS_CONFLUENCE_API_TOKEN)",
-        );
-      }
-      const base =
-        apiBase ??
-        process.env["NIMBUS_CONFLUENCE_BASE_URL"]?.trim() ??
-        process.env["CONFLUENCE_BASE_URL"]?.trim();
-      if (base === undefined || base === "") {
-        throw new Error(
+        errBase:
           "Confluence requires the site URL: ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_BASE_URL)",
-        );
-      }
-      params.atlassianEmail = mail;
+      });
+      params.atlassianEmail = email;
       params.personalAccessToken = apiTok;
-      params.apiBaseUrl = stripTrailingSlashes(base);
+      params.apiBaseUrl = base;
       break;
     }
     default:
