@@ -15,13 +15,19 @@ export async function fetchBearerAuthorizedJson(
   init?: RequestInit,
   defaultHeaders?: Record<string, string>,
 ): Promise<BearerJsonFetchResult> {
+  const mergedHeaders = new Headers({
+    Authorization: `Bearer ${token}`,
+    ...defaultHeaders,
+  });
+  if (init?.headers !== undefined) {
+    const extra = new Headers(init.headers);
+    for (const [k, v] of extra) {
+      mergedHeaders.set(k, v);
+    }
+  }
   const res = await fetch(url, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...defaultHeaders,
-      ...(init?.headers ?? {}),
-    },
+    headers: mergedHeaders,
   });
   const text = await res.text();
   let json: unknown;

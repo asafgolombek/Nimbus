@@ -38,6 +38,16 @@ You will receive an acknowledgement within **72 hours** and a status update with
 
 Nimbus's security is structural — the guarantees below are enforced by the code, not by policy or configuration.
 
+### Security Boundary
+
+Nimbus owns and enforces security within its process boundary. What sits below that boundary — the operating system, the disk, the physical machine — is the user's responsibility.
+
+**Nimbus's side:** credential storage, HITL enforcement, extension sandboxing, IPC access control, prompt injection defence, audit logging.
+
+**User's side:** strong OS login or biometric authentication, screen locking when unattended, physical machine security, disk encryption (BitLocker / FileVault / LUKS), active endpoint protection, and timely OS security updates. The OS-native keystores (DPAPI, Keychain, libsecret) protect against offline attacks such as a stolen disk. They do not protect against malware running live on the machine with user-level privileges.
+
+This boundary is why certain issue classes are listed as out of scope below — they describe vulnerabilities in the user's half of the model, not in Nimbus's.
+
 ### Credentials
 
 OAuth tokens and all secrets are stored exclusively in the OS-native keystore:
@@ -55,6 +65,8 @@ There is no code path that writes credentials to disk in plaintext, includes the
 Every destructive, outgoing, or irreversible action — delete, send, move — is blocked at the executor by a **frozen whitelist** (`HITL_REQUIRED` set in `packages/gateway/src/engine/executor.ts`). The agent cannot reason around it, configure around it, or inherit an extension that bypasses it. HITL is not a prompt instruction; it is a function call gate.
 
 Approved and rejected decisions are written to the local audit log before any action is taken.
+
+When a user approves a proposed action, responsibility for the outcome transfers to the user. Nimbus's obligation is to describe every proposed action accurately and completely before requesting consent. A user approving an action based on a misleading description is a Nimbus defect; a user approving an action they understood and intended is their own decision.
 
 ### Extension Sandbox
 
@@ -89,8 +101,8 @@ The following are in scope for vulnerability reports:
 
 The following are **out of scope**:
 
-- Vulnerabilities in the user's OS keystore implementation (DPAPI, Keychain, libsecret)
-- Issues requiring physical access to an already-compromised machine
+- Vulnerabilities in the user's OS keystore implementation (DPAPI, Keychain, libsecret) — these are the user's platform responsibility, not Nimbus's
+- Issues requiring physical access to an unlocked or unencrypted machine — physical and OS security are the user's side of the shared responsibility boundary
 - Theoretical attacks with no practical exploit path
 - Rate limiting or DoS on the local IPC socket (the socket is already local-only)
 

@@ -9,6 +9,8 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
 **Status:** Q2 2026 — The Bridge (active)
 
+**Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
+
 ---
 
 ## Non-Negotiables

@@ -26,12 +26,7 @@ export async function runAsk(args: string[]): Promise<void> {
     }
     const message = typeof p.prompt === "string" ? p.prompt : "Approve action?";
     const ok = await confirm({ message });
-    let approved = false;
-    if (isCancel(ok)) {
-      approved = false;
-    } else if (ok === true) {
-      approved = true;
-    }
+    const approved = !isCancel(ok) && ok === true;
     await client.call("consent.respond", {
       requestId: p.requestId,
       approved,

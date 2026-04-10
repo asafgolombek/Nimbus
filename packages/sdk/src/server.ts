@@ -33,7 +33,9 @@ export class NimbusExtensionServer<TClient = unknown> {
   }
 
   start(): void {
-    // Roadmap Q3: start MCP stdio server
-    void this._options;
+    // Roadmap Q3: start MCP stdio server; manifest is validated at construction time for extensions.
+    if (this._options.manifest.id.length === 0) {
+      throw new Error("NimbusExtensionServer: manifest.id is required");
+    }
   }
 }

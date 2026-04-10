@@ -60,6 +60,8 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 **Goal:** Connect every surface a developer works across — cloud storage, email, source control, communication, project tracking, and knowledge management — and unify them in the local index.
 
+**Implementation status:** A living checklist of what is merged in the repository (packages, sync, CLI, and tests) is maintained in [`q2-2026-plan.md`](./q2-2026-plan.md) — *Implementation status (living)* and *Acceptance Criteria Checklist*. The subsections below are the quarter’s scope; **`[x]`** means an MVP aligned with that bullet is shipped unless a short note says otherwise.
+
 ### Dependencies
 
 - Q1 complete (Gateway IPC, Vault, MCP connector mesh, delta sync foundation)
@@ -69,39 +71,41 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 ### Connector Deliverables
 
 #### Cloud Storage & Email
-- [ ] **Google Drive MCP connector** — file list, metadata, download, search; OAuth PKCE; delta sync via `Changes` API
-- [ ] **Gmail MCP connector** — message list, thread read, label list, draft create; OAuth PKCE
-- [ ] **Google Photos MCP connector** — album list, media item metadata (not binary download by default)
-- [ ] **OneDrive MCP connector** — files, folders, delta sync via Microsoft Graph `delta` endpoint
-- [ ] **Outlook MCP connector** — mail, calendar events, contacts; Microsoft Graph; first-party app registration
+- [x] **Google Drive MCP connector** — file list, metadata, download, search; OAuth PKCE; delta sync via `Changes` API
+- [x] **Gmail MCP connector** — message list, thread read, label list, draft create; OAuth PKCE
+- [x] **Google Photos MCP connector** — album list, media item metadata (not binary download by default)
+- [x] **OneDrive MCP connector** — files, folders, delta sync via Microsoft Graph `delta` endpoint
+- [x] **Outlook MCP connector** — mail, calendar events, contacts; Microsoft Graph; first-party app registration (mail delta sync shipped; calendar/contact Graph delta may extend in follow-ups)
 
 #### Source Control & Code Review
-- [ ] **GitHub MCP connector** — repos, PRs (open/closed/merged), issues, CI check runs, review comments; PAT or OAuth
-- [ ] **GitLab MCP connector** — projects, merge requests, issues, pipelines, CI jobs
-- [ ] **Bitbucket MCP connector** — repos, pull requests, pipelines, issues
+- [x] **GitHub MCP connector** — repos, PRs (open/closed/merged), issues, CI check runs, review comments; PAT or OAuth
+- [x] **GitLab MCP connector** — projects, merge requests, issues, pipelines, CI jobs
+- [x] **Bitbucket MCP connector** — repos, pull requests, pipelines, issues
 
 #### Communication
-- [ ] **Slack MCP connector** — messages, channels, threads, DMs, user list, search; OAuth user token; read-only index + write (post message) behind HITL
-- [ ] **Microsoft Teams MCP connector** — chats, channels, meetings, files; Microsoft Graph; read + write behind HITL
+- [x] **Slack MCP connector** — messages, channels, threads, DMs, user list, search; OAuth user token; read-only index + write (post message) behind HITL
+- [x] **Microsoft Teams MCP connector** — chats, channels, meetings, files; Microsoft Graph; read + write behind HITL
 - [ ] **Discord MCP connector** (opt-in, off by default) — servers, channels, threads; bot token; read-only index
 
 #### Project & Issue Tracking
-- [ ] **Linear MCP connector** — issues, projects, cycles, roadmap, comments, members; API key auth; write (create issue, update status) behind HITL
-- [ ] **Jira MCP connector** — issues, sprints, boards, epics, comments, attachments metadata; API token; write behind HITL
+- [x] **Linear MCP connector** — issues, projects, cycles, roadmap, comments, members; API key auth; write (create issue, update status) behind HITL
+- [x] **Jira MCP connector** — issues, sprints, boards, epics, comments, attachments metadata; API token; write behind HITL
 
 #### Knowledge Bases
-- [ ] **Notion MCP connector** — pages, databases, database rows, comments, linked mentions; OAuth; write behind HITL
-- [ ] **Confluence MCP connector** — spaces, pages, blog posts, inline comments; API token; write behind HITL
+- [x] **Notion MCP connector** — pages, databases, database rows, comments, linked mentions; OAuth; write behind HITL
+- [x] **Confluence MCP connector** — spaces, pages, blog posts, inline comments; API token; write behind HITL
 
 ### Infrastructure Deliverables
 
-- [ ] **Delta sync scheduler** — per-connector configurable intervals; exponential backoff on failure; sync state persisted in SQLite
-- [ ] **Unified metadata schema** — common `item` table across all services with `service`, `type`, `external_id`, `title`, `body_preview`, `modified_at`, `author_id` columns; FTS5 full-text index
-- [ ] **Cross-service people graph** — `person` table links Slack handle → GitHub login → Linear member → email address → Outlook contact; populated during sync; used by the agent for identity resolution
-- [ ] `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove`
-- [ ] E2E CLI test suite — mock MCP servers implementing the wire protocol; no real cloud calls in CI
+- [x] **Delta sync scheduler** — per-connector configurable intervals; exponential backoff on failure; sync state persisted in SQLite
+- [x] **Unified metadata schema** — common `item` table across all services with `service`, `type`, `external_id`, `title`, `body_preview`, `modified_at`, `author_id` columns; FTS5 full-text index; `person` table (see people graph below)
+- [ ] **Cross-service people graph** — linker and sync-time population so Slack handle → GitHub login → Linear member → email → Outlook contact resolves without a network call (`person` DDL and migrations are shipped; automated linking is still in flight — Q2 plan Phase 6)
+- [x] `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove` (also `resume`, `set-interval` — see Q2 plan §1.7)
+- [x] E2E CLI test suite — Gateway subprocess + wire-protocol tests; no real cloud calls in CI (suite grows with connectors)
 
 ### Acceptance Criteria
+
+Gate Q2 completion against the checklist in [`q2-2026-plan.md`](./q2-2026-plan.md) (*Acceptance Criteria Checklist*). At a high level:
 
 - `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results in under 200ms from the local index
 - `nimbus ask "who is the most active reviewer on the payment-service repo and what are they working on in Linear?"` resolves the cross-service identity link without a network call
@@ -153,7 +157,7 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 ### Workflow Automation
 
-- [ ] **Workflow pipelines** — multi-step workflows defined in natural language or YAML; versioned as files in `~/.config/nimbus/workflows/`; each step is a typed tool call; all write steps individually HITL-gated; pipelines are shareable (no credentials embedded)
+- [ ] **Workflow pipelines** — named, saved multi-step workflows stored in `~/.config/nimbus/workflows/`; same YAML format and execution engine as script files; all write steps individually HITL-gated; pipelines are shareable (no credentials embedded); `nimbus workflow save <path> --name <name>` promotes a script file into a saved pipeline
 - [ ] `nimbus workflow run <name>`, `list`, `edit`, `delete`, `history`
 - [ ] **Watcher system** — SQLite-backed event loop; watchers evaluate conditions on each sync cycle; fire notifications or trigger workflow pipelines
   - Condition types: `email_match`, `file_changed`, `file_not_changed`, `deploy_failed`, `alert_fired`, `pr_merged`, `schedule`
@@ -168,6 +172,16 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
   - Git-aware: indexes commit history, file blame, branch/tag list; generates diff summaries on `git push` events
   - Semantic code search: indexes function signatures, class names, exported symbols; links to GitHub PR history
   - Dependency graph: parses `package.json`, `go.mod`, `Cargo.toml`, `requirements.txt`; flags known-vulnerable versions
+
+### Interaction Layer
+
+- [ ] **Session CLI** — `nimbus` with no arguments launches an interactive session; conversation history maintained in the Gateway across turns using the RAG conversational memory foundation; context-aware follow-up queries understood without re-specifying prior results (e.g. "now move the ones from last month"); HITL consent rendered as inline conversation turns rather than one-shot interruptions; command mode (`nimbus ask "..."`) remains fully supported for scripting, automation, and CI pipelines; session state persists across CLI reconnects if the Gateway is still running
+- [ ] **Script files** — `nimbus run <path>` executes a YAML script as a single session with shared context across steps:
+  - Format: `steps` array of natural language instructions; optional per-step `label` and `continue-on-error`
+  - **Preview phase (mandatory):** before any execution, the engine analyses all steps, identifies every action requiring HITL approval, and presents a structured plan summary; user must confirm before step 1 runs
+  - **Execution phase:** steps run sequentially; context accumulates; HITL consent gates fire inline per step with full action details — no bypass, no pre-approval
+  - **No-TTY safety:** if no interactive terminal is attached and the script contains HITL-required steps, the Gateway aborts before executing any step and emits a structured error listing the offending steps; read-only scripts (no HITL-required actions) run without a TTY — safe for automation and CI
+  - **Convergence with workflow pipelines:** `nimbus run <path>` and `nimbus workflow run <name>` share the same execution engine; `nimbus workflow save ./script.yml --name <name>` promotes an ad-hoc script into a saved, named pipeline
 
 ### Agent Specialization
 
@@ -219,7 +233,7 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 ### Terminal Power Users
 
-- [ ] **Rich TUI** (Ink-based):
+- [ ] **Rich TUI** (Ink-based) — builds on the Q3 Session CLI interaction layer; extends it with a full pane layout:
   - Pane layout: query input, result stream, connector health sidebar, active watcher list
   - Keyboard navigation; no mouse required; works fully over SSH
   - Real-time HITL consent prompts inline (no separate process)

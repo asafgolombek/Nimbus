@@ -13,4 +13,4 @@
  */
 
 // Roadmap Q3: export ExtensionRegistry, ManifestValidator, ExtensionProcessManager
-export {};
+export const EXTENSION_REGISTRY_ROADMAP_PHASE = "Q3" as const;

@@ -53,6 +53,20 @@ type ItemRow = {
   pinned: number;
 };
 
+function itemTypeFromRowType(raw: string): NimbusItem["itemType"] {
+  if (
+    raw === "file" ||
+    raw === "folder" ||
+    raw === "email" ||
+    raw === "event" ||
+    raw === "photo" ||
+    raw === "task"
+  ) {
+    return raw;
+  }
+  return "file";
+}
+
 function ftsTitleMatchQuery(name: string): string {
   const tokens = name
     .trim()
@@ -69,11 +83,48 @@ function ftsTitleMatchQuery(name: string): string {
     .join(" AND ");
 }
 
+function applyItemMetadataColumn(item: NimbusItem, metadata: string): void {
+  try {
+    const parsed: unknown = JSON.parse(metadata);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return;
+    }
+    const rec = parsed as Record<string, unknown>;
+    item.rawMeta = { ...rec };
+    const mt = rec["mime_type"];
+    if (typeof mt === "string") {
+      item.mimeType = mt;
+    }
+    const sb = rec["size_bytes"];
+    if (typeof sb === "number" && Number.isFinite(sb)) {
+      item.sizeBytes = sb;
+    }
+    const pid = rec["parent_id"];
+    if (typeof pid === "string") {
+      item.parentId = pid;
+    }
+    const ca = rec["created_at"];
+    if (typeof ca === "number" && Number.isFinite(ca)) {
+      item.createdAt = ca;
+    }
+    delete item.rawMeta["mime_type"];
+    delete item.rawMeta["size_bytes"];
+    delete item.rawMeta["parent_id"];
+    delete item.rawMeta["created_at"];
+    delete item.rawMeta["legacy_raw_meta"];
+    if (Object.keys(item.rawMeta).length === 0) {
+      delete item.rawMeta;
+    }
+  } catch {
+    /* leave rawMeta unset */
+  }
+}
+
 function rowToItem(row: ItemRow): NimbusItem {
   const item: NimbusItem = {
     id: String(row.external_id),
     service: String(row.service),
-    itemType: String(row.type),
+    itemType: itemTypeFromRowType(String(row.type)),
     name: String(row.title),
   };
   item.modifiedAt = Number(row.modified_at);
@@ -81,39 +132,7 @@ function rowToItem(row: ItemRow): NimbusItem {
     item.url = String(row.url);
   }
   if (row.metadata != null && row.metadata !== "") {
-    try {
-      const parsed: unknown = JSON.parse(String(row.metadata));
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const rec = parsed as Record<string, unknown>;
-        item.rawMeta = { ...rec };
-        const mt = rec["mime_type"];
-        if (typeof mt === "string") {
-          item.mimeType = mt;
-        }
-        const sb = rec["size_bytes"];
-        if (typeof sb === "number" && Number.isFinite(sb)) {
-          item.sizeBytes = sb;
-        }
-        const pid = rec["parent_id"];
-        if (typeof pid === "string") {
-          item.parentId = pid;
-        }
-        const ca = rec["created_at"];
-        if (typeof ca === "number" && Number.isFinite(ca)) {
-          item.createdAt = ca;
-        }
-        delete item.rawMeta["mime_type"];
-        delete item.rawMeta["size_bytes"];
-        delete item.rawMeta["parent_id"];
-        delete item.rawMeta["created_at"];
-        delete item.rawMeta["legacy_raw_meta"];
-        if (Object.keys(item.rawMeta).length === 0) {
-          delete item.rawMeta;
-        }
-      }
-    } catch {
-      /* leave rawMeta unset */
-    }
+    applyItemMetadataColumn(item, String(row.metadata));
   }
   return item;
 }
@@ -242,16 +261,11 @@ export class LocalIndex {
     }
   }
 
-  search(query: IndexSearchQuery): NimbusItem[] {
-    const limit = Math.min(500, Math.max(1, query.limit ?? 50));
-    const nameQ = query.name?.trim() ?? "";
-    const useFts = nameQ.length > 0;
-    const fts = useFts ? ftsTitleMatchQuery(nameQ) : "";
-
-    if (useFts && fts === "") {
-      return [];
-    }
-
+  private static searchFiltersAndParams(query: IndexSearchQuery): {
+    filters: string[];
+    params: Array<string | number>;
+    whereExtra: string;
+  } {
     const filters: string[] = [];
     const params: Array<string | number> = [];
 
@@ -265,27 +279,56 @@ export class LocalIndex {
     }
 
     const whereExtra = filters.length > 0 ? `AND ${filters.join(" AND ")}` : "";
+    return { filters, params, whereExtra };
+  }
 
-    if (useFts) {
-      const sql = `
+  private searchWithFts(
+    fts: string,
+    whereExtra: string,
+    params: Array<string | number>,
+    limit: number,
+  ): NimbusItem[] {
+    const sql = `
         SELECT i.* FROM item i
         INNER JOIN item_fts ON i.rowid = item_fts.rowid
         WHERE item_fts MATCH ? ${whereExtra}
         LIMIT ?
       `;
-      params.unshift(fts);
-      params.push(limit);
-      const rows = this.db.query(sql).all(...params) as ItemRow[];
-      return rows.map(rowToItem);
-    }
+    const allParams = [fts, ...params, limit];
+    const rows = this.db.query(sql).all(...allParams) as ItemRow[];
+    return rows.map(rowToItem);
+  }
 
+  private searchWithoutFts(
+    filters: string[],
+    params: Array<string | number>,
+    limit: number,
+  ): NimbusItem[] {
     const sql =
       filters.length > 0
         ? `SELECT i.* FROM item i WHERE ${filters.join(" AND ")} LIMIT ?`
         : `SELECT i.* FROM item i LIMIT ?`;
-    params.push(limit);
-    const rows = this.db.query(sql).all(...params) as ItemRow[];
+    const allParams = [...params, limit];
+    const rows = this.db.query(sql).all(...allParams) as ItemRow[];
     return rows.map(rowToItem);
+  }
+
+  search(query: IndexSearchQuery): NimbusItem[] {
+    const limit = Math.min(500, Math.max(1, query.limit ?? 50));
+    const nameQ = query.name?.trim() ?? "";
+    const useFts = nameQ.length > 0;
+    const fts = useFts ? ftsTitleMatchQuery(nameQ) : "";
+
+    if (useFts && fts === "") {
+      return [];
+    }
+
+    const { filters, params, whereExtra } = LocalIndex.searchFiltersAndParams(query);
+
+    if (useFts) {
+      return this.searchWithFts(fts, whereExtra, params, limit);
+    }
+    return this.searchWithoutFts(filters, params, limit);
   }
 
   recordSync(connectorId: string, token: string): void {

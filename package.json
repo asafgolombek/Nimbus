@@ -11,7 +11,16 @@
     "packages/mcp-connectors/outlook",
     "packages/mcp-connectors/google-photos",
     "packages/mcp-connectors/google-drive",
-    "packages/mcp-connectors/gmail"
+    "packages/mcp-connectors/gmail",
+    "packages/mcp-connectors/github",
+    "packages/mcp-connectors/gitlab",
+    "packages/mcp-connectors/bitbucket",
+    "packages/mcp-connectors/slack",
+    "packages/mcp-connectors/teams",
+    "packages/mcp-connectors/linear",
+    "packages/mcp-connectors/jira",
+    "packages/mcp-connectors/notion",
+    "packages/mcp-connectors/confluence"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",

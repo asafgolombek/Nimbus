@@ -1,78 +1,19 @@
-import { runPKCEFlow } from "../auth/pkce.ts";
-import { Config } from "../config.ts";
-import {
-  type ConnectorServiceId,
-  defaultSyncIntervalMsForService,
-  GOOGLE_CONNECTOR_SERVICES,
-  MICROSOFT_CONNECTOR_SERVICES,
-  normalizeConnectorServiceId,
-  oauthProfileForService,
-} from "../connectors/connector-catalog.ts";
-import { clearOAuthVaultIfProviderUnused } from "../connectors/connector-vault.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
-import { countItemsForService, listRecentSyncTelemetry } from "../sync/scheduler-store.ts";
-import type { SyncStatus } from "../sync/types.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import {
+  handleConnectorAuth,
+  handleConnectorListStatus,
+  handleConnectorPause,
+  handleConnectorRemove,
+  handleConnectorResume,
+  handleConnectorSetInterval,
+  handleConnectorStatus,
+  handleConnectorSync,
+} from "./connector-rpc-handlers.ts";
+import { asRecord } from "./connector-rpc-shared.ts";
 
-export class ConnectorRpcError extends Error {
-  readonly rpcCode: number;
-  constructor(rpcCode: number, message: string) {
-    super(message);
-    this.rpcCode = rpcCode;
-    this.name = "ConnectorRpcError";
-  }
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return v as Record<string, unknown>;
-  }
-  return undefined;
-}
-
-function requireServiceId(rec: Record<string, unknown> | undefined): ConnectorServiceId {
-  const raw = rec !== undefined && typeof rec["serviceId"] === "string" ? rec["serviceId"] : "";
-  const id = normalizeConnectorServiceId(raw);
-  if (id === null) {
-    throw new ConnectorRpcError(-32602, "Invalid or unknown serviceId");
-  }
-  return id;
-}
-
-function requireRegisteredConnector(localIndex: LocalIndex, id: ConnectorServiceId): void {
-  if (localIndex.persistedConnectorStatuses(id).length === 0) {
-    throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
-  }
-}
-
-function sumItemsSiblingServices(
-  db: import("bun:sqlite").Database,
-  serviceId: ConnectorServiceId,
-  family: ReadonlySet<string>,
-): number {
-  let n = 0;
-  for (const s of family) {
-    if (s !== serviceId) {
-      n += countItemsForService(db, s);
-    }
-  }
-  return n;
-}
-
-function parseServiceArg(rec: Record<string, unknown> | undefined): ConnectorServiceId {
-  const raw =
-    rec !== undefined && typeof rec["service"] === "string"
-      ? rec["service"]
-      : rec !== undefined && typeof rec["serviceId"] === "string"
-        ? rec["serviceId"]
-        : "";
-  const id = normalizeConnectorServiceId(raw);
-  if (id === null) {
-    throw new ConnectorRpcError(-32602, "Invalid or unknown service");
-  }
-  return id;
-}
+export { ConnectorRpcError } from "./connector-rpc-shared.ts";
 
 export async function dispatchConnectorRpc(options: {
   method: string;
@@ -84,182 +25,25 @@ export async function dispatchConnectorRpc(options: {
 }): Promise<{ kind: "hit"; value: unknown } | { kind: "miss" }> {
   const { method, params, vault, localIndex, openUrl, syncScheduler } = options;
   const rec = asRecord(params);
+  const ctx = { rec, vault, localIndex, openUrl, syncScheduler };
 
   switch (method) {
-    case "connector.listStatus": {
-      const filter =
-        rec !== undefined && typeof rec["serviceId"] === "string" ? rec["serviceId"] : undefined;
-      let list: SyncStatus[];
-      if (filter !== undefined && filter !== "") {
-        const sid = normalizeConnectorServiceId(filter);
-        if (sid === null) {
-          throw new ConnectorRpcError(-32602, "Invalid serviceId filter");
-        }
-        list = localIndex.persistedConnectorStatuses(sid);
-      } else {
-        list = localIndex.persistedConnectorStatuses();
-      }
-      return { kind: "hit", value: list };
-    }
-
-    case "connector.pause": {
-      const id = requireServiceId(rec);
-      requireRegisteredConnector(localIndex, id);
-      if (syncScheduler !== undefined) {
-        syncScheduler.pause(id);
-      } else {
-        localIndex.pauseConnectorSync(id);
-      }
-      return { kind: "hit", value: { ok: true } };
-    }
-
-    case "connector.resume": {
-      const id = requireServiceId(rec);
-      requireRegisteredConnector(localIndex, id);
-      if (syncScheduler !== undefined) {
-        syncScheduler.resume(id);
-      } else {
-        localIndex.resumeConnectorSync(id);
-      }
-      return { kind: "hit", value: { ok: true } };
-    }
-
-    case "connector.setInterval": {
-      const id = requireServiceId(rec);
-      const msRaw = rec?.["intervalMs"];
-      if (typeof msRaw !== "number" || !Number.isFinite(msRaw) || msRaw < 1) {
-        throw new ConnectorRpcError(-32602, "Invalid intervalMs");
-      }
-      localIndex.setConnectorSyncIntervalMs(id, Math.floor(msRaw), Date.now());
-      if (syncScheduler !== undefined) {
-        syncScheduler.setInterval(id, Math.floor(msRaw));
-      }
-      return { kind: "hit", value: { ok: true } };
-    }
-
-    case "connector.status": {
-      const id = requireServiceId(rec);
-      const rows = localIndex.persistedConnectorStatuses(id);
-      if (rows.length === 0) {
-        throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
-      }
-      const row = rows[0];
-      if (row === undefined) {
-        throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
-      }
-      const includeStats = rec?.["includeStats"] === true || rec?.["stats"] === true;
-      if (!includeStats) {
-        return { kind: "hit", value: row };
-      }
-      const telemetry = listRecentSyncTelemetry(localIndex.getDatabase(), id, 15);
-      return { kind: "hit", value: { ...row, telemetry } };
-    }
-
-    case "connector.remove": {
-      const id = requireServiceId(rec);
-      const db = localIndex.getDatabase();
-      let googleOAuthBackup: string | null = null;
-      let microsoftOAuthBackup: string | null = null;
-      if (
-        GOOGLE_CONNECTOR_SERVICES.has(id) &&
-        sumItemsSiblingServices(db, id, GOOGLE_CONNECTOR_SERVICES) === 0
-      ) {
-        googleOAuthBackup = await vault.get("google.oauth");
-      }
-      if (
-        MICROSOFT_CONNECTOR_SERVICES.has(id) &&
-        sumItemsSiblingServices(db, id, MICROSOFT_CONNECTOR_SERVICES) === 0
-      ) {
-        microsoftOAuthBackup = await vault.get("microsoft.oauth");
-      }
-      if (syncScheduler !== undefined) {
-        syncScheduler.unregister(id);
-      }
-      const itemsDeleted = localIndex.removeConnectorIndexData(id);
-      let vaultKeys: string[] = [];
-      try {
-        vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
-      } catch (removeErr) {
-        if (googleOAuthBackup !== null) {
-          await vault.set("google.oauth", googleOAuthBackup);
-        }
-        if (microsoftOAuthBackup !== null) {
-          await vault.set("microsoft.oauth", microsoftOAuthBackup);
-        }
-        throw removeErr;
-      }
-      return { kind: "hit", value: { ok: true, itemsDeleted, vaultKeysRemoved: vaultKeys } };
-    }
-
-    case "connector.sync": {
-      const id = requireServiceId(rec);
-      requireRegisteredConnector(localIndex, id);
-      if (rec?.["full"] === true) {
-        localIndex.clearConnectorSyncCursor(id);
-      }
-      if (syncScheduler === undefined) {
-        throw new ConnectorRpcError(-32603, "Sync scheduler is not available");
-      }
-      await syncScheduler.forceSync(id);
-      return { kind: "hit", value: { ok: true } };
-    }
-
-    case "connector.auth": {
-      const id = parseServiceArg(rec);
-      const profile = oauthProfileForService(id);
-      const clientId =
-        profile.provider === "google" ? Config.oauthGoogleClientId : Config.oauthMicrosoftClientId;
-      if (clientId === "") {
-        throw new ConnectorRpcError(
-          -32602,
-          profile.provider === "google"
-            ? "Set NIMBUS_OAUTH_GOOGLE_CLIENT_ID to a registered desktop OAuth client id"
-            : "Set NIMBUS_OAUTH_MICROSOFT_CLIENT_ID to a registered desktop OAuth client id",
-        );
-      }
-      let scopes = profile.defaultScopes;
-      const scopeParam = rec?.["scopes"];
-      if (Array.isArray(scopeParam)) {
-        const next: string[] = [];
-        for (const s of scopeParam) {
-          if (typeof s === "string" && s.trim() !== "") {
-            next.push(s.trim());
-          }
-        }
-        if (next.length > 0) {
-          scopes = next;
-        }
-      }
-      const portRaw = rec?.["port"];
-      const redirectPort =
-        typeof portRaw === "number" && Number.isInteger(portRaw) && portRaw > 0 && portRaw <= 65_535
-          ? portRaw
-          : undefined;
-
-      const pkceBase = {
-        clientId,
-        scopes,
-        provider: profile.provider,
-        vault,
-        openUrl,
-      };
-      const tokens = await runPKCEFlow(
-        redirectPort !== undefined ? { ...pkceBase, redirectPort } : pkceBase,
-      );
-
-      const interval = defaultSyncIntervalMsForService(id);
-      localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
-
-      return {
-        kind: "hit",
-        value: {
-          ok: true,
-          serviceId: id,
-          scopesGranted: tokens.scopes,
-        },
-      };
-    }
-
+    case "connector.listStatus":
+      return handleConnectorListStatus(ctx);
+    case "connector.pause":
+      return handleConnectorPause(ctx);
+    case "connector.resume":
+      return handleConnectorResume(ctx);
+    case "connector.setInterval":
+      return handleConnectorSetInterval(ctx);
+    case "connector.status":
+      return handleConnectorStatus(ctx);
+    case "connector.remove":
+      return handleConnectorRemove(ctx);
+    case "connector.sync":
+      return handleConnectorSync(ctx);
+    case "connector.auth":
+      return handleConnectorAuth(ctx);
     default:
       return { kind: "miss" };
   }

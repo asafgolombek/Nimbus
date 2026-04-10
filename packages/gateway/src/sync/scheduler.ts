@@ -24,6 +24,9 @@ const DEFAULT_CONFIG: SyncSchedulerConfig = {
   retentionDays: 90,
 };
 
+/** If `next_sync_at` is only slightly before `start()`'s clock, treat as due now — not as backlog from a prior run. */
+const STARTUP_NEXT_SYNC_SLACK_MS = 250;
+
 type JobReason = "scheduled" | "continuation" | "force";
 
 type Job = {
@@ -38,6 +41,16 @@ function clampBackoffBaseMs(failures: number): number {
 
 function genericSyncErrorMessage(): string {
   return "Sync failed";
+}
+
+function toRejectionError(err: unknown): Error {
+  if (err instanceof Error) {
+    return err;
+  }
+  if (typeof err === "string") {
+    return new Error(err);
+  }
+  return new Error(genericSyncErrorMessage());
 }
 
 export class SyncScheduler {
@@ -108,7 +121,9 @@ export class SyncScheduler {
       for (const id of this.connectors.keys()) {
         const row = loadSchedulerState(this.db, id);
         if (row?.next_sync_at != null && row.next_sync_at < now) {
-          setNextSyncAt(this.db, id, now + row.interval_ms);
+          const overdueMs = now - row.next_sync_at;
+          const nextAt = overdueMs <= STARTUP_NEXT_SYNC_SLACK_MS ? now : now + row.interval_ms;
+          setNextSyncAt(this.db, id, nextAt);
         }
       }
     }
@@ -141,10 +156,10 @@ export class SyncScheduler {
     return new Promise((resolve, reject) => {
       const list = this.forceWaiters.get(serviceId) ?? [];
       list.push((err?: unknown) => {
-        if (err !== undefined) {
-          reject(err instanceof Error ? err : new Error(String(err)));
-        } else {
+        if (err === undefined) {
           resolve();
+        } else {
+          reject(toRejectionError(err));
         }
       });
       this.forceWaiters.set(serviceId, list);
@@ -290,88 +305,67 @@ export class SyncScheduler {
     return Math.min(30 * 60 * 1000, Math.floor(capped * jitter));
   }
 
-  private async runJob(job: Job): Promise<void> {
-    const connector = this.connectors.get(job.serviceId);
-    if (connector === undefined) {
-      this.resolveForceWaiters(
-        job.serviceId,
-        job.reason === "force" ? new Error("Unknown service") : undefined,
-      );
-      return;
-    }
-    const row = loadSchedulerState(this.db, job.serviceId);
-    if (row === null) {
-      this.resolveForceWaiters(
-        job.serviceId,
-        job.reason === "force" ? new Error("Missing scheduler state") : undefined,
-      );
-      return;
-    }
-    if (row.paused === 1 && job.reason !== "force") {
-      this.resolveForceWaiters(job.serviceId);
-      return;
-    }
-    if (row.status === "error" && job.reason !== "force") {
-      this.resolveForceWaiters(job.serviceId);
-      return;
-    }
-
-    const startedAt = Date.now();
-    let result: SyncResult;
-    try {
-      result = await connector.sync(this.ctx, row.cursor);
-    } catch {
-      const failures = row.consecutive_failures + 1;
-      const msg = genericSyncErrorMessage();
-      const durationMs = Date.now() - startedAt;
-      insertSyncTelemetry(this.db, {
-        service: job.serviceId,
-        startedAt,
-        durationMs,
-        itemsUpserted: 0,
-        itemsDeleted: 0,
-        bytesTransferred: null,
-        hadMore: false,
+  private runJobRecordSyncFailure(
+    job: Job,
+    row: NonNullable<ReturnType<typeof loadSchedulerState>>,
+    startedAt: number,
+    msg: string,
+  ): void {
+    const failures = row.consecutive_failures + 1;
+    const durationMs = Date.now() - startedAt;
+    insertSyncTelemetry(this.db, {
+      service: job.serviceId,
+      startedAt,
+      durationMs,
+      itemsUpserted: 0,
+      itemsDeleted: 0,
+      bytesTransferred: null,
+      hadMore: false,
+      errorMsg: msg,
+    });
+    if (failures >= 5) {
+      updateSchedulerState(this.db, {
+        serviceId: job.serviceId,
+        cursor: row.cursor,
+        intervalMs: row.interval_ms,
+        lastSyncAt: row.last_sync_at,
+        nextSyncAt: null,
+        status: "error",
         errorMsg: msg,
+        consecutiveFailures: failures,
+        paused: row.paused === 1,
       });
-      if (failures >= 5) {
-        updateSchedulerState(this.db, {
-          serviceId: job.serviceId,
-          cursor: row.cursor,
-          intervalMs: row.interval_ms,
-          lastSyncAt: row.last_sync_at,
-          nextSyncAt: null,
-          status: "error",
-          errorMsg: msg,
-          consecutiveFailures: failures,
-          paused: row.paused === 1,
-        });
-        void this.notify?.(
-          "Nimbus sync failed",
-          `Service "${job.serviceId}" stopped after repeated failures.`,
-        );
-      } else {
-        const delay = this.backoffDelayMs(failures);
-        updateSchedulerState(this.db, {
-          serviceId: job.serviceId,
-          cursor: row.cursor,
-          intervalMs: row.interval_ms,
-          lastSyncAt: row.last_sync_at,
-          nextSyncAt: Date.now() + delay,
-          status: "backoff",
-          errorMsg: msg,
-          consecutiveFailures: failures,
-          paused: row.paused === 1,
-        });
-      }
-      if (job.reason === "force") {
-        this.resolveForceWaiters(job.serviceId, new Error(msg));
-      } else {
-        this.resolveForceWaiters(job.serviceId);
-      }
-      return;
+      void this.notify?.(
+        "Nimbus sync failed",
+        `Service "${job.serviceId}" stopped after repeated failures.`,
+      );
+    } else {
+      const delay = this.backoffDelayMs(failures);
+      updateSchedulerState(this.db, {
+        serviceId: job.serviceId,
+        cursor: row.cursor,
+        intervalMs: row.interval_ms,
+        lastSyncAt: row.last_sync_at,
+        nextSyncAt: Date.now() + delay,
+        status: "backoff",
+        errorMsg: msg,
+        consecutiveFailures: failures,
+        paused: row.paused === 1,
+      });
     }
+    if (job.reason === "force") {
+      this.resolveForceWaiters(job.serviceId, new Error(msg));
+    } else {
+      this.resolveForceWaiters(job.serviceId);
+    }
+  }
 
+  private runJobRecordSyncSuccess(
+    job: Job,
+    row: NonNullable<ReturnType<typeof loadSchedulerState>>,
+    startedAt: number,
+    result: SyncResult,
+  ): void {
     const durationMs = Date.now() - startedAt;
     const bytes =
       result.bytesTransferred !== undefined && Number.isFinite(result.bytesTransferred)
@@ -409,5 +403,43 @@ export class SyncScheduler {
     }
 
     this.resolveForceWaiters(job.serviceId);
+  }
+
+  private async runJob(job: Job): Promise<void> {
+    const connector = this.connectors.get(job.serviceId);
+    if (connector === undefined) {
+      this.resolveForceWaiters(
+        job.serviceId,
+        job.reason === "force" ? new Error("Unknown service") : undefined,
+      );
+      return;
+    }
+    const row = loadSchedulerState(this.db, job.serviceId);
+    if (row === null) {
+      this.resolveForceWaiters(
+        job.serviceId,
+        job.reason === "force" ? new Error("Missing scheduler state") : undefined,
+      );
+      return;
+    }
+    if (row.paused === 1 && job.reason !== "force") {
+      this.resolveForceWaiters(job.serviceId);
+      return;
+    }
+    if (row.status === "error" && job.reason !== "force") {
+      this.resolveForceWaiters(job.serviceId);
+      return;
+    }
+
+    const startedAt = Date.now();
+    let result: SyncResult;
+    try {
+      result = await connector.sync(this.ctx, row.cursor);
+    } catch {
+      this.runJobRecordSyncFailure(job, row, startedAt, genericSyncErrorMessage());
+      return;
+    }
+
+    this.runJobRecordSyncSuccess(job, row, startedAt, result);
   }
 }

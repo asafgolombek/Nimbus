@@ -24,23 +24,23 @@ export function parseStoredOAuthTokens(
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    throw new Error(errs.invalidJson);
+    throw new TypeError(errs.invalidJson);
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(errs.invalidPayload);
+    throw new TypeError(errs.invalidPayload);
   }
   const rec = parsed as Record<string, unknown>;
   const accessToken = rec["accessToken"];
   const refreshToken = rec["refreshToken"];
   const expiresAt = rec["expiresAt"];
   if (typeof accessToken !== "string" || accessToken === "") {
-    throw new Error(errs.missingAccess);
+    throw new TypeError(errs.missingAccess);
   }
   if (typeof refreshToken !== "string" || refreshToken === "") {
-    throw new Error(errs.missingRefresh);
+    throw new TypeError(errs.missingRefresh);
   }
   if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) {
-    throw new Error(errs.missingExpiry);
+    throw new TypeError(errs.missingExpiry);
   }
   return { accessToken, refreshToken, expiresAt };
 }

@@ -3,12 +3,9 @@
  * @see architecture.md §IPC Protocol
  */
 
-import {
-  IPC_MAX_LINE_BYTES as SDK_IPC_MAX_LINE_BYTES,
-  NdjsonLineReader as SdkNdjsonLineReader,
-} from "@nimbus-dev/sdk/ipc";
+import { NdjsonLineReader as SdkNdjsonLineReader } from "@nimbus-dev/sdk/ipc";
 
-export const IPC_MAX_LINE_BYTES = SDK_IPC_MAX_LINE_BYTES;
+export { IPC_MAX_LINE_BYTES } from "@nimbus-dev/sdk/ipc";
 
 export type JsonRpcId = string | number | null;
 

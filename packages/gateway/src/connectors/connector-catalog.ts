@@ -8,6 +8,14 @@ export const CONNECTOR_SERVICE_IDS = [
   "onedrive",
   "outlook",
   "teams",
+  "slack",
+  "github",
+  "gitlab",
+  "bitbucket",
+  "linear",
+  "jira",
+  "notion",
+  "confluence",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -40,9 +48,19 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
     case "gmail":
     case "outlook":
     case "teams":
+    case "slack":
+    case "notion":
       return 5 * 60 * 1000;
+    case "confluence":
+      return 10 * 60 * 1000;
     case "google_photos":
       return 6 * 60 * 60 * 1000;
+    case "github":
+    case "gitlab":
+    case "bitbucket":
+    case "linear":
+    case "jira":
+      return 60 * 1000;
     default: {
       const _exhaustive: never = serviceId;
       return _exhaustive;
@@ -98,14 +116,62 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
       return {
         provider: "microsoft",
         defaultScopes: [
+          "Team.ReadBasic.All",
+          "Channel.ReadBasic.All",
           "ChannelMessage.Read.All",
+          "ChannelMessage.Send",
           "Chat.Read",
+          "ChatMessage.Send",
           "User.Read",
           "offline_access",
           "openid",
           "profile",
         ],
       };
+    case "slack":
+      return {
+        provider: "slack",
+        defaultScopes: [
+          "channels:read",
+          "channels:history",
+          "groups:read",
+          "groups:history",
+          "im:read",
+          "im:history",
+          "mpim:read",
+          "mpim:history",
+          "users:read",
+          "users:read.email",
+          "search:read",
+          "chat:write",
+        ],
+      };
+    case "github":
+      throw new Error(
+        "oauthProfileForService: github uses a PAT (connector.auth personalAccessToken)",
+      );
+    case "gitlab":
+      throw new Error(
+        "oauthProfileForService: gitlab uses a PAT (connector.auth personalAccessToken)",
+      );
+    case "bitbucket":
+      throw new Error(
+        "oauthProfileForService: bitbucket uses app password (connector.auth username + token)",
+      );
+    case "linear":
+      throw new Error(
+        "oauthProfileForService: linear uses an API key (connector.auth personalAccessToken)",
+      );
+    case "jira":
+      throw new Error(
+        "oauthProfileForService: jira uses email + API token + base URL (connector.auth)",
+      );
+    case "notion":
+      return { provider: "notion", defaultScopes: [] };
+    case "confluence":
+      throw new Error(
+        "oauthProfileForService: confluence uses email + API token + base URL (connector.auth)",
+      );
     default: {
       const _never: never = serviceId;
       return _never;

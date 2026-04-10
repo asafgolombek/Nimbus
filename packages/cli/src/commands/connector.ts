@@ -1,6 +1,7 @@
 import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { parseDurationToMs } from "../lib/parse-duration.ts";
+import { stripTrailingSlashes } from "../lib/strip-trailing-slashes.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
 type SyncStatus = {
@@ -30,6 +31,9 @@ type ConnectorFlags = {
   rest: string[];
   port?: number;
   scopes?: string[];
+  token?: string;
+  username?: string;
+  apiBase?: string;
   full?: boolean;
 };
 
@@ -96,10 +100,21 @@ function truncateText(s: string, maxLen: number): string {
   return `${s.slice(0, maxLen - 1)}…`;
 }
 
+function takeFlagValue(q: string[], flagLabel: string): string {
+  const v = q.shift();
+  if (v === undefined) {
+    throw new Error(`Missing value for ${flagLabel}`);
+  }
+  return v;
+}
+
 function parseFlags(args: string[]): ConnectorFlags {
   const rest: string[] = [];
   let port: number | undefined;
   let scopes: string[] | undefined;
+  let token: string | undefined;
+  let username: string | undefined;
+  let apiBase: string | undefined;
   let full: boolean | undefined;
   const q = [...args];
 
@@ -109,10 +124,7 @@ function parseFlags(args: string[]): ConnectorFlags {
       break;
     }
     if (a === "--port" || a === "-p") {
-      const v = q.shift();
-      if (v === undefined) {
-        throw new Error("Missing value for --port");
-      }
+      const v = takeFlagValue(q, "--port");
       const n = Number(v);
       if (!Number.isInteger(n) || n < 1 || n > 65_535) {
         throw new Error("Invalid --port");
@@ -121,18 +133,39 @@ function parseFlags(args: string[]): ConnectorFlags {
       continue;
     }
     if (a === "--scopes" || a === "-s") {
-      const v = q.shift();
-      if (v === undefined) {
-        throw new Error("Missing value for --scopes");
-      }
+      const v = takeFlagValue(q, "--scopes");
       scopes = v
         .split(",")
         .map((x) => x.trim())
         .filter((x) => x.length > 0);
       continue;
     }
+    if (a === "--token" || a === "-t") {
+      const v = takeFlagValue(q, "--token").trim();
+      if (v === "") {
+        throw new Error("Invalid --token (empty)");
+      }
+      token = v;
+      continue;
+    }
+    if (a === "--username" || a === "-u") {
+      const v = takeFlagValue(q, "--username").trim();
+      if (v === "") {
+        throw new Error("Invalid --username (empty)");
+      }
+      username = v;
+      continue;
+    }
     if (a === "--full") {
       full = true;
+      continue;
+    }
+    if (a === "--api-base") {
+      const v = takeFlagValue(q, "--api-base").trim();
+      if (v === "") {
+        throw new Error("Invalid --api-base (empty)");
+      }
+      apiBase = stripTrailingSlashes(v);
       continue;
     }
     rest.push(a);
@@ -144,6 +177,15 @@ function parseFlags(args: string[]): ConnectorFlags {
   }
   if (scopes !== undefined) {
     out.scopes = scopes;
+  }
+  if (token !== undefined) {
+    out.token = token;
+  }
+  if (username !== undefined) {
+    out.username = username;
+  }
+  if (apiBase !== undefined) {
+    out.apiBase = apiBase;
   }
   if (full !== undefined) {
     out.full = full;
@@ -159,24 +201,253 @@ function repeatChar(ch: string, n: number): string {
   return ch.repeat(Math.max(0, n));
 }
 
+function firstEnvTrimmed(keys: readonly string[]): string {
+  for (const k of keys) {
+    const v = process.env[k]?.trim();
+    if (v !== undefined && v !== "") {
+      return v;
+    }
+  }
+  return "";
+}
+
+function resolveAtlassianSiteCredentials(opts: {
+  username: string | undefined;
+  token: string | undefined;
+  apiBase: string | undefined;
+  emailEnvKeys: readonly string[];
+  tokenEnvKeys: readonly string[];
+  baseEnvKeys: readonly string[];
+  errEmail: string;
+  errToken: string;
+  errBase: string;
+}): { email: string; token: string; base: string } {
+  const mail = opts.username?.trim() || firstEnvTrimmed(opts.emailEnvKeys);
+  if (mail === "") {
+    throw new Error(opts.errEmail);
+  }
+  const apiTok = opts.token?.trim() || firstEnvTrimmed(opts.tokenEnvKeys);
+  if (apiTok === "") {
+    throw new Error(opts.errToken);
+  }
+  const baseRaw = opts.apiBase?.trim() || firstEnvTrimmed(opts.baseEnvKeys);
+  if (baseRaw === "") {
+    throw new Error(opts.errBase);
+  }
+  return { email: mail, token: apiTok, base: stripTrailingSlashes(baseRaw) };
+}
+
+/** PAT-style connectors: CLI `--token` or first non-empty env in the list. */
+function requirePatFromFlagsOrEnv(
+  token: string | undefined,
+  envKeys: readonly string[],
+  errMsg: string,
+): string {
+  const pat = token?.trim() || firstEnvTrimmed(envKeys);
+  if (pat === "") {
+    throw new Error(errMsg);
+  }
+  return pat;
+}
+
+type AtlassianConnectorSiteConfig = {
+  readonly emailEnvKeys: readonly string[];
+  readonly tokenEnvKeys: readonly string[];
+  readonly baseEnvKeys: readonly string[];
+  readonly errEmail: string;
+  readonly errToken: string;
+  readonly errBase: string;
+};
+
+const JIRA_CONNECTOR_SITE: AtlassianConnectorSiteConfig = {
+  emailEnvKeys: ["NIMBUS_JIRA_EMAIL", "ATLASSIAN_EMAIL"],
+  tokenEnvKeys: ["NIMBUS_JIRA_API_TOKEN"],
+  baseEnvKeys: ["NIMBUS_JIRA_BASE_URL", "JIRA_BASE_URL"],
+  errEmail:
+    "Jira requires your Atlassian account email: nimbus connector auth jira --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_EMAIL)",
+  errToken:
+    "Jira requires an API token: nimbus connector auth jira --username <email> --token <api_token> --api-base <url>  (or set NIMBUS_JIRA_API_TOKEN)",
+  errBase:
+    "Jira requires the site URL: nimbus connector auth jira ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_JIRA_BASE_URL)",
+};
+
+const CONFLUENCE_CONNECTOR_SITE: AtlassianConnectorSiteConfig = {
+  emailEnvKeys: ["NIMBUS_CONFLUENCE_EMAIL", "ATLASSIAN_EMAIL"],
+  tokenEnvKeys: ["NIMBUS_CONFLUENCE_API_TOKEN"],
+  baseEnvKeys: ["NIMBUS_CONFLUENCE_BASE_URL", "CONFLUENCE_BASE_URL"],
+  errEmail:
+    "Confluence requires your Atlassian account email: nimbus connector auth confluence --username <email> --token <api_token> --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_EMAIL)",
+  errToken:
+    "Confluence requires an API token: nimbus connector auth confluence ... (or set NIMBUS_CONFLUENCE_API_TOKEN)",
+  errBase:
+    "Confluence requires the site URL: ... --api-base https://your-domain.atlassian.net  (or set NIMBUS_CONFLUENCE_BASE_URL)",
+};
+
+function applyAtlassianSiteConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  username: string | undefined,
+  apiBase: string | undefined,
+  site: AtlassianConnectorSiteConfig,
+): void {
+  const {
+    email,
+    token: apiTok,
+    base,
+  } = resolveAtlassianSiteCredentials({
+    username,
+    token,
+    apiBase,
+    emailEnvKeys: site.emailEnvKeys,
+    tokenEnvKeys: site.tokenEnvKeys,
+    baseEnvKeys: site.baseEnvKeys,
+    errEmail: site.errEmail,
+    errToken: site.errToken,
+    errBase: site.errBase,
+  });
+  p.atlassianEmail = email;
+  p.personalAccessToken = apiTok;
+  p.apiBaseUrl = base;
+}
+
+type ConnectorAuthParams = {
+  service: string;
+  port?: number;
+  scopes?: string[];
+  personalAccessToken?: string;
+  bitbucketUsername?: string;
+  atlassianEmail?: string;
+  apiBaseUrl?: string;
+};
+
+function applyLinearConnectorAuth(p: ConnectorAuthParams, token: string | undefined): void {
+  p.personalAccessToken = requirePatFromFlagsOrEnv(
+    token,
+    ["NIMBUS_LINEAR_API_KEY"],
+    "Linear requires an API key: nimbus connector auth linear --token <key>  (or set NIMBUS_LINEAR_API_KEY)",
+  );
+}
+
+function applyGithubConnectorAuth(p: ConnectorAuthParams, token: string | undefined): void {
+  p.personalAccessToken = requirePatFromFlagsOrEnv(
+    token,
+    ["NIMBUS_GITHUB_PAT"],
+    "GitHub requires a PAT: nimbus connector auth github --token <pat>  (or set NIMBUS_GITHUB_PAT in the environment)",
+  );
+}
+
+function applyGitlabConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  apiBase: string | undefined,
+): void {
+  p.personalAccessToken = requirePatFromFlagsOrEnv(
+    token,
+    ["NIMBUS_GITLAB_PAT"],
+    "GitLab requires a PAT: nimbus connector auth gitlab --token <pat>  (or set NIMBUS_GITLAB_PAT in the environment)",
+  );
+  if (apiBase !== undefined) {
+    p.apiBaseUrl = apiBase;
+  }
+}
+
+function applyBitbucketConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  username: string | undefined,
+): void {
+  const u =
+    username ??
+    process.env["NIMBUS_BITBUCKET_USERNAME"]?.trim() ??
+    process.env["BITBUCKET_USERNAME"]?.trim();
+  if (u === undefined || u === "") {
+    throw new Error(
+      "Bitbucket requires username: nimbus connector auth bitbucket --username <atlassian_username> --token <app_password>  (or set NIMBUS_BITBUCKET_USERNAME)",
+    );
+  }
+  const appPass = token ?? process.env["NIMBUS_BITBUCKET_APP_PASSWORD"]?.trim();
+  if (appPass === undefined || appPass === "") {
+    throw new Error(
+      "Bitbucket requires an app password: nimbus connector auth bitbucket --username ... --token <app_password>  (or set NIMBUS_BITBUCKET_APP_PASSWORD)",
+    );
+  }
+  p.bitbucketUsername = u;
+  p.personalAccessToken = appPass;
+}
+
+function applyJiraConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  username: string | undefined,
+  apiBase: string | undefined,
+): void {
+  applyAtlassianSiteConnectorAuth(p, token, username, apiBase, JIRA_CONNECTOR_SITE);
+}
+
+function applyConfluenceConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  username: string | undefined,
+  apiBase: string | undefined,
+): void {
+  applyAtlassianSiteConnectorAuth(p, token, username, apiBase, CONFLUENCE_CONNECTOR_SITE);
+}
+
 async function runConnectorAuth(tail: string[]): Promise<void> {
-  const { rest, port, scopes } = parseFlags(tail);
+  const { rest, port, scopes, token, username, apiBase } = parseFlags(tail);
   const service = rest[0];
   if (service === undefined) {
-    throw new Error("Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b]");
+    throw new Error(
+      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--username <u>] [--api-base <url>]",
+    );
   }
-  const params: { service: string; port?: number; scopes?: string[] } = { service };
+  const params: ConnectorAuthParams = { service };
   if (port !== undefined) {
     params.port = port;
   }
   if (scopes !== undefined) {
     params.scopes = scopes;
   }
+  const normalized = service.trim().toLowerCase().replaceAll("-", "_");
+  switch (normalized) {
+    case "linear":
+      applyLinearConnectorAuth(params, token);
+      break;
+    case "github":
+      applyGithubConnectorAuth(params, token);
+      break;
+    case "gitlab":
+      applyGitlabConnectorAuth(params, token, apiBase);
+      break;
+    case "bitbucket":
+      applyBitbucketConnectorAuth(params, token, username);
+      break;
+    case "jira":
+      applyJiraConnectorAuth(params, token, username, apiBase);
+      break;
+    case "confluence":
+      applyConfluenceConnectorAuth(params, token, username, apiBase);
+      break;
+    default:
+      break;
+  }
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
   console.log(`Signed in: ${res.serviceId}`);
-  console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
+  const vaultPatServices = new Set([
+    "github",
+    "gitlab",
+    "bitbucket",
+    "linear",
+    "jira",
+    "confluence",
+  ]);
+  if (vaultPatServices.has(res.serviceId)) {
+    console.log("Credential: stored in the OS vault (no OAuth scopes).");
+  } else {
+    console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
+  }
 }
 
 async function runConnectorList(): Promise<void> {
@@ -229,9 +500,9 @@ function parseStatusArgs(tail: string[]): { service: string; stats: boolean } {
   for (const a of tail) {
     if (a === "--stats") {
       stats = true;
-      continue;
+    } else {
+      rest.push(a);
     }
-    rest.push(a);
   }
   const service = rest[0];
   if (service === undefined) {
@@ -354,7 +625,7 @@ function printConnectorHelp(): void {
   console.log(`nimbus connector — cloud connector registration and sync (Q2)
 
 Usage:
-  nimbus connector auth <service> [--port <n>] [--scopes a,b]
+  nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>]
   nimbus connector list
   nimbus connector status <service> [--stats]
   nimbus connector sync <service> [--full]
@@ -363,11 +634,19 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence
 
-OAuth client ids (required for auth):
+OAuth client ids (required for Google/Microsoft auth):
   NIMBUS_OAUTH_GOOGLE_CLIENT_ID
   NIMBUS_OAUTH_MICROSOFT_CLIENT_ID
+
+GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).
+GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-base https://git.example.com/api/v4 (gitlab.api_base).
+Linear: use --token or env NIMBUS_LINEAR_API_KEY (linear.api_key).
+Jira: use --username (Atlassian email), --token (API token), --api-base https://your-domain.atlassian.net
+  or env NIMBUS_JIRA_EMAIL, NIMBUS_JIRA_API_TOKEN, NIMBUS_JIRA_BASE_URL (jira.email, jira.api_token, jira.base_url).
+Notion: OAuth in the browser (notion.oauth). Requires NIMBUS_OAUTH_NOTION_CLIENT_ID and NIMBUS_OAUTH_NOTION_CLIENT_SECRET.
+Confluence: same flags/env pattern as Jira (NIMBUS_CONFLUENCE_* → confluence.email, confluence.api_token, confluence.base_url).
 
 Credentials are stored in the OS vault only (never printed here).
 `);

@@ -18,5 +18,6 @@ describe("@nimbus-dev/sdk", () => {
       },
     });
     expect(server).toBeDefined();
+    expect(() => server.start()).not.toThrow();
   });
 });

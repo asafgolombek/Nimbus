@@ -56,7 +56,9 @@ async function main(): Promise<void> {
   process.stdout.write(`[gateway] ready (${GATEWAY_VERSION}) IPC ${platform.paths.socketPath}\n`);
 }
 
-main().catch((err: unknown) => {
+try {
+  await main();
+} catch (err: unknown) {
   console.error("[gateway] fatal:", err);
   process.exit(1);
-});
+}
