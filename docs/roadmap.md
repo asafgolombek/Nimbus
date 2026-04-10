@@ -60,6 +60,8 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 **Goal:** Connect every surface a developer works across — cloud storage, email, source control, communication, project tracking, and knowledge management — and unify them in the local index.
 
+**Implementation status:** A living checklist of what is merged in the repository (packages, sync, CLI, and tests) is maintained in [`q2-2026-plan.md`](./q2-2026-plan.md) — *Implementation status (living)* and *Acceptance Criteria Checklist*. The subsections below are the quarter’s scope; **`[x]`** means an MVP aligned with that bullet is shipped unless a short note says otherwise.
+
 ### Dependencies
 
 - Q1 complete (Gateway IPC, Vault, MCP connector mesh, delta sync foundation)
@@ -69,39 +71,41 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 ### Connector Deliverables
 
 #### Cloud Storage & Email
-- [ ] **Google Drive MCP connector** — file list, metadata, download, search; OAuth PKCE; delta sync via `Changes` API
-- [ ] **Gmail MCP connector** — message list, thread read, label list, draft create; OAuth PKCE
-- [ ] **Google Photos MCP connector** — album list, media item metadata (not binary download by default)
-- [ ] **OneDrive MCP connector** — files, folders, delta sync via Microsoft Graph `delta` endpoint
-- [ ] **Outlook MCP connector** — mail, calendar events, contacts; Microsoft Graph; first-party app registration
+- [x] **Google Drive MCP connector** — file list, metadata, download, search; OAuth PKCE; delta sync via `Changes` API
+- [x] **Gmail MCP connector** — message list, thread read, label list, draft create; OAuth PKCE
+- [x] **Google Photos MCP connector** — album list, media item metadata (not binary download by default)
+- [x] **OneDrive MCP connector** — files, folders, delta sync via Microsoft Graph `delta` endpoint
+- [x] **Outlook MCP connector** — mail, calendar events, contacts; Microsoft Graph; first-party app registration (mail delta sync shipped; calendar/contact Graph delta may extend in follow-ups)
 
 #### Source Control & Code Review
-- [ ] **GitHub MCP connector** — repos, PRs (open/closed/merged), issues, CI check runs, review comments; PAT or OAuth
-- [ ] **GitLab MCP connector** — projects, merge requests, issues, pipelines, CI jobs
-- [ ] **Bitbucket MCP connector** — repos, pull requests, pipelines, issues
+- [x] **GitHub MCP connector** — repos, PRs (open/closed/merged), issues, CI check runs, review comments; PAT or OAuth
+- [x] **GitLab MCP connector** — projects, merge requests, issues, pipelines, CI jobs
+- [x] **Bitbucket MCP connector** — repos, pull requests, pipelines, issues
 
 #### Communication
-- [ ] **Slack MCP connector** — messages, channels, threads, DMs, user list, search; OAuth user token; read-only index + write (post message) behind HITL
-- [ ] **Microsoft Teams MCP connector** — chats, channels, meetings, files; Microsoft Graph; read + write behind HITL
+- [x] **Slack MCP connector** — messages, channels, threads, DMs, user list, search; OAuth user token; read-only index + write (post message) behind HITL
+- [x] **Microsoft Teams MCP connector** — chats, channels, meetings, files; Microsoft Graph; read + write behind HITL
 - [ ] **Discord MCP connector** (opt-in, off by default) — servers, channels, threads; bot token; read-only index
 
 #### Project & Issue Tracking
-- [ ] **Linear MCP connector** — issues, projects, cycles, roadmap, comments, members; API key auth; write (create issue, update status) behind HITL
-- [ ] **Jira MCP connector** — issues, sprints, boards, epics, comments, attachments metadata; API token; write behind HITL
+- [x] **Linear MCP connector** — issues, projects, cycles, roadmap, comments, members; API key auth; write (create issue, update status) behind HITL
+- [x] **Jira MCP connector** — issues, sprints, boards, epics, comments, attachments metadata; API token; write behind HITL
 
 #### Knowledge Bases
-- [ ] **Notion MCP connector** — pages, databases, database rows, comments, linked mentions; OAuth; write behind HITL
-- [ ] **Confluence MCP connector** — spaces, pages, blog posts, inline comments; API token; write behind HITL
+- [x] **Notion MCP connector** — pages, databases, database rows, comments, linked mentions; OAuth; write behind HITL
+- [x] **Confluence MCP connector** — spaces, pages, blog posts, inline comments; API token; write behind HITL
 
 ### Infrastructure Deliverables
 
-- [ ] **Delta sync scheduler** — per-connector configurable intervals; exponential backoff on failure; sync state persisted in SQLite
-- [ ] **Unified metadata schema** — common `item` table across all services with `service`, `type`, `external_id`, `title`, `body_preview`, `modified_at`, `author_id` columns; FTS5 full-text index
-- [ ] **Cross-service people graph** — `person` table links Slack handle → GitHub login → Linear member → email address → Outlook contact; populated during sync; used by the agent for identity resolution
-- [ ] `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove`
-- [ ] E2E CLI test suite — mock MCP servers implementing the wire protocol; no real cloud calls in CI
+- [x] **Delta sync scheduler** — per-connector configurable intervals; exponential backoff on failure; sync state persisted in SQLite
+- [x] **Unified metadata schema** — common `item` table across all services with `service`, `type`, `external_id`, `title`, `body_preview`, `modified_at`, `author_id` columns; FTS5 full-text index; `person` table (see people graph below)
+- [ ] **Cross-service people graph** — linker and sync-time population so Slack handle → GitHub login → Linear member → email → Outlook contact resolves without a network call (`person` DDL and migrations are shipped; automated linking is still in flight — Q2 plan Phase 6)
+- [x] `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove` (also `resume`, `set-interval` — see Q2 plan §1.7)
+- [x] E2E CLI test suite — Gateway subprocess + wire-protocol tests; no real cloud calls in CI (suite grows with connectors)
 
 ### Acceptance Criteria
+
+Gate Q2 completion against the checklist in [`q2-2026-plan.md`](./q2-2026-plan.md) (*Acceptance Criteria Checklist*). At a high level:
 
 - `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results in under 200ms from the local index
 - `nimbus ask "who is the most active reviewer on the payment-service repo and what are they working on in Linear?"` resolves the cross-service identity link without a network call

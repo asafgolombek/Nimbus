@@ -1,6 +1,6 @@
 ---
 description: Nimbus project rules — local-first AI agent framework. Apply to all TypeScript, config, and workflow files.
-globs: ["**/*.ts", "**/*.tsx", "**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"]
+globs: ["**/*.ts", "**/*.tsx", "**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml", "docs/**/*.md", "CLAUDE.md", "GEMINI.md", "architecture.md"]
 alwaysApply: true
 ---
 
@@ -27,7 +27,7 @@ Every design decision is evaluated against one question: **Does this return agen
 - `HITL_REQUIRED` is a `ReadonlySet<string>` frozen at module load — `Object.freeze(new Set([...]))`
 - It is not a prompt instruction. It is not configurable at runtime. It cannot be bypassed.
 - Any suggestion to "skip" or "bypass" or "configure" the consent gate is invalid
-- HITL-required actions: `file.delete`, `file.move`, `file.rename`, `file.create`, `email.send`, `email.draft.send`, `email.draft.create`, `calendar.event.create`, `calendar.event.delete`, `photo.delete`, `onedrive.delete`, `onedrive.move`, `slack.message.post`, `teams.message.post`, `teams.message.postChat`, `linear.issue.create`, `linear.issue.update`, `linear.comment.create`, `jira.issue.create`, `jira.issue.update`, `jira.comment.add`, `notion.page.create`, `notion.page.update`, `notion.block.append`, `notion.comment.create`, `confluence.page.create`, `confluence.page.update`, `confluence.comment.add` (see `executor.ts` for the full frozen set including repo/CI actions)
+- HITL-required actions: `file.delete`, `file.move`, `file.rename`, `file.create`, `email.send`, `email.draft.send`, `email.draft.create`, `calendar.event.create`, `calendar.event.delete`, `photo.delete`, `onedrive.delete`, `onedrive.move`, `slack.message.post`, `teams.message.post`, `teams.message.postChat`, `linear.issue.create`, `linear.issue.update`, `linear.comment.create`, `jira.issue.create`, `jira.issue.update`, `jira.comment.add`, `notion.page.create`, `notion.page.update`, `notion.block.append`, `notion.comment.create`, `confluence.page.create`, `confluence.page.update`, `confluence.comment.add`, plus `repo.*`, `pipeline.*`, `deployment.*`, `infra.*`, `k8s.*`, `cloud.*`, `alert.*`, and `incident.*` action types reserved for future connectors — see `packages/gateway/src/engine/executor.ts` for the authoritative frozen set
 - Audit log is written BEFORE execution, not after
 
 ### 3. No Plaintext Credentials

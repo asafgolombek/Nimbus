@@ -413,6 +413,8 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 **Goal:** Connect the cloud, developer tooling, and the communication + collaboration surface every engineer lives in. Unify the index.
 
+**Status (April 2026):** First-party MCP connectors and Gateway sync are implemented for Google Drive, Gmail, Google Photos, OneDrive, Outlook, GitHub, GitLab, Bitbucket, Slack, Teams, Linear, Jira, Notion, and Confluence (see the living table in [`q2-2026-plan.md`](./q2-2026-plan.md)). Remaining Q2 scope includes the **Discord** connector (opt-in), **cross-service people-graph linking** (schema is in SQLite; automated identity resolution is still in flight), and the **acceptance checklist** in that plan.
+
 **Cloud storage & email**
 - Google Drive, Gmail, Google Photos MCP connectors (OAuth PKCE)
 - OneDrive, Outlook MCP connectors (Microsoft Graph, first-party)
@@ -437,7 +439,7 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 - Delta sync scheduler — configurable per-connector intervals
 - Unified metadata index across all services (documents, emails, messages, PRs, issues, pages)
 - Cross-service people graph — links email contacts to PR authors to Slack handles to Linear assignees
-- `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`
+- `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove`, `resume`, `set-interval`
 - E2E CLI test suite with mock MCP servers
 
 **Milestone:** `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results from all services in under 200ms using the local index. `nimbus ask "who is the most active reviewer on the payment-service repo and what are they working on in Linear?"` resolves a cross-service identity link without a network call.
@@ -548,10 +550,21 @@ nimbus/
 │   │       ├── components/   # ConsentDialog, ExtensionMarketplace, ...
 │   │       └── pages/        # Dashboard, Search, Marketplace, Settings
 │   │
-│   ├── mcp-connectors/       # First-party MCP servers
+│   ├── mcp-connectors/       # First-party MCP servers (workspace packages)
+│   │   ├── google-drive/
+│   │   ├── gmail/
+│   │   ├── google-photos/
 │   │   ├── onedrive/
 │   │   ├── outlook/
-│   │   └── google-photos/
+│   │   ├── github/
+│   │   ├── gitlab/
+│   │   ├── bitbucket/
+│   │   ├── slack/
+│   │   ├── teams/
+│   │   ├── linear/
+│   │   ├── jira/
+│   │   ├── notion/
+│   │   └── confluence/
 │   │
 │   └── sdk/                  # @nimbus-dev/sdk (published to npm)
 │
