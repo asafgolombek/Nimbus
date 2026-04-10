@@ -34,6 +34,10 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "slack.message.post",
   "teams.message.post",
   "teams.message.postChat",
+  // Linear
+  "linear.issue.create",
+  "linear.issue.update",
+  "linear.comment.create",
   // Source control
   "repo.pr.merge",
   "repo.pr.close",

@@ -59,8 +59,13 @@ function slackMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "slack", "src", "server.ts");
 }
 
+function linearMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "linear", "src", "server.ts");
+}
+
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack credential MCP when vault keys exist (Q2 §1.6 / Phase 2–4).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear credential MCP when vault keys exist (Q2 §1.6 / Phase 2–5).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -76,6 +81,8 @@ export class LazyConnectorMesh {
   private bitbucketIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private slackClient: MCPClient | undefined;
   private slackIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private linearClient: MCPClient | undefined;
+  private linearIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -145,6 +152,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearLinearIdleTimer(): void {
+    if (this.linearIdleTimer !== undefined) {
+      clearTimeout(this.linearIdleTimer);
+      this.linearIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -190,6 +204,14 @@ export class LazyConnectorMesh {
     this.slackIdleTimer = setTimeout(() => {
       this.slackIdleTimer = undefined;
       void this.stopSlackClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleLinearDisconnect(): void {
+    this.clearLinearIdleTimer();
+    this.linearIdleTimer = setTimeout(() => {
+      this.linearIdleTimer = undefined;
+      void this.stopLinearClient();
     }, this.inactivityMs);
   }
 
@@ -261,6 +283,19 @@ export class LazyConnectorMesh {
   private async stopSlackClient(): Promise<void> {
     const c = this.slackClient;
     this.slackClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopLinearClient(): Promise<void> {
+    const c = this.linearClient;
+    this.linearClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -463,6 +498,33 @@ export class LazyConnectorMesh {
     this.scheduleSlackDisconnect();
   }
 
+  /**
+   * Starts Linear MCP when `linear.api_key` is present in the Vault.
+   */
+  async ensureLinearRunning(): Promise<void> {
+    this.clearLinearIdleTimer();
+    if (this.linearClient !== undefined) {
+      this.scheduleLinearDisconnect();
+      return;
+    }
+    const key = await this.vault.get("linear.api_key");
+    if (key === null || key === "") {
+      return;
+    }
+    this.linearClient = new MCPClient({
+      id: `nimbus-linear-${String(Date.now())}`,
+      servers: {
+        linear: {
+          command: "bun",
+          args: [linearMcpScriptPath()],
+          env: { ...process.env, LINEAR_API_KEY: key },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleLinearDisconnect();
+  }
+
   async listTools(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
@@ -491,6 +553,10 @@ export class LazyConnectorMesh {
     if (rawSlack !== null && rawSlack !== "") {
       await this.ensureSlackRunning();
     }
+    const rawLinear = await this.vault.get("linear.api_key");
+    if (rawLinear !== null && rawLinear !== "") {
+      await this.ensureLinearRunning();
+    }
 
     const fsTools = await this.filesystem.listTools();
     const gdTools =
@@ -502,6 +568,7 @@ export class LazyConnectorMesh {
     const bbTools =
       this.bitbucketClient !== undefined ? await this.bitbucketClient.listTools() : {};
     const slackTools = this.slackClient !== undefined ? await this.slackClient.listTools() : {};
+    const linearTools = this.linearClient !== undefined ? await this.linearClient.listTools() : {};
     return {
       ...fsTools,
       ...gdTools,
@@ -510,6 +577,7 @@ export class LazyConnectorMesh {
       ...glTools,
       ...bbTools,
       ...slackTools,
+      ...linearTools,
     } as Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>;
   }
 
@@ -520,12 +588,14 @@ export class LazyConnectorMesh {
     this.clearGitlabIdleTimer();
     this.clearBitbucketIdleTimer();
     this.clearSlackIdleTimer();
+    this.clearLinearIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
     await this.stopGitlabClient();
     await this.stopBitbucketClient();
     await this.stopSlackClient();
+    await this.stopLinearClient();
     try {
       await this.filesystem.disconnect();
     } catch {

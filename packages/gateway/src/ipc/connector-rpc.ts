@@ -197,6 +197,10 @@ export async function dispatchConnectorRpc(options: {
           await vault.delete("slack.oauth");
           vaultKeys.push("slack.oauth");
         }
+        if (id === "linear") {
+          await vault.delete("linear.api_key");
+          vaultKeys.push("linear.api_key");
+        }
       } catch (removeErr) {
         if (googleOAuthBackup !== null) {
           await vault.set("google.oauth", googleOAuthBackup);
@@ -255,6 +259,24 @@ export async function dispatchConnectorRpc(options: {
         } else {
           await vault.delete("gitlab.api_base");
         }
+        const interval = defaultSyncIntervalMsForService(id);
+        localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
+        return {
+          kind: "hit",
+          value: {
+            ok: true,
+            serviceId: id,
+            scopesGranted: [] as string[],
+          },
+        };
+      }
+      if (id === "linear") {
+        const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"] ?? rec?.["apiKey"];
+        const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+        if (token === "") {
+          throw new ConnectorRpcError(-32602, "Missing API key for linear");
+        }
+        await vault.set("linear.api_key", token);
         const interval = defaultSyncIntervalMsForService(id);
         localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
         return {

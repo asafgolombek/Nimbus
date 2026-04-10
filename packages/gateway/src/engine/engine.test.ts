@@ -53,6 +53,9 @@ describe("HITL_REQUIRED", () => {
       "slack.message.post",
       "teams.message.post",
       "teams.message.postChat",
+      "linear.issue.create",
+      "linear.issue.update",
+      "linear.comment.create",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -204,6 +207,39 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(teamsAction);
+    });
+  }
+
+  for (const linearAction of [
+    "linear.issue.create",
+    "linear.issue.update",
+    "linear.comment.create",
+  ] as const) {
+    test(`rejected consent for ${linearAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload =
+        linearAction === "linear.issue.create"
+          ? {
+              mcpToolId: "linear_linear_issue_create",
+              input: { teamId: "t1", title: "x" },
+            }
+          : linearAction === "linear.issue.update"
+            ? {
+                mcpToolId: "linear_linear_issue_update",
+                input: { issueId: "i1", title: "y" },
+              }
+            : {
+                mcpToolId: "linear_linear_comment_create",
+                input: { issueId: "i1", body: "c" },
+              };
+      const out = await exec.execute({ type: linearAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(linearAction);
     });
   }
 

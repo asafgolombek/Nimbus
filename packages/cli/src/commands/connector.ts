@@ -230,6 +230,15 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     params.scopes = scopes;
   }
   const normalized = service.trim().toLowerCase().replaceAll("-", "_");
+  if (normalized === "linear") {
+    const apiKey = token ?? process.env["NIMBUS_LINEAR_API_KEY"]?.trim();
+    if (apiKey === undefined || apiKey === "") {
+      throw new Error(
+        "Linear requires an API key: nimbus connector auth linear --token <key>  (or set NIMBUS_LINEAR_API_KEY)",
+      );
+    }
+    params.personalAccessToken = apiKey;
+  }
   if (normalized === "github") {
     const pat = token ?? process.env["NIMBUS_GITHUB_PAT"]?.trim();
     if (pat === undefined || pat === "") {
@@ -274,7 +283,12 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
   console.log(`Signed in: ${res.serviceId}`);
-  if (res.serviceId === "github" || res.serviceId === "gitlab" || res.serviceId === "bitbucket") {
+  if (
+    res.serviceId === "github" ||
+    res.serviceId === "gitlab" ||
+    res.serviceId === "bitbucket" ||
+    res.serviceId === "linear"
+  ) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");
   } else {
     console.log(`Scopes: ${res.scopesGranted.join(", ")}`);
@@ -465,7 +479,7 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear
 
 OAuth client ids (required for Google/Microsoft auth):
   NIMBUS_OAUTH_GOOGLE_CLIENT_ID
@@ -473,6 +487,7 @@ OAuth client ids (required for Google/Microsoft auth):
 
 GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).
 GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-base https://git.example.com/api/v4 (gitlab.api_base).
+Linear: use --token or env NIMBUS_LINEAR_API_KEY (linear.api_key).
 
 Credentials are stored in the OS vault only (never printed here).
 `);

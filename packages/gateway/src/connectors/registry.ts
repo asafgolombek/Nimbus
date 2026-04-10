@@ -66,6 +66,10 @@ export type McpToolListingClient = {
  *
  * Teams (HITL): `teams.message.post` → `teams_teams_message_post`;
  * `teams.message.postChat` → `teams_teams_message_post_chat`.
+ *
+ * Linear (HITL): `linear.issue.create` → `linear_linear_issue_create`;
+ * `linear.issue.update` → `linear_linear_issue_update`;
+ * `linear.comment.create` → `linear_linear_comment_create`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

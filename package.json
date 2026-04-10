@@ -16,7 +16,8 @@
     "packages/mcp-connectors/gitlab",
     "packages/mcp-connectors/bitbucket",
     "packages/mcp-connectors/slack",
-    "packages/mcp-connectors/teams"
+    "packages/mcp-connectors/teams",
+    "packages/mcp-connectors/linear"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",
