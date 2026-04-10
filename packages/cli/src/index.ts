@@ -11,6 +11,7 @@ import {
   runAsk,
   runAudit,
   runConnector,
+  runPeople,
   runStart,
   runStatus,
   runStop,
@@ -48,6 +49,9 @@ try {
       break;
     case "connector":
       await runConnector(args);
+      break;
+    case "people":
+      await runPeople(args);
       break;
     default:
       console.error(`Unknown command: ${command}`);

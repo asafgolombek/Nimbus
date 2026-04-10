@@ -1,4 +1,8 @@
+import type { Database } from "bun:sqlite";
+
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
+import type { PersonSyncHints } from "../people/person-types.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
@@ -27,6 +31,30 @@ function decodeCursor(raw: string | null): GithubSyncCursorV1 | null {
   const rec = parsed as Record<string, unknown>;
   const etag = rec["etag"];
   return { etag: typeof etag === "string" ? etag : null };
+}
+
+function resolveGithubActorPersonId(
+  db: Database,
+  user: Record<string, unknown> | undefined,
+): string | null {
+  if (user === undefined) {
+    return null;
+  }
+  const login = stringField(user, "login");
+  if (login === undefined || login === "") {
+    return null;
+  }
+  const emailRaw = stringField(user, "email");
+  const email =
+    emailRaw !== undefined && emailRaw !== "" ? emailRaw.trim().toLowerCase() : undefined;
+  const hints: PersonSyncHints = {
+    displayName: login,
+    githubLogin: login,
+  };
+  if (email !== undefined) {
+    return resolvePersonForSync(db, { ...hints, canonicalEmail: email });
+  }
+  return resolvePersonForSync(db, hints);
 }
 
 function modifiedMsFromGithubTimestamps(
@@ -66,6 +94,7 @@ function upsertFromPullRequest(
   const modified = modifiedMsFromGithubTimestamps(pr, now);
   const user = asRecord(pr["user"]);
   const login = user === undefined ? undefined : stringField(user, "login");
+  const authorId = resolveGithubActorPersonId(ctx.db, user);
   const meta: Record<string, unknown> = {
     number: num,
     repo: repoFull,
@@ -84,7 +113,7 @@ function upsertFromPullRequest(
     url: htmlUrl ?? null,
     canonicalUrl: htmlUrl ?? null,
     modifiedAt: modified,
-    authorId: null,
+    authorId,
     metadata: meta,
     pinned: false,
     syncedAt: now,
@@ -107,6 +136,7 @@ function upsertFromIssue(
   const modified = modifiedMsFromGithubTimestamps(issue, now);
   const user = asRecord(issue["user"]);
   const login = user === undefined ? undefined : stringField(user, "login");
+  const authorId = resolveGithubActorPersonId(ctx.db, user);
   const meta: Record<string, unknown> = {
     number: num,
     repo: repoFull,
@@ -123,7 +153,7 @@ function upsertFromIssue(
     url: htmlUrl ?? null,
     canonicalUrl: htmlUrl ?? null,
     modifiedAt: modified,
-    authorId: null,
+    authorId,
     metadata: meta,
     pinned: false,
     syncedAt: now,

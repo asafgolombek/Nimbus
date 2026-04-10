@@ -17,6 +17,7 @@ import {
   deleteItemByPrimaryKey,
   upsertNimbusItemIntoItemTable,
 } from "./item-store.ts";
+import { prunePeopleAfterServiceRemoval } from "../people/prune.ts";
 import { runIndexedSchemaMigrations } from "./migrations/runner.ts";
 
 export { RAW_META_MAX_BYTES } from "./constants.ts";
@@ -138,7 +139,7 @@ function rowToItem(row: ItemRow): NimbusItem {
 }
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 3;
+  static readonly SCHEMA_VERSION = 4;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -229,8 +230,22 @@ export class LocalIndex {
       deleteAllItemsForService(this.db, serviceId);
       deleteSchedulerStateRow(this.db, serviceId);
       this.db.run("DELETE FROM sync_state WHERE connector_id = ?", [serviceId]);
+      prunePeopleAfterServiceRemoval(this.db, serviceId);
       return n;
     })();
+  }
+
+  /**
+   * Items whose `author_id` matches (newest first). Used by `people.items` IPC.
+   */
+  listItemsForAuthor(personId: string, limit: number): NimbusItem[] {
+    const lim = Math.min(200, Math.max(1, Math.floor(limit)));
+    const rows = this.db
+      .query(
+        `SELECT * FROM item WHERE author_id = ? ORDER BY modified_at DESC LIMIT ?`,
+      )
+      .all(personId, lim) as ItemRow[];
+    return rows.map(rowToItem);
   }
 
   upsert(item: NimbusItem): void {

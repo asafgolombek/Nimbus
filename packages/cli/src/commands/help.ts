@@ -12,6 +12,7 @@ Usage:
   nimbus vault list [pfx]   List vault key names
   nimbus audit [--limit N]  Recent HITL audit rows
   nimbus connector …       Register connectors, OAuth, sync status (see: nimbus connector help)
+  nimbus people …          Cross-service people graph (list, search, get, items, link)
   nimbus help               Show this message
 
 Environment (optional):

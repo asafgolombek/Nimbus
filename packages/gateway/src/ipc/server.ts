@@ -10,6 +10,7 @@ import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { AgentInvokeHandler } from "./agent-invoke.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
+import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
 import {
   encodeLine,
@@ -310,6 +311,29 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   }
 
   const connectorRpcSkipped = Symbol("connectorRpcSkipped");
+  const peopleRpcSkipped = Symbol("peopleRpcSkipped");
+
+  function tryDispatchPeopleRpc(method: string, params: unknown): unknown {
+    if (!method.startsWith("people.") || options.localIndex === undefined) {
+      return peopleRpcSkipped;
+    }
+    try {
+      const out = dispatchPeopleRpc({
+        method,
+        params,
+        localIndex: options.localIndex,
+      });
+      if (out.kind === "hit") {
+        return out.value;
+      }
+    } catch (e) {
+      if (e instanceof PeopleRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+    return peopleRpcSkipped;
+  }
 
   async function tryDispatchConnectorRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("connector.") || options.localIndex === undefined) {
@@ -351,6 +375,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const connectorOutcome = await tryDispatchConnectorRpc(method, params);
     if (connectorOutcome !== connectorRpcSkipped) {
       return connectorOutcome;
+    }
+
+    const peopleOutcome = tryDispatchPeopleRpc(method, params);
+    if (peopleOutcome !== peopleRpcSkipped) {
+      return peopleOutcome;
     }
 
     switch (method) {

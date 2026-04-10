@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS person (
   linear_member_id  TEXT,
   jira_account_id   TEXT,
   notion_user_id    TEXT,
-  metadata          TEXT
+  metadata          TEXT,
+  linked            INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS item (

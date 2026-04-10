@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
+import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import {
   UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL,
   UNIFIED_ITEM_V3_SCHEMA_SQL,
@@ -14,6 +15,11 @@ CREATE TABLE IF NOT EXISTS _schema_migrations (
   applied_at INTEGER NOT NULL
 );
 `;
+
+function personTableHasLinkedColumn(db: Database): boolean {
+  const rows = db.query("PRAGMA table_info(person)").all() as Array<{ name: string }>;
+  return rows.some((r) => r.name === "linked");
+}
 
 function readUserVersion(db: Database): number {
   const row = db.query("PRAGMA user_version").get() as { user_version: number } | undefined;
@@ -53,6 +59,9 @@ function backfillMigrationsLedger(db: Database): void {
     }
     if (uv >= 3) {
       recordMigration(db, 3, "unified item + item_fts + person (backfilled)", now);
+    }
+    if (uv >= 4) {
+      recordMigration(db, 4, "person.linked (backfilled)", now);
     }
   })();
 }
@@ -96,6 +105,19 @@ export function runIndexedSchemaMigrations(db: Database, targetVersion: number):
       recordMigration(db, 3, "unified item + item_fts + person", now);
     })();
     ver = 3;
+  }
+  if (ver === 3 && targetVersion >= 4) {
+    db.transaction(() => {
+      if (!personTableHasLinkedColumn(db)) {
+        db.exec(PERSON_LINKED_V4_ALTER_SQL.trim());
+      }
+      db.run(
+        `UPDATE person SET linked = 0 WHERE canonical_email IS NULL OR trim(canonical_email) = ''`,
+      );
+      db.exec("PRAGMA user_version = 4");
+      recordMigration(db, 4, "person.linked column", now);
+    })();
+    ver = 4;
   }
 
   if (ver !== targetVersion) {
