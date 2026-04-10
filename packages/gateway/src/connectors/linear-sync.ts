@@ -86,6 +86,74 @@ function maxIso(a: string, b: string): string {
   return Date.parse(a) >= Date.parse(b) ? a : b;
 }
 
+function linearRequireIssuesData(
+  ctx: SyncContext,
+  res: { ok: boolean; status: number; json: GqlEnvelope | null; text: string },
+): SyncPage {
+  if (res.status === 429) {
+    ctx.rateLimiter.penalise("linear", 60_000);
+    throw new Error("Linear sync: rate limited");
+  }
+  if (!res.ok || res.json === null) {
+    throw new Error(`Linear sync HTTP ${String(res.status)}: ${res.text.slice(0, 200)}`);
+  }
+  const env = res.json;
+  if (env.errors !== undefined && env.errors.length > 0) {
+    const msg = env.errors.map((e) => e.message).join("; ");
+    throw new Error(`Linear sync: ${msg.slice(0, 200)}`);
+  }
+  const data = env.data;
+  if (data === undefined) {
+    throw new Error("Linear sync: missing data");
+  }
+  return data;
+}
+
+function linearUpsertIssueNodes(
+  ctx: SyncContext,
+  nodes: ReadonlyArray<Record<string, unknown>>,
+  maxUpdatedIn: string,
+): { count: number; maxUpdated: string } {
+  let count = 0;
+  let maxUpdated = maxUpdatedIn;
+  const syncTime = Date.now();
+  for (const node of nodes) {
+    const row = asRecord(node);
+    if (row === undefined) {
+      continue;
+    }
+    const id = stringField(row, "id");
+    const identifier = stringField(row, "identifier");
+    if (id === undefined || identifier === undefined) {
+      continue;
+    }
+    const title = stringField(row, "title") ?? identifier;
+    const desc = stringField(row, "description");
+    const updatedAt = stringField(row, "updatedAt");
+    const url = stringField(row, "url");
+    const modified = updatedAt === undefined || updatedAt === "" ? syncTime : Date.parse(updatedAt);
+    if (updatedAt !== undefined && updatedAt !== "") {
+      maxUpdated = maxIso(maxUpdated, updatedAt);
+    }
+    count += 1;
+    upsertIndexedItem(ctx.db, {
+      service: SERVICE_ID,
+      type: "issue",
+      externalId: identifier,
+      title: title.length > 512 ? title.slice(0, 512) : title,
+      bodyPreview: (desc ?? "").slice(0, 512),
+      url: url ?? null,
+      canonicalUrl: url ?? null,
+      modifiedAt: Number.isFinite(modified) ? modified : syncTime,
+      authorId: null,
+      metadata: { linearId: id, identifier },
+      pinned: false,
+      syncedAt: syncTime,
+    });
+  }
+  return { count, maxUpdated };
+}
+
 export type LinearSyncableOptions = {
   ensureLinearMcpRunning: () => Promise<void>;
 };
@@ -137,62 +205,11 @@ export function createLinearSyncable(options: LinearSyncableOptions): Syncable {
         const res = await linearPost(apiKey, payload);
         bytesTransferred += res.text.length;
 
-        if (res.status === 429) {
-          const retryAfter = 60_000;
-          ctx.rateLimiter.penalise("linear", retryAfter);
-          throw new Error("Linear sync: rate limited");
-        }
-
-        if (!res.ok || res.json === null) {
-          throw new Error(`Linear sync HTTP ${String(res.status)}: ${res.text.slice(0, 200)}`);
-        }
-        if (res.json.errors !== undefined && res.json.errors.length > 0) {
-          const msg = res.json.errors.map((e) => e.message).join("; ");
-          throw new Error(`Linear sync: ${msg.slice(0, 200)}`);
-        }
-        const data = res.json.data;
-        if (data === undefined) {
-          throw new Error("Linear sync: missing data");
-        }
-        const issues = data.issues;
-        const nodes = issues.nodes;
-        const pageInfo = issues.pageInfo;
-        const syncTime = Date.now();
-        for (const node of nodes) {
-          const row = asRecord(node);
-          if (row === undefined) {
-            continue;
-          }
-          const id = stringField(row, "id");
-          const identifier = stringField(row, "identifier");
-          if (id === undefined || identifier === undefined) {
-            continue;
-          }
-          const title = stringField(row, "title") ?? identifier;
-          const desc = stringField(row, "description");
-          const updatedAt = stringField(row, "updatedAt");
-          const url = stringField(row, "url");
-          const modified =
-            updatedAt !== undefined && updatedAt !== "" ? Date.parse(updatedAt) : syncTime;
-          if (updatedAt !== undefined && updatedAt !== "") {
-            maxUpdated = maxIso(maxUpdated, updatedAt);
-          }
-          upserted += 1;
-          upsertIndexedItem(ctx.db, {
-            service: SERVICE_ID,
-            type: "issue",
-            externalId: identifier,
-            title: title.length > 512 ? title.slice(0, 512) : title,
-            bodyPreview: (desc ?? "").slice(0, 512),
-            url: url ?? null,
-            canonicalUrl: url ?? null,
-            modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-            authorId: null,
-            metadata: { linearId: id, identifier },
-            pinned: false,
-            syncedAt: syncTime,
-          });
-        }
+        const data = linearRequireIssuesData(ctx, res);
+        const { nodes, pageInfo } = data.issues;
+        const batch = linearUpsertIssueNodes(ctx, nodes, maxUpdated);
+        upserted += batch.count;
+        maxUpdated = batch.maxUpdated;
 
         if (pageInfo.hasNextPage && pageInfo.endCursor !== null && pageInfo.endCursor !== "") {
           pageAfter = pageInfo.endCursor;

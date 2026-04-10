@@ -190,14 +190,17 @@ export function createJiraSyncable(options: JiraSyncableOptions): Syncable {
             continue;
           }
           const fields = asRecord(row["fields"]);
-          const summary = fields !== undefined ? (stringField(fields, "summary") ?? key) : key;
-          const updatedRaw = fields !== undefined ? stringField(fields, "updated") : undefined;
+          let summary = key;
+          if (fields !== undefined) {
+            summary = stringField(fields, "summary") ?? key;
+          }
+          const updatedRaw = fields === undefined ? undefined : stringField(fields, "updated");
           const modified =
-            updatedRaw !== undefined && updatedRaw !== "" ? Date.parse(updatedRaw) : syncTime;
+            updatedRaw === undefined || updatedRaw === "" ? syncTime : Date.parse(updatedRaw);
           if (updatedRaw !== undefined && updatedRaw !== "") {
             maxUpdatedIso = maxUpdatedIso === "" ? updatedRaw : maxIso(maxUpdatedIso, updatedRaw);
           }
-          const bodyPrev = fields !== undefined ? descriptionPreview(fields) : "";
+          const bodyPrev = fields === undefined ? "" : descriptionPreview(fields);
           const browseUrl = `${baseUrl}/browse/${key}`;
           upserted += 1;
           upsertIndexedItem(ctx.db, {

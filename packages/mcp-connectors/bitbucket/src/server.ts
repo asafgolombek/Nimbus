@@ -7,7 +7,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-
+import { joinApiPath } from "../../shared/join-api-path.ts";
 import {
   createRegisterSimpleTool,
   mcpJsonResult as jsonResult,
@@ -51,16 +51,16 @@ async function bbFetch(
   path: string,
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; json: unknown; text: string }> {
-  const url = path.startsWith("http")
-    ? path
-    : `${BB_API}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = joinApiPath(BB_API, path);
+  const baseHeaders: Record<string, string> = {
+    Authorization: basicAuthHeader(),
+    Accept: "application/json",
+  };
+  const extra = init?.headers as Record<string, string> | undefined;
+  const headers = extra === undefined ? baseHeaders : { ...baseHeaders, ...extra };
   const res = await fetch(url, {
     ...init,
-    headers: {
-      Authorization: basicAuthHeader(),
-      Accept: "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
   const text = await res.text();
   let json: unknown;

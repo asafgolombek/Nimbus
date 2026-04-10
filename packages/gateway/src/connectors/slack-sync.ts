@@ -2,6 +2,7 @@ import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
+import { shortIndexedMessageTitleFromPreview } from "./sync-message-preview-title.ts";
 import { asRecord } from "./unknown-record.ts";
 
 const SERVICE_ID = "slack";
@@ -321,12 +322,7 @@ export function createSlackSyncable(options: SlackSyncableOptions): Syncable {
               continue;
             }
             const preview = typeof text === "string" ? text.slice(0, 512) : "";
-            const title =
-              preview.trim() !== ""
-                ? preview.length > 120
-                  ? `${preview.slice(0, 117)}…`
-                  : preview
-                : "(no text)";
+            const title = shortIndexedMessageTitleFromPreview(preview, "(no text)");
             const tsNum = Number.parseFloat(ts);
             const modifiedAt = Number.isFinite(tsNum) ? Math.round(tsNum * 1000) : now;
             const externalId = `${ch}:${ts}`;

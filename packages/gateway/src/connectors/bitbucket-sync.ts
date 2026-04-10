@@ -72,9 +72,14 @@ function basicAuthHeader(user: string, pass: string): string {
 
 function htmlHref(rec: Record<string, unknown>): string | null {
   const links = asRecord(rec["links"]);
-  const html = links !== undefined ? asRecord(links["html"]) : undefined;
-  const h = html !== undefined ? stringField(html, "href") : undefined;
-  return h ?? null;
+  if (links === undefined) {
+    return null;
+  }
+  const html = asRecord(links["html"]);
+  if (html === undefined) {
+    return null;
+  }
+  return stringField(html, "href") ?? null;
 }
 
 function maxIso(a: string, b: string): string {
@@ -94,11 +99,11 @@ function upsertFromPullRequest(
   const title = stringField(pr, "title") ?? `PR #${String(id)}`;
   const desc = stringField(pr, "description") ?? "";
   const updatedOn = stringField(pr, "updated_on");
-  const modified = updatedOn !== undefined ? Date.parse(updatedOn) : now;
+  const modified = updatedOn === undefined ? now : Date.parse(updatedOn);
   const state = stringField(pr, "state");
   const url = htmlHref(pr);
   const author = asRecord(pr["author"]);
-  const displayName = author !== undefined ? stringField(author, "display_name") : undefined;
+  const displayName = author === undefined ? undefined : stringField(author, "display_name");
   const meta: Record<string, unknown> = {
     id,
     repo: repoFull,
@@ -296,8 +301,6 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
         };
         if (nextLink === null) {
           break;
-        }
-        if (names.length === 0) {
         }
       }
 

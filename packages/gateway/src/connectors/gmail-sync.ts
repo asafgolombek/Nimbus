@@ -234,6 +234,45 @@ function parseHistoryList(json: unknown): HistoryListResponse {
   return asUnknownObjectRecord(json) as HistoryListResponse;
 }
 
+async function gmailHistoryApplyAdded(
+  ctx: SyncContext,
+  accessToken: string,
+  added: NonNullable<HistoryRecord["messagesAdded"]>,
+  now: number,
+): Promise<number> {
+  let n = 0;
+  for (const a of added) {
+    const m = a.message;
+    if (m === undefined) {
+      continue;
+    }
+    const mid = m.id;
+    if (mid === undefined || mid === "") {
+      continue;
+    }
+    const hasSubject = m.payload !== undefined && headerFrom(m.payload, "Subject") !== null;
+    const full = hasSubject ? m : await fetchMessageMetadata(ctx, accessToken, mid);
+    upsertGmailMessage(ctx, full, now);
+    n += 1;
+  }
+  return n;
+}
+
+function gmailHistoryApplyDeleted(
+  ctx: SyncContext,
+  deleted: NonNullable<HistoryRecord["messagesDeleted"]>,
+): number {
+  let n = 0;
+  for (const d of deleted) {
+    const mid = d.message?.id;
+    if (typeof mid === "string" && mid !== "") {
+      deleteItemByServiceExternal(ctx.db, SERVICE_ID, mid);
+      n += 1;
+    }
+  }
+  return n;
+}
+
 async function applyGmailHistoryRecords(
   ctx: SyncContext,
   accessToken: string,
@@ -249,31 +288,8 @@ async function applyGmailHistoryRecords(
   let itemsUpserted = 0;
   let itemsDeleted = 0;
   for (const rec of records) {
-    const added = rec.messagesAdded ?? [];
-    for (const a of added) {
-      const m = a.message;
-      if (m === undefined) {
-        continue;
-      }
-      const mid = m.id;
-      if (mid === undefined || mid === "") {
-        continue;
-      }
-      const full =
-        m.payload !== undefined && headerFrom(m.payload, "Subject") !== null
-          ? m
-          : await fetchMessageMetadata(ctx, accessToken, mid);
-      upsertGmailMessage(ctx, full, now);
-      itemsUpserted += 1;
-    }
-    const deleted = rec.messagesDeleted ?? [];
-    for (const d of deleted) {
-      const mid = d.message?.id;
-      if (typeof mid === "string" && mid !== "") {
-        deleteItemByServiceExternal(ctx.db, SERVICE_ID, mid);
-        itemsDeleted += 1;
-      }
-    }
+    itemsUpserted += await gmailHistoryApplyAdded(ctx, accessToken, rec.messagesAdded ?? [], now);
+    itemsDeleted += gmailHistoryApplyDeleted(ctx, rec.messagesDeleted ?? []);
   }
   return { itemsUpserted, itemsDeleted, hist };
 }

@@ -163,8 +163,10 @@ function processIssuesPayload(
 
 function processEvent(ctx: SyncContext, ev: Record<string, unknown>, now: number): boolean {
   const repo = asRecord(ev["repo"]);
-  const fullName =
-    repo !== undefined ? (stringField(repo, "full_name") ?? stringField(repo, "name")) : undefined;
+  if (repo === undefined) {
+    return false;
+  }
+  const fullName = stringField(repo, "full_name") ?? stringField(repo, "name");
   if (fullName === undefined || fullName === "") {
     return false;
   }
@@ -213,7 +215,7 @@ function parseGithubEventsPayload(text: string): unknown[] {
   try {
     parsed = JSON.parse(text) as unknown;
   } catch {
-    throw new Error("GitHub events: invalid JSON");
+    throw new TypeError("GitHub events: invalid JSON");
   }
   if (!Array.isArray(parsed)) {
     throw new Error("GitHub events: expected array");

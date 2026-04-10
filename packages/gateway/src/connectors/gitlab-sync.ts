@@ -44,16 +44,19 @@ function webOriginFromApiBase(apiBase: string): string {
   return "https://gitlab.com";
 }
 
-function upsertFromMergeRequestEvent(
-  ctx: SyncContext,
-  pathWithNamespace: string,
-  iid: number,
-  title: string,
-  actionName: string,
-  createdAt: string,
-  now: number,
-  webOrigin: string,
-): void {
+type GitlabEventUpsertFields = {
+  ctx: SyncContext;
+  pathWithNamespace: string;
+  iid: number;
+  title: string;
+  actionName: string;
+  createdAt: string;
+  now: number;
+  webOrigin: string;
+};
+
+function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
+  const { ctx, pathWithNamespace, iid, title, actionName, createdAt, now, webOrigin } = f;
   const externalId = `${pathWithNamespace}!${String(iid)}`;
   const encPath = encodeURIComponent(pathWithNamespace);
   const url = `${webOrigin}/${pathWithNamespace}/-/merge_requests/${String(iid)}`;
@@ -79,16 +82,8 @@ function upsertFromMergeRequestEvent(
   });
 }
 
-function upsertFromIssueEvent(
-  ctx: SyncContext,
-  pathWithNamespace: string,
-  iid: number,
-  title: string,
-  actionName: string,
-  createdAt: string,
-  now: number,
-  webOrigin: string,
-): void {
+function upsertFromIssueEvent(f: GitlabEventUpsertFields): void {
+  const { ctx, pathWithNamespace, iid, title, actionName, createdAt, now, webOrigin } = f;
   const externalId = `${pathWithNamespace}#${String(iid)}`;
   const encPath = encodeURIComponent(pathWithNamespace);
   const url = `${webOrigin}/${pathWithNamespace}/-/issues/${String(iid)}`;
@@ -132,29 +127,29 @@ function processEvent(
     return false;
   }
   if (targetType === "MergeRequest") {
-    upsertFromMergeRequestEvent(
+    upsertFromMergeRequestEvent({
       ctx,
       pathWithNamespace,
-      targetIid,
+      iid: targetIid,
       title,
       actionName,
       createdAt,
       now,
       webOrigin,
-    );
+    });
     return true;
   }
   if (targetType === "Issue") {
-    upsertFromIssueEvent(
+    upsertFromIssueEvent({
       ctx,
       pathWithNamespace,
-      targetIid,
+      iid: targetIid,
       title,
       actionName,
       createdAt,
       now,
       webOrigin,
-    );
+    });
     return true;
   }
   return false;
@@ -223,7 +218,7 @@ export function createGitlabSyncable(options: GitlabSyncableOptions): Syncable {
 
         if (res.status === 429) {
           const ra = res.headers.get("retry-after");
-          const sec = ra !== null ? Number.parseInt(ra, 10) : 60;
+          const sec = ra === null ? 60 : Number.parseInt(ra, 10);
           const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
           ctx.rateLimiter.penalise("gitlab", ms);
           throw new Error(`GitLab events 429: ${text.slice(0, 200)}`);

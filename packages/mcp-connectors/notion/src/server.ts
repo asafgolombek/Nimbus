@@ -6,7 +6,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-
+import { joinApiPath } from "../../shared/join-api-path.ts";
 import {
   createRegisterSimpleTool,
   mcpJsonResult as jsonResult,
@@ -22,7 +22,7 @@ async function notionFetch(
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; text: string }> {
   const token = requireProcessEnv("NOTION_ACCESS_TOKEN");
-  const url = path.startsWith("http") ? path : `${API}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = joinApiPath(API, path);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "Notion-Version": NOTION_VERSION,

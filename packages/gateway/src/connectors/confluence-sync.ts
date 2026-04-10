@@ -35,8 +35,158 @@ function decodeCursor(raw: string | null): WatermarkCursorV1 | null {
 
 function lastModifiedFromContent(row: Record<string, unknown>): string | undefined {
   const hist = asRecord(row["history"]);
-  const lu = hist !== undefined ? asRecord(hist["lastUpdated"]) : undefined;
-  return lu !== undefined ? stringField(lu, "when") : undefined;
+  if (hist === undefined) {
+    return undefined;
+  }
+  const lu = asRecord(hist["lastUpdated"]);
+  if (lu === undefined) {
+    return undefined;
+  }
+  return stringField(lu, "when");
+}
+
+function confluenceIdleSyncResult(cursor: string | null, t0: number): SyncResult {
+  return {
+    cursor,
+    itemsUpserted: 0,
+    itemsDeleted: 0,
+    hasMore: false,
+    durationMs: Math.round(performance.now() - t0),
+  };
+}
+
+type ConfluencePagedSearchParams = {
+  ctx: SyncContext;
+  apiBase: string;
+  email: string;
+  token: string;
+  baseRaw: string;
+  cqlBase: string;
+  watermark: string | null;
+  watermarkMs: number;
+  t0: number;
+};
+
+/** @returns `true` when watermark ordering says to stop the whole sync. */
+function confluenceUpsertOneSearchHit(
+  ctx: SyncContext,
+  item: unknown,
+  opts: {
+    watermarkMs: number;
+    baseRaw: string;
+    syncTime: number;
+  },
+  acc: { maxEdited: string; upserted: number },
+): boolean {
+  const row = asRecord(item);
+  if (row === undefined) {
+    return false;
+  }
+  if (stringField(row, "type") !== "page") {
+    return false;
+  }
+  const id = stringField(row, "id");
+  if (id === undefined || id === "") {
+    return false;
+  }
+  const title = stringField(row, "title") ?? id;
+  const when = lastModifiedFromContent(row);
+  if (when !== undefined && when !== "") {
+    if (opts.watermarkMs >= 0 && isoMs(when) <= opts.watermarkMs) {
+      return true;
+    }
+    acc.maxEdited = acc.maxEdited === "" ? when : maxIso(acc.maxEdited, when);
+  }
+  const site = normalizeAtlassianSiteBaseUrl(opts.baseRaw);
+  const webUi = `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
+  const modified = when !== undefined && when !== "" ? isoMs(when) : opts.syncTime;
+  acc.upserted += 1;
+  upsertIndexedItem(ctx.db, {
+    service: SERVICE_ID,
+    type: "page",
+    externalId: id,
+    title: title.length > 512 ? title.slice(0, 512) : title,
+    bodyPreview: "",
+    url: webUi,
+    canonicalUrl: webUi,
+    modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
+    authorId: null,
+    metadata: { confluencePageId: id },
+    pinned: false,
+    syncedAt: opts.syncTime,
+  });
+  return false;
+}
+
+async function confluenceRunPagedSearch(p: ConfluencePagedSearchParams): Promise<SyncResult> {
+  const { ctx, apiBase, email, token, baseRaw, cqlBase, watermark, watermarkMs, t0 } = p;
+  const limit = 50;
+  let start = 0;
+  let bytesTransferred = 0;
+  const acc = { maxEdited: watermark ?? "", upserted: 0 };
+  const syncTime = Date.now();
+  let shouldStop = false;
+
+  for (;;) {
+    const qs = new URLSearchParams({
+      cql: cqlBase,
+      limit: String(limit),
+      start: String(start),
+      expand: "history.lastUpdated,space,version",
+    });
+    const url = `${apiBase}/content/search?${qs.toString()}`;
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: basicAuthHeader(email, token),
+      },
+    });
+    const text = await res.text();
+    bytesTransferred += text.length;
+
+    if (res.status === 429) {
+      ctx.rateLimiter.penalise("confluence", 60_000);
+      throw new Error("Confluence sync: rate limited");
+    }
+    if (!res.ok) {
+      throw new Error(`Confluence sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      throw new Error("Confluence sync: invalid JSON");
+    }
+    const root = asRecord(parsed);
+    const results = root?.["results"];
+    if (!Array.isArray(results)) {
+      throw new Error("Confluence sync: missing results");
+    }
+
+    for (const item of results) {
+      const stop = confluenceUpsertOneSearchHit(ctx, item, { watermarkMs, baseRaw, syncTime }, acc);
+      if (stop) {
+        shouldStop = true;
+        break;
+      }
+    }
+
+    if (shouldStop || results.length === 0 || results.length < limit) {
+      break;
+    }
+    start += limit;
+  }
+
+  const nextW = acc.maxEdited !== "" ? acc.maxEdited : watermark;
+  return {
+    cursor: encodeCursor({ v: 1, watermark: nextW }),
+    itemsUpserted: acc.upserted,
+    itemsDeleted: 0,
+    hasMore: false,
+    durationMs: Math.round(performance.now() - t0),
+    bytesTransferred,
+  };
 }
 
 export type ConfluenceSyncableOptions = {
@@ -63,23 +213,11 @@ export function createConfluenceSyncable(options: ConfluenceSyncableOptions): Sy
         baseRaw === null ||
         baseRaw === ""
       ) {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return confluenceIdleSyncResult(cursor, t0);
       }
       const apiBase = wikiApiBase(baseRaw);
       if (apiBase === "") {
-        return {
-          cursor,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-        };
+        return confluenceIdleSyncResult(cursor, t0);
       }
 
       const prev = decodeCursor(cursor);
@@ -93,107 +231,17 @@ export function createConfluenceSyncable(options: ConfluenceSyncableOptions): Sy
 
       await ctx.rateLimiter.acquire("confluence");
 
-      let start = 0;
-      const limit = 50;
-      let upserted = 0;
-      let bytesTransferred = 0;
-      let maxEdited = watermark ?? "";
-      const syncTime = Date.now();
-      let shouldStop = false;
-
-      for (;;) {
-        const qs = new URLSearchParams({
-          cql: cqlBase,
-          limit: String(limit),
-          start: String(start),
-          expand: "history.lastUpdated,space,version",
-        });
-        const url = `${apiBase}/content/search?${qs.toString()}`;
-        const res = await fetch(url, {
-          headers: {
-            Accept: "application/json",
-            Authorization: basicAuthHeader(email, token),
-          },
-        });
-        const text = await res.text();
-        bytesTransferred += text.length;
-
-        if (res.status === 429) {
-          ctx.rateLimiter.penalise("confluence", 60_000);
-          throw new Error("Confluence sync: rate limited");
-        }
-        if (!res.ok) {
-          throw new Error(`Confluence sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
-        }
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text) as unknown;
-        } catch {
-          throw new Error("Confluence sync: invalid JSON");
-        }
-        const root = asRecord(parsed);
-        const results = root?.["results"];
-        if (!Array.isArray(results)) {
-          throw new Error("Confluence sync: missing results");
-        }
-
-        for (const item of results) {
-          const row = asRecord(item);
-          if (row === undefined) {
-            continue;
-          }
-          if (stringField(row, "type") !== "page") {
-            continue;
-          }
-          const id = stringField(row, "id");
-          if (id === undefined || id === "") {
-            continue;
-          }
-          const title = stringField(row, "title") ?? id;
-          const when = lastModifiedFromContent(row);
-          if (when !== undefined && when !== "") {
-            if (watermarkMs >= 0 && isoMs(when) <= watermarkMs) {
-              shouldStop = true;
-              break;
-            }
-            maxEdited = maxEdited === "" ? when : maxIso(maxEdited, when);
-          }
-          const site = normalizeAtlassianSiteBaseUrl(baseRaw);
-          const webUi = `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
-          const modified = when !== undefined && when !== "" ? isoMs(when) : syncTime;
-          upserted += 1;
-          upsertIndexedItem(ctx.db, {
-            service: SERVICE_ID,
-            type: "page",
-            externalId: id,
-            title: title.length > 512 ? title.slice(0, 512) : title,
-            bodyPreview: "",
-            url: webUi,
-            canonicalUrl: webUi,
-            modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-            authorId: null,
-            metadata: { confluencePageId: id },
-            pinned: false,
-            syncedAt: syncTime,
-          });
-        }
-
-        if (shouldStop || results.length === 0 || results.length < limit) {
-          break;
-        }
-        start += limit;
-      }
-
-      const nextW = maxEdited !== "" ? maxEdited : watermark;
-      return {
-        cursor: encodeCursor({ v: 1, watermark: nextW }),
-        itemsUpserted: upserted,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred,
-      };
+      return confluenceRunPagedSearch({
+        ctx,
+        apiBase,
+        email,
+        token,
+        baseRaw,
+        cqlBase,
+        watermark,
+        watermarkMs,
+        t0,
+      });
     },
   };
 }

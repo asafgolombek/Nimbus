@@ -7,7 +7,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-
+import { joinApiPath } from "../../shared/join-api-path.ts";
 import {
   createRegisterSimpleTool,
   encodeBasicAuthHeader,
@@ -54,9 +54,7 @@ async function confFetch(
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; text: string }> {
   const { wikiApi, email, token } = requireConfluenceConfig();
-  const url = path.startsWith("http")
-    ? path
-    : `${wikiApi}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = joinApiPath(wikiApi, path);
   const headers: Record<string, string> = {
     Accept: "application/json",
     Authorization: encodeBasicAuthHeader(email, token),

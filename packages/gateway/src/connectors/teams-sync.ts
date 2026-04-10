@@ -10,6 +10,7 @@ import {
   parseODataDeltaPage,
 } from "./microsoft-graph-sync-shared.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
+import { shortIndexedMessageTitleFromPreview } from "./sync-message-preview-title.ts";
 
 const SERVICE_ID = "teams";
 const CURSOR_PREFIX = "nimbus-tms1:";
@@ -184,19 +185,23 @@ function upsertChannelMessage(
   const externalId = `${teamId}:${channelId}:${id}`;
   const content = m.body !== undefined && typeof m.body.content === "string" ? m.body.content : "";
   const preview = plainTextPreviewFromHtml(content, 512);
-  const fromName =
-    m.from?.user?.displayName !== undefined && m.from.user.displayName !== ""
-      ? m.from.user.displayName
-      : null;
-  const titleBase =
-    preview.trim() !== ""
-      ? preview.length > 120
-        ? `${preview.slice(0, 117)}…`
-        : preview
-      : fromName !== null
-        ? `Message from ${fromName}`
-        : "(message)";
-  const title = titleBase.length > 512 ? titleBase.slice(0, 512) : titleBase;
+  let fromName: string | null = null;
+  const displayName = m.from?.user?.displayName;
+  if (displayName !== undefined && displayName !== "") {
+    fromName = displayName;
+  }
+  let titleBase: string;
+  if (preview.trim() !== "") {
+    titleBase = shortIndexedMessageTitleFromPreview(preview, "(message)");
+  } else if (fromName !== null) {
+    titleBase = `Message from ${fromName}`;
+  } else {
+    titleBase = "(message)";
+  }
+  let title = titleBase;
+  if (title.length > 512) {
+    title = title.slice(0, 512);
+  }
   const modified = modifiedMsFromIso(m.lastModifiedDateTime ?? m.createdDateTime, now);
 
   upsertIndexedItem(ctx.db, {

@@ -81,6 +81,18 @@ function confluenceMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "confluence", "src", "server.ts");
 }
 
+type LazyMeshToolMap = Record<
+  string,
+  { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
+>;
+
+async function listLazyMeshClientTools(client: MCPClient | undefined): Promise<LazyMeshToolMap> {
+  if (client === undefined) {
+    return {};
+  }
+  return (await client.listTools()) as LazyMeshToolMap;
+}
+
 /**
  * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence credential MCP when vault keys exist (Q2 §1.6 / Phase 2–5).
  */
@@ -800,20 +812,16 @@ export class LazyConnectorMesh {
     }
 
     const fsTools = await this.filesystem.listTools();
-    const gdTools =
-      this.googleBundleClient !== undefined ? await this.googleBundleClient.listTools() : {};
-    const msTools =
-      this.microsoftBundleClient !== undefined ? await this.microsoftBundleClient.listTools() : {};
-    const ghTools = this.githubClient !== undefined ? await this.githubClient.listTools() : {};
-    const glTools = this.gitlabClient !== undefined ? await this.gitlabClient.listTools() : {};
-    const bbTools =
-      this.bitbucketClient !== undefined ? await this.bitbucketClient.listTools() : {};
-    const slackTools = this.slackClient !== undefined ? await this.slackClient.listTools() : {};
-    const linearTools = this.linearClient !== undefined ? await this.linearClient.listTools() : {};
-    const jiraTools = this.jiraClient !== undefined ? await this.jiraClient.listTools() : {};
-    const notionTools = this.notionClient !== undefined ? await this.notionClient.listTools() : {};
-    const confluenceTools =
-      this.confluenceClient !== undefined ? await this.confluenceClient.listTools() : {};
+    const gdTools = await listLazyMeshClientTools(this.googleBundleClient);
+    const msTools = await listLazyMeshClientTools(this.microsoftBundleClient);
+    const ghTools = await listLazyMeshClientTools(this.githubClient);
+    const glTools = await listLazyMeshClientTools(this.gitlabClient);
+    const bbTools = await listLazyMeshClientTools(this.bitbucketClient);
+    const slackTools = await listLazyMeshClientTools(this.slackClient);
+    const linearTools = await listLazyMeshClientTools(this.linearClient);
+    const jiraTools = await listLazyMeshClientTools(this.jiraClient);
+    const notionTools = await listLazyMeshClientTools(this.notionClient);
+    const confluenceTools = await listLazyMeshClientTools(this.confluenceClient);
     return {
       ...fsTools,
       ...gdTools,
@@ -826,7 +834,7 @@ export class LazyConnectorMesh {
       ...jiraTools,
       ...notionTools,
       ...confluenceTools,
-    } as Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>;
+    } as LazyMeshToolMap;
   }
 
   async disconnect(): Promise<void> {

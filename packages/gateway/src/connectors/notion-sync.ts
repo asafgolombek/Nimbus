@@ -49,7 +49,7 @@ function extractTitleFromProperties(properties: unknown): string {
         continue;
       }
       const tx = asRecord(ir["text"]);
-      const c = tx !== undefined ? stringField(tx, "content") : undefined;
+      const c = tx === undefined ? undefined : stringField(tx, "content");
       if (c !== undefined && c !== "") {
         parts.push(c);
       }
