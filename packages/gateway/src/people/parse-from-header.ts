@@ -17,8 +17,8 @@ export function parseFromHeaderForPerson(raw: string | null | undefined): {
   }
   const namedAngle = /^(.+?)\s*<([^>\s]+@[^>\s]+)>\s*$/.exec(trimmed);
   if (namedAngle !== null) {
-    const email = normalizeEmail(namedAngle[2]);
-    let displayName = namedAngle[1].replace(/^["']|["']$/g, "").trim();
+    const email = normalizeEmail(namedAngle[2] ?? "");
+    let displayName = (namedAngle[1] ?? "").replace(/^["']|["']$/g, "").trim();
     if (displayName === "") {
       displayName = email;
     }
@@ -26,7 +26,7 @@ export function parseFromHeaderForPerson(raw: string | null | undefined): {
   }
   const angleOnly = /<([^>\s]+@[^>\s]+)>/.exec(trimmed);
   if (angleOnly !== null) {
-    return { email: normalizeEmail(angleOnly[1]) };
+    return { email: normalizeEmail(angleOnly[1] ?? "") };
   }
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
     const email = normalizeEmail(trimmed);

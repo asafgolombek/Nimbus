@@ -150,7 +150,7 @@ function linearUpsertIssueNodes(
     if (creatorEmail !== undefined && creatorEmail !== "") {
       authorId = resolvePersonForSync(ctx.db, {
         canonicalEmail: creatorEmail,
-        linearMemberId: creatorId,
+        ...(creatorId !== undefined ? { linearMemberId: creatorId } : {}),
         displayName: creatorName ?? creatorEmail,
       });
     } else if (creatorId !== undefined && creatorId !== "") {

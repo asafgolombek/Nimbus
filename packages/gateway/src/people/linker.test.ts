@@ -39,7 +39,7 @@ describe("resolvePersonForSync", () => {
     const a = resolvePersonForSync(db, { bitbucketUuid: uuid, displayName: "BB" });
     const b = resolvePersonForSync(db, { bitbucketUuid: uuid, displayName: "BB2" });
     expect(a).toBe(b);
-    expect(findPersonByBitbucketUuid(db, uuid)?.id).toBe(a);
+    expect(findPersonByBitbucketUuid(db, uuid)?.id ?? null).toBe(a);
   });
 
   test("Microsoft user id creates handle row", () => {

@@ -145,7 +145,7 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
     fromParsed.email !== undefined
       ? resolvePersonForSync(ctx.db, {
           canonicalEmail: fromParsed.email,
-          displayName: fromParsed.displayName,
+          ...(fromParsed.displayName !== undefined ? { displayName: fromParsed.displayName } : {}),
         })
       : null;
   const url =

@@ -29,7 +29,12 @@ function decodeCursor(raw: string | null): DiscordSyncCursorV1 | null {
     return null;
   }
   const parsed = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
-  if (parsed === undefined || parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (
+    parsed === undefined ||
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed)
+  ) {
     return null;
   }
   const rec = parsed as Record<string, unknown>;
@@ -51,7 +56,11 @@ function decodeCursor(raw: string | null): DiscordSyncCursorV1 | null {
     return null;
   }
   const lastMap: Record<string, string> = {};
-  if (lastMsgByChannel !== null && typeof lastMsgByChannel === "object" && !Array.isArray(lastMsgByChannel)) {
+  if (
+    lastMsgByChannel !== null &&
+    typeof lastMsgByChannel === "object" &&
+    !Array.isArray(lastMsgByChannel)
+  ) {
     for (const [k, v] of Object.entries(lastMsgByChannel as Record<string, unknown>)) {
       if (typeof v === "string" && v !== "") {
         lastMap[k] = v;
@@ -253,7 +262,7 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
           continue;
         }
 
-        const channelId = state.channelIds[state.channelIndex] ?? "";
+        const channelId: string = state.channelIds[state.channelIndex] ?? "";
         if (channelId === "") {
           state = { ...state, channelIndex: state.channelIndex + 1 };
           continue;
@@ -283,7 +292,7 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
         }
         const messages = res.json as unknown[];
         if (messages.length === 0) {
-          const nextLast = { ...state.lastMsgByChannel };
+          const nextLast: Record<string, string> = { ...state.lastMsgByChannel };
           delete nextLast[channelId];
           state = {
             ...state,
@@ -297,7 +306,10 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
           typeof (messages[0] as { id?: string })?.id === "string"
             ? (messages[0] as { id: string }).id
             : "";
-        const nextLastMap = { ...state.lastMsgByChannel, [channelId]: newestId };
+        const nextLastMap: Record<string, string> = {
+          ...state.lastMsgByChannel,
+          [channelId]: newestId,
+        };
 
         for (let i = messages.length - 1; i >= 0; i -= 1) {
           const mr = asRecord(messages[i]);
@@ -350,7 +362,6 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
           ...state,
           lastMsgByChannel: nextLastMap,
         };
-        continue;
       }
 
       const moreWork =
