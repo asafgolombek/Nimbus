@@ -1,5 +1,5 @@
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -273,7 +273,7 @@ function slackTryUpsertIndexedHistoryMessage(
     typeof user === "string" && user !== ""
       ? resolvePersonForSync(ctx.db, { slackHandle: user })
       : null;
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "message",
     externalId,

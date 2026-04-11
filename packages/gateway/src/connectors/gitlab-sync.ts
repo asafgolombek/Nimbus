@@ -1,4 +1,4 @@
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
@@ -87,7 +87,7 @@ function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
           displayName: authorName ?? authorUsername,
         })
       : null;
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "pr",
     externalId,
@@ -132,7 +132,7 @@ function upsertFromIssueEvent(f: GitlabEventUpsertFields): void {
           displayName: authorName ?? authorUsername,
         })
       : null;
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "issue",
     externalId,

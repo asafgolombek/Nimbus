@@ -21,10 +21,13 @@ import type { SyncStatus } from "../sync/types.ts";
 import {
   deleteAllItemsForService,
   deleteItemByPrimaryKey,
+  itemExternalIdFromInput,
+  itemPrimaryKey,
   upsertNimbusItemIntoItemTable,
 } from "./item-store.ts";
-import { runIndexedSchemaMigrations } from "./migrations/runner.ts";
+import { readIndexedUserVersion, runIndexedSchemaMigrations } from "./migrations/runner.ts";
 import type { RankedIndexItem } from "./ranked-item.ts";
+import { ensureSqliteVecForConnection } from "./sqlite-vec-load.ts";
 
 export { RAW_META_MAX_BYTES } from "./constants.ts";
 export type { RankedIndexItem } from "./ranked-item.ts";
@@ -211,17 +214,27 @@ function stripRankedToNimbus(r: RankedIndexItem): NimbusItem {
   return rest;
 }
 
+export type LocalIndexOptions = {
+  /** Phase 3 — queue embedding work after index upserts (non-blocking). */
+  scheduleItemEmbedding?: (itemId: string) => void;
+};
+
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 5;
+  static readonly SCHEMA_VERSION = 6;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
    */
   static ensureSchema(db: Database): void {
     runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION);
+    ensureSqliteVecForConnection(db, readIndexedUserVersion(db));
+    db.run("PRAGMA foreign_keys = ON");
   }
 
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly options?: LocalIndexOptions,
+  ) {}
 
   /** Gateway IPC only — OAuth retention checks after connector removal. */
   getDatabase(): Database {
@@ -321,6 +334,9 @@ export class LocalIndex {
 
   upsert(item: NimbusItem): void {
     upsertNimbusItemIntoItemTable(this.db, item, Date.now());
+    const externalId = itemExternalIdFromInput(item.service, item.id);
+    const pk = itemPrimaryKey(item.service, externalId);
+    this.options?.scheduleItemEmbedding?.(pk);
   }
 
   delete(id: string): void {

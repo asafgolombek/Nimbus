@@ -1,5 +1,5 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
-import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { deleteItemByServiceExternal, upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
@@ -228,7 +228,7 @@ function upsertChannelMessage(
         })
       : null;
 
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "message",
     externalId,

@@ -1,5 +1,5 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
-import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { deleteItemByServiceExternal, upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { parseFromHeaderForPerson } from "../people/parse-from-header.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
@@ -153,7 +153,7 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
       ? `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(id)}`
       : `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(threadId)}`;
 
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "email",
     externalId: id,

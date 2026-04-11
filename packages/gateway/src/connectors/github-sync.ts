@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import type { PersonSyncHints } from "../people/person-types.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
@@ -104,7 +104,7 @@ function upsertFromPullRequest(
     user: login,
   };
   const externalId = `${repoFull}#${String(num)}`;
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "pr",
     externalId,
@@ -144,7 +144,7 @@ function upsertFromIssue(
     user: login,
   };
   const externalId = `${repoFull}#issue-${String(num)}`;
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "issue",
     externalId,

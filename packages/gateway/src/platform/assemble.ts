@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
-
+import { Config } from "../config.ts";
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
 import { createConfluenceSyncable } from "../connectors/confluence-sync.ts";
 import { createDiscordSyncable } from "../connectors/discord-sync.ts";
@@ -18,7 +18,9 @@ import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
 import { createSlackSyncable } from "../connectors/slack-sync.ts";
 import { createTeamsSyncable } from "../connectors/teams-sync.ts";
+import { createLazyItemEmbeddingScheduler } from "../embedding/lazy-scheduler.ts";
 import { LocalIndex } from "../index/local-index.ts";
+import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
@@ -50,19 +52,26 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const vault = await createNimbusVault(paths);
   const db = new Database(join(paths.dataDir, "nimbus.db"));
   LocalIndex.ensureSchema(db);
-  const localIndex = new LocalIndex(db);
   const notifications = createStubNotifications();
   const syncLogger = pino({ level: processEnvGet("NIMBUS_LOG_LEVEL") ?? "warn" });
   const rateLimiter = new ProviderRateLimiter();
-  const syncScheduler = new SyncScheduler(
-    { vault, db, logger: syncLogger, rateLimiter },
-    undefined,
-    {
-      notify: async (title, body) => {
-        await notifications.show(title, body);
-      },
+  const scheduleItemEmbedding =
+    Config.embeddingsEnabled && readIndexedUserVersion(db) >= 6
+      ? createLazyItemEmbeddingScheduler(db, paths.dataDir, syncLogger)
+      : undefined;
+  const localIndex =
+    scheduleItemEmbedding !== undefined
+      ? new LocalIndex(db, { scheduleItemEmbedding })
+      : new LocalIndex(db);
+  const syncContext =
+    scheduleItemEmbedding !== undefined
+      ? { vault, db, logger: syncLogger, rateLimiter, scheduleItemEmbedding }
+      : { vault, db, logger: syncLogger, rateLimiter };
+  const syncScheduler = new SyncScheduler(syncContext, undefined, {
+    notify: async (title, body) => {
+      await notifications.show(title, body);
     },
-  );
+  });
   const connectorMesh = await createLazyConnectorMesh(paths, vault);
   syncScheduler.register(
     createGoogleDriveSyncable({

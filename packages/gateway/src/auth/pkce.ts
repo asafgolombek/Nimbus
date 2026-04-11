@@ -647,7 +647,7 @@ async function exchangePkceAuthorizationCode(
     code_verifier: codeVerifier,
   };
   if (clientSecret !== undefined && clientSecret !== "") {
-    tokenBody.client_secret = clientSecret;
+    tokenBody["client_secret"] = clientSecret;
   }
   const json = await postForm(fetchFn, tokenUrl, tokenBody);
   const parsed = parseTokenJson(json);
@@ -783,7 +783,7 @@ export async function refreshAccessToken(
   };
   const sec = ctx.clientSecret?.trim();
   if (sec !== undefined && sec !== "") {
-    body.client_secret = sec;
+    body["client_secret"] = sec;
   }
   const json = await postForm(fetchFn, tokenUrl, body);
   const parsed = parseTokenJson(json);

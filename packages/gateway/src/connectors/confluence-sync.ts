@@ -1,4 +1,4 @@
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
@@ -134,7 +134,7 @@ function confluenceUpsertOneSearchHit(
   acc.upserted += 1;
   const by = confluenceLastUpdatedBy(row);
   const authorId = by === null ? null : resolveConfluenceAuthorId(ctx, by);
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "page",
     externalId: id,

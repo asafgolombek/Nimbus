@@ -10,6 +10,8 @@ export interface SyncContext {
   db: Database;
   logger: Logger;
   rateLimiter: ProviderRateLimiter;
+  /** Phase 3 — fire-and-forget semantic embedding after index upsert (optional). */
+  scheduleItemEmbedding?: (itemId: string) => void;
 }
 
 export interface Syncable {
