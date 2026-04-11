@@ -7,7 +7,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --target bun --compile --outfile ../../dist/nimbus-gateway",
+    "build": "bun run compile-gateway.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "test": "bun test",

@@ -32,6 +32,7 @@
     "format": "biome format --write .",
     "test": "bun test packages/gateway packages/cli packages/sdk",
     "test:ci": "bun scripts/run-tests.ts",
+    "kill-gateway": "bun scripts/kill-gateway.ts",
     "test:unit": "bun test packages/gateway/src packages/cli/src packages/sdk/src",
     "test:integration": "bun test packages/gateway/test/integration/ packages/cli/test/integration/",
     "test:e2e:cli": "bun test packages/cli/test/e2e/",

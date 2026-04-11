@@ -1,5 +1,9 @@
 import { Config } from "../config.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import {
+  GOOGLE_OAUTH_CLIENT_ID_HELP,
+  MICROSOFT_OAUTH_CLIENT_ID_HELP,
+} from "./oauth-env-help-messages.ts";
 import { refreshAccessToken } from "./pkce.ts";
 
 export type StoredOAuthTokens = {
@@ -94,7 +98,7 @@ export function googleOAuthAccessFromConfig(): {
       missingExpiry: "Missing token expiry",
     },
     getClientId: () => Config.oauthGoogleClientId,
-    emptyClientIdError: "Set NIMBUS_OAUTH_GOOGLE_CLIENT_ID for token refresh",
+    emptyClientIdError: GOOGLE_OAUTH_CLIENT_ID_HELP,
     provider: "google",
   };
 }
@@ -119,7 +123,7 @@ export function microsoftOAuthAccessFromConfig(): {
       missingExpiry: "Missing token expiry",
     },
     getClientId: () => Config.oauthMicrosoftClientId,
-    emptyClientIdError: "Set NIMBUS_OAUTH_MICROSOFT_CLIENT_ID for token refresh",
+    emptyClientIdError: MICROSOFT_OAUTH_CLIENT_ID_HELP,
     provider: "microsoft",
   };
 }
