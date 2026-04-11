@@ -52,7 +52,7 @@ export const Config = {
   openaiClassifierModel: processEnvGet("NIMBUS_OPENAI_CLASSIFIER_MODEL") ?? "gpt-4o-mini",
   /**
    * Public OAuth client ids (PKCE). Set in the environment until bundled desktop ids ship.
-   * @see docs/q2-2026-plan.md §1.0 OAuth Client ID Strategy
+   * Shared per provider family: google.oauth covers Drive + Gmail + Photos; microsoft.oauth covers OneDrive + Outlook + Teams.
    */
   oauthGoogleClientId: processEnvGet("NIMBUS_OAUTH_GOOGLE_CLIENT_ID") ?? "",
   oauthMicrosoftClientId: processEnvGet("NIMBUS_OAUTH_MICROSOFT_CLIENT_ID") ?? "",

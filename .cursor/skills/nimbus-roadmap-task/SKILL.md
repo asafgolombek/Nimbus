@@ -1,20 +1,18 @@
 ---
 name: nimbus-roadmap-task
 description: >-
-  Turns docs/roadmap.md and docs/q2-2026-plan.md items into scoped
-  implementation work: current-quarter only, acceptance criteria, subsystem
-  pointers from architecture.md, and explicit non-goals. Use when the user
-  references the roadmap, Q2 plan, quarterly themes, or asks to implement a
-  numbered plan item without expanding scope.
+  Turns docs/roadmap.md items into scoped implementation work: current-quarter
+  only, acceptance criteria, subsystem pointers from architecture.md, and
+  explicit non-goals. Use when the user references the roadmap, quarterly
+  themes, or asks to implement a roadmap item without expanding scope.
 ---
 
 # Nimbus — roadmap-driven implementation
 
 ## Read first
 
-1. **`docs/roadmap.md`** — quarter themes, dependencies, acceptance criteria at a high level.
-2. **`docs/q2-2026-plan.md`** — concrete tasks and sequencing for the active quarter (adjust if the active quarter doc name changes).
-3. **`architecture.md`** — subsystem boundaries, file locations, and contracts for the area being touched.
+1. **`docs/roadmap.md`** — quarter themes, dependencies, acceptance criteria, and delivered sections for completed quarters.
+2. **`architecture.md`** — subsystem boundaries, file locations, and contracts for the area being touched.
 
 ## Scope rules
 

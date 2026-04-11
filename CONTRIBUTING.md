@@ -1,12 +1,12 @@
 # Contributing to Nimbus
 
-Thank you for your interest in contributing. Nimbus is in active early development (Q2 2026 — The Bridge). Architecture is stabilising but not all interfaces are frozen.
+Thank you for your interest in contributing. Nimbus is in active early development (Q3 2026 — Intelligence). Architecture is stabilising but not all interfaces are frozen.
 
 Before writing any code, read the documents that define what Nimbus is and what we are building this quarter:
 
 - [`architecture.md`](./architecture.md) — subsystem contracts, package dependency rules, and the data flow
 - [`docs/mission.md`](./docs/mission.md) — the principles behind every design decision
-- [`docs/q2-2026-plan.md`](./docs/q2-2026-plan.md) — Q2 scope, sequencing, and acceptance criteria
+- [`docs/roadmap.md`](./docs/roadmap.md) — quarterly scope, acceptance criteria, and inter-quarter dependencies
 
 ---
 

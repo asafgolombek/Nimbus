@@ -243,17 +243,9 @@ The work of reclaiming agency is not completed in a single quarter. It is a mult
 
 ### Phase 2: The Integration Surge (Q2–Q3 2026)
 
-**Q2 2026 — The Bridge (active):** Detailed sequencing and a living implementation table are in [`q2-2026-plan.md`](./q2-2026-plan.md). The quarter targets a unified local index across the surfaces engineers use daily:
+**Q2 2026 — The Bridge ✅:** All 15 first-party MCP connectors shipped (Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, and Discord opt-in) with delta sync, a unified `item`/`person` index (schema v5), the cross-service people graph, engine context ranker, `nimbus connector` CLI, and headless installers — all acceptance criteria met.
 
-* **Cloud storage & email:** Google Drive, Gmail, Google Photos; Microsoft OneDrive and Outlook (mail + calendar/contact tools where scopes allow).
-* **Source control & review:** GitHub, GitLab, Bitbucket — repositories, pull requests, issues, and CI metadata where exposed by each connector.
-* **Communication:** Slack and Microsoft Teams — channels, messages, search; write paths behind HITL.
-* **Project tracking & docs:** Linear, Jira, Notion, Confluence — issues, pages, and comments; writes behind HITL.
-* **Platform plumbing:** Lazy MCP startup, per-connector delta sync, `nimbus connector` auth/list/sync/status/remove, and E2E CLI tests with mock MCP servers.
-
-**Still open before Q2 is “done” on its own terms:** cross-service people graph (linker + population + `nimbus people` / IPC), optional Discord MCP (off by default), engine-side context shaping for large index results (§7.0 in the Q2 plan), headless installers (§7.9), and the acceptance checklist in that plan.
-
-**Q3 2026 — Intelligence (next):** Semantic layer (`sqlite-vec`, hybrid search), Extension Registry v1, deeper DevOps and cloud connectors (Jenkins, GitHub Actions, AWS/Azure/GCP, Kubernetes, observability tools), workflow pipelines, watchers, Session CLI and script files (`nimbus` with no args, `nimbus run`), filesystem connector v2, and agent specialization — as laid out in [`roadmap.md`](./roadmap.md).
+**Q3 2026 — Intelligence (active):** Semantic layer (`sqlite-vec`, hybrid search), Extension Registry v1, deeper DevOps and cloud connectors (Jenkins, GitHub Actions, AWS/Azure/GCP, Kubernetes, observability tools), workflow pipelines, watchers, Session CLI and script files (`nimbus` with no args, `nimbus run`), filesystem connector v2, and agent specialization — as laid out in [`roadmap.md`](./roadmap.md).
 
 ### Phase 3: The Sovereign Workspace (Q4 2026)
 * **The Command Center:** A high-performance Tauri 2.0 desktop application.

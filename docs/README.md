@@ -389,8 +389,6 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 > See [`roadmap.md`](./roadmap.md) for the full detailed roadmap including milestones, dependencies, and acceptance criteria.
 
-**Current quarter (Q2 2026) — detailed implementation plan:** [`q2-2026-plan.md`](./q2-2026-plan.md)
-
 ### Q1 2026 — Foundation ✅
 
 **Goal:** Make the Gateway real and the security model provable.
@@ -409,11 +407,9 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 ---
 
-### Q2 2026 — The Bridge
+### Q2 2026 — The Bridge ✅
 
 **Goal:** Connect the cloud, developer tooling, and the communication + collaboration surface every engineer lives in. Unify the index.
-
-**Status (April 2026):** First-party MCP connectors and Gateway sync are implemented for Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, and Confluence (see the living table in [`q2-2026-plan.md`](./q2-2026-plan.md)). Remaining Q2 scope includes the **Discord** connector (opt-in), **cross-service people graph** (SQLite `person` table exists; linker, sync integration, IPC, and CLI are not started), **engine context tooling** (context ranker / resolver tools — Q2 plan §7.0), **headless installers** (§7.9), and the plan’s **acceptance checklist**.
 
 **Cloud storage & email**
 - Google Drive, Gmail, Google Photos MCP connectors (OAuth PKCE)
@@ -449,6 +445,8 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 ### Q3 2026 — Intelligence
 
 **Goal:** Make Nimbus proactive and semantically aware. Extend into CI/CD, cloud infrastructure, and agentic automation.
+
+**Status:** Active.
 
 **Semantic layer**
 - Embedding pipeline: chunk → embed → `sqlite-vec` (`@xenova/transformers`, local)

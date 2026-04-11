@@ -22,13 +22,9 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 | Quarter | Theme | Status | Release Target |
 |---|---|---|---|
 | Q1 2026 | Foundation | **Complete** | — |
-| Q2 2026 | The Bridge | **Active** | End of June 2026 |
-| Q3 2026 | Intelligence | Planned | End of September 2026 |
+| Q2 2026 | The Bridge | **Complete** | — |
+| Q3 2026 | Intelligence | **Active** | End of September 2026 |
 | Q4 2026 | Presence | Planned | End of December 2026 — `v0.1.0` |
-
-Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
-
-**Q2 remainder (living detail):** People graph linker + IPC/CLI, optional Discord MCP, engine context ranker / resolver tools (Q2 plan §7.0), headless installers (§7.9), and the plan’s *Acceptance Criteria Checklist* — tracked in [`q2-2026-plan.md`](./q2-2026-plan.md) (*Implementation status (living)*).
 
 ---
 
@@ -58,67 +54,71 @@ Detailed Q2 execution plan: [`q2-2026-plan.md`](./q2-2026-plan.md).
 
 ---
 
-## Q2 2026 — The Bridge
+## Q2 2026 — The Bridge ✅
 
 **Goal:** Connect every surface a developer works across — cloud storage, email, source control, communication, project tracking, and knowledge management — and unify them in the local index.
 
-**Implementation status:** A living checklist of what is merged in the repository (packages, sync, CLI, and tests) is maintained in [`q2-2026-plan.md`](./q2-2026-plan.md) — *Implementation status (living)* and *Acceptance Criteria Checklist*. The subsections below are the quarter’s scope; **`[x]`** means an MVP aligned with that bullet is shipped unless a short note says otherwise.
+### Delivered
 
-### Dependencies
+#### First-party MCP connectors (all with delta sync + index population)
 
-- Q1 complete (Gateway IPC, Vault, MCP connector mesh, delta sync foundation)
-- OAuth PKCE flow implemented as a reusable Gateway utility (not per-connector)
-- `MCPClient` supports multiplexed connections before adding multiple connectors
+- [x] **Google Drive** — file list, metadata, search; OAuth PKCE; `Changes` API delta; write (create/trash/move/rename) behind HITL
+- [x] **Gmail** — message list, thread read, label list, draft create/send; OAuth PKCE
+- [x] **Google Photos** — album list, media item metadata (not binary download); OAuth PKCE
+- [x] **OneDrive** — files, folders, delete/move behind HITL; Microsoft Graph `delta` endpoint
+- [x] **Outlook** — mail, calendar events, contacts; scope-gated tools (`tool-scope-policy.ts`); mail delta sync
+- [x] **Microsoft Teams** — chats, channels, messages; post message behind HITL
+- [x] **GitHub** — repos, PRs (open/closed/merged), issues, CI check runs; PAT auth
+- [x] **GitLab** — projects, merge requests, issues, pipelines; PAT auth; self-hosted `gitlab.api_base` support
+- [x] **Bitbucket** — repos, pull requests, pipelines; app-password auth
+- [x] **Slack** — channels, DMs, threads, search; OAuth user token; post message/DM behind HITL
+- [x] **Linear** — issues, projects, cycles, initiatives, members; API key; write behind HITL
+- [x] **Jira** — issues, sprints, boards, epics, comments; API token; write behind HITL
+- [x] **Notion** — pages, databases, database rows, comments; OAuth; write behind HITL
+- [x] **Confluence** — spaces, pages, blog posts, inline comments; API token; write behind HITL
+- [x] **Discord** (opt-in, off by default) — servers, channels, threads; bot token; read-only index
 
-### Connector Deliverables
+#### Infrastructure
 
-#### Cloud Storage & Email
-- [x] **Google Drive MCP connector** — file list, metadata, download, search; OAuth PKCE; delta sync via `Changes` API
-- [x] **Gmail MCP connector** — message list, thread read, label list, draft create; OAuth PKCE
-- [x] **Google Photos MCP connector** — album list, media item metadata (not binary download by default)
-- [x] **OneDrive MCP connector** — files, folders, delta sync via Microsoft Graph `delta` endpoint
-- [x] **Outlook MCP connector** — mail, calendar events, contacts; Microsoft Graph; first-party app registration (mail delta sync shipped; calendar/contact Graph delta may extend in follow-ups)
+- [x] OAuth PKCE utility — `portRange` config, `--port`/`--scopes` CLI flags, no-secret desktop PKCE; token written to Vault only
+- [x] Per-provider rate limiter — token bucket per provider; `[sync.quotas]` config; `penalise()` on 429
+- [x] Delta sync scheduler — `maxConcurrentSyncs` semaphore, `hasMore` immediate re-queue, `retentionDays` weekly prune, `catchUpOnRestart` config
+- [x] Unified `item` schema (schema v5) — FTS5, `canonical_url` dedup with `duplicates` field, `pinned` column, `sync_state`, `sync_telemetry` tables
+- [x] `person` table (schema v5) — GitHub, GitLab, Slack, Linear, Jira, Notion, Bitbucket, Microsoft, Discord handles
+- [x] Cross-service people linker — Slack handle → GitHub login → Linear member → email resolves without a network call; `nimbus people` CLI + `people.*` IPC
+- [x] Formal migration runner — `_schema_migrations` ledger, numbered append-only migrations, single-transaction per step
+- [x] Lazy connector mesh — idle shutdown after 5 min; `registry.ensureRunning()` before dispatch; Google/Microsoft bundles
+- [x] `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `resume`, `status`, `remove`, `set-interval`
+- [x] Engine context ranker + `searchLocalIndex`, `fetchMoreIndexResults`, `resolvePerson` agent tools
+- [x] E2E test scenarios: cross-service query, identity resolution, HITL write ops, MCP connector contract
+- [x] Security hardening: PKCE failure paths, OAuth vault scopes, audit payload safety, connector remove resilience
+- [x] Coverage gates met: Engine ≥85%, Vault ≥90%, Sync scheduler ≥80%, Rate limiter ≥85%, People graph ≥80%
+- [x] Linux headless installers (`.deb` + `.tar.gz`); Windows NSIS + macOS pkg sources
 
-#### Source Control & Code Review
-- [x] **GitHub MCP connector** — repos, PRs (open/closed/merged), issues, CI check runs, review comments; PAT or OAuth
-- [x] **GitLab MCP connector** — projects, merge requests, issues, pipelines, CI jobs
-- [x] **Bitbucket MCP connector** — repos, pull requests, pipelines, issues
+### Acceptance Criteria (all met)
 
-#### Communication
-- [x] **Slack MCP connector** — messages, channels, threads, DMs, user list, search; OAuth user token; read-only index + write (post message) behind HITL
-- [x] **Microsoft Teams MCP connector** — chats, channels, meetings, files; Microsoft Graph; read + write behind HITL
-- [ ] **Discord MCP connector** (opt-in, off by default) — servers, channels, threads; bot token; read-only index
-
-#### Project & Issue Tracking
-- [x] **Linear MCP connector** — issues, projects, cycles, roadmap, comments, members; API key auth; write (create issue, update status) behind HITL
-- [x] **Jira MCP connector** — issues, sprints, boards, epics, comments, attachments metadata; API token; write behind HITL
-
-#### Knowledge Bases
-- [x] **Notion MCP connector** — pages, databases, database rows, comments, linked mentions; OAuth; write behind HITL
-- [x] **Confluence MCP connector** — spaces, pages, blog posts, inline comments; API token; write behind HITL
-
-### Infrastructure Deliverables
-
-- [x] **Delta sync scheduler** — per-connector configurable intervals; exponential backoff on failure; sync state persisted in SQLite
-- [x] **Unified metadata schema** — common `item` table across all services with `service`, `type`, `external_id`, `title`, `body_preview`, `modified_at`, `author_id` columns; FTS5 full-text index; `person` table (see people graph below)
-- [ ] **Cross-service people graph** — linker and sync-time population so Slack handle → GitHub login → Linear member → email → Outlook contact resolves without a network call (`person` DDL and migrations are shipped; linker, sync hooks, `people.*` IPC, and `nimbus people` CLI are not started — Q2 plan Phase 6)
-- [x] `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove` (also `resume`, `set-interval` — see Q2 plan §1.7)
-- [x] E2E CLI test suite — Gateway subprocess + wire-protocol tests; no real cloud calls in CI (suite grows with connectors)
-
-### Acceptance Criteria
-
-Gate Q2 completion against the checklist in [`q2-2026-plan.md`](./q2-2026-plan.md) (*Acceptance Criteria Checklist*). At a high level:
-
-- `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results in under 200ms from the local index
+- `nimbus ask "find everything I’ve touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results in under 200ms from the local index
 - `nimbus ask "who is the most active reviewer on the payment-service repo and what are they working on in Linear?"` resolves the cross-service identity link without a network call
-- Revoking a connector's auth (`nimbus connector remove google`) deletes all associated Vault entries and index rows atomically; no orphaned credentials
+- Revoking a connector’s auth (`nimbus connector remove google`) deletes all associated Vault entries and index rows atomically; no orphaned credentials
 - All write operations through Slack, Linear, Jira, Notion, Confluence connectors trigger HITL before any outbound call
+
+### Deferred from Q2 (by design)
+
+| Topic | Resolved in |
+|---|---|
+| Full document content extraction (PDF/DOCX body text in FTS5) | Q3 — embedding pipeline + Filesystem connector v2 |
+| Generic user-defined MCP connector (`nimbus connector add --mcp`) | Q3 — Extension Registry v1 (adds sandboxing + manifest verification) |
+| Vault credential portability between machines | Q4 — `nimbus data export/import` |
+| SQLite encryption at rest (SQLCipher) | Post-Q2 — OS filesystem encryption (BitLocker/FileVault/LUKS) covers the threat model; revisit if a formal security audit identifies a gap |
+| Per-connector OAuth vault keys vs shared family key (`google.oauth`, `microsoft.oauth`) | Q3/Q4 consideration — shared key kept for simplicity; revisit if scope-collision UX proves painful |
 
 ---
 
 ## Q3 2026 — Intelligence
 
 **Goal:** Make Nimbus semantically aware and proactively useful. Extend into CI/CD, cloud infrastructure, and agentic automation.
+
+**Status:** Active — Q2 complete as of April 2026.
 
 ### Dependencies
 

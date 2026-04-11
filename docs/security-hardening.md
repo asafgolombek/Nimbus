@@ -1,6 +1,6 @@
-# Q2 §7.8 Security hardening — status
+# Security hardening — status
 
-This document tracks the **Security Hardening Checklist** in `docs/q2-2026-plan.md` §7.8. Items marked **Automated** run in CI; **Manual** require human sign-off before a release.
+Items marked **Automated** run in CI; **Manual** require human sign-off before a release.
 
 | Item | Status | Evidence |
 |------|--------|----------|

@@ -41,4 +41,4 @@ bash installers/macos/build-pkg.sh dist/headless-bundle
 
 ## Out of scope
 
-Bundling MCP connector server binaries inside these installers remains a follow-up unless Q2 scope explicitly expands (per `docs/q2-2026-plan.md` §7.9).
+Bundling MCP connector server binaries inside these installers is a future follow-up (see [`docs/roadmap.md`](../docs/roadmap.md)).
