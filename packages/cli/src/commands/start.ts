@@ -1,5 +1,5 @@
 import { type SpawnOptions, spawn } from "node:child_process";
-import { appendFileSync, closeSync, openSync } from "node:fs";
+import { closeSync, openSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 import { spinner } from "@clack/prompts";
@@ -38,28 +38,30 @@ export async function runStart(_args: string[]): Promise<void> {
   const launch = resolveGatewayLaunch(process.execPath, import.meta.url);
   if (launch.ok) {
     const logPath = join(paths.logDir, gatewayLogBasename());
-    appendFileSync(
-      logPath,
-      `\n--- ${new Date().toISOString()} nimbus: spawning gateway (${launch.cmd.join(" ")}) ---\n`,
-    );
 
     /**
      * Use Node `spawn` with real append fds — `Bun.spawn` + inherited stdio is unreliable on Windows
      * (log stays empty, gateway often exits when the CLI process exits).
      * `detached: true` on Windows lets the gateway keep running and keep valid stdio handles after `unref`.
+     *
+     * Open the log file once and reuse the same fd for the banner write and child stdio (avoids
+     * check/use races between separate opens on the same path).
      */
     const executable = launch.cmd[0];
     if (executable === undefined || executable === "") {
       throw new Error("Gateway launch command is empty");
     }
     const spawnArgs = launch.cmd.slice(1);
-    const outFd = openSync(logPath, "a");
-    const errFd = openSync(logPath, "a");
+    const logFd = openSync(logPath, "a");
     let pid: number;
     try {
+      writeSync(
+        logFd,
+        `\n--- ${new Date().toISOString()} nimbus: spawning gateway (${launch.cmd.join(" ")}) ---\n`,
+      );
       const opts: SpawnOptions = {
         cwd: launch.cwd,
-        stdio: ["ignore", outFd, errFd],
+        stdio: ["ignore", logFd, logFd],
         windowsHide: true,
       };
       if (process.platform === "win32") {
@@ -73,8 +75,7 @@ export async function runStart(_args: string[]): Promise<void> {
       pid = p;
       child.unref();
     } finally {
-      closeSync(outFd);
-      closeSync(errFd);
+      closeSync(logFd);
     }
 
     const state = {

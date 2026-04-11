@@ -97,6 +97,22 @@ async function discordFetch(
   return { ok: res.ok, status: res.status, json, text };
 }
 
+/** Seconds to wait from a Discord 429 JSON body (avoids stringifying non-primitive `retry_after`). */
+function discordRetryAfterSeconds(json: unknown): number {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return 1;
+  }
+  const raw = (json as Record<string, unknown>)["retry_after"];
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const n = Number.parseFloat(raw);
+    return Number.isFinite(n) ? n : 1;
+  }
+  return 1;
+}
+
 function displayNameFromDiscordAuthor(author: Record<string, unknown>): string {
   const gn = stringField(author, "global_name");
   const un = stringField(author, "username");
@@ -160,12 +176,7 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
           const res = await discordFetch(token, "/users/@me/guilds");
           bytesTransferred += res.text.length;
           if (res.status === 429) {
-            const ra = Number.parseInt(
-              typeof res.json === "object" && res.json !== null && !Array.isArray(res.json)
-                ? String((res.json as Record<string, unknown>)["retry_after"] ?? "1")
-                : "1",
-              10,
-            );
+            const ra = discordRetryAfterSeconds(res.json);
             const ms = Number.isFinite(ra) && ra > 0 ? Math.ceil(ra * 1000) : 60_000;
             ctx.rateLimiter.penalise("discord", ms);
             throw new Error(`Discord guilds 429: ${res.text.slice(0, 200)}`);
@@ -325,9 +336,9 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
           const authorSnowflake = stringField(author, "id");
           const bodyPreview = content.length > 512 ? content.slice(0, 512) : content;
           const titleBase =
-            bodyPreview.trim() !== ""
-              ? bodyPreview.replace(/\s+/g, " ").slice(0, 80)
-              : displayNameFromDiscordAuthor(author);
+            bodyPreview.trim() === ""
+              ? displayNameFromDiscordAuthor(author)
+              : bodyPreview.replace(/\s+/g, " ").slice(0, 80);
           const title = titleBase.length > 512 ? titleBase.slice(0, 512) : titleBase;
           const url = `https://discord.com/channels/${guildId}/${channelId}/${mid}`;
           const authorId =

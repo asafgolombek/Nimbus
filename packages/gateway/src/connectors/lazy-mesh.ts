@@ -509,8 +509,10 @@ export class LazyConnectorMesh {
     const outlookEnv = {
       ...process.env,
       MICROSOFT_OAUTH_ACCESS_TOKEN: token,
-      ...(outlookScopes !== undefined ? { MICROSOFT_OAUTH_SCOPES: outlookScopes } : {}),
     } as Record<string, string>;
+    if (outlookScopes !== undefined) {
+      outlookEnv["MICROSOFT_OAUTH_SCOPES"] = outlookScopes;
+    }
     this.microsoftBundleClient = new MCPClient({
       id: `nimbus-ms-${String(Date.now())}`,
       servers: {

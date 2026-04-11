@@ -93,57 +93,57 @@ export function resolvePersonForSync(db: Database, hints: PersonSyncHints): stri
   return resolveHandleOnlyPerson(db, hints);
 }
 
+type HandleLookup = {
+  value: (h: PersonSyncHints) => string | undefined;
+  find: (db: Database, v: string) => PersonRecord | null;
+};
+
+const HANDLE_LOOKUPS: readonly HandleLookup[] = [
+  {
+    value: (h) => (nonEmpty(h.githubLogin) ? h.githubLogin.trim() : undefined),
+    find: findPersonByGithubLogin,
+  },
+  {
+    value: (h) => (nonEmpty(h.gitlabLogin) ? h.gitlabLogin.trim() : undefined),
+    find: findPersonByGitlabLogin,
+  },
+  {
+    value: (h) => (nonEmpty(h.slackHandle) ? h.slackHandle.trim() : undefined),
+    find: findPersonBySlackHandle,
+  },
+  {
+    value: (h) => (nonEmpty(h.linearMemberId) ? h.linearMemberId.trim() : undefined),
+    find: findPersonByLinearMemberId,
+  },
+  {
+    value: (h) => (nonEmpty(h.jiraAccountId) ? h.jiraAccountId.trim() : undefined),
+    find: findPersonByJiraAccountId,
+  },
+  {
+    value: (h) => (nonEmpty(h.notionUserId) ? h.notionUserId.trim() : undefined),
+    find: findPersonByNotionUserId,
+  },
+  {
+    value: (h) => (nonEmpty(h.bitbucketUuid) ? h.bitbucketUuid.trim() : undefined),
+    find: findPersonByBitbucketUuid,
+  },
+  {
+    value: (h) => (nonEmpty(h.microsoftUserId) ? h.microsoftUserId.trim() : undefined),
+    find: findPersonByMicrosoftUserId,
+  },
+  {
+    value: (h) => (nonEmpty(h.discordUserId) ? h.discordUserId.trim() : undefined),
+    find: findPersonByDiscordUserId,
+  },
+];
+
 function findExistingPersonByHandles(db: Database, hints: PersonSyncHints): PersonRecord | null {
-  if (nonEmpty(hints.githubLogin)) {
-    const p = findPersonByGithubLogin(db, hints.githubLogin.trim());
-    if (p !== null) {
-      return p;
+  for (const { value, find } of HANDLE_LOOKUPS) {
+    const v = value(hints);
+    if (v === undefined) {
+      continue;
     }
-  }
-  if (nonEmpty(hints.gitlabLogin)) {
-    const p = findPersonByGitlabLogin(db, hints.gitlabLogin.trim());
-    if (p !== null) {
-      return p;
-    }
-  }
-  if (nonEmpty(hints.slackHandle)) {
-    const p = findPersonBySlackHandle(db, hints.slackHandle.trim());
-    if (p !== null) {
-      return p;
-    }
-  }
-  if (nonEmpty(hints.linearMemberId)) {
-    const p = findPersonByLinearMemberId(db, hints.linearMemberId.trim());
-    if (p !== null) {
-      return p;
-    }
-  }
-  if (nonEmpty(hints.jiraAccountId)) {
-    const p = findPersonByJiraAccountId(db, hints.jiraAccountId.trim());
-    if (p !== null) {
-      return p;
-    }
-  }
-  if (nonEmpty(hints.notionUserId)) {
-    const p = findPersonByNotionUserId(db, hints.notionUserId.trim());
-    if (p !== null) {
-      return p;
-    }
-  }
-  if (nonEmpty(hints.bitbucketUuid)) {
-    const p = findPersonByBitbucketUuid(db, hints.bitbucketUuid.trim());
-    if (p !== null) {
-      return p;
-    }
-  }
-  if (nonEmpty(hints.microsoftUserId)) {
-    const p = findPersonByMicrosoftUserId(db, hints.microsoftUserId.trim());
-    if (p !== null) {
-      return p;
-    }
-  }
-  if (nonEmpty(hints.discordUserId)) {
-    const p = findPersonByDiscordUserId(db, hints.discordUserId.trim());
+    const p = find(db, v);
     if (p !== null) {
       return p;
     }

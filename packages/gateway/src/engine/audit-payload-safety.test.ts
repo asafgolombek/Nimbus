@@ -11,10 +11,10 @@ type AuditRecord = Parameters<AuditSink["recordAudit"]>[0];
  */
 const CREDENTIAL_ARTIFACT_PATTERNS: readonly RegExp[] = [
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/, // JWT-shaped
-  /\bghp_[A-Za-z0-9]{20,}\b/i,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/i,
-  /\bxox[pba]-[A-Za-z0-9-]{10,}\b/i,
-  /\bBearer\s+[A-Za-z0-9._-]{8,}\b/i,
+  /\bghp_[a-z0-9]{20,}\b/i,
+  /\bgithub_pat_[a-z0-9_]{20,}\b/i,
+  /\bxox[pba]-[a-z0-9-]{10,}\b/i,
+  /\bBearer\s+[a-z0-9._-]{8,}\b/i,
   /\bsk-[A-Za-z0-9]{10,}\b/, // common API key prefix
   /\baccess_token["']?\s*:\s*["'][^"']{8,}["']/i,
   /\brefresh_token["']?\s*:\s*["'][^"']{8,}["']/i,

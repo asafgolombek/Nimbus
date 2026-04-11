@@ -46,6 +46,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
+| `docs/phase-3-intelligence-plan.md` | Phase 3 execution plan + living implementation status |
 
 ---
 

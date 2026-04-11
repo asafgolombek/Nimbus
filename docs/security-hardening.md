@@ -6,6 +6,7 @@ Items marked **Automated** run in CI; **Manual** require human sign-off before a
 |------|--------|----------|
 | `bun audit --audit-level high` clean | **Automated** | `.github/workflows/security.yml` job `audit` |
 | Trivy on dependency / config surface | **Automated** | `security.yml` job `trivy-scan` (filesystem scan of repo root; includes all workspace `package.json` and lockfiles) |
+| `cargo audit` (Tauri / `Cargo.lock`) | **Automated** | `security.yml` job `cargo-audit` (`packages/ui/src-tauri`) |
 | CodeQL JavaScript/TypeScript | **Automated** | `.github/workflows/codeql.yml` (entire monorepo, including MCP connector packages) |
 | `pkce.ts` — no secrets in exchange-failure exceptions | **Automated** | `packages/gateway/src/auth/pkce.test.ts` (Google + Microsoft invalid_grant paths) |
 | `pkce.ts` / IPC / logs — full manual pass | **Manual** | Spot-check on material PKCE or IPC changes |
@@ -19,4 +20,4 @@ Items marked **Automated** run in CI; **Manual** require human sign-off before a
 ## Maintainer workflow
 
 1. Before tagging: confirm **Manual** rows above for the delta since last release.
-2. On PRs: ensure **Security** and **CodeQL** workflows are required checks where branch protection applies (see `.github/BRANCH_PROTECTION.md`).
+2. On PRs: in **GitHub → Settings → Branches → branch protection**, add **required status checks** so merges are blocked when jobs fail — not only when checks are “green” in the UI. Include at minimum: **PR quality — ubuntu-22.04**, **E2E Desktop (PR) — ubuntu-22.04** (if you want desktop covered on every PR), **Security** jobs (`Dependency audit`, `Trivy vulnerability scan`, `Gateway audit JSON + connector.remove vault restore`, `Cargo audit (Tauri)`), and **Analyze (JavaScript / TypeScript)** (CodeQL). Exact names must match the Actions tab (see [`.github/BRANCH_PROTECTION.md`](../.github/BRANCH_PROTECTION.md)).

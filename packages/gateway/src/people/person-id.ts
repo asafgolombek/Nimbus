@@ -19,20 +19,21 @@ function bytesToUuid(buf: Buffer): string {
 }
 
 /**
- * RFC 4122 UUID v5 (SHA-1) for deterministic person primary keys.
+ * Deterministic UUID-shaped person primary key: SHA-256 over namespace || name, first 128 bits
+ * with RFC 9562 UUID version 8 and RFC 4122 variant bits (not RFC 4122 v5, which mandates SHA-1).
  */
 export function uuidV5(name: string, namespaceUuid: string): string {
   const ns = uuidStringToBytes(namespaceUuid);
-  const hash = createHash("sha1");
+  const hash = createHash("sha256");
   hash.update(ns);
   hash.update(name, "utf8");
   const digest = hash.digest();
   const b6 = digest[6];
   const b8 = digest[8];
   if (b6 === undefined || b8 === undefined) {
-    throw new Error("unexpected SHA-1 digest length");
+    throw new Error("unexpected SHA-256 digest length");
   }
-  digest[6] = (b6 & 0x0f) | 0x50;
+  digest[6] = (b6 & 0x0f) | 0x80;
   digest[8] = (b8 & 0x3f) | 0x80;
   return bytesToUuid(digest.subarray(0, 16));
 }

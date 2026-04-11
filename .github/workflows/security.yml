@@ -12,6 +12,7 @@ jobs:
   audit:
     name: Dependency audit
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -31,6 +32,7 @@ jobs:
   trivy-scan:
     name: Trivy vulnerability scan
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -57,6 +59,7 @@ jobs:
   gateway-security-contracts:
     name: Gateway audit JSON + connector.remove vault restore
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -76,3 +79,22 @@ jobs:
             packages/gateway/test/integration/connector-remove-oauth-restore.integration.test.ts
         env:
           CI: "true"
+
+  cargo-audit:
+    name: Cargo audit (Tauri)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.1
+
+      - name: Run cargo audit (packages/ui/src-tauri)
+        working-directory: packages/ui/src-tauri
+        run: cargo audit

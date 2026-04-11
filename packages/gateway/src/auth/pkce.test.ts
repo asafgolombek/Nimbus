@@ -7,6 +7,15 @@ import {
 } from "../testing/bun-test-support.ts";
 import { pkceCodeChallengeS256, refreshAccessToken, runPKCEFlow } from "./pkce.ts";
 
+function isHttpsTokenEndpoint(s: string, host: string, pathname: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" && u.hostname === host && u.pathname === pathname;
+  } catch {
+    return false;
+  }
+}
+
 describe("pkceCodeChallengeS256", () => {
   test("matches SHA-256 base64url of verifier (RFC 7636)", async () => {
     const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"; // example shape; URL-safe
@@ -39,7 +48,7 @@ describe("runPKCEFlow", () => {
       openUrl: googlePkceOpenUrlCompleter("mock-auth-code", { expectAccountsHost: true }),
       fetchImpl: async (input) => {
         const s = requestUrlString(input);
-        if (s.includes("oauth2.googleapis.com/token")) {
+        if (isHttpsTokenEndpoint(s, "oauth2.googleapis.com", "/token")) {
           return new Response(
             JSON.stringify({
               access_token: secretAccess,
@@ -104,7 +113,7 @@ describe("runPKCEFlow", () => {
       }),
       fetchImpl: async (input) => {
         const s = requestUrlString(input);
-        if (s.includes("login.microsoftonline.com") && s.includes("/token")) {
+        if (isHttpsTokenEndpoint(s, "login.microsoftonline.com", "/common/oauth2/v2.0/token")) {
           return new Response(
             JSON.stringify({
               access_token: secretAccess,
@@ -175,7 +184,7 @@ describe("runPKCEFlow", () => {
         }),
         fetchImpl: async (input) => {
           const s = requestUrlString(input);
-          if (s.includes("oauth2.googleapis.com/token")) {
+          if (isHttpsTokenEndpoint(s, "oauth2.googleapis.com", "/token")) {
             return new Response(
               JSON.stringify({
                 access_token: "a",
@@ -210,7 +219,7 @@ describe("runPKCEFlow", () => {
       }),
       fetchImpl: async (input) => {
         const s = requestUrlString(input);
-        if (s.includes("slack.com/api/oauth.v2.access")) {
+        if (isHttpsTokenEndpoint(s, "slack.com", "/api/oauth.v2.access")) {
           return new Response(
             JSON.stringify({
               ok: true,
