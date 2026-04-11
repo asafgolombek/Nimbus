@@ -36,6 +36,11 @@ export function silentSyncContextExtras(): Pick<SyncContext, "logger" | "rateLim
   };
 }
 
+/** Full `SyncContext` for unit tests (memory DB + stub vault + silent logger/rate limiter). */
+export function syncTestContext(db: Database, vault: NimbusVault): SyncContext {
+  return { db, vault, ...silentSyncContextExtras() };
+}
+
 export function expectSyncNoopResult(
   r: Pick<SyncResult, "itemsUpserted" | "itemsDeleted" | "cursor">,
 ): void {
@@ -60,7 +65,7 @@ export function testConnectorSyncNoop(
   test(name, async () => {
     const db = createMemoryIndexDb();
     const sync = createSyncable();
-    const r = await sync.sync({ vault: noopVault, db, ...silentSyncContextExtras() }, null);
+    const r = await sync.sync(syncTestContext(db, noopVault), null);
     expectSyncNoopResult(r);
   });
 }

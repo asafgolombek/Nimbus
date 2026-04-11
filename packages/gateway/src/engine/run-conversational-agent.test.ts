@@ -4,6 +4,11 @@ import type { Agent } from "@mastra/core/agent";
 import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { runConversationalAgent } from "./run-conversational-agent.ts";
 
+async function* mockAgentTextDeltaStream() {
+  yield { type: "text-delta" as const, payload: { text: "a" } };
+  yield { type: "text-delta" as const, payload: { text: "b" } };
+}
+
 describe("runConversationalAgent", () => {
   test("returns empty reply for whitespace-only input", async () => {
     const agent = {} as Agent;
@@ -36,13 +41,9 @@ describe("runConversationalAgent", () => {
 
   test("stream forwards text-delta chunks and returns final text", async () => {
     const chunks: string[] = [];
-    async function* fullStream() {
-      yield { type: "text-delta" as const, payload: { text: "a" } };
-      yield { type: "text-delta" as const, payload: { text: "b" } };
-    }
     const agent = {
       stream: mock(async () => ({
-        fullStream: fullStream(),
+        fullStream: mockAgentTextDeltaStream(),
         text: Promise.resolve("full"),
       })),
     } as unknown as Agent;

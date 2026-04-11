@@ -85,15 +85,15 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
   const lmUser = d.lastModifiedBy?.user;
   const lmEmail = graphDriveUserMailbox(lmUser);
   const authorId =
-    lmEmail !== undefined
-      ? resolvePersonForSync(ctx.db, {
+    lmEmail === undefined
+      ? null
+      : resolvePersonForSync(ctx.db, {
           canonicalEmail: lmEmail,
           displayName:
             lmUser?.displayName !== undefined && lmUser.displayName !== ""
               ? lmUser.displayName
               : lmEmail,
-        })
-      : null;
+        });
 
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,

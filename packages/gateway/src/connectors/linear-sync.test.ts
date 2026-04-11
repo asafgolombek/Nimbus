@@ -6,7 +6,7 @@ import {
   describeWithFetchRestore,
   expectServiceItemCount,
   type SyncTestFetchParams,
-  silentSyncContextExtras,
+  syncTestContext,
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
@@ -59,12 +59,10 @@ describeWithFetchRestore("linear-sync", () => {
     }) as typeof fetch;
 
     const sync = createLinearSyncable({ ensureLinearMcpRunning: async () => {} });
-    const ctx = {
-      vault: createStubVault({ "linear.api_key": "lin_api_test" }),
-      db,
-      ...silentSyncContextExtras(),
-    };
-    const r = await sync.sync(ctx, null);
+    const r = await sync.sync(
+      syncTestContext(db, createStubVault({ "linear.api_key": "lin_api_test" })),
+      null,
+    );
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-lnr1:");
     expectServiceItemCount(db, "linear", 1);

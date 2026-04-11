@@ -5,7 +5,7 @@ import {
   describeWithFetchRestore,
   expectServiceItemCount,
   type SyncTestFetchParams,
-  silentSyncContextExtras,
+  syncTestContext,
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
@@ -71,12 +71,13 @@ describeWithFetchRestore("discord-sync", () => {
     }) as typeof fetch;
 
     const sync = createDiscordSyncable({ ensureDiscordMcpRunning: async () => {} });
-    const ctx = {
-      vault: createStubVault({ "discord.enabled": "1", "discord.bot_token": "test-token" }),
-      db,
-      ...silentSyncContextExtras(),
-    };
-    const r = await sync.sync(ctx, null);
+    const r = await sync.sync(
+      syncTestContext(
+        db,
+        createStubVault({ "discord.enabled": "1", "discord.bot_token": "test-token" }),
+      ),
+      null,
+    );
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-dsc1:");
     expectServiceItemCount(db, "discord", 1);

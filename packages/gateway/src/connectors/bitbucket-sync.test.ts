@@ -6,7 +6,7 @@ import {
   describeWithFetchRestore,
   expectServiceItemCount,
   type SyncTestFetchParams,
-  silentSyncContextExtras,
+  syncTestContext,
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
@@ -65,12 +65,13 @@ describeWithFetchRestore("bitbucket-sync", () => {
     }) as typeof fetch;
 
     const sync = createBitbucketSyncable({ ensureBitbucketMcpRunning: async () => {} });
-    const ctx = {
-      vault: createStubVault({ "bitbucket.username": "me", "bitbucket.app_password": "app_pass" }),
-      db,
-      ...silentSyncContextExtras(),
-    };
-    const r = await sync.sync(ctx, null);
+    const r = await sync.sync(
+      syncTestContext(
+        db,
+        createStubVault({ "bitbucket.username": "me", "bitbucket.app_password": "app_pass" }),
+      ),
+      null,
+    );
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-bbkt1:");
     expectServiceItemCount(db, "bitbucket", 1);

@@ -164,10 +164,39 @@ function rowToRankedItem(
     score,
     indexPrimaryKey: row.id,
     indexedType: String(row.type),
-    ...(trimmed !== "" ? { canonicalUrl: trimmed } : {}),
+    ...(trimmed === "" ? {} : { canonicalUrl: trimmed }),
     ...(duplicates !== undefined && duplicates.length > 0 ? { duplicates } : {}),
   };
   return item;
+}
+
+function dedupeRankedByCanonicalUrl(
+  scored: Array<{ row: ItemRow; score: number }>,
+): RankedIndexItem[] {
+  const out: RankedIndexItem[] = [];
+  const canonicalToOutIdx = new Map<string, number>();
+  for (const { row, score } of scored) {
+    const canon = row.canonical_url;
+    if (canon === null || canon === undefined || canon.trim() === "") {
+      out.push(rowToRankedItem(row, score));
+      continue;
+    }
+    const c = canon.trim();
+    const idx = canonicalToOutIdx.get(c);
+    if (idx === undefined) {
+      canonicalToOutIdx.set(c, out.length);
+      out.push(rowToRankedItem(row, score));
+      continue;
+    }
+    const prev = out[idx];
+    if (prev === undefined) {
+      out.push(rowToRankedItem(row, score));
+      continue;
+    }
+    const dups = [...(prev.duplicates ?? []), row.service];
+    out[idx] = { ...prev, duplicates: dups };
+  }
+  return out;
 }
 
 function stripRankedToNimbus(r: RankedIndexItem): NimbusItem {
@@ -416,30 +445,7 @@ export class LocalIndex {
       return b.row.modified_at - a.row.modified_at;
     });
 
-    const out: RankedIndexItem[] = [];
-    const canonicalToOutIdx = new Map<string, number>();
-
-    for (const { row, score } of scored) {
-      const canon = row.canonical_url;
-      if (canon === null || canon === undefined || canon.trim() === "") {
-        out.push(rowToRankedItem(row, score));
-        continue;
-      }
-      const c = canon.trim();
-      const idx = canonicalToOutIdx.get(c);
-      if (idx === undefined) {
-        canonicalToOutIdx.set(c, out.length);
-        out.push(rowToRankedItem(row, score));
-      } else {
-        const prev = out[idx];
-        if (prev === undefined) {
-          out.push(rowToRankedItem(row, score));
-          continue;
-        }
-        const dups = [...(prev.duplicates ?? []), row.service];
-        out[idx] = { ...prev, duplicates: dups };
-      }
-    }
+    const out = dedupeRankedByCanonicalUrl(scored);
 
     const limit = Math.min(500, Math.max(1, query.limit ?? 50));
     return out.slice(0, limit);

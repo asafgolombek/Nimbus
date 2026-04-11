@@ -5,8 +5,7 @@ function isBareMailboxShape(s: string): boolean {
   if (s === "") {
     return false;
   }
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s[i];
+  for (const c of s) {
     if (c === " " || c === "\t" || c === "\n" || c === "<" || c === ">") {
       return false;
     }
@@ -15,7 +14,7 @@ function isBareMailboxShape(s: string): boolean {
   if (at <= 0) {
     return false;
   }
-  if (s.indexOf("@", at + 1) !== -1) {
+  if (s.slice(at + 1).includes("@")) {
     return false;
   }
   const domain = s.slice(at + 1);

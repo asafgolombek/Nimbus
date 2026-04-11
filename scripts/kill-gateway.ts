@@ -15,7 +15,9 @@ import { terminateCompiledGatewayBinary } from "../packages/gateway/terminate-ga
 async function main(): Promise<void> {
   const paths = getCliPlatformPaths();
   const state = await readGatewayState(paths);
-  if (state !== undefined) {
+  if (state === undefined) {
+    process.stdout.write("No gateway state file (gateway.json).\n");
+  } else {
     try {
       process.kill(state.pid, "SIGTERM");
       process.stdout.write(`Stop signal sent to gateway (pid ${String(state.pid)})\n`);
@@ -27,8 +29,6 @@ async function main(): Promise<void> {
     } catch {
       /* ignore */
     }
-  } else {
-    process.stdout.write("No gateway state file (gateway.json).\n");
   }
 
   const t = terminateCompiledGatewayBinary();

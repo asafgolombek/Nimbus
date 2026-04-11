@@ -20,6 +20,14 @@ type DiscordSyncCursorV1 = {
   lastMsgByChannel: Record<string, string>;
 };
 
+type DiscordAcc = {
+  upserted: number;
+  bytesTransferred: number;
+  apiCalls: number;
+};
+
+type StateRef = { s: DiscordSyncCursorV1 };
+
 function encodeCursor(c: DiscordSyncCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
@@ -125,6 +133,289 @@ function displayNameFromDiscordAuthor(author: Record<string, unknown>): string {
   return "unknown";
 }
 
+function discordGuildIdsFromJson(json: unknown): string[] {
+  if (!Array.isArray(json)) {
+    return [];
+  }
+  const ids: string[] = [];
+  for (const g of json) {
+    const gr = asRecord(g);
+    const id = gr === undefined ? undefined : stringField(gr, "id");
+    if (id !== undefined && id !== "") {
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function discordTextChannelIdsFromJson(json: unknown): string[] {
+  if (!Array.isArray(json)) {
+    return [];
+  }
+  const chIds: string[] = [];
+  for (const ch of json) {
+    const cr = asRecord(ch);
+    if (cr === undefined) {
+      continue;
+    }
+    const id = stringField(cr, "id");
+    const type = cr["type"];
+    if (id !== undefined && id !== "" && typeof type === "number" && TEXT_CHANNEL_TYPES.has(type)) {
+      chIds.push(id);
+    }
+  }
+  return chIds;
+}
+
+function discordUpsertMessagesFromPage(
+  ctx: SyncContext,
+  guildId: string,
+  channelId: string,
+  messages: unknown[],
+  now: number,
+  acc: DiscordAcc,
+): void {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const mr = asRecord(messages[i]);
+    if (mr === undefined) {
+      continue;
+    }
+    const mid = stringField(mr, "id");
+    const content = typeof mr["content"] === "string" ? mr["content"] : "";
+    const author = asRecord(mr["author"]);
+    if (mid === undefined || mid === "" || author === undefined) {
+      continue;
+    }
+    const authorSnowflake = stringField(author, "id");
+    const bodyPreview = content.length > 512 ? content.slice(0, 512) : content;
+    const titleBase =
+      bodyPreview.trim() === ""
+        ? displayNameFromDiscordAuthor(author)
+        : bodyPreview.replaceAll(/\s+/g, " ").slice(0, 80);
+    const title = titleBase.length > 512 ? titleBase.slice(0, 512) : titleBase;
+    const url = `https://discord.com/channels/${guildId}/${channelId}/${mid}`;
+    const authorId =
+      authorSnowflake !== undefined && authorSnowflake !== ""
+        ? resolvePersonForSync(ctx.db, {
+            discordUserId: authorSnowflake,
+            displayName: displayNameFromDiscordAuthor(author),
+          })
+        : null;
+    upsertIndexedItem(ctx.db, {
+      service: SERVICE_ID,
+      type: "message",
+      externalId: `${channelId}:${mid}`,
+      title,
+      bodyPreview,
+      url,
+      canonicalUrl: url,
+      modifiedAt: now,
+      authorId,
+      metadata: {
+        guildId,
+        channelId,
+        messageId: mid,
+      },
+      pinned: false,
+      syncedAt: now,
+    });
+    acc.upserted += 1;
+  }
+}
+
+async function discordFetchGuildList(
+  ctx: SyncContext,
+  token: string,
+  ref: StateRef,
+  acc: DiscordAcc,
+  finish: (n: DiscordSyncCursorV1, h: boolean) => SyncResult,
+): Promise<SyncResult | undefined> {
+  await ctx.rateLimiter.acquire("discord");
+  acc.apiCalls += 1;
+  const res = await discordFetch(token, "/users/@me/guilds");
+  acc.bytesTransferred += res.text.length;
+  if (res.status === 429) {
+    const ra = discordRetryAfterSeconds(res.json);
+    const ms = Number.isFinite(ra) && ra > 0 ? Math.ceil(ra * 1000) : 60_000;
+    ctx.rateLimiter.penalise("discord", ms);
+    throw new Error(`Discord guilds 429: ${res.text.slice(0, 200)}`);
+  }
+  if (!res.ok || !Array.isArray(res.json)) {
+    throw new Error(`Discord guilds ${String(res.status)}: ${res.text.slice(0, 200)}`);
+  }
+  const ids = discordGuildIdsFromJson(res.json);
+  ref.s = {
+    guildIds: ids,
+    guildIndex: 0,
+    channelIds: [],
+    channelIndex: 0,
+    lastMsgByChannel: {},
+  };
+  if (ids.length === 0) {
+    return finish(ref.s, false);
+  }
+  return undefined;
+}
+
+function discordFinishIfGuildsExhausted(
+  ref: StateRef,
+  finish: (n: DiscordSyncCursorV1, h: boolean) => SyncResult,
+): SyncResult | undefined {
+  if (ref.s.guildIndex < ref.s.guildIds.length) {
+    return undefined;
+  }
+  const cleared: DiscordSyncCursorV1 = {
+    guildIds: [],
+    guildIndex: 0,
+    channelIds: [],
+    channelIndex: 0,
+    lastMsgByChannel: ref.s.lastMsgByChannel,
+  };
+  return finish(cleared, false);
+}
+
+async function discordFetchChannelList(
+  ctx: SyncContext,
+  token: string,
+  guildId: string,
+  ref: StateRef,
+  acc: DiscordAcc,
+): Promise<void> {
+  await ctx.rateLimiter.acquire("discord");
+  acc.apiCalls += 1;
+  const res = await discordFetch(token, `/guilds/${encodeURIComponent(guildId)}/channels`);
+  acc.bytesTransferred += res.text.length;
+  if (res.status === 429) {
+    ctx.rateLimiter.penalise("discord", 60_000);
+    throw new Error(`Discord channels 429: ${res.text.slice(0, 200)}`);
+  }
+  if (!res.ok || !Array.isArray(res.json)) {
+    throw new Error(`Discord channels ${String(res.status)}: ${res.text.slice(0, 200)}`);
+  }
+  const chIds = discordTextChannelIdsFromJson(res.json);
+  ref.s = { ...ref.s, channelIds: chIds, channelIndex: 0 };
+  if (chIds.length === 0) {
+    ref.s = {
+      ...ref.s,
+      guildIndex: ref.s.guildIndex + 1,
+      channelIds: [],
+      channelIndex: 0,
+    };
+  }
+}
+
+async function discordFetchAndApplyMessages(
+  ctx: SyncContext,
+  token: string,
+  guildId: string,
+  channelId: string,
+  ref: StateRef,
+  acc: DiscordAcc,
+  now: number,
+): Promise<void> {
+  const after = ref.s.lastMsgByChannel[channelId];
+  let path = `/channels/${encodeURIComponent(channelId)}/messages?limit=50`;
+  if (after !== undefined && after !== "") {
+    path += `&after=${encodeURIComponent(after)}`;
+  }
+
+  await ctx.rateLimiter.acquire("discord");
+  acc.apiCalls += 1;
+  const res = await discordFetch(token, path);
+  acc.bytesTransferred += res.text.length;
+  if (res.status === 429) {
+    ctx.rateLimiter.penalise("discord", 60_000);
+    throw new Error(`Discord messages 429: ${res.text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    ref.s = { ...ref.s, channelIndex: ref.s.channelIndex + 1 };
+    return;
+  }
+  if (!Array.isArray(res.json)) {
+    ref.s = { ...ref.s, channelIndex: ref.s.channelIndex + 1 };
+    return;
+  }
+  const messages = res.json as unknown[];
+  if (messages.length === 0) {
+    const nextLast: Record<string, string> = { ...ref.s.lastMsgByChannel };
+    delete nextLast[channelId];
+    ref.s = {
+      ...ref.s,
+      lastMsgByChannel: nextLast,
+      channelIndex: ref.s.channelIndex + 1,
+    };
+    return;
+  }
+
+  const newestId =
+    typeof (messages[0] as { id?: string })?.id === "string"
+      ? (messages[0] as { id: string }).id
+      : "";
+  const nextLastMap: Record<string, string> = {
+    ...ref.s.lastMsgByChannel,
+    [channelId]: newestId,
+  };
+
+  discordUpsertMessagesFromPage(ctx, guildId, channelId, messages, now, acc);
+
+  ref.s = {
+    ...ref.s,
+    lastMsgByChannel: nextLastMap,
+  };
+}
+
+/**
+ * One pass through the state machine. Returns a {@link SyncResult} when the sync should end this round,
+ * or `undefined` to continue the outer loop.
+ */
+async function discordSyncTick(
+  ctx: SyncContext,
+  token: string,
+  now: number,
+  ref: StateRef,
+  acc: DiscordAcc,
+  finish: (n: DiscordSyncCursorV1, h: boolean) => SyncResult,
+): Promise<SyncResult | undefined> {
+  if (ref.s.guildIds.length === 0) {
+    return discordFetchGuildList(ctx, token, ref, acc, finish);
+  }
+
+  const doneGuilds = discordFinishIfGuildsExhausted(ref, finish);
+  if (doneGuilds !== undefined) {
+    return doneGuilds;
+  }
+
+  const guildId = ref.s.guildIds[ref.s.guildIndex] ?? "";
+  if (guildId === "") {
+    ref.s = { ...ref.s, guildIndex: ref.s.guildIndex + 1, channelIds: [], channelIndex: 0 };
+    return undefined;
+  }
+
+  if (ref.s.channelIds.length === 0) {
+    await discordFetchChannelList(ctx, token, guildId, ref, acc);
+    return undefined;
+  }
+
+  if (ref.s.channelIndex >= ref.s.channelIds.length) {
+    ref.s = {
+      ...ref.s,
+      guildIndex: ref.s.guildIndex + 1,
+      channelIds: [],
+      channelIndex: 0,
+    };
+    return undefined;
+  }
+
+  const channelId: string = ref.s.channelIds[ref.s.channelIndex] ?? "";
+  if (channelId === "") {
+    ref.s = { ...ref.s, channelIndex: ref.s.channelIndex + 1 };
+    return undefined;
+  }
+
+  await discordFetchAndApplyMessages(ctx, token, guildId, channelId, ref, acc, now);
+  return undefined;
+}
+
 export type DiscordSyncableOptions = {
   ensureDiscordMcpRunning: () => Promise<void>;
 };
@@ -144,242 +435,47 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
         return syncNoopResult(cursor, t0);
       }
 
-      let state =
-        decodeCursor(cursor) ??
-        ({
-          guildIds: [],
-          guildIndex: 0,
-          channelIds: [],
-          channelIndex: 0,
-          lastMsgByChannel: {},
-        } satisfies DiscordSyncCursorV1);
-
-      let upserted = 0;
-      let bytesTransferred = 0;
-      let apiCalls = 0;
-      const now = Date.now();
-
-      const finish = (next: DiscordSyncCursorV1, hasMore: boolean): SyncResult => ({
-        cursor: encodeCursor(next),
-        itemsUpserted: upserted,
-        itemsDeleted: 0,
-        hasMore,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred,
-      });
-
-      while (apiCalls < MAX_API_CALLS_PER_SYNC) {
-        if (state.guildIds.length === 0) {
-          await ctx.rateLimiter.acquire("discord");
-          apiCalls += 1;
-          const res = await discordFetch(token, "/users/@me/guilds");
-          bytesTransferred += res.text.length;
-          if (res.status === 429) {
-            const ra = discordRetryAfterSeconds(res.json);
-            const ms = Number.isFinite(ra) && ra > 0 ? Math.ceil(ra * 1000) : 60_000;
-            ctx.rateLimiter.penalise("discord", ms);
-            throw new Error(`Discord guilds 429: ${res.text.slice(0, 200)}`);
-          }
-          if (!res.ok || !Array.isArray(res.json)) {
-            throw new Error(`Discord guilds ${String(res.status)}: ${res.text.slice(0, 200)}`);
-          }
-          const ids: string[] = [];
-          for (const g of res.json) {
-            const gr = asRecord(g);
-            const id = gr === undefined ? undefined : stringField(gr, "id");
-            if (id !== undefined && id !== "") {
-              ids.push(id);
-            }
-          }
-          state = {
-            guildIds: ids,
-            guildIndex: 0,
-            channelIds: [],
-            channelIndex: 0,
-            lastMsgByChannel: {},
-          };
-          if (ids.length === 0) {
-            return finish(state, false);
-          }
-          continue;
-        }
-
-        if (state.guildIndex >= state.guildIds.length) {
-          const cleared: DiscordSyncCursorV1 = {
+      const ref: StateRef = {
+        s:
+          decodeCursor(cursor) ??
+          ({
             guildIds: [],
             guildIndex: 0,
             channelIds: [],
             channelIndex: 0,
-            lastMsgByChannel: state.lastMsgByChannel,
-          };
-          return finish(cleared, false);
-        }
+            lastMsgByChannel: {},
+          } satisfies DiscordSyncCursorV1),
+      };
 
-        const guildId = state.guildIds[state.guildIndex] ?? "";
-        if (guildId === "") {
-          state = { ...state, guildIndex: state.guildIndex + 1, channelIds: [], channelIndex: 0 };
-          continue;
-        }
+      const acc: DiscordAcc = {
+        upserted: 0,
+        bytesTransferred: 0,
+        apiCalls: 0,
+      };
+      const now = Date.now();
 
-        if (state.channelIds.length === 0) {
-          await ctx.rateLimiter.acquire("discord");
-          apiCalls += 1;
-          const res = await discordFetch(token, `/guilds/${encodeURIComponent(guildId)}/channels`);
-          bytesTransferred += res.text.length;
-          if (res.status === 429) {
-            ctx.rateLimiter.penalise("discord", 60_000);
-            throw new Error(`Discord channels 429: ${res.text.slice(0, 200)}`);
-          }
-          if (!res.ok || !Array.isArray(res.json)) {
-            throw new Error(`Discord channels ${String(res.status)}: ${res.text.slice(0, 200)}`);
-          }
-          const chIds: string[] = [];
-          for (const ch of res.json) {
-            const cr = asRecord(ch);
-            if (cr === undefined) {
-              continue;
-            }
-            const id = stringField(cr, "id");
-            const type = cr["type"];
-            if (
-              id !== undefined &&
-              id !== "" &&
-              typeof type === "number" &&
-              TEXT_CHANNEL_TYPES.has(type)
-            ) {
-              chIds.push(id);
-            }
-          }
-          state = { ...state, channelIds: chIds, channelIndex: 0 };
-          if (chIds.length === 0) {
-            state = {
-              ...state,
-              guildIndex: state.guildIndex + 1,
-              channelIds: [],
-              channelIndex: 0,
-            };
-          }
-          continue;
-        }
+      const finish = (next: DiscordSyncCursorV1, hasMore: boolean): SyncResult => ({
+        cursor: encodeCursor(next),
+        itemsUpserted: acc.upserted,
+        itemsDeleted: 0,
+        hasMore,
+        durationMs: Math.round(performance.now() - t0),
+        bytesTransferred: acc.bytesTransferred,
+      });
 
-        if (state.channelIndex >= state.channelIds.length) {
-          state = {
-            ...state,
-            guildIndex: state.guildIndex + 1,
-            channelIds: [],
-            channelIndex: 0,
-          };
-          continue;
+      while (acc.apiCalls < MAX_API_CALLS_PER_SYNC) {
+        const early = await discordSyncTick(ctx, token, now, ref, acc, finish);
+        if (early !== undefined) {
+          return early;
         }
-
-        const channelId: string = state.channelIds[state.channelIndex] ?? "";
-        if (channelId === "") {
-          state = { ...state, channelIndex: state.channelIndex + 1 };
-          continue;
-        }
-
-        const after = state.lastMsgByChannel[channelId];
-        let path = `/channels/${encodeURIComponent(channelId)}/messages?limit=50`;
-        if (after !== undefined && after !== "") {
-          path += `&after=${encodeURIComponent(after)}`;
-        }
-
-        await ctx.rateLimiter.acquire("discord");
-        apiCalls += 1;
-        const res = await discordFetch(token, path);
-        bytesTransferred += res.text.length;
-        if (res.status === 429) {
-          ctx.rateLimiter.penalise("discord", 60_000);
-          throw new Error(`Discord messages 429: ${res.text.slice(0, 200)}`);
-        }
-        if (!res.ok) {
-          state = { ...state, channelIndex: state.channelIndex + 1 };
-          continue;
-        }
-        if (!Array.isArray(res.json)) {
-          state = { ...state, channelIndex: state.channelIndex + 1 };
-          continue;
-        }
-        const messages = res.json as unknown[];
-        if (messages.length === 0) {
-          const nextLast: Record<string, string> = { ...state.lastMsgByChannel };
-          delete nextLast[channelId];
-          state = {
-            ...state,
-            lastMsgByChannel: nextLast,
-            channelIndex: state.channelIndex + 1,
-          };
-          continue;
-        }
-
-        const newestId =
-          typeof (messages[0] as { id?: string })?.id === "string"
-            ? (messages[0] as { id: string }).id
-            : "";
-        const nextLastMap: Record<string, string> = {
-          ...state.lastMsgByChannel,
-          [channelId]: newestId,
-        };
-
-        for (let i = messages.length - 1; i >= 0; i -= 1) {
-          const mr = asRecord(messages[i]);
-          if (mr === undefined) {
-            continue;
-          }
-          const mid = stringField(mr, "id");
-          const content = typeof mr["content"] === "string" ? mr["content"] : "";
-          const author = asRecord(mr["author"]);
-          if (mid === undefined || mid === "" || author === undefined) {
-            continue;
-          }
-          const authorSnowflake = stringField(author, "id");
-          const bodyPreview = content.length > 512 ? content.slice(0, 512) : content;
-          const titleBase =
-            bodyPreview.trim() === ""
-              ? displayNameFromDiscordAuthor(author)
-              : bodyPreview.replace(/\s+/g, " ").slice(0, 80);
-          const title = titleBase.length > 512 ? titleBase.slice(0, 512) : titleBase;
-          const url = `https://discord.com/channels/${guildId}/${channelId}/${mid}`;
-          const authorId =
-            authorSnowflake !== undefined && authorSnowflake !== ""
-              ? resolvePersonForSync(ctx.db, {
-                  discordUserId: authorSnowflake,
-                  displayName: displayNameFromDiscordAuthor(author),
-                })
-              : null;
-          upsertIndexedItem(ctx.db, {
-            service: SERVICE_ID,
-            type: "message",
-            externalId: `${channelId}:${mid}`,
-            title,
-            bodyPreview,
-            url,
-            canonicalUrl: url,
-            modifiedAt: now,
-            authorId,
-            metadata: {
-              guildId,
-              channelId,
-              messageId: mid,
-            },
-            pinned: false,
-            syncedAt: now,
-          });
-          upserted += 1;
-        }
-
-        state = {
-          ...state,
-          lastMsgByChannel: nextLastMap,
-        };
       }
 
       const moreWork =
-        state.guildIds.length > 0 &&
-        (state.guildIndex < state.guildIds.length ||
-          state.channelIndex < state.channelIds.length ||
-          state.channelIds.length === 0);
-      return finish(state, moreWork);
+        ref.s.guildIds.length > 0 &&
+        (ref.s.guildIndex < ref.s.guildIds.length ||
+          ref.s.channelIndex < ref.s.channelIds.length ||
+          ref.s.channelIds.length === 0);
+      return finish(ref.s, moreWork);
     },
   };
 }

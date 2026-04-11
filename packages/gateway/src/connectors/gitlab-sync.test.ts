@@ -6,7 +6,7 @@ import {
   describeWithFetchRestore,
   expectServiceItemCount,
   type SyncTestFetchParams,
-  silentSyncContextExtras,
+  syncTestContext,
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
@@ -55,12 +55,10 @@ describeWithFetchRestore("gitlab-sync", () => {
     }) as typeof fetch;
 
     const sync = createGitlabSyncable({ ensureGitlabMcpRunning: async () => {} });
-    const ctx = {
-      vault: createStubVault({ "gitlab.pat": "glpat_test" }),
-      db,
-      ...silentSyncContextExtras(),
-    };
-    const r = await sync.sync(ctx, null);
+    const r = await sync.sync(
+      syncTestContext(db, createStubVault({ "gitlab.pat": "glpat_test" })),
+      null,
+    );
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-glab1:");
     expectServiceItemCount(db, "gitlab", 1);
@@ -80,14 +78,13 @@ describeWithFetchRestore("gitlab-sync", () => {
 
     const sync = createGitlabSyncable({ ensureGitlabMcpRunning: async () => {} });
     await sync.sync(
-      {
-        vault: createStubVault({
+      syncTestContext(
+        db,
+        createStubVault({
           "gitlab.pat": "glpat_x",
           "gitlab.api_base": "https://git.example.com/api/v4",
         }),
-        db,
-        ...silentSyncContextExtras(),
-      },
+      ),
       null,
     );
   });
