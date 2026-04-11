@@ -135,6 +135,14 @@ jobs:
           test -f dist/headless-bundle/nimbus-gateway
           test -f dist/headless-bundle/nimbus
 
+      - name: Linux installers — .deb + tarball (§7.9)
+        shell: bash
+        run: |
+          set -e
+          bun run package:installers:linux -- --version 0.0.0-ci
+          test -f dist/installers/nimbus-headless_0.0.0-ci_amd64.deb
+          test -f dist/installers/nimbus-headless-linux-amd64-v0.0.0-ci.tar.gz
+
   # Full cross-platform matrix — pushes only
   ci:
     name: CI — ${{ matrix.os }}
@@ -255,6 +263,19 @@ jobs:
         run: cd packages/ui && bunx vitest run --coverage
         env:
           CI: "true"
+
+      - name: Headless bundle + Linux installers (Ubuntu only)
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          (cd packages/gateway && bun build src/index.ts --compile --outfile ../../dist/nimbus-gateway --target bun)
+          (cd packages/cli && bun build src/index.ts --compile --outfile ../../dist/nimbus --target bun)
+          bun run package:headless
+          bun run package:installers:linux -- --version 0.0.0-ci
+          test -f dist/installers/nimbus-headless_0.0.0-ci_amd64.deb
+          test -f dist/installers/nimbus-headless-linux-amd64-v0.0.0-ci.tar.gz
 
   # E2E Desktop (Playwright + Tauri WebDriver) — push to main only
   e2e-desktop:

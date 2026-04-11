@@ -86,6 +86,10 @@ bun run clean
 
 # Security audit
 bun audit --audit-level high
+
+# Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
+bun run package:headless
+bun run package:installers:linux -- --version 0.1.0
 ```
 
 ---

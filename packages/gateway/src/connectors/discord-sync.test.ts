@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { createDiscordSyncable } from "./discord-sync.ts";
 import {
   createMemoryIndexDb,
   createStubVault,
@@ -10,6 +9,7 @@ import {
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
+import { createDiscordSyncable } from "./discord-sync.ts";
 
 describeWithFetchRestore("discord-sync", () => {
   testConnectorSyncNoop(
@@ -44,13 +44,20 @@ describeWithFetchRestore("discord-sync", () => {
       }
       if (call === 2) {
         expect(u).toContain("/guilds/g1/channels");
-        return new Response(
-          JSON.stringify([{ id: "c1", type: 0, name: "general" }]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify([{ id: "c1", type: 0, name: "general" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       expect(u).toContain("/channels/c1/messages");
       expect(u).toContain("limit=50");
+      // Pagination uses `after=`; return [] on the second fetch so the sync loop advances (see discord-sync.ts).
+      if (u.includes("after=")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(
         JSON.stringify([
           {

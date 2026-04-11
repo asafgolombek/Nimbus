@@ -43,6 +43,7 @@
     "test:coverage:rate-limiter": "bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85",
     "test:coverage:people": "bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80",
     "package:headless": "bun scripts/package-headless-bundle.ts",
+    "package:installers:linux": "bun scripts/package-linux-installers.ts",
     "clean": "bun run --filter '*' clean && rm -rf node_modules"
   },
   "devDependencies": {
