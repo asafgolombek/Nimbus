@@ -13,7 +13,11 @@ How to obtain:
 Before starting the gateway (PowerShell example):
   $env:NIMBUS_OAUTH_GOOGLE_CLIENT_ID = "your-id.apps.googleusercontent.com"
 
-The same client ID is used for browser sign-in and for refreshing access tokens.`;
+The same client ID is used for browser sign-in and for refreshing access tokens.
+
+If you created a Web application OAuth client instead of Desktop, Google requires a client secret at the token endpoint — set:
+  $env:NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET = "your-client-secret"
+(Prefer a Desktop client so no secret is needed.)`;
 
 export const MICROSOFT_OAUTH_CLIENT_ID_HELP = `Set NIMBUS_OAUTH_MICROSOFT_CLIENT_ID to your Azure AD application (client) ID for a public client with PKCE.
 

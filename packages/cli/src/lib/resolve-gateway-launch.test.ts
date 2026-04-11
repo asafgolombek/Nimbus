@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -127,6 +127,52 @@ describe("resolveGatewayLaunch", () => {
     mkdirSync(cliDist, { recursive: true });
     const distGw = join(repo, "dist", "nimbus-gateway");
     const r = resolveGatewayLaunch(join(cliDist, "nimbus"), cliLibMetaHref(repo), "linux");
+    expect(r).toEqual({ ok: true, cmd: [distGw] });
+  });
+
+  test("prefers newer dist/nimbus-gateway.js over dist binary when both exist", () => {
+    const repo = mkdtempSync(join(tmpdir(), "nimbus-repo-js-"));
+    writeRepoLayout(repo, { distBinary: false });
+    mkdirSync(join(repo, "dist"), { recursive: true });
+    const distJs = join(repo, "dist", "nimbus-gateway.js");
+    const distGw = join(repo, "dist", "nimbus-gateway");
+    writeFileSync(distJs, "// bundle\n", "utf8");
+    writeFileSync(distGw, "", "utf8");
+    const older = new Date(Date.now() - 60_000);
+    const newer = new Date();
+    utimesSync(distGw, older, older);
+    utimesSync(distJs, newer, newer);
+    const cliDist = join(repo, "packages", "cli", "dist");
+    mkdirSync(cliDist, { recursive: true });
+    const bunPath = process.execPath;
+    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), cliLibMetaHref(repo), "linux", {
+      whichBun: () => bunPath,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.cmd).toEqual([bunPath, distJs]);
+      expect(r.cwd).toBe(repo);
+    }
+  });
+
+  test("prefers dist binary when newer than nimbus-gateway.js", () => {
+    const repo = mkdtempSync(join(tmpdir(), "nimbus-repo-exe-"));
+    writeRepoLayout(repo, { distBinary: false });
+    mkdirSync(join(repo, "dist"), { recursive: true });
+    const distJs = join(repo, "dist", "nimbus-gateway.js");
+    const distGw = join(repo, "dist", "nimbus-gateway");
+    writeFileSync(distJs, "// old bundle\n", "utf8");
+    writeFileSync(distGw, "", "utf8");
+    const older = new Date(Date.now() - 60_000);
+    const newer = new Date();
+    utimesSync(distJs, older, older);
+    utimesSync(distGw, newer, newer);
+    const cliDist = join(repo, "packages", "cli", "dist");
+    mkdirSync(cliDist, { recursive: true });
+    const bunPath = process.execPath;
+    const r = resolveGatewayLaunch(join(cliDist, "nimbus"), cliLibMetaHref(repo), "linux", {
+      whichBun: () => bunPath,
+    });
     expect(r).toEqual({ ok: true, cmd: [distGw] });
   });
 

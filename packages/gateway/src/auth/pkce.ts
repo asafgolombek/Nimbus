@@ -180,6 +180,23 @@ function parseTokenJson(json: unknown): TokenEndpointResult {
   return out;
 }
 
+/** OAuth 2.0 token error JSON (`error`, optional `error_description`) — safe to show users; no secrets. */
+function oauthTokenEndpointErrorSummary(json: unknown): string | undefined {
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    return undefined;
+  }
+  const o = json as Record<string, unknown>;
+  const err = o["error"];
+  if (typeof err !== "string" || err.length === 0) {
+    return undefined;
+  }
+  const desc = o["error_description"];
+  if (typeof desc === "string" && desc.trim() !== "") {
+    return `${err}: ${desc.trim()}`;
+  }
+  return err;
+}
+
 async function postForm(
   fetchFn: PKCEFetch,
   url: string,
@@ -202,7 +219,10 @@ async function postForm(
     throw new Error("Token endpoint returned non-JSON");
   }
   if (!res.ok) {
-    throw new Error("Token exchange failed");
+    const hint = oauthTokenEndpointErrorSummary(parsed);
+    throw new Error(
+      hint !== undefined ? `Token exchange failed (${hint})` : "Token exchange failed",
+    );
   }
   return parsed;
 }
@@ -616,6 +636,7 @@ async function exchangePkceAuthorizationCode(
   codeVerifier: string,
   authCode: string,
   requestedScopes: string[],
+  clientSecret?: string,
 ): Promise<PKCEResult> {
   const tokenUrl = provider === "google" ? GOOGLE_TOKEN : MS_TOKEN;
   const tokenBody: Record<string, string> = {
@@ -625,6 +646,9 @@ async function exchangePkceAuthorizationCode(
     redirect_uri: redirectUri,
     code_verifier: codeVerifier,
   };
+  if (clientSecret !== undefined && clientSecret !== "") {
+    tokenBody.client_secret = clientSecret;
+  }
   const json = await postForm(fetchFn, tokenUrl, tokenBody);
   const parsed = parseTokenJson(json);
   const refreshTok = parsed.refresh_token;
@@ -692,6 +716,10 @@ async function runOnLocalPort(
       throw new Error("OAuth authorization did not complete");
     }
 
+    const secret =
+      provider === "google" || provider === "microsoft"
+        ? (options.oauthClientSecret?.trim() ?? "")
+        : "";
     const result = await exchangePkceAuthorizationCode(
       fetchFn,
       provider,
@@ -700,6 +728,7 @@ async function runOnLocalPort(
       codeVerifier,
       done.code,
       scopes,
+      secret === "" ? undefined : secret,
     );
 
     await persistTokens(vault, provider, result);
@@ -735,6 +764,8 @@ export async function runPKCEFlow(options: PKCEOptions): Promise<PKCEResult> {
 export interface RefreshAccessTokenContext {
   vault: NimbusVault;
   fetchImpl?: PKCEFetch;
+  /** Google (or other confidential) web clients: include at token refresh when required by the provider. */
+  clientSecret?: string;
 }
 
 export async function refreshAccessToken(
@@ -745,11 +776,16 @@ export async function refreshAccessToken(
 ): Promise<PKCEResult> {
   const fetchFn: PKCEFetch = ctx.fetchImpl ?? ((i, init) => globalThis.fetch(i, init));
   const tokenUrl = provider === "google" ? GOOGLE_TOKEN : MS_TOKEN;
-  const json = await postForm(fetchFn, tokenUrl, {
+  const body: Record<string, string> = {
     client_id: clientId,
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-  });
+  };
+  const sec = ctx.clientSecret?.trim();
+  if (sec !== undefined && sec !== "") {
+    body.client_secret = sec;
+  }
+  const json = await postForm(fetchFn, tokenUrl, body);
   const parsed = parseTokenJson(json);
   const newRefresh = parsed.refresh_token ?? refreshToken;
   const result: PKCEResult = {

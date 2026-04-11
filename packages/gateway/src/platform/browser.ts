@@ -16,8 +16,10 @@ export async function openUrlInDefaultBrowser(url: string): Promise<void> {
     if (os === "win32") {
       const systemRoot =
         process.env["SystemRoot"] ?? process.env["windir"] ?? String.raw`C:\Windows`;
-      const cmdExe = pathWin32.join(systemRoot, "System32", "cmd.exe");
-      child = spawn(cmdExe, ["/c", "start", "", url], {
+      // Avoid `cmd /c start <url>` — unquoted `&` in query strings is treated as a command
+      // separator, so OAuth URLs lose params (e.g. `response_type`) before the browser loads.
+      const rundll32 = pathWin32.join(systemRoot, "System32", "rundll32.exe");
+      child = spawn(rundll32, ["url.dll,FileProtocolHandler", url], {
         ...detachedIgnore,
         windowsHide: true,
       });

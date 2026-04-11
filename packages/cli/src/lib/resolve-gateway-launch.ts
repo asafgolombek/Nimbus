@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -129,14 +129,26 @@ export function resolveGatewayLaunch(
   const startDirs = getNimbusRepoSearchStartDirs(execPath, importMetaUrl);
   const repoRoot = findNimbusRepoRootFromDirs(startDirs, exists);
   if (repoRoot !== undefined) {
-    const distGateway = join(repoRoot, "dist", binName);
-    if (exists(distGateway)) {
-      return { ok: true, cmd: [distGateway] };
+    const distJs = join(repoRoot, "dist", "nimbus-gateway.js");
+    const distExe = join(repoRoot, "dist", binName);
+    const jsThere = exists(distJs);
+    const exeThere = exists(distExe);
+    const bunPath = resolveBunPath(execPath, whichBun);
+
+    // `scripts/build-debug` emits `dist/nimbus-gateway.js` only. A leftover `dist/nimbus-gateway(.exe)`
+    // from `compile-gateway` must not shadow a newer debug bundle — otherwise `nimbus start` runs stale code.
+    if (jsThere && bunPath !== undefined) {
+      if (!exeThere || statSync(distJs).mtimeMs >= statSync(distExe).mtimeMs) {
+        return { ok: true, cmd: [bunPath, distJs], cwd: repoRoot };
+      }
+    }
+
+    if (exeThere) {
+      return { ok: true, cmd: [distExe] };
     }
 
     const sourceEntry = join(repoRoot, GATEWAY_SOURCE_ENTRY);
     if (exists(sourceEntry)) {
-      const bunPath = resolveBunPath(execPath, whichBun);
       if (bunPath !== undefined) {
         return {
           ok: true,
@@ -146,7 +158,7 @@ export function resolveGatewayLaunch(
       }
       return {
         ok: false,
-        message: `Found the Nimbus monorepo at ${repoRoot} but no compiled gateway at dist/${binName}, and Bun is not on PATH (required to run gateway from source). ${FAILURE_HINT}`,
+        message: `Found the Nimbus monorepo at ${repoRoot} but no compiled gateway at dist/${binName} (and no dist/nimbus-gateway.js), and Bun is not on PATH (required to run gateway from source). ${FAILURE_HINT}`,
       };
     }
   }

@@ -726,7 +726,7 @@ OAuth PKCE — set env vars before nimbus start, or run for setup steps:
   nimbus connector auth slack --help
   nimbus connector auth notion --help
 
-Env vars: NIMBUS_OAUTH_GOOGLE_CLIENT_ID, NIMBUS_OAUTH_MICROSOFT_CLIENT_ID, NIMBUS_OAUTH_SLACK_CLIENT_ID,
+Env vars: NIMBUS_OAUTH_GOOGLE_CLIENT_ID, NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET (Web OAuth clients only), NIMBUS_OAUTH_MICROSOFT_CLIENT_ID, NIMBUS_OAUTH_SLACK_CLIENT_ID,
   NIMBUS_OAUTH_NOTION_CLIENT_ID, NIMBUS_OAUTH_NOTION_CLIENT_SECRET
 
 GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).

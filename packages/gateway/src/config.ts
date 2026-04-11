@@ -55,6 +55,10 @@ export const Config = {
    * Shared per provider family: google.oauth covers Drive + Gmail + Photos; microsoft.oauth covers OneDrive + Outlook + Teams.
    */
   oauthGoogleClientId: processEnvGet("NIMBUS_OAUTH_GOOGLE_CLIENT_ID") ?? "",
+  /**
+   * Only for Google **Web application** OAuth clients (confidential). Desktop clients use PKCE without a secret.
+   */
+  oauthGoogleClientSecret: processEnvGet("NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET") ?? "",
   oauthMicrosoftClientId: processEnvGet("NIMBUS_OAUTH_MICROSOFT_CLIENT_ID") ?? "",
   oauthSlackClientId: processEnvGet("NIMBUS_OAUTH_SLACK_CLIENT_ID") ?? "",
   /** Notion public integration (token endpoint requires Basic auth with secret). */

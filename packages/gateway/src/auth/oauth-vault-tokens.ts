@@ -4,7 +4,7 @@ import {
   GOOGLE_OAUTH_CLIENT_ID_HELP,
   MICROSOFT_OAUTH_CLIENT_ID_HELP,
 } from "./oauth-env-help-messages.ts";
-import { refreshAccessToken } from "./pkce.ts";
+import { type RefreshAccessTokenContext, refreshAccessToken } from "./pkce.ts";
 
 export type StoredOAuthTokens = {
   accessToken: string;
@@ -72,9 +72,11 @@ export async function getValidVaultOAuthAccessToken(args: {
   if (clientId === "") {
     throw new Error(args.emptyClientIdError);
   }
-  const next = await refreshAccessToken(parsed.refreshToken, args.provider, clientId, {
-    vault: args.vault,
-  });
+  const refreshCtx: RefreshAccessTokenContext = { vault: args.vault };
+  if (args.provider === "google" && Config.oauthGoogleClientSecret !== "") {
+    refreshCtx.clientSecret = Config.oauthGoogleClientSecret;
+  }
+  const next = await refreshAccessToken(parsed.refreshToken, args.provider, clientId, refreshCtx);
   return next.accessToken;
 }
 

@@ -420,12 +420,14 @@ async function connectorAuthOAuthPkce(
     vault,
     openUrl,
   };
-  const withSecret: PKCEOptions =
-    notionSecret === undefined || notionSecret === ""
-      ? pkceBase
-      : { ...pkceBase, oauthClientSecret: notionSecret };
+  let merged: PKCEOptions = pkceBase;
+  if (profile.provider === "notion" && notionSecret !== undefined && notionSecret !== "") {
+    merged = { ...merged, oauthClientSecret: notionSecret };
+  } else if (profile.provider === "google" && Config.oauthGoogleClientSecret !== "") {
+    merged = { ...merged, oauthClientSecret: Config.oauthGoogleClientSecret };
+  }
   const pkceFlowInput: PKCEOptions =
-    redirectPort === undefined ? withSecret : { ...withSecret, redirectPort };
+    redirectPort === undefined ? merged : { ...merged, redirectPort };
   const tokens = await runPKCEFlow(pkceFlowInput);
 
   const interval = defaultSyncIntervalMsForService(id);

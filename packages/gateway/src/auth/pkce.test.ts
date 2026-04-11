@@ -72,6 +72,33 @@ describe("runPKCEFlow", () => {
     expect(stored).toContain(secretAccess);
     expect(stored).toContain(secretRefresh);
 
+    let tokenPostBody = "";
+    await runPKCEFlow({
+      clientId: "test-client",
+      scopes: ["openid"],
+      provider: "google",
+      oauthClientSecret: "google-web-client-secret",
+      vault: createMemoryVault(),
+      openUrl: googlePkceOpenUrlCompleter("mock-auth-code", { expectAccountsHost: true }),
+      fetchImpl: async (input, init) => {
+        const s = requestUrlString(input);
+        if (isHttpsTokenEndpoint(s, "oauth2.googleapis.com", "/token")) {
+          tokenPostBody = typeof init?.body === "string" ? init.body : "";
+          return new Response(
+            JSON.stringify({
+              access_token: "a",
+              refresh_token: "r",
+              expires_in: 3600,
+              scope: "openid",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    expect(tokenPostBody).toContain("client_secret=google-web-client-secret");
+
     let threw = "";
     try {
       await runPKCEFlow({
@@ -93,6 +120,7 @@ describe("runPKCEFlow", () => {
       threw = String(e instanceof Error ? e.message : e);
     }
     expect(threw.length).toBeGreaterThan(0);
+    expect(threw).toContain("invalid_grant");
     expect(threw.includes(secretAccess)).toBe(false);
     expect(threw.includes(secretRefresh)).toBe(false);
   });
@@ -150,6 +178,7 @@ describe("runPKCEFlow", () => {
       threw2 = String(e instanceof Error ? e.message : e);
     }
     expect(threw2.length).toBeGreaterThan(0);
+    expect(threw2).toContain("invalid_grant");
     expect(threw2.includes(secretAccess)).toBe(false);
     expect(threw2.includes(secretRefresh)).toBe(false);
   });
@@ -267,5 +296,25 @@ describe("refreshAccessToken", () => {
     const raw = await vault.get("microsoft.oauth");
     expect(raw).toContain("new-access");
     expect(raw).toContain("old-refresh");
+  });
+
+  test("includes client_secret in refresh body when context provides it", async () => {
+    const vault = createMemoryVault();
+    let body = "";
+    await refreshAccessToken("old-refresh", "google", "cid", {
+      vault,
+      clientSecret: "refresh-secret",
+      fetchImpl: async (_input, init) => {
+        body = typeof init?.body === "string" ? init.body : "";
+        return new Response(
+          JSON.stringify({
+            access_token: "new-access",
+            expires_in: 120,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    });
+    expect(body).toContain("client_secret=refresh-secret");
   });
 });
