@@ -1,4 +1,4 @@
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
@@ -240,7 +240,7 @@ function jiraIndexOneIssue(p: {
   const d = jiraIssueDerivedFromFields(fields, key, syncTime, maxUpdatedIso);
   const browseUrl = `${baseUrl}/browse/${key}`;
   const authorId = resolveJiraIssueAuthorId(ctx, d.accountId, d.creatorEmail, d.creatorName);
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "issue",
     externalId: key,

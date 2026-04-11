@@ -1,5 +1,5 @@
 /**
- * Local Index — bun:sqlite metadata store (FTS5 name search in Q1; sqlite-vec in Q3)
+ * Local Index — bun:sqlite metadata store (FTS5 + sqlite-vec embeddings from schema v6)
  *
  * See architecture.md §Local Database Schema.
  */

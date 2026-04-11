@@ -26,8 +26,9 @@ packages/mcp-connectors/*/src/nimbus-mcp-*.js.map
 *.tsbuildinfo
 *.d.ts.map
 
-# --- Coverage ---
+# --- Coverage / CI test reports ---
 coverage/
+reports/
 .nyc_output/
 lcov.info
 *.lcov

@@ -1,5 +1,5 @@
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { isoMs, maxIso } from "./sync-iso-helpers.ts";
@@ -193,7 +193,7 @@ function notionConsumeSearchResultRow(
   const modified = edited !== undefined && edited !== "" ? isoMs(edited) : opts.syncTime;
   acc.upserted += 1;
   const authorId = notionAuthorIdFromPageRow(ctx, row);
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "page",
     externalId: id,

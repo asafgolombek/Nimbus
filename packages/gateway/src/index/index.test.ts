@@ -18,7 +18,53 @@ describe("LocalIndex", () => {
     const row = db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
-    expect(row.user_version).toBe(5);
+    expect(row.user_version).toBe(LocalIndex.SCHEMA_VERSION);
+  });
+
+  test("migration 6 creates sqlite-vec table and cascades chunk + vector on item delete", () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+
+    const ver = db.query("PRAGMA user_version").get() as { user_version: number };
+    expect(ver.user_version).toBe(6);
+
+    const vecMeta = db.query("SELECT vec_version() AS v").get() as { v: string };
+    expect(typeof vecMeta.v).toBe("string");
+    expect(vecMeta.v.length).toBeGreaterThan(0);
+
+    const now = Date.now();
+    upsertIndexedItem(db, {
+      service: "filesystem",
+      type: "file",
+      externalId: "doc1",
+      title: "Zurich project notes",
+      bodyPreview: "Planning for Zurich",
+      modifiedAt: now,
+      syncedAt: now,
+    });
+    const itemId = "filesystem:doc1";
+    const vec = new Float32Array(384).fill(0.02);
+    db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [1n, vec]);
+    db.run(
+      `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
+       VALUES (?, 0, 'Zurich planning', 1, 'all-MiniLM-L6-v2', 384, ?)`,
+      [itemId, now],
+    );
+
+    const chunksBefore = db.query("SELECT COUNT(*) AS c FROM embedding_chunk").get() as {
+      c: number;
+    };
+    expect(chunksBefore.c).toBe(1);
+
+    db.run("DELETE FROM item WHERE id = ?", [itemId]);
+
+    const chunksAfter = db.query("SELECT COUNT(*) AS c FROM embedding_chunk").get() as {
+      c: number;
+    };
+    expect(chunksAfter.c).toBe(0);
+
+    const vecAfter = db.query("SELECT COUNT(*) AS c FROM vec_items_384").get() as { c: number };
+    expect(vecAfter.c).toBe(0);
   });
 
   test("upsert and search by name via FTS5", () => {

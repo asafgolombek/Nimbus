@@ -1,5 +1,5 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -80,7 +80,7 @@ function upsertPhoto(ctx: SyncContext, item: MediaItem, now: number): void {
     height: item.mediaMetadata?.height,
   };
 
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "photo",
     externalId: id,

@@ -40,6 +40,14 @@ function parseConversationalAgentMaxSteps(): number {
   return Number.isFinite(n) && n >= 1 && n <= 64 ? n : 20;
 }
 
+function parseEmbeddingsEnabled(): boolean {
+  const raw = processEnvGet("NIMBUS_EMBEDDINGS");
+  if (raw === "0" || raw === "false") {
+    return false;
+  }
+  return true;
+}
+
 const searchServicePriorityMap: ReadonlyMap<string, number> = parseSearchPriorityJson();
 
 /**
@@ -73,4 +81,8 @@ export const Config = {
   searchServicePriorityMap,
   /** Mastra tool loop depth for conversational `nimbus ask` (`NIMBUS_ASK_MAX_STEPS`, 1–64). */
   conversationalAgentMaxSteps: parseConversationalAgentMaxSteps(),
+  /**
+   * Phase 3 — background local embeddings after index upserts (`NIMBUS_EMBEDDINGS=false` to disable).
+   */
+  embeddingsEnabled: parseEmbeddingsEnabled(),
 } as const;

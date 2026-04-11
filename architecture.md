@@ -21,7 +21,7 @@ Nimbus is composed of four primary subsystems, all hosted inside a single headle
 
 ## Cross-Platform Architecture
 
-Nimbus treats Windows 10+, macOS 13+, and Ubuntu 22.04+ as equally supported, first-class targets. "First-class" has a precise definition: every feature works on every platform, CI runs a full **Ubuntu** gate on every PR (`pr-quality`: typecheck, Biome, build, tests, Vitest, Rust fmt/clippy for Tauri) and runs the **three-platform matrix** on every **push** to `main`/`develop`; platform-specific code never leaks into business logic.
+Nimbus treats Windows 10+, macOS 13+, and Ubuntu 22.04+ as equally supported, first-class targets. "First-class" has a precise definition: every feature works on every platform, CI runs a full **Ubuntu** gate on every PR (`pr-quality`: typecheck, Biome, build, tests, Vitest, Rust fmt/clippy for Tauri) and runs the **three-platform matrix** on every **push** to `main`/`develop`; optional PR desktop E2E (Tauri + Playwright) runs when the PR has the `ci:e2e-desktop` label. Platform-specific code never leaks into business logic.
 
 ### Platform Abstraction Layer (PAL)
 
@@ -908,11 +908,11 @@ Nimbus uses a five-layer testing pyramid calibrated to the Bun/Tauri hybrid stac
 | **Integration** | `bun test` + real SQLite + real subprocess | Tests connector sync, index queries, extension loading and isolation, cross-platform path correctness. Each test gets a fresh temp dir + fresh DB. |
 | **E2E CLI** | `bun test` + Gateway subprocess + mock MCP servers | Tests complete CLI command flows end-to-end. Mock MCP servers implement the wire protocol without hitting real cloud APIs. |
 | **UI Component** | Vitest + `@testing-library/react` | Vitest integrates with Vite's transform pipeline — the same pipeline Tauri uses for the WebView frontend. `bun test` does not support jsdom. |
-| **E2E Desktop** | Playwright + Tauri WebDriver | Only tool with first-class Tauri WebDriver support across all three platforms. Covers onboarding, marketplace, HITL dialogs. Runs on `push` to `main` only. |
+| **E2E Desktop** | Playwright + Tauri WebDriver | Only tool with first-class Tauri WebDriver support across all three platforms. Covers onboarding, marketplace, HITL dialogs. Runs on `push` to `main` after matrix `ci` succeeds. On pull requests, the same job runs only when the PR has the `ci:e2e-desktop` label (after `pr-quality`). |
 
 ### CI (PR vs push)
 
-**Pull requests** — job `pr-quality` on `ubuntu-22.04` only: `bun install --frozen-lockfile`, `bun run typecheck`, `bun run lint` (Biome = lint + format check), `bun run build`, `cargo fmt` / `cargo clippy -D warnings` in `packages/ui/src-tauri`, scoped `bun test` + engine/vault coverage gates, integration + CLI e2e, Vitest in `packages/ui`.
+**Pull requests** — job `pr-quality` on `ubuntu-22.04` only: shared Bun setup (cache + lockfile verify + `bun install --frozen-lockfile`), `bun run typecheck`, `bun run lint` (Biome = lint + format check), `bun run build`, `cargo fmt` / `cargo clippy -D warnings` in `packages/ui/src-tauri`, scoped `bun test` (JUnit reports under `reports/`) + engine/vault coverage gates, integration + CLI e2e, Vitest in `packages/ui`.
 
 **Pushes to `main` / `develop`** — job `ci` with matrix:
 
@@ -921,10 +921,10 @@ Nimbus uses a five-layer testing pyramid calibrated to the Bun/Tauri hybrid stac
 strategy:
   matrix:
     os: [ubuntu-22.04, macos-14, windows-2022]
-# Same steps as pr-quality; Rust fmt/clippy runs on the Ubuntu matrix leg only.
+# Same steps as pr-quality on every matrix OS (including Rust fmt/clippy on macOS and Windows).
 ```
 
-**E2E Desktop** (Tauri + Playwright): push to `main` only, after matrix `ci` succeeds.
+**E2E Desktop** (Tauri + Playwright): push to `main` only, after matrix `ci` succeeds; optional on PRs via label `ci:e2e-desktop`.
 
 Other automation: [`.github/workflows/security.yml`](.github/workflows/security.yml) (`bun audit`, Trivy), [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml), [`.github/dependabot.yml`](.github/dependabot.yml).
 

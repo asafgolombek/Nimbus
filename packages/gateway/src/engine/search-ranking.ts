@@ -55,3 +55,31 @@ export function normalizeBm25LowerIsBetter(values: readonly number[]): number[] 
 export function compositeSearchScore(normBm25: number, recency: number, serviceP: number): number {
   return WEIGHT_FTS * normBm25 + WEIGHT_RECENCY * recency + WEIGHT_SERVICE * serviceP;
 }
+
+/** Map higher-is-better scores to [0,1] with 1 = best in the batch. */
+export function normalizeHigherIsBetter(values: readonly number[]): number[] {
+  if (values.length === 0) {
+    return [];
+  }
+  const head = values[0];
+  if (head === undefined) {
+    return [];
+  }
+  let min = head;
+  let max = head;
+  for (const v of values) {
+    if (Number.isFinite(v)) {
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    }
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+    return values.map(() => 1);
+  }
+  return values.map((v) => {
+    if (!Number.isFinite(v)) {
+      return 0.5;
+    }
+    return (v - min) / (max - min);
+  });
+}

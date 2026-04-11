@@ -4,17 +4,30 @@
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 
 import { compareVaultKeysAlphabetically, validateVaultKeyOrThrow } from "./key-format.ts";
 import type { NimbusVault } from "./nimbus-vault.ts";
 
 /** FHS path when `secret-tool` is not on `PATH` (e.g. minimal systemd environments). */
-const SECRET_TOOL_FALLBACK = "/usr/bin/secret-tool";
+export const SECRET_TOOL_FALLBACK_PATH = "/usr/bin/secret-tool";
 
 const LABEL_PREFIX = "Nimbus: ";
 
+/** Resolves `secret-tool` for Linux vault and platform init (PATH first, then FHS). */
+export function resolveSecretToolExecutable(): string | null {
+  const w = Bun.which("secret-tool");
+  if (w !== null && w.length > 0) {
+    return w;
+  }
+  if (existsSync(SECRET_TOOL_FALLBACK_PATH)) {
+    return SECRET_TOOL_FALLBACK_PATH;
+  }
+  return null;
+}
+
 function secretToolExecutable(): string {
-  return Bun.which("secret-tool") ?? SECRET_TOOL_FALLBACK;
+  return resolveSecretToolExecutable() ?? SECRET_TOOL_FALLBACK_PATH;
 }
 
 function nimbusLabel(key: string): string {

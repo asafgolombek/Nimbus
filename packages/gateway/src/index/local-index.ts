@@ -3,10 +3,13 @@ import type { NimbusItem } from "@nimbus-dev/sdk";
 
 import {
   compositeSearchScore,
+  normalizeHigherIsBetter,
   recencyScore,
   servicePriorityScore,
 } from "../engine/search-ranking.ts";
 import { prunePeopleAfterServiceRemoval } from "../people/prune.ts";
+import { hybridSearch } from "../search/hybrid.ts";
+import type { HybridSearchOptions } from "../search/hybrid-types.ts";
 import {
   clearSchedulerCursor,
   countItemsForService,
@@ -21,10 +24,13 @@ import type { SyncStatus } from "../sync/types.ts";
 import {
   deleteAllItemsForService,
   deleteItemByPrimaryKey,
+  itemExternalIdFromInput,
+  itemPrimaryKey,
   upsertNimbusItemIntoItemTable,
 } from "./item-store.ts";
-import { runIndexedSchemaMigrations } from "./migrations/runner.ts";
+import { readIndexedUserVersion, runIndexedSchemaMigrations } from "./migrations/runner.ts";
 import type { RankedIndexItem } from "./ranked-item.ts";
+import { ensureSqliteVecForConnection } from "./sqlite-vec-load.ts";
 
 export { RAW_META_MAX_BYTES } from "./constants.ts";
 export type { RankedIndexItem } from "./ranked-item.ts";
@@ -206,22 +212,47 @@ function stripRankedToNimbus(r: RankedIndexItem): NimbusItem {
     indexedType: _it,
     duplicates: _dup,
     canonicalUrl: _cu,
+    semanticSnippet: _ss,
+    bm25Rank: _br,
+    vectorRank: _vr,
     ...rest
   } = r;
   return rest;
 }
 
+export type SemanticSearchDeps = {
+  /** Must match `embedding_chunk.model` (e.g. `all-MiniLM-L6-v2`). */
+  model: string;
+  embedQuery: (text: string) => Promise<Float32Array | null>;
+};
+
+export type LocalIndexOptions = {
+  /** Phase 3 — queue embedding work after index upserts (non-blocking). */
+  scheduleItemEmbedding?: (itemId: string) => void;
+  /** Phase 3 — hybrid BM25 + vector search when set. */
+  semanticSearch?: SemanticSearchDeps;
+};
+
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 5;
+  static readonly SCHEMA_VERSION = 6;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
    */
   static ensureSchema(db: Database): void {
     runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION);
+    ensureSqliteVecForConnection(db, readIndexedUserVersion(db));
+    db.run("PRAGMA foreign_keys = ON");
   }
 
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly options?: LocalIndexOptions,
+  ) {}
+
+  private get semanticSearch(): SemanticSearchDeps | undefined {
+    return this.options?.semanticSearch;
+  }
 
   /** Gateway IPC only — OAuth retention checks after connector removal. */
   getDatabase(): Database {
@@ -321,6 +352,9 @@ export class LocalIndex {
 
   upsert(item: NimbusItem): void {
     upsertNimbusItemIntoItemTable(this.db, item, Date.now());
+    const externalId = itemExternalIdFromInput(item.service, item.id);
+    const pk = itemPrimaryKey(item.service, externalId);
+    this.options?.scheduleItemEmbedding?.(pk);
   }
 
   delete(id: string): void {
@@ -449,6 +483,67 @@ export class LocalIndex {
 
     const limit = Math.min(500, Math.max(1, query.limit ?? 50));
     return out.slice(0, limit);
+  }
+
+  /**
+   * Phase 3 — like {@link searchRanked} but runs hybrid BM25 + vector RRF when `semantic` is true
+   * and {@link LocalIndexOptions.semanticSearch} is configured.
+   */
+  async searchRankedAsync(
+    query: IndexSearchQuery,
+    options?: SearchRankOptions & { semantic?: boolean; contextChunks?: number },
+  ): Promise<RankedIndexItem[]> {
+    const nameQ = query.name?.trim() ?? "";
+    const semanticOn = options?.semantic ?? true;
+    const ss = this.semanticSearch;
+    const uv = readIndexedUserVersion(this.db);
+    const vecReady = ensureSqliteVecForConnection(this.db, uv);
+    const canHybrid = semanticOn && nameQ !== "" && ss !== undefined && uv >= 6 && vecReady;
+
+    if (canHybrid) {
+      const qVec = await ss.embedQuery(nameQ);
+      const hybridOpts: HybridSearchOptions = {
+        query: nameQ,
+        limit: query.limit ?? 50,
+        semantic: true,
+        embeddingModel: ss.model,
+        contextChunks: options?.contextChunks ?? 2,
+      };
+      if (query.service !== undefined && query.service !== "") {
+        hybridOpts.service = query.service;
+      }
+      if (query.itemType !== undefined && query.itemType !== "") {
+        hybridOpts.itemType = query.itemType;
+      }
+      if (qVec !== null && qVec !== undefined) {
+        hybridOpts.queryEmbedding = qVec;
+      }
+      const hybridResults = await hybridSearch(this.db, hybridOpts);
+
+      const normRrf = normalizeHigherIsBetter(hybridResults.map((h) => h.rrfScore));
+      const now = options?.nowMs ?? Date.now();
+      const priorities = options?.searchServicePriority ?? new Map();
+
+      return hybridResults.map((h, i) => {
+        const row = h.item as ItemRow;
+        const rec = recencyScore(row.modified_at, now);
+        const sp = servicePriorityScore(row.service, priorities);
+        const nr = normRrf[i] ?? 0.5;
+        const comp = compositeSearchScore(nr, rec, sp);
+        const base = rowToRankedItem(row, comp, h.duplicates);
+        const ranked: RankedIndexItem = {
+          ...base,
+          bm25Rank: h.bm25Rank,
+          vectorRank: h.vectorRank,
+        };
+        if (h.semanticSnippet !== undefined) {
+          ranked.semanticSnippet = h.semanticSnippet;
+        }
+        return ranked;
+      });
+    }
+
+    return this.searchRanked(query, options);
   }
 
   /**

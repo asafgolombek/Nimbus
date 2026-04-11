@@ -4,7 +4,7 @@ import net from "node:net";
 import { platform } from "node:os";
 import { asRecord } from "../connectors/unknown-record.ts";
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
-import type { LocalIndex } from "../index/local-index.ts";
+import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
@@ -214,6 +214,8 @@ export type CreateIpcServerOptions = {
   openUrl?: (url: string) => Promise<void>;
   /** Background sync; required for `connector.sync` force runs. */
   syncScheduler?: SyncScheduler;
+  /** Merged into `gateway.ping` (e.g. embedding backfill progress). */
+  getEmbeddingStatus?: () => Record<string, unknown>;
   /** Monotonic gateway start time (ms) for ping.uptime */
   startedAtMs?: number;
   /** Initial `agent.invoke` handler; may be replaced via {@link IPCServer.setAgentInvokeHandler}. */
@@ -364,6 +366,79 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return connectorRpcSkipped;
   }
 
+  function rpcGatewayPing(): unknown {
+    const extra = options.getEmbeddingStatus?.() ?? {};
+    return {
+      version: options.version,
+      uptime: Date.now() - startedAtMs,
+      ...extra,
+    };
+  }
+
+  async function rpcIndexSearchRanked(params: unknown): Promise<unknown> {
+    if (options.localIndex === undefined) {
+      throw new RpcMethodError(-32603, "Local index is not available");
+    }
+    const rec = asRecord(params);
+    if (rec === undefined) {
+      throw new RpcMethodError(-32602, "Invalid params");
+    }
+    const name = typeof rec["name"] === "string" ? rec["name"] : "";
+    const service = typeof rec["service"] === "string" ? rec["service"] : undefined;
+    const itemType = typeof rec["itemType"] === "string" ? rec["itemType"] : undefined;
+    const limit =
+      typeof rec["limit"] === "number" && Number.isFinite(rec["limit"])
+        ? Math.min(500, Math.max(1, Math.floor(rec["limit"])))
+        : 20;
+    const semantic = rec["semantic"] !== false;
+    const contextChunks =
+      typeof rec["contextChunks"] === "number" && Number.isFinite(rec["contextChunks"])
+        ? Math.min(8, Math.max(0, Math.floor(rec["contextChunks"])))
+        : 2;
+    const query: IndexSearchQuery = { limit };
+    if (name !== "") {
+      query.name = name;
+    }
+    if (service !== undefined) {
+      query.service = service;
+    }
+    if (itemType !== undefined) {
+      query.itemType = itemType;
+    }
+    return await options.localIndex.searchRankedAsync(query, {
+      semantic,
+      contextChunks,
+    });
+  }
+
+  function rpcConsentRespond(clientId: string, params: unknown): unknown {
+    const err = consentImpl.handleRespond(clientId, params);
+    if (err !== null) {
+      throw new RpcMethodError(err.code, err.message);
+    }
+    return { ok: true };
+  }
+
+  function rpcAuditList(params: unknown): unknown {
+    const rec = asRecord(params);
+    let limit = 100;
+    if (rec !== undefined && typeof rec["limit"] === "number" && Number.isFinite(rec["limit"])) {
+      limit = Math.min(1000, Math.max(1, Math.floor(rec["limit"])));
+    }
+    if (options.localIndex === undefined) {
+      return [];
+    }
+    return options.localIndex.listAudit(limit);
+  }
+
+  async function rpcVaultOrMethodNotFound(method: string, params: unknown): Promise<unknown> {
+    const vaultOutcome = await dispatchVaultIfPresent(options.vault, method, params);
+    if (vaultOutcome.kind === "hit") {
+      return vaultOutcome.value;
+    }
+    throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
+
   async function dispatchMethod(
     clientId: string,
     session: ClientSession,
@@ -384,45 +459,22 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
     switch (method) {
       case "gateway.ping":
-        return {
-          version: options.version,
-          uptime: Date.now() - startedAtMs,
-        };
+        return rpcGatewayPing();
+
+      case "index.searchRanked":
+        return await rpcIndexSearchRanked(params);
 
       case "agent.invoke":
         return await dispatchAgentInvoke(clientId, session, params);
 
-      case "consent.respond": {
-        const err = consentImpl.handleRespond(clientId, params);
-        if (err !== null) {
-          throw new RpcMethodError(err.code, err.message);
-        }
-        return { ok: true };
-      }
+      case "consent.respond":
+        return rpcConsentRespond(clientId, params);
 
-      case "audit.list": {
-        const rec = asRecord(params);
-        let limit = 100;
-        if (
-          rec !== undefined &&
-          typeof rec["limit"] === "number" &&
-          Number.isFinite(rec["limit"])
-        ) {
-          limit = Math.min(1000, Math.max(1, Math.floor(rec["limit"])));
-        }
-        if (options.localIndex === undefined) {
-          return [];
-        }
-        return options.localIndex.listAudit(limit);
-      }
+      case "audit.list":
+        return rpcAuditList(params);
 
-      default: {
-        const vaultOutcome = await dispatchVaultIfPresent(options.vault, method, params);
-        if (vaultOutcome.kind === "hit") {
-          return vaultOutcome.value;
-        }
-        throw new RpcMethodError(-32601, `Method not found: ${method}`);
-      }
+      default:
+        return await rpcVaultOrMethodNotFound(method, params);
     }
   }
 

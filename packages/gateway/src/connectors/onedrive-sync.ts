@@ -1,5 +1,5 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
-import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { deleteItemByServiceExternal, upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { normalizeEmail } from "../people/person-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
@@ -95,7 +95,7 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
               : lmEmail,
         });
 
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type,
     externalId: id,

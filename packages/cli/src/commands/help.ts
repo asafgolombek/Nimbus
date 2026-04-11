@@ -4,7 +4,8 @@ export function printHelp(): void {
 Usage:
   nimbus start              Start gateway (background)
   nimbus stop               Stop gateway
-  nimbus status             Ping gateway / show uptime
+  nimbus status             Ping gateway / show uptime & embedding backfill
+  nimbus search <q> …       Ranked index search (FTS + optional semantic)
   nimbus ask <query>        Natural language (requires LLM API keys on gateway host)
   nimbus vault set <k> <v>  Store a secret
   nimbus vault get <k>      Read a secret (prompts first)

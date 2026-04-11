@@ -1,4 +1,4 @@
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
@@ -130,7 +130,7 @@ function upsertFromPullRequest(
     author: displayName,
   };
   const externalId = `${repoFull}#${String(id)}`;
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "pr",
     externalId,

@@ -1,4 +1,4 @@
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import type { PersonSyncHints } from "../people/person-types.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
@@ -166,7 +166,7 @@ function linearUpsertSingleIssue(
   const creatorEmail = creator === undefined ? undefined : stringField(creator, "email");
   const creatorName = creator === undefined ? undefined : stringField(creator, "name");
   const authorId = resolveLinearIssueAuthorId(ctx, creatorEmail, creatorId, creatorName);
-  upsertIndexedItem(ctx.db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "issue",
     externalId: identifier,

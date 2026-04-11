@@ -1,0 +1,124 @@
+name: Test Suite
+
+# Reusable workflow — called by ci.yml (pr-quality-ts and ci-ts).
+# Runs all TS/Bun checks and tests for a single OS runner.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: GitHub-hosted runner label (e.g. ubuntu-22.04)
+        type: string
+        required: true
+      run-packaging:
+        description: Build headless bundle and Linux installers after tests (Ubuntu only)
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    name: Test — ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Linux — libsecret + D-Bus (vault / PAL tests)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint + format (Biome)
+        run: bun run lint
+
+      - name: Build all packages
+        run: bun run build
+
+      - name: Prepare test report directory
+        shell: bash
+        run: mkdir -p reports
+
+      - name: Unit tests (with coverage)
+        shell: bash
+        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk --coverage --reporter=junit --reporter-outfile=reports/junit-unit.xml
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Engine (≥85%)
+        run: bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85 --reporter=junit --reporter-outfile=reports/junit-engine.xml
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Vault (≥90%)
+        shell: bash
+        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90 --reporter=junit --reporter-outfile=reports/junit-vault.xml
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Sync scheduler (≥80%)
+        run: bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=reports/junit-scheduler.xml
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Rate limiter (≥85%)
+        run: bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85 --reporter=junit --reporter-outfile=reports/junit-rate-limiter.xml
+        env:
+          CI: "true"
+
+      - name: Coverage gate — People / linker (≥80%)
+        run: bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=reports/junit-people.xml
+        env:
+          CI: "true"
+
+      - name: Integration tests
+        run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=reports/junit-integration.xml
+        env:
+          CI: "true"
+
+      - name: E2E Gateway tests
+        run: bun test packages/gateway/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-gateway.xml
+        env:
+          CI: "true"
+
+      - name: E2E CLI tests
+        run: bun test packages/cli/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-cli.xml
+        env:
+          CI: "true"
+
+      - name: UI component tests (Vitest)
+        shell: bash
+        run: cd packages/ui && bunx vitest run --coverage
+        env:
+          CI: "true"
+
+      - name: Headless bundle + Linux installers
+        if: inputs.run-packaging
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          (cd packages/gateway && bun build src/index.ts --compile --outfile ../../dist/nimbus-gateway --target bun)
+          (cd packages/cli && bun build src/index.ts --compile --outfile ../../dist/nimbus --target bun)
+          bun run package:headless
+          bun run package:installers:linux -- --version 0.0.0-ci
+          test -f dist/installers/nimbus-headless_0.0.0-ci_amd64.deb
+          test -f dist/installers/nimbus-headless-linux-amd64-v0.0.0-ci.tar.gz
+
+      - name: JUnit test report
+        uses: dorny/test-reporter@4a2e97665d5fa767581ef38eca97b9694bd4eef4 # v2
+        if: always()
+        with:
+          name: Tests (${{ inputs.runner }})
+          path: reports/junit-*.xml
+          reporter: java-junit
+          fail-on-error: false

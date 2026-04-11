@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
+import type { SyncContext } from "../sync/types.ts";
 import { RAW_META_MAX_BYTES } from "./constants.ts";
 
 export type IndexedItemRow = {
@@ -99,6 +100,16 @@ export function upsertIndexedItem(
       row.pinned === true ? 1 : 0,
     ],
   );
+}
+
+/** Like {@link upsertIndexedItem}, plus optional {@link SyncContext.scheduleItemEmbedding}. */
+export function upsertIndexedItemForSync(
+  ctx: SyncContext,
+  row: Parameters<typeof upsertIndexedItem>[1],
+): void {
+  upsertIndexedItem(ctx.db, row);
+  const id = itemPrimaryKey(row.service, row.externalId);
+  ctx.scheduleItemEmbedding?.(id);
 }
 
 export function upsertNimbusItemIntoItemTable(
