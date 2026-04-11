@@ -61,6 +61,10 @@ async function deleteConnectorPatAndTokenKeys(
       await vault.delete("confluence.email");
       await vault.delete("confluence.base_url");
       return ["confluence.api_token", "confluence.email", "confluence.base_url"];
+    case "discord":
+      await vault.delete("discord.bot_token");
+      await vault.delete("discord.enabled");
+      return ["discord.bot_token", "discord.enabled"];
     default:
       return [];
   }
@@ -302,6 +306,33 @@ async function connectorAuthLinear(
   return authSuccess("linear");
 }
 
+async function connectorAuthDiscord(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const opt =
+    rec?.["discordOptIn"] === true ||
+    rec?.["discordOptIn"] === "true" ||
+    rec?.["discordOptIn"] === "1";
+  if (!opt) {
+    throw new ConnectorRpcError(
+      -32602,
+      "Discord is opt-in: use CLI `nimbus connector auth discord --token <bot_token> --enable`",
+    );
+  }
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Missing bot token for discord");
+  }
+  await vault.set("discord.bot_token", token);
+  await vault.set("discord.enabled", "1");
+  const interval = defaultSyncIntervalMsForService("discord");
+  localIndex.ensureConnectorSchedulerRegistration("discord", interval, Date.now());
+  return authSuccess("discord");
+}
+
 async function connectorAuthBitbucket(
   rec: Record<string, unknown> | undefined,
   vault: NimbusVault,
@@ -456,6 +487,9 @@ export async function handleConnectorAuth(
   }
   if (id === "bitbucket") {
     return connectorAuthBitbucket(rec, vault, localIndex);
+  }
+  if (id === "discord") {
+    return connectorAuthDiscord(rec, vault, localIndex);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }

@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
   asRecord,
@@ -129,7 +130,7 @@ async function jiraFetchSearchPage(p: {
     jql,
     startAt,
     maxResults: pageSize,
-    fields: ["summary", "description", "updated", "issuetype", "status"],
+    fields: ["summary", "description", "updated", "issuetype", "status", "creator"],
   });
   const res = await fetch(`${creds.baseUrl}/rest/api/3/search`, {
     method: "POST",
@@ -191,6 +192,25 @@ function jiraIndexOneIssue(p: {
   }
   const bodyPrev = fields === undefined ? "" : descriptionPreview(fields);
   const browseUrl = `${baseUrl}/browse/${key}`;
+  const creator = fields === undefined ? undefined : asRecord(fields["creator"]);
+  const accountId = creator === undefined ? undefined : stringField(creator, "accountId");
+  const creatorEmail = creator === undefined ? undefined : stringField(creator, "emailAddress");
+  const creatorName = creator === undefined ? undefined : stringField(creator, "displayName");
+  let authorId: string | null = null;
+  if (accountId !== undefined && accountId !== "") {
+    if (creatorEmail !== undefined && creatorEmail !== "") {
+      authorId = resolvePersonForSync(ctx.db, {
+        jiraAccountId: accountId,
+        canonicalEmail: creatorEmail,
+        displayName: creatorName ?? creatorEmail,
+      });
+    } else {
+      authorId = resolvePersonForSync(ctx.db, {
+        jiraAccountId: accountId,
+        displayName: creatorName ?? accountId,
+      });
+    }
+  }
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "issue",
@@ -200,7 +220,7 @@ function jiraIndexOneIssue(p: {
     url: browseUrl,
     canonicalUrl: browseUrl,
     modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-    authorId: null,
+    authorId,
     metadata: { jiraId: id ?? key, key },
     pinned: false,
     syncedAt: syncTime,

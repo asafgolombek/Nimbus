@@ -183,7 +183,7 @@ function stripRankedToNimbus(r: RankedIndexItem): NimbusItem {
 }
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 4;
+  static readonly SCHEMA_VERSION = 5;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.

@@ -16,6 +16,9 @@ type PersonRow = {
   linear_member_id: string | null;
   jira_account_id: string | null;
   notion_user_id: string | null;
+  bitbucket_uuid?: string | null;
+  microsoft_user_id?: string | null;
+  discord_user_id?: string | null;
   linked: number;
   metadata: string | null;
 };
@@ -42,6 +45,9 @@ function rowToRecord(row: PersonRow): PersonRecord {
     linearMemberId: row.linear_member_id,
     jiraAccountId: row.jira_account_id,
     notionUserId: row.notion_user_id,
+    bitbucketUuid: row.bitbucket_uuid ?? null,
+    microsoftUserId: row.microsoft_user_id ?? null,
+    discordUserId: row.discord_user_id ?? null,
     linked: row.linked === 1,
     metadata: meta,
   };
@@ -125,6 +131,36 @@ export function findPersonByNotionUserId(db: Database, userId: string): PersonRe
   return rowToRecord(row);
 }
 
+export function findPersonByBitbucketUuid(db: Database, uuid: string): PersonRecord | null {
+  const row = db
+    .query("SELECT * FROM person WHERE bitbucket_uuid = ?")
+    .get(uuid) as PersonRow | null | undefined;
+  if (row === null || row === undefined) {
+    return null;
+  }
+  return rowToRecord(row);
+}
+
+export function findPersonByMicrosoftUserId(db: Database, userId: string): PersonRecord | null {
+  const row = db
+    .query("SELECT * FROM person WHERE microsoft_user_id = ?")
+    .get(userId) as PersonRow | null | undefined;
+  if (row === null || row === undefined) {
+    return null;
+  }
+  return rowToRecord(row);
+}
+
+export function findPersonByDiscordUserId(db: Database, userId: string): PersonRecord | null {
+  const row = db
+    .query("SELECT * FROM person WHERE discord_user_id = ?")
+    .get(userId) as PersonRow | null | undefined;
+  if (row === null || row === undefined) {
+    return null;
+  }
+  return rowToRecord(row);
+}
+
 export function insertPerson(
   db: Database,
   row: {
@@ -137,6 +173,9 @@ export function insertPerson(
     linearMemberId: string | null;
     jiraAccountId: string | null;
     notionUserId: string | null;
+    bitbucketUuid?: string | null;
+    microsoftUserId?: string | null;
+    discordUserId?: string | null;
     linked: boolean;
     metadata: Record<string, unknown>;
   },
@@ -145,8 +184,9 @@ export function insertPerson(
   db.run(
     `INSERT INTO person (
       id, display_name, canonical_email, github_login, gitlab_login, slack_handle,
-      linear_member_id, jira_account_id, notion_user_id, linked, metadata
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      linear_member_id, jira_account_id, notion_user_id, bitbucket_uuid, microsoft_user_id, discord_user_id,
+      linked, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.id,
       row.displayName,
@@ -157,6 +197,9 @@ export function insertPerson(
       row.linearMemberId,
       row.jiraAccountId,
       row.notionUserId,
+      row.bitbucketUuid ?? null,
+      row.microsoftUserId ?? null,
+      row.discordUserId ?? null,
       row.linked ? 1 : 0,
       meta,
     ],
@@ -175,6 +218,9 @@ export function updatePersonHandles(
     linearMemberId?: string | null;
     jiraAccountId?: string | null;
     notionUserId?: string | null;
+    bitbucketUuid?: string | null;
+    microsoftUserId?: string | null;
+    discordUserId?: string | null;
     linked?: boolean;
   },
 ): void {
@@ -211,6 +257,18 @@ export function updatePersonHandles(
   if (patch.notionUserId !== undefined) {
     sets.push("notion_user_id = ?");
     params.push(patch.notionUserId);
+  }
+  if (patch.bitbucketUuid !== undefined) {
+    sets.push("bitbucket_uuid = ?");
+    params.push(patch.bitbucketUuid);
+  }
+  if (patch.microsoftUserId !== undefined) {
+    sets.push("microsoft_user_id = ?");
+    params.push(patch.microsoftUserId);
+  }
+  if (patch.discordUserId !== undefined) {
+    sets.push("discord_user_id = ?");
+    params.push(patch.discordUserId);
   }
   if (patch.linked !== undefined) {
     sets.push("linked = ?");
@@ -252,10 +310,13 @@ export function searchPersons(db: Database, query: string, limit: number): Perso
         instr(lower(coalesce(slack_handle, '')), ?) > 0 OR
         instr(lower(coalesce(linear_member_id, '')), ?) > 0 OR
         instr(lower(coalesce(jira_account_id, '')), ?) > 0 OR
-        instr(lower(coalesce(notion_user_id, '')), ?) > 0
+        instr(lower(coalesce(notion_user_id, '')), ?) > 0 OR
+        instr(lower(coalesce(bitbucket_uuid, '')), ?) > 0 OR
+        instr(lower(coalesce(microsoft_user_id, '')), ?) > 0 OR
+        instr(lower(coalesce(discord_user_id, '')), ?) > 0
       ORDER BY id LIMIT ?`,
     )
-    .all(q, q, q, q, q, q, q, q, lim) as PersonRow[];
+    .all(q, q, q, q, q, q, q, q, q, q, q, lim) as PersonRow[];
   return rows.map(rowToRecord);
 }
 

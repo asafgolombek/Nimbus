@@ -24,6 +24,12 @@ export function prunePeopleAfterServiceRemoval(db: Database, serviceId: string):
     case "notion":
       db.run("UPDATE person SET notion_user_id = NULL");
       break;
+    case "bitbucket":
+      db.run("UPDATE person SET bitbucket_uuid = NULL");
+      break;
+    case "discord":
+      db.run("UPDATE person SET discord_user_id = NULL");
+      break;
     default:
       break;
   }

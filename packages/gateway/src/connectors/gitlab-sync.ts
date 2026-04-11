@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -53,10 +54,23 @@ type GitlabEventUpsertFields = {
   createdAt: string;
   now: number;
   webOrigin: string;
+  authorUsername: string | undefined;
+  authorName: string | undefined;
 };
 
 function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
-  const { ctx, pathWithNamespace, iid, title, actionName, createdAt, now, webOrigin } = f;
+  const {
+    ctx,
+    pathWithNamespace,
+    iid,
+    title,
+    actionName,
+    createdAt,
+    now,
+    webOrigin,
+    authorUsername,
+    authorName,
+  } = f;
   const externalId = `${pathWithNamespace}!${String(iid)}`;
   const encPath = encodeURIComponent(pathWithNamespace);
   const url = `${webOrigin}/${pathWithNamespace}/-/merge_requests/${String(iid)}`;
@@ -66,6 +80,13 @@ function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
     project: pathWithNamespace,
     action: actionName,
   };
+  const authorId =
+    authorUsername !== undefined && authorUsername !== ""
+      ? resolvePersonForSync(ctx.db, {
+          gitlabLogin: authorUsername,
+          displayName: authorName ?? authorUsername,
+        })
+      : null;
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "pr",
@@ -75,7 +96,7 @@ function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
     url,
     canonicalUrl: `${webOrigin}/${encPath}/-/merge_requests/${String(iid)}`,
     modifiedAt: Number.isFinite(modified) ? modified : now,
-    authorId: null,
+    authorId,
     metadata: meta,
     pinned: false,
     syncedAt: now,
@@ -83,7 +104,18 @@ function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
 }
 
 function upsertFromIssueEvent(f: GitlabEventUpsertFields): void {
-  const { ctx, pathWithNamespace, iid, title, actionName, createdAt, now, webOrigin } = f;
+  const {
+    ctx,
+    pathWithNamespace,
+    iid,
+    title,
+    actionName,
+    createdAt,
+    now,
+    webOrigin,
+    authorUsername,
+    authorName,
+  } = f;
   const externalId = `${pathWithNamespace}#${String(iid)}`;
   const encPath = encodeURIComponent(pathWithNamespace);
   const url = `${webOrigin}/${pathWithNamespace}/-/issues/${String(iid)}`;
@@ -93,6 +125,13 @@ function upsertFromIssueEvent(f: GitlabEventUpsertFields): void {
     project: pathWithNamespace,
     action: actionName,
   };
+  const authorId =
+    authorUsername !== undefined && authorUsername !== ""
+      ? resolvePersonForSync(ctx.db, {
+          gitlabLogin: authorUsername,
+          displayName: authorName ?? authorUsername,
+        })
+      : null;
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "issue",
@@ -102,7 +141,7 @@ function upsertFromIssueEvent(f: GitlabEventUpsertFields): void {
     url,
     canonicalUrl: `${webOrigin}/${encPath}/-/issues/${String(iid)}`,
     modifiedAt: Number.isFinite(modified) ? modified : now,
-    authorId: null,
+    authorId,
     metadata: meta,
     pinned: false,
     syncedAt: now,
@@ -120,6 +159,8 @@ function processEvent(
   const title = stringField(ev, "target_title") ?? "(no title)";
   const actionName = stringField(ev, "action_name") ?? "unknown";
   const createdAt = stringField(ev, "created_at") ?? new Date(now).toISOString();
+  const authorUsername = stringField(ev, "author_username");
+  const authorName = stringField(ev, "author_name");
   const project = asRecord(ev["project"]);
   const pathWithNamespace =
     project === undefined ? undefined : stringField(project, "path_with_namespace");
@@ -134,6 +175,8 @@ function processEvent(
         createdAt,
         now,
         webOrigin,
+        authorUsername,
+        authorName,
       });
       return true;
     }
@@ -147,6 +190,8 @@ function processEvent(
         createdAt,
         now,
         webOrigin,
+        authorUsername,
+        authorName,
       });
       return true;
     }

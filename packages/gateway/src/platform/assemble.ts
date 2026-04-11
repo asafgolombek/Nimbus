@@ -4,6 +4,7 @@ import pino from "pino";
 
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
 import { createConfluenceSyncable } from "../connectors/confluence-sync.ts";
+import { createDiscordSyncable } from "../connectors/discord-sync.ts";
 import { createGithubSyncable } from "../connectors/github-sync.ts";
 import { createGitlabSyncable } from "../connectors/gitlab-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
@@ -131,6 +132,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   syncScheduler.register(
     createConfluenceSyncable({
       ensureConfluenceMcpRunning: () => connectorMesh.ensureConfluenceRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createDiscordSyncable({
+      ensureDiscordMcpRunning: () => connectorMesh.ensureDiscordRunning(),
     }),
   );
   syncScheduler.start();

@@ -121,6 +121,9 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
           linearMemberId: p.linearMemberId,
           jiraAccountId: p.jiraAccountId,
           notionUserId: p.notionUserId,
+          bitbucketUuid: p.bitbucketUuid,
+          microsoftUserId: p.microsoftUserId,
+          discordUserId: p.discordUserId,
           linked: p.linked,
         })),
       };
@@ -130,9 +133,26 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   const listConnectors = createTool({
     id: "listConnectors",
     description:
-      "List first-party MCP connector ids: filesystem always; Google bundle (Drive, Gmail, Photos) when `google.oauth` exists; Microsoft bundle (OneDrive, Outlook, Teams) when `microsoft.oauth` exists.",
+      "List first-party index/sync connector service ids shipped in Nimbus (filesystem is always available; cloud MCPs lazy-start when credentials exist in the Vault — see lazy mesh / connector catalog).",
     execute: async () => ({
-      connectors: ["filesystem", "google_drive", "gmail", "google_photos", "onedrive", "outlook"],
+      connectors: [
+        "filesystem",
+        "google_drive",
+        "gmail",
+        "google_photos",
+        "onedrive",
+        "outlook",
+        "teams",
+        "github",
+        "gitlab",
+        "bitbucket",
+        "slack",
+        "linear",
+        "jira",
+        "notion",
+        "confluence",
+        "discord",
+      ] as const,
     }),
   });
 

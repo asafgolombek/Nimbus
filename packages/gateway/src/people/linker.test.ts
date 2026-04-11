@@ -3,7 +3,11 @@ import { describe, expect, test } from "bun:test";
 
 import { LocalIndex } from "../index/local-index.ts";
 import { mergePeople, resolvePersonForSync } from "./linker.ts";
-import { findPersonByGithubLogin, getPersonById } from "./person-store.ts";
+import {
+  findPersonByBitbucketUuid,
+  findPersonByGithubLogin,
+  getPersonById,
+} from "./person-store.ts";
 
 function openDb(): Database {
   const db = new Database(":memory:");
@@ -27,6 +31,31 @@ describe("resolvePersonForSync", () => {
     const a = resolvePersonForSync(db, { githubLogin: "dup" });
     const b = resolvePersonForSync(db, { githubLogin: "dup" });
     expect(a).toBe(b);
+  });
+
+  test("Bitbucket uuid creates handle row and dedupes", () => {
+    const db = openDb();
+    const uuid = "a1b2c3d4e5f67890abcdef1234567890";
+    const a = resolvePersonForSync(db, { bitbucketUuid: uuid, displayName: "BB" });
+    const b = resolvePersonForSync(db, { bitbucketUuid: uuid, displayName: "BB2" });
+    expect(a).toBe(b);
+    expect(findPersonByBitbucketUuid(db, uuid)?.id).toBe(a);
+  });
+
+  test("Microsoft user id creates handle row", () => {
+    const db = openDb();
+    const id = resolvePersonForSync(db, { microsoftUserId: "ms-1", displayName: "M" });
+    expect(id).not.toBeNull();
+    const p = getPersonById(db, id as string);
+    expect(p?.microsoftUserId).toBe("ms-1");
+  });
+
+  test("Discord user id creates handle row", () => {
+    const db = openDb();
+    const id = resolvePersonForSync(db, { discordUserId: "123456789", displayName: "D" });
+    expect(id).not.toBeNull();
+    const p = getPersonById(db, id as string);
+    expect(p?.discordUserId).toBe("123456789");
   });
 
   test("email creates linked row and stable id", () => {

@@ -47,6 +47,9 @@ describe("createOneDriveSyncable", () => {
                 file: { mimeType: "text/plain" },
                 webUrl: "https://example.com/f1",
                 lastModifiedDateTime: "2024-03-01T12:00:00Z",
+                lastModifiedBy: {
+                  user: { displayName: "Pat", mail: "pat@example.com" },
+                },
               },
             ],
             "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/drive/root/delta?token=done",
@@ -63,12 +66,13 @@ describe("createOneDriveSyncable", () => {
     expect(r.cursor).not.toBeNull();
 
     const row = db
-      .query("SELECT service, type, external_id FROM item WHERE id = ?")
+      .query("SELECT service, type, external_id, author_id FROM item WHERE id = ?")
       .get(itemPrimaryKey("onedrive", "f1")) as
-      | { service: string; type: string; external_id: string }
+      | { service: string; type: string; external_id: string; author_id: string | null }
       | undefined;
     expect(row?.type).toBe("file");
     expect(row?.external_id).toBe("f1");
+    expect(row?.author_id).not.toBeNull();
   });
 
   test("deletes when @removed present", async () => {

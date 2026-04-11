@@ -16,6 +16,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "jira",
   "notion",
   "confluence",
+  "discord",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -61,6 +62,8 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
     case "linear":
     case "jira":
       return 60 * 1000;
+    case "discord":
+      return 5 * 60 * 1000;
     default: {
       const _exhaustive: never = serviceId;
       return _exhaustive;
@@ -171,6 +174,10 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "confluence":
       throw new Error(
         "oauthProfileForService: confluence uses email + API token + base URL (connector.auth)",
+      );
+    case "discord":
+      throw new Error(
+        "oauthProfileForService: discord uses a bot token + opt-in (connector.auth --enable)",
       );
     default: {
       const _never: never = serviceId;

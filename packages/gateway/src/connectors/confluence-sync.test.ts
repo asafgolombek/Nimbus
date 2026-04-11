@@ -34,7 +34,14 @@ describeWithFetchRestore("confluence-sync", () => {
               id: "12345",
               title: "Wiki Page",
               history: {
-                lastUpdated: { when: "2026-04-01T12:00:00.000+0000" },
+                lastUpdated: {
+                  when: "2026-04-01T12:00:00.000+0000",
+                  by: {
+                    accountId: "atlassian-acct-1",
+                    displayName: "Wiki Author",
+                    email: "wiki.author@example.com",
+                  },
+                },
               },
             },
           ],
@@ -57,5 +64,9 @@ describeWithFetchRestore("confluence-sync", () => {
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-cfl1:");
     expectServiceItemCount(db, "confluence", 1);
+    const row = db
+      .prepare("SELECT author_id FROM item WHERE service = 'confluence' LIMIT 1")
+      .get() as { author_id: string | null } | undefined;
+    expect(row?.author_id).not.toBeNull();
   });
 });

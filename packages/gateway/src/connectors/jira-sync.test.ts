@@ -31,6 +31,7 @@ describeWithFetchRestore("jira-sync", () => {
       const body =
         init?.body !== undefined && typeof init.body === "string" ? JSON.parse(init.body) : {};
       expect(body.jql).toContain("updated");
+      expect(body.fields).toContain("creator");
       return new Response(
         JSON.stringify({
           issues: [
@@ -41,6 +42,11 @@ describeWithFetchRestore("jira-sync", () => {
                 summary: "Ship Jira",
                 description: { type: "doc", version: 1, content: [] },
                 updated: "2026-04-01T12:00:00.000+0000",
+                creator: {
+                  accountId: "acct-1",
+                  displayName: "Jira Author",
+                  emailAddress: "jira.author@example.com",
+                },
               },
             },
           ],
@@ -66,5 +72,9 @@ describeWithFetchRestore("jira-sync", () => {
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-jra1:");
     expectServiceItemCount(db, "jira", 1);
+    const row = db
+      .prepare("SELECT author_id FROM item WHERE service = 'jira' LIMIT 1")
+      .get() as { author_id: string | null } | undefined;
+    expect(row?.author_id).not.toBeNull();
   });
 });

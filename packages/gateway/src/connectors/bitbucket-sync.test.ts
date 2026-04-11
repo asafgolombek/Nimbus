@@ -51,6 +51,10 @@ describeWithFetchRestore("bitbucket-sync", () => {
               description: "",
               state: "OPEN",
               updated_on: "2026-04-01T12:00:00.000000+00:00",
+              author: {
+                display_name: "Dev One",
+                uuid: "{a1b2c3d4-e5f6-7890-abcd-ef1234567890}",
+              },
               links: { html: { href: "https://bitbucket.org/acme/app/pull-requests/7" } },
             },
           ],
@@ -70,5 +74,9 @@ describeWithFetchRestore("bitbucket-sync", () => {
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-bbkt1:");
     expectServiceItemCount(db, "bitbucket", 1);
+    const row = db
+      .query("SELECT author_id FROM item WHERE service = ? AND external_id = ?")
+      .get("bitbucket", "acme/app#7") as { author_id: string | null } | undefined;
+    expect(row?.author_id).not.toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
@@ -218,6 +219,14 @@ function upsertChannelMessage(
     title = title.slice(0, 512);
   }
   const modified = modifiedMsFromIso(m.lastModifiedDateTime ?? m.createdDateTime, now);
+  const graphUserId = m.from?.user?.id;
+  const authorId =
+    graphUserId !== undefined && graphUserId !== ""
+      ? resolvePersonForSync(ctx.db, {
+          microsoftUserId: graphUserId,
+          displayName: fromName ?? graphUserId,
+        })
+      : null;
 
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
@@ -228,7 +237,7 @@ function upsertChannelMessage(
     url: null,
     canonicalUrl: null,
     modifiedAt: modified,
-    authorId: null,
+    authorId,
     metadata: {
       teamId,
       channelId,

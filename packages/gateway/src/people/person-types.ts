@@ -8,6 +8,9 @@ export type PersonRecord = {
   linearMemberId: string | null;
   jiraAccountId: string | null;
   notionUserId: string | null;
+  bitbucketUuid: string | null;
+  microsoftUserId: string | null;
+  discordUserId: string | null;
   linked: boolean;
   metadata: Record<string, unknown> | null;
 };
@@ -21,4 +24,7 @@ export type PersonSyncHints = {
   linearMemberId?: string;
   jiraAccountId?: string;
   notionUserId?: string;
+  bitbucketUuid?: string;
+  microsoftUserId?: string;
+  discordUserId?: string;
 };

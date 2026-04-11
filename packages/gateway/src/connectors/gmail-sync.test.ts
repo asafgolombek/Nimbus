@@ -90,9 +90,14 @@ describe("createGmailSyncable", () => {
     }
 
     const row = db
-      .query("SELECT title, service FROM item WHERE id = ?")
-      .get(itemPrimaryKey("gmail", "m1")) as { title: string; service: string } | null;
+      .query("SELECT title, service, author_id FROM item WHERE id = ?")
+      .get(itemPrimaryKey("gmail", "m1")) as {
+      title: string;
+      service: string;
+      author_id: string | null;
+    } | null;
     expect(row?.service).toBe("gmail");
     expect(row?.title).toBe("Hi");
+    expect(row?.author_id).not.toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -17,6 +18,11 @@ query LinearSync($first: Int!, $after: String, $gt: DateTimeOrDuration!) {
       description
       updatedAt
       url
+      creator {
+        id
+        name
+        email
+      }
     }
     pageInfo {
       hasNextPage
@@ -136,6 +142,23 @@ function linearUpsertIssueNodes(
       maxUpdated = maxIso(maxUpdated, updatedAt);
     }
     count += 1;
+    const creator = asRecord(row["creator"]);
+    const creatorId = creator === undefined ? undefined : stringField(creator, "id");
+    const creatorEmail = creator === undefined ? undefined : stringField(creator, "email");
+    const creatorName = creator === undefined ? undefined : stringField(creator, "name");
+    let authorId: string | null = null;
+    if (creatorEmail !== undefined && creatorEmail !== "") {
+      authorId = resolvePersonForSync(ctx.db, {
+        canonicalEmail: creatorEmail,
+        linearMemberId: creatorId,
+        displayName: creatorName ?? creatorEmail,
+      });
+    } else if (creatorId !== undefined && creatorId !== "") {
+      authorId = resolvePersonForSync(ctx.db, {
+        linearMemberId: creatorId,
+        displayName: creatorName ?? creatorId,
+      });
+    }
     upsertIndexedItem(ctx.db, {
       service: SERVICE_ID,
       type: "issue",
@@ -145,7 +168,7 @@ function linearUpsertIssueNodes(
       url: url ?? null,
       canonicalUrl: url ?? null,
       modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-      authorId: null,
+      authorId,
       metadata: { linearId: id, identifier },
       pinned: false,
       syncedAt: syncTime,

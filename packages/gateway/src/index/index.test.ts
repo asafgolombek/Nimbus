@@ -18,7 +18,7 @@ describe("LocalIndex", () => {
     const row = db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
-    expect(row.user_version).toBe(4);
+    expect(row.user_version).toBe(5);
   });
 
   test("upsert and search by name via FTS5", () => {

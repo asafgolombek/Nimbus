@@ -4,11 +4,14 @@ import { NIMBUS_PERSON_NAMESPACE_UUID, uuidV5 } from "./person-id.ts";
 import type { PersonRecord, PersonSyncHints } from "./person-types.ts";
 import {
   deletePersonById,
+  findPersonByBitbucketUuid,
   findPersonByCanonicalEmail,
+  findPersonByDiscordUserId,
   findPersonByGithubLogin,
   findPersonByGitlabLogin,
   findPersonByJiraAccountId,
   findPersonByLinearMemberId,
+  findPersonByMicrosoftUserId,
   findPersonByNotionUserId,
   findPersonBySlackHandle,
   getPersonById,
@@ -33,7 +36,10 @@ export function resolvePersonForSync(db: Database, hints: PersonSyncHints): stri
     !nonEmpty(hints.slackHandle) &&
     !nonEmpty(hints.linearMemberId) &&
     !nonEmpty(hints.jiraAccountId) &&
-    !nonEmpty(hints.notionUserId)
+    !nonEmpty(hints.notionUserId) &&
+    !nonEmpty(hints.bitbucketUuid) &&
+    !nonEmpty(hints.microsoftUserId) &&
+    !nonEmpty(hints.discordUserId)
   ) {
     return null;
   }
@@ -58,6 +64,9 @@ export function resolvePersonForSync(db: Database, hints: PersonSyncHints): stri
         linearMemberId: hints.linearMemberId ?? handleMatch.linearMemberId,
         jiraAccountId: hints.jiraAccountId ?? handleMatch.jiraAccountId,
         notionUserId: hints.notionUserId ?? handleMatch.notionUserId,
+        bitbucketUuid: hints.bitbucketUuid ?? handleMatch.bitbucketUuid,
+        microsoftUserId: hints.microsoftUserId ?? handleMatch.microsoftUserId,
+        discordUserId: hints.discordUserId ?? handleMatch.discordUserId,
         linked: true,
       });
       return handleMatch.id;
@@ -73,6 +82,9 @@ export function resolvePersonForSync(db: Database, hints: PersonSyncHints): stri
       linearMemberId: hints.linearMemberId ?? null,
       jiraAccountId: hints.jiraAccountId ?? null,
       notionUserId: hints.notionUserId ?? null,
+      bitbucketUuid: hints.bitbucketUuid ?? null,
+      microsoftUserId: hints.microsoftUserId ?? null,
+      discordUserId: hints.discordUserId ?? null,
       linked: true,
       metadata: {},
     });
@@ -119,6 +131,24 @@ function findExistingPersonByHandles(db: Database, hints: PersonSyncHints): Pers
       return p;
     }
   }
+  if (nonEmpty(hints.bitbucketUuid)) {
+    const p = findPersonByBitbucketUuid(db, hints.bitbucketUuid.trim());
+    if (p !== null) {
+      return p;
+    }
+  }
+  if (nonEmpty(hints.microsoftUserId)) {
+    const p = findPersonByMicrosoftUserId(db, hints.microsoftUserId.trim());
+    if (p !== null) {
+      return p;
+    }
+  }
+  if (nonEmpty(hints.discordUserId)) {
+    const p = findPersonByDiscordUserId(db, hints.discordUserId.trim());
+    if (p !== null) {
+      return p;
+    }
+  }
   return null;
 }
 
@@ -140,6 +170,9 @@ function mergeHintsIntoPerson(
     linearMemberId: hints.linearMemberId ?? cur.linearMemberId,
     jiraAccountId: hints.jiraAccountId ?? cur.jiraAccountId,
     notionUserId: hints.notionUserId ?? cur.notionUserId,
+    bitbucketUuid: hints.bitbucketUuid ?? cur.bitbucketUuid,
+    microsoftUserId: hints.microsoftUserId ?? cur.microsoftUserId,
+    discordUserId: hints.discordUserId ?? cur.discordUserId,
   };
   if (options.forceLinked) {
     patch.linked = true;
@@ -154,6 +187,12 @@ function resolveHandleOnlyPerson(db: Database, hints: PersonSyncHints): string |
     return existing.id;
   }
 
+  const emptyExtra = {
+    bitbucketUuid: null as string | null,
+    microsoftUserId: null as string | null,
+    discordUserId: null as string | null,
+  };
+
   if (nonEmpty(hints.githubLogin)) {
     const login = hints.githubLogin.trim();
     const id = uuidV5(`github:${login}`, NIMBUS_PERSON_NAMESPACE_UUID);
@@ -167,6 +206,7 @@ function resolveHandleOnlyPerson(db: Database, hints: PersonSyncHints): string |
       linearMemberId: null,
       jiraAccountId: null,
       notionUserId: null,
+      ...emptyExtra,
       linked: false,
       metadata: {},
     });
@@ -185,6 +225,7 @@ function resolveHandleOnlyPerson(db: Database, hints: PersonSyncHints): string |
       linearMemberId: null,
       jiraAccountId: null,
       notionUserId: null,
+      ...emptyExtra,
       linked: false,
       metadata: {},
     });
@@ -203,6 +244,7 @@ function resolveHandleOnlyPerson(db: Database, hints: PersonSyncHints): string |
       linearMemberId: null,
       jiraAccountId: null,
       notionUserId: null,
+      ...emptyExtra,
       linked: false,
       metadata: {},
     });
@@ -221,6 +263,7 @@ function resolveHandleOnlyPerson(db: Database, hints: PersonSyncHints): string |
       linearMemberId: mid,
       jiraAccountId: null,
       notionUserId: null,
+      ...emptyExtra,
       linked: false,
       metadata: {},
     });
@@ -239,6 +282,7 @@ function resolveHandleOnlyPerson(db: Database, hints: PersonSyncHints): string |
       linearMemberId: null,
       jiraAccountId: aid,
       notionUserId: null,
+      ...emptyExtra,
       linked: false,
       metadata: {},
     });
@@ -257,6 +301,70 @@ function resolveHandleOnlyPerson(db: Database, hints: PersonSyncHints): string |
       linearMemberId: null,
       jiraAccountId: null,
       notionUserId: uid,
+      ...emptyExtra,
+      linked: false,
+      metadata: {},
+    });
+    return id;
+  }
+  if (nonEmpty(hints.bitbucketUuid)) {
+    const u = hints.bitbucketUuid.trim();
+    const id = uuidV5(`bitbucket:${u}`, NIMBUS_PERSON_NAMESPACE_UUID);
+    insertPerson(db, {
+      id,
+      displayName: hints.displayName ?? u,
+      canonicalEmail: null,
+      githubLogin: null,
+      gitlabLogin: null,
+      slackHandle: null,
+      linearMemberId: null,
+      jiraAccountId: null,
+      notionUserId: null,
+      bitbucketUuid: u,
+      microsoftUserId: null,
+      discordUserId: null,
+      linked: false,
+      metadata: {},
+    });
+    return id;
+  }
+  if (nonEmpty(hints.microsoftUserId)) {
+    const mid = hints.microsoftUserId.trim();
+    const id = uuidV5(`microsoft:${mid}`, NIMBUS_PERSON_NAMESPACE_UUID);
+    insertPerson(db, {
+      id,
+      displayName: hints.displayName ?? mid,
+      canonicalEmail: null,
+      githubLogin: null,
+      gitlabLogin: null,
+      slackHandle: null,
+      linearMemberId: null,
+      jiraAccountId: null,
+      notionUserId: null,
+      bitbucketUuid: null,
+      microsoftUserId: mid,
+      discordUserId: null,
+      linked: false,
+      metadata: {},
+    });
+    return id;
+  }
+  if (nonEmpty(hints.discordUserId)) {
+    const did = hints.discordUserId.trim();
+    const id = uuidV5(`discord:${did}`, NIMBUS_PERSON_NAMESPACE_UUID);
+    insertPerson(db, {
+      id,
+      displayName: hints.displayName ?? did,
+      canonicalEmail: null,
+      githubLogin: null,
+      gitlabLogin: null,
+      slackHandle: null,
+      linearMemberId: null,
+      jiraAccountId: null,
+      notionUserId: null,
+      bitbucketUuid: null,
+      microsoftUserId: null,
+      discordUserId: did,
       linked: false,
       metadata: {},
     });
@@ -293,6 +401,9 @@ export function mergePeople(db: Database, personIdA: string, personIdB: string):
     linearMemberId: a.linearMemberId ?? b.linearMemberId,
     jiraAccountId: a.jiraAccountId ?? b.jiraAccountId,
     notionUserId: a.notionUserId ?? b.notionUserId,
+    bitbucketUuid: a.bitbucketUuid ?? b.bitbucketUuid,
+    microsoftUserId: a.microsoftUserId ?? b.microsoftUserId,
+    discordUserId: a.discordUserId ?? b.discordUserId,
     linked,
   });
   db.run("UPDATE item SET author_id = ? WHERE author_id = ?", [personIdA, personIdB]);

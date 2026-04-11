@@ -35,6 +35,8 @@ type ConnectorFlags = {
   username?: string;
   apiBase?: string;
   full?: boolean;
+  /** Opt-in flag for Discord bot connector (Q2 §4.3). */
+  enable?: boolean;
 };
 
 async function withIpc<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
@@ -116,6 +118,7 @@ function parseFlags(args: string[]): ConnectorFlags {
   let username: string | undefined;
   let apiBase: string | undefined;
   let full: boolean | undefined;
+  let enable: boolean | undefined;
   const q = [...args];
 
   while (q.length > 0) {
@@ -160,6 +163,10 @@ function parseFlags(args: string[]): ConnectorFlags {
       full = true;
       continue;
     }
+    if (a === "--enable") {
+      enable = true;
+      continue;
+    }
     if (a === "--api-base") {
       const v = takeFlagValue(q, "--api-base").trim();
       if (v === "") {
@@ -189,6 +196,9 @@ function parseFlags(args: string[]): ConnectorFlags {
   }
   if (full !== undefined) {
     out.full = full;
+  }
+  if (enable !== undefined) {
+    out.enable = enable;
   }
   return out;
 }
@@ -318,6 +328,7 @@ type ConnectorAuthParams = {
   bitbucketUsername?: string;
   atlassianEmail?: string;
   apiBaseUrl?: string;
+  discordOptIn?: boolean;
 };
 
 function applyLinearConnectorAuth(p: ConnectorAuthParams, token: string | undefined): void {
@@ -333,6 +344,24 @@ function applyGithubConnectorAuth(p: ConnectorAuthParams, token: string | undefi
     token,
     ["NIMBUS_GITHUB_PAT"],
     "GitHub requires a PAT: nimbus connector auth github --token <pat>  (or set NIMBUS_GITHUB_PAT in the environment)",
+  );
+}
+
+function applyDiscordConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  enable: boolean | undefined,
+): void {
+  if (enable !== true) {
+    throw new Error(
+      "Discord is off by default: nimbus connector auth discord --token <bot_token> --enable  (or set NIMBUS_DISCORD_BOT_TOKEN and pass --enable)",
+    );
+  }
+  p.discordOptIn = true;
+  p.personalAccessToken = requirePatFromFlagsOrEnv(
+    token,
+    ["NIMBUS_DISCORD_BOT_TOKEN"],
+    "Discord requires a bot token: nimbus connector auth discord --token <bot_token> --enable  (or set NIMBUS_DISCORD_BOT_TOKEN)",
   );
 }
 
@@ -394,11 +423,11 @@ function applyConfluenceConnectorAuth(
 }
 
 async function runConnectorAuth(tail: string[]): Promise<void> {
-  const { rest, port, scopes, token, username, apiBase } = parseFlags(tail);
+  const { rest, port, scopes, token, username, apiBase, enable } = parseFlags(tail);
   const service = rest[0];
   if (service === undefined) {
     throw new Error(
-      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--username <u>] [--api-base <url>]",
+      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--username <u>] [--api-base <url>] [--enable]",
     );
   }
   const params: ConnectorAuthParams = { service };
@@ -422,6 +451,9 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     case "bitbucket":
       applyBitbucketConnectorAuth(params, token, username);
       break;
+    case "discord":
+      applyDiscordConnectorAuth(params, token, enable);
+      break;
     case "jira":
       applyJiraConnectorAuth(params, token, username, apiBase);
       break;
@@ -442,6 +474,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     "linear",
     "jira",
     "confluence",
+    "discord",
   ]);
   if (vaultPatServices.has(res.serviceId)) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");

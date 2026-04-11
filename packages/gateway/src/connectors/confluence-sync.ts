@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
   asRecord,
@@ -43,6 +44,14 @@ function lastModifiedFromContent(row: Record<string, unknown>): string | undefin
     return undefined;
   }
   return stringField(lu, "when");
+}
+
+/** User who last updated the page (when Confluence includes `by` under `history.lastUpdated`). */
+function confluenceLastUpdatedBy(row: Record<string, unknown>): Record<string, unknown> | null {
+  const hist = asRecord(row["history"]);
+  const lu = hist === undefined ? undefined : asRecord(hist["lastUpdated"]);
+  const by = lu === undefined ? undefined : asRecord(lu["by"]);
+  return by ?? null;
 }
 
 type ConfluencePagedSearchParams = {
@@ -91,6 +100,27 @@ function confluenceUpsertOneSearchHit(
   const webUi = `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
   const modified = when !== undefined && when !== "" ? isoMs(when) : opts.syncTime;
   acc.upserted += 1;
+  const by = confluenceLastUpdatedBy(row);
+  let authorId: string | null = null;
+  if (by !== null) {
+    const accountId = stringField(by, "accountId");
+    const email = stringField(by, "email");
+    const displayName = stringField(by, "displayName");
+    if (accountId !== undefined && accountId !== "") {
+      if (email !== undefined && email !== "" && email.includes("@")) {
+        authorId = resolvePersonForSync(ctx.db, {
+          jiraAccountId: accountId,
+          canonicalEmail: email,
+          displayName: displayName ?? email,
+        });
+      } else {
+        authorId = resolvePersonForSync(ctx.db, {
+          jiraAccountId: accountId,
+          displayName: displayName ?? accountId,
+        });
+      }
+    }
+  }
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "page",
@@ -100,7 +130,7 @@ function confluenceUpsertOneSearchHit(
     url: webUi,
     canonicalUrl: webUi,
     modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
-    authorId: null,
+    authorId,
     metadata: { confluencePageId: id },
     pinned: false,
     syncedAt: opts.syncTime,

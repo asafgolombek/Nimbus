@@ -1,5 +1,6 @@
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { isoMs, maxIso } from "./sync-iso-helpers.ts";
 import {
@@ -167,6 +168,15 @@ function notionConsumeSearchResultRow(
   const url = `https://www.notion.so/${id.replaceAll("-", "")}`;
   const modified = edited !== undefined && edited !== "" ? isoMs(edited) : opts.syncTime;
   acc.upserted += 1;
+  const createdBy = asRecord(row["created_by"]);
+  const notionUserId =
+    createdBy !== undefined && stringField(createdBy, "object") === "user"
+      ? stringField(createdBy, "id")
+      : undefined;
+  const authorId =
+    notionUserId !== undefined && notionUserId !== ""
+      ? resolvePersonForSync(ctx.db, { notionUserId })
+      : null;
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "page",
@@ -176,7 +186,7 @@ function notionConsumeSearchResultRow(
     url,
     canonicalUrl: url,
     modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
-    authorId: null,
+    authorId,
     metadata: { notionPageId: id },
     pinned: false,
     syncedAt: opts.syncTime,

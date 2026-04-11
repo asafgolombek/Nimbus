@@ -20,7 +20,8 @@
     "packages/mcp-connectors/linear",
     "packages/mcp-connectors/jira",
     "packages/mcp-connectors/notion",
-    "packages/mcp-connectors/confluence"
+    "packages/mcp-connectors/confluence",
+    "packages/mcp-connectors/discord"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",
@@ -38,6 +39,10 @@
     "test:coverage": "bun test packages/gateway packages/cli packages/sdk --coverage",
     "test:coverage:engine": "bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85",
     "test:coverage:vault": "bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90",
+    "test:coverage:sync": "bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80",
+    "test:coverage:rate-limiter": "bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85",
+    "test:coverage:people": "bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80",
+    "package:headless": "bun scripts/package-headless-bundle.ts",
     "clean": "bun run --filter '*' clean && rm -rf node_modules"
   },
   "devDependencies": {

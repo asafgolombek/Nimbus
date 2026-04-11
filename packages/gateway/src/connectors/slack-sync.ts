@@ -1,5 +1,6 @@
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { shortIndexedMessageTitleFromPreview } from "./sync-message-preview-title.ts";
@@ -268,6 +269,10 @@ function slackTryUpsertIndexedHistoryMessage(
   const modifiedAt = Number.isFinite(tsNum) ? Math.round(tsNum * 1000) : now;
   const externalId = `${ch}:${ts}`;
   const url = permalink(state.teamSubdomain, ch, ts);
+  const authorId =
+    typeof user === "string" && user !== ""
+      ? resolvePersonForSync(ctx.db, { slackHandle: user })
+      : null;
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "message",
@@ -277,7 +282,7 @@ function slackTryUpsertIndexedHistoryMessage(
     url,
     canonicalUrl: url,
     modifiedAt,
-    authorId: null,
+    authorId,
     metadata: {
       channel: ch,
       user: typeof user === "string" ? user : null,

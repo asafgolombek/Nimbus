@@ -1,8 +1,14 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
+
+type DriveFileOwner = {
+  displayName?: string;
+  emailAddress?: string;
+};
 
 type DriveFile = {
   id?: string;
@@ -13,6 +19,7 @@ type DriveFile = {
   size?: string;
   description?: string;
   trashed?: boolean;
+  owners?: DriveFileOwner[];
 };
 
 type DriveListResponse = {
@@ -135,6 +142,25 @@ function upsertDriveFile(ctx: SyncContext, f: DriveFile, now: number): void {
   const desc = f.description ?? "";
   const previewBase = desc === "" ? name : desc;
   const bodyPreview = previewBase.length > 512 ? previewBase.slice(0, 512) : previewBase;
+  const owners = f.owners;
+  let authorId: string | null = null;
+  if (Array.isArray(owners) && owners.length > 0) {
+    const o = owners[0];
+    const email =
+      o !== undefined && typeof o.emailAddress === "string" && o.emailAddress !== ""
+        ? o.emailAddress
+        : undefined;
+    const ownerName =
+      o !== undefined && typeof o.displayName === "string" && o.displayName !== ""
+        ? o.displayName
+        : undefined;
+    if (email !== undefined) {
+      authorId = resolvePersonForSync(ctx.db, {
+        canonicalEmail: email,
+        displayName: ownerName ?? email,
+      });
+    }
+  }
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: isFolder ? "folder" : "file",
@@ -144,7 +170,7 @@ function upsertDriveFile(ctx: SyncContext, f: DriveFile, now: number): void {
     url: f.webViewLink ?? null,
     canonicalUrl: f.webViewLink ?? null,
     modifiedAt: safeModified,
-    authorId: null,
+    authorId,
     metadata: {
       mimeType: mime,
       size: f.size,
@@ -241,7 +267,7 @@ async function listFilesPage(
   url.searchParams.set("pageSize", String(LIST_PAGE_SIZE));
   url.searchParams.set(
     "fields",
-    "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink, size, description, trashed)",
+    "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink, size, description, trashed, owners(emailAddress, displayName))",
   );
   url.searchParams.set("q", q);
   if (pageToken !== undefined && pageToken !== "") {
@@ -261,7 +287,7 @@ async function listChangesPage(
   url.searchParams.set("pageToken", pageToken);
   url.searchParams.set(
     "fields",
-    "nextPageToken,newStartPageToken,incompleteSearch,changes(removed,fileId,file(id,name,mimeType,modifiedTime,webViewLink,size,description,trashed))",
+    "nextPageToken,newStartPageToken,incompleteSearch,changes(removed,fileId,file(id,name,mimeType,modifiedTime,webViewLink,size,description,trashed,owners(emailAddress,displayName)))",
   );
   const { json, bytes } = await driveFetchJson(ctx, accessToken, url.toString());
   return { data: parseDriveChanges(json), bytes };
