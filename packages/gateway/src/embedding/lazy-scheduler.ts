@@ -35,26 +35,24 @@ export function createLazyEmbeddingRuntime(
     if (pipeline !== null) {
       return pipeline;
     }
-    if (loading === null) {
-      loading = (async (): Promise<SqliteEmbeddingPipeline | null> => {
-        try {
-          const embedder = await createLocalEmbedder({ cacheDir: join(dataDir, "models") });
-          return new SqliteEmbeddingPipeline({
-            db,
-            embedder,
-            logger,
-            backfillBatchSize: toml.backfillBatchSize,
-            chunkOptions: {
-              maxChunkTokens: toml.chunkTokens,
-              overlapTokens: toml.chunkOverlapTokens,
-            },
-          });
-        } catch (err) {
-          logger.warn({ err }, "failed to initialize local embedding pipeline");
-          return null;
-        }
-      })();
-    }
+    loading ??= (async (): Promise<SqliteEmbeddingPipeline | null> => {
+      try {
+        const embedder = await createLocalEmbedder({ cacheDir: join(dataDir, "models") });
+        return new SqliteEmbeddingPipeline({
+          db,
+          embedder,
+          logger,
+          backfillBatchSize: toml.backfillBatchSize,
+          chunkOptions: {
+            maxChunkTokens: toml.chunkTokens,
+            overlapTokens: toml.chunkOverlapTokens,
+          },
+        });
+      } catch (err) {
+        logger.warn({ err }, "failed to initialize local embedding pipeline");
+        return null;
+      }
+    })();
     const resolved = await loading;
     loading = null;
     if (resolved !== null) {

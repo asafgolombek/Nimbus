@@ -2,6 +2,59 @@ import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
+type SearchFlags = {
+  limit: number;
+  semantic: boolean;
+  service?: string;
+  itemType?: string;
+  positional: string[];
+};
+
+/** @returns next index after consuming args at `i` */
+function consumeSearchArg(args: string[], i: number, f: SearchFlags): number {
+  const a = args[i];
+  if (a === undefined) {
+    return i + 1;
+  }
+  if (a === "--limit" || a === "-n") {
+    const n = args[i + 1];
+    if (n !== undefined) {
+      f.limit = Math.min(500, Math.max(1, Number.parseInt(n, 10) || 20));
+      return i + 2;
+    }
+    return i + 1;
+  }
+  if (a === "--semantic") {
+    f.semantic = true;
+    return i + 1;
+  }
+  if (a === "--no-semantic" || a === "--keyword-only") {
+    f.semantic = false;
+    return i + 1;
+  }
+  if (a === "--service" || a === "-s") {
+    const v = args[i + 1];
+    if (v !== undefined) {
+      f.service = v;
+      return i + 2;
+    }
+    return i + 1;
+  }
+  if (a === "--type" || a === "-t") {
+    const v = args[i + 1];
+    if (v !== undefined) {
+      f.itemType = v;
+      return i + 2;
+    }
+    return i + 1;
+  }
+  if (a.startsWith("-")) {
+    throw new Error(`Unknown flag: ${a}`);
+  }
+  f.positional.push(a);
+  return i + 1;
+}
+
 function parseSearchArgs(args: string[]): {
   query: string;
   limit: number;
@@ -9,66 +62,24 @@ function parseSearchArgs(args: string[]): {
   service?: string;
   itemType?: string;
 } {
-  let limit = 20;
-  let semantic = true;
-  let service: string | undefined;
-  let itemType: string | undefined;
-  const positional: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === undefined) {
-      continue;
-    }
-    if (a === "--limit" || a === "-n") {
-      const n = args[i + 1];
-      if (n !== undefined) {
-        limit = Math.min(500, Math.max(1, Number.parseInt(n, 10) || 20));
-        i++;
-      }
-      continue;
-    }
-    if (a === "--semantic") {
-      semantic = true;
-      continue;
-    }
-    if (a === "--no-semantic" || a === "--keyword-only") {
-      semantic = false;
-      continue;
-    }
-    if (a === "--service" || a === "-s") {
-      const v = args[i + 1];
-      if (v !== undefined) {
-        service = v;
-        i++;
-      }
-      continue;
-    }
-    if (a === "--type" || a === "-t") {
-      const v = args[i + 1];
-      if (v !== undefined) {
-        itemType = v;
-        i++;
-      }
-      continue;
-    }
-    if (a.startsWith("-")) {
-      throw new Error(`Unknown flag: ${a}`);
-    }
-    positional.push(a);
+  const f: SearchFlags = { limit: 20, semantic: true, positional: [] };
+  let i = 0;
+  while (i < args.length) {
+    i = consumeSearchArg(args, i, f);
   }
-  const query = positional.join(" ").trim();
+  const query = f.positional.join(" ").trim();
   const out: {
     query: string;
     limit: number;
     semantic: boolean;
     service?: string;
     itemType?: string;
-  } = { query, limit, semantic };
-  if (service !== undefined) {
-    out.service = service;
+  } = { query, limit: f.limit, semantic: f.semantic };
+  if (f.service !== undefined) {
+    out.service = f.service;
   }
-  if (itemType !== undefined) {
-    out.itemType = itemType;
+  if (f.itemType !== undefined) {
+    out.itemType = f.itemType;
   }
   return out;
 }

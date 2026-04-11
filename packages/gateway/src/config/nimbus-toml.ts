@@ -43,7 +43,7 @@ function parseBool(raw: string): boolean | undefined {
 function parseString(raw: string): string {
   const t = raw.trim();
   if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
-    return t.slice(1, -1).replaceAll('\\"', '"');
+    return t.slice(1, -1).replaceAll(String.raw`\\"`, '"');
   }
   return t;
 }
@@ -51,6 +51,62 @@ function parseString(raw: string): string {
 function parseIntDec(raw: string): number | undefined {
   const n = Number.parseInt(raw.trim(), 10);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function applyNimbusEmbeddingKey(
+  out: Partial<NimbusEmbeddingToml>,
+  key: string,
+  valRaw: string,
+): void {
+  switch (key) {
+    case "enabled": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) {
+        out.enabled = b;
+      }
+      break;
+    }
+    case "provider": {
+      const p = parseString(valRaw).toLowerCase();
+      if (p === "local" || p === "openai") {
+        out.provider = p;
+      }
+      break;
+    }
+    case "model":
+      out.model = parseString(valRaw);
+      break;
+    case "chunk_tokens": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) {
+        out.chunkTokens = n;
+      }
+      break;
+    }
+    case "chunk_overlap_tokens": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n >= 0) {
+        out.chunkOverlapTokens = n;
+      }
+      break;
+    }
+    case "backfill_batch_size": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) {
+        out.backfillBatchSize = n;
+      }
+      break;
+    }
+    case "pause_on_battery": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) {
+        out.pauseOnBattery = b;
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 /**
@@ -79,55 +135,7 @@ export function parseNimbusTomlEmbeddingSection(source: string): Partial<NimbusE
     }
     const key = trimmed.slice(0, eq).trim();
     const valRaw = trimmed.slice(eq + 1).trim();
-    switch (key) {
-      case "enabled": {
-        const b = parseBool(valRaw);
-        if (b !== undefined) {
-          out.enabled = b;
-        }
-        break;
-      }
-      case "provider": {
-        const p = parseString(valRaw).toLowerCase();
-        if (p === "local" || p === "openai") {
-          out.provider = p;
-        }
-        break;
-      }
-      case "model":
-        out.model = parseString(valRaw);
-        break;
-      case "chunk_tokens": {
-        const n = parseIntDec(valRaw);
-        if (n !== undefined && n > 0) {
-          out.chunkTokens = n;
-        }
-        break;
-      }
-      case "chunk_overlap_tokens": {
-        const n = parseIntDec(valRaw);
-        if (n !== undefined && n >= 0) {
-          out.chunkOverlapTokens = n;
-        }
-        break;
-      }
-      case "backfill_batch_size": {
-        const n = parseIntDec(valRaw);
-        if (n !== undefined && n > 0) {
-          out.backfillBatchSize = n;
-        }
-        break;
-      }
-      case "pause_on_battery": {
-        const b = parseBool(valRaw);
-        if (b !== undefined) {
-          out.pauseOnBattery = b;
-        }
-        break;
-      }
-      default:
-        break;
-    }
+    applyNimbusEmbeddingKey(out, key, valRaw);
   }
   return out;
 }

@@ -96,51 +96,77 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
     }
   }
 
-  private handleMessage(data: unknown): void {
+  private static asRecord(data: unknown): Record<string, unknown> | undefined {
     if (data === null || typeof data !== "object" || Array.isArray(data)) {
+      return undefined;
+    }
+    return data as Record<string, unknown>;
+  }
+
+  private handleReadyMessage(): void {
+    this.workerReady = true;
+    this.settleGate(true);
+  }
+
+  private handleInitErrorMessage(rec: Record<string, unknown>): void {
+    const msg = rec["message"];
+    if (typeof msg === "string") {
+      this.settleGate(false, new Error(msg));
+    }
+  }
+
+  private handleBackfillProgressMessage(rec: Record<string, unknown>): void {
+    const done = rec["done"];
+    const total = rec["total"];
+    if (typeof done === "number" && typeof total === "number") {
+      this.progress = { done: Math.floor(done), total: Math.floor(total) };
+    }
+  }
+
+  private handleEmbedTextsResultMessage(rec: Record<string, unknown>): void {
+    const id = rec["id"];
+    if (typeof id !== "string") {
       return;
     }
-    const rec = data as Record<string, unknown>;
+    const p = this.pending.get(id);
+    if (p === undefined) {
+      return;
+    }
+    clearTimeout(p.timer);
+    this.pending.delete(id);
+    if (rec["ok"] === true && Array.isArray(rec["vectors"])) {
+      const first = rec["vectors"][0];
+      if (Array.isArray(first)) {
+        p.resolve(new Float32Array(first.map(Number)));
+        return;
+      }
+    }
+    p.resolve(null);
+  }
+
+  private handleMessage(data: unknown): void {
+    const rec = EmbeddingWorkerBridge.asRecord(data);
+    if (rec === undefined) {
+      return;
+    }
     const t = rec["type"];
     if (t === "ready") {
-      this.workerReady = true;
-      this.settleGate(true);
+      this.handleReadyMessage();
       return;
     }
-    if (t === "init_error" && typeof rec["message"] === "string") {
-      this.settleGate(false, new Error(rec["message"]));
+    if (t === "init_error") {
+      this.handleInitErrorMessage(rec);
       return;
     }
     if (t === "backfill_progress") {
-      const done = rec["done"];
-      const total = rec["total"];
-      if (typeof done === "number" && typeof total === "number") {
-        this.progress = { done: Math.floor(done), total: Math.floor(total) };
-      }
+      this.handleBackfillProgressMessage(rec);
       return;
     }
     if (t === "backfill_done") {
       return;
     }
     if (t === "embed_texts_result") {
-      const id = rec["id"];
-      if (typeof id !== "string") {
-        return;
-      }
-      const p = this.pending.get(id);
-      if (p === undefined) {
-        return;
-      }
-      clearTimeout(p.timer);
-      this.pending.delete(id);
-      if (rec["ok"] === true && Array.isArray(rec["vectors"])) {
-        const first = rec["vectors"][0];
-        if (Array.isArray(first)) {
-          p.resolve(new Float32Array(first.map((x) => Number(x))));
-          return;
-        }
-      }
-      p.resolve(null);
+      this.handleEmbedTextsResultMessage(rec);
     }
   }
 

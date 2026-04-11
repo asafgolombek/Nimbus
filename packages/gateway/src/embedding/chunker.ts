@@ -42,6 +42,12 @@ function splitSentences(text: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+function pushWordCharSlices(word: string, maxChars: number, out: string[]): void {
+  for (let i = 0; i < word.length; i += maxChars) {
+    out.push(word.slice(i, i + maxChars));
+  }
+}
+
 /** Split a single sentence that exceeds `maxChars` on whitespace (last resort). */
 function splitLongPiece(piece: string, maxChars: number): string[] {
   if (piece.length <= maxChars) {
@@ -54,19 +60,17 @@ function splitLongPiece(piece: string, maxChars: number): string[] {
     const next = cur === "" ? w : `${cur} ${w}`;
     if (next.length <= maxChars) {
       cur = next;
-    } else {
-      if (cur !== "") {
-        out.push(cur);
-      }
-      if (w.length <= maxChars) {
-        cur = w;
-      } else {
-        for (let i = 0; i < w.length; i += maxChars) {
-          out.push(w.slice(i, i + maxChars));
-        }
-        cur = "";
-      }
+      continue;
     }
+    if (cur !== "") {
+      out.push(cur);
+    }
+    if (w.length <= maxChars) {
+      cur = w;
+      continue;
+    }
+    pushWordCharSlices(w, maxChars, out);
+    cur = "";
   }
   if (cur !== "") {
     out.push(cur);
@@ -101,6 +105,41 @@ function overlapPrefixFromPrevious(prevChunk: string, overlapChars: number): str
   return slice.trimStart();
 }
 
+function packSentencesToTokenBudget(sentences: string[], maxChunkTokens: number): string[] {
+  const packed: string[] = [];
+  let current = "";
+  for (const s of sentences) {
+    const candidate = current === "" ? s : `${current} ${s}`;
+    if (approxTokens(candidate) <= maxChunkTokens) {
+      current = candidate;
+      continue;
+    }
+    if (current !== "") {
+      packed.push(current);
+    }
+    current = s;
+  }
+  if (current !== "") {
+    packed.push(current);
+  }
+  return packed;
+}
+
+function mergeOverlapBetweenChunks(packed: string[], overlapChars: number): string[] {
+  const withOverlap: string[] = [packed[0] ?? ""];
+  for (let i = 1; i < packed.length; i++) {
+    const prev = withOverlap[i - 1] ?? "";
+    const cur = packed[i] ?? "";
+    const prefix = overlapPrefixFromPrevious(prev, overlapChars);
+    if (prefix !== "" && !cur.startsWith(prefix)) {
+      withOverlap.push(`${prefix} ${cur}`.trim());
+    } else {
+      withOverlap.push(cur);
+    }
+  }
+  return withOverlap;
+}
+
 /**
  * Chunk text for embedding: sentence-aware packing with token budget and tail overlap.
  * Input for items is typically `title + "\n" + body_preview` (see {@link itemTextForEmbedding}).
@@ -118,39 +157,13 @@ export function chunkText(text: string, opts?: Partial<ChunkOptions>): string[] 
     return text.trim() === "" ? [] : [text.trim()];
   }
 
-  const packed: string[] = [];
-  let current = "";
-  for (const s of sentences) {
-    const candidate = current === "" ? s : `${current} ${s}`;
-    if (approxTokens(candidate) <= o.maxChunkTokens) {
-      current = candidate;
-    } else {
-      if (current !== "") {
-        packed.push(current);
-      }
-      current = s;
-    }
-  }
-  if (current !== "") {
-    packed.push(current);
-  }
+  const packed = packSentencesToTokenBudget(sentences, o.maxChunkTokens);
 
   if (packed.length <= 1 || overlapChars === 0) {
     return packed;
   }
 
-  const withOverlap: string[] = [packed[0] ?? ""];
-  for (let i = 1; i < packed.length; i++) {
-    const prev = withOverlap[i - 1] ?? "";
-    const cur = packed[i] ?? "";
-    const prefix = overlapPrefixFromPrevious(prev, overlapChars);
-    if (prefix !== "" && !cur.startsWith(prefix)) {
-      withOverlap.push(`${prefix} ${cur}`.trim());
-    } else {
-      withOverlap.push(cur);
-    }
-  }
-  return withOverlap;
+  return mergeOverlapBetweenChunks(packed, overlapChars);
 }
 
 export function itemTextForEmbedding(item: Pick<IndexedItem, "title" | "body_preview">): string {
