@@ -82,7 +82,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   }
   const syncBase: SyncContext = { vault, db, logger: syncLogger, rateLimiter };
   let syncContext: SyncContext;
-  if (scheduleItemEmbedding !== undefined) {
+  if (scheduleItemEmbedding) {
     syncContext = { ...syncBase, scheduleItemEmbedding };
   } else {
     syncContext = syncBase;

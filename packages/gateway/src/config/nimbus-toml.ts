@@ -53,57 +53,72 @@ function parseIntDec(raw: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function setEmbeddingEnabled(out: Partial<NimbusEmbeddingToml>, valRaw: string): void {
+  const b = parseBool(valRaw);
+  if (b !== undefined) {
+    out.enabled = b;
+  }
+}
+
+function setEmbeddingPauseOnBattery(out: Partial<NimbusEmbeddingToml>, valRaw: string): void {
+  const b = parseBool(valRaw);
+  if (b !== undefined) {
+    out.pauseOnBattery = b;
+  }
+}
+
+function setEmbeddingProvider(out: Partial<NimbusEmbeddingToml>, valRaw: string): void {
+  const p = parseString(valRaw).toLowerCase();
+  if (p === "local" || p === "openai") {
+    out.provider = p;
+  }
+}
+
+function setEmbeddingPositiveInt(
+  out: Partial<NimbusEmbeddingToml>,
+  valRaw: string,
+  field: "chunkTokens" | "backfillBatchSize",
+): void {
+  const n = parseIntDec(valRaw);
+  if (n !== undefined && n > 0) {
+    out[field] = n;
+  }
+}
+
+function setEmbeddingOverlapTokens(out: Partial<NimbusEmbeddingToml>, valRaw: string): void {
+  const n = parseIntDec(valRaw);
+  if (n !== undefined && n >= 0) {
+    out.chunkOverlapTokens = n;
+  }
+}
+
 function applyNimbusEmbeddingKey(
   out: Partial<NimbusEmbeddingToml>,
   key: string,
   valRaw: string,
 ): void {
   switch (key) {
-    case "enabled": {
-      const b = parseBool(valRaw);
-      if (b !== undefined) {
-        out.enabled = b;
-      }
+    case "enabled":
+      setEmbeddingEnabled(out, valRaw);
       break;
-    }
-    case "provider": {
-      const p = parseString(valRaw).toLowerCase();
-      if (p === "local" || p === "openai") {
-        out.provider = p;
-      }
+    case "provider":
+      setEmbeddingProvider(out, valRaw);
       break;
-    }
     case "model":
       out.model = parseString(valRaw);
       break;
-    case "chunk_tokens": {
-      const n = parseIntDec(valRaw);
-      if (n !== undefined && n > 0) {
-        out.chunkTokens = n;
-      }
+    case "chunk_tokens":
+      setEmbeddingPositiveInt(out, valRaw, "chunkTokens");
       break;
-    }
-    case "chunk_overlap_tokens": {
-      const n = parseIntDec(valRaw);
-      if (n !== undefined && n >= 0) {
-        out.chunkOverlapTokens = n;
-      }
+    case "chunk_overlap_tokens":
+      setEmbeddingOverlapTokens(out, valRaw);
       break;
-    }
-    case "backfill_batch_size": {
-      const n = parseIntDec(valRaw);
-      if (n !== undefined && n > 0) {
-        out.backfillBatchSize = n;
-      }
+    case "backfill_batch_size":
+      setEmbeddingPositiveInt(out, valRaw, "backfillBatchSize");
       break;
-    }
-    case "pause_on_battery": {
-      const b = parseBool(valRaw);
-      if (b !== undefined) {
-        out.pauseOnBattery = b;
-      }
+    case "pause_on_battery":
+      setEmbeddingPauseOnBattery(out, valRaw);
       break;
-    }
     default:
       break;
   }

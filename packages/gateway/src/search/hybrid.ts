@@ -32,7 +32,14 @@ export async function hybridSearch(
 
   const bm25Hits = useFts ? loadBm25Hits(db, fts, limit, serviceFilter, opts) : [];
   const vecHitsRaw = runVectorSearch(db, opts, limit, serviceFilter, nameQ);
-  const scored = scoreHybridItems(db, bm25Hits, vecHitsRaw, opts, k, wB, wV, contextN);
+  const scored = scoreHybridItems(bm25Hits, vecHitsRaw, {
+    db,
+    opts,
+    k,
+    wB,
+    wV,
+    contextN,
+  });
   const deduped = dedupeHybridByCanonicalUrl(scored);
   return deduped.slice(0, limit);
 }

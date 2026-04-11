@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 
 import type { HybridIndexedItem, HybridSearchOptions, HybridSearchResult } from "./hybrid-types.ts";
-import { vectorSearchChunks } from "./vec-store.ts";
+import { type VectorChunkHit, vectorSearchChunks } from "./vec-store.ts";
 
 export function rrfTerm(rank: number, k: number): number {
   return 1 / (k + rank);
@@ -171,87 +171,140 @@ export function dedupeHybridByCanonicalUrl(results: HybridSearchResult[]): Hybri
   return out;
 }
 
-export function scoreHybridItems(
-  db: Database,
-  bm25Hits: Bm25Hit[],
-  vecHitsRaw: ReturnType<typeof vectorSearchChunks>,
-  opts: HybridSearchOptions,
-  k: number,
-  wB: number,
-  wV: number,
-  contextN: number,
-): HybridSearchResult[] {
-  const bm25RankById = new Map<string, number>();
-  for (const h of bm25Hits) {
-    bm25RankById.set(h.item.id, h.rank);
-  }
-
-  const vecBestRank = bestVectorRanksByItem(vecHitsRaw);
-  const winningChunkByItem = new Map<string, (typeof vecHitsRaw)[0]>();
-  for (const h of vecHitsRaw) {
-    if (winningChunkByItem.has(h.itemId)) {
-      continue;
-    }
-    winningChunkByItem.set(h.itemId, h);
-  }
-
-  const itemIds = new Set<string>();
-  for (const h of bm25Hits) {
-    itemIds.add(h.item.id);
-  }
-  for (const id of vecBestRank.keys()) {
-    itemIds.add(id);
-  }
-
-  const itemRowSql = `SELECT i.id AS id, i.service AS service, i.type AS type, i.external_id AS external_id,
+const HYBRID_ITEM_ROW_SQL = `SELECT i.id AS id, i.service AS service, i.type AS type, i.external_id AS external_id,
             i.title AS title, i.body_preview AS body_preview, i.url AS url, i.canonical_url AS canonical_url,
             i.modified_at AS modified_at, i.author_id AS author_id, i.metadata AS metadata,
             i.synced_at AS synced_at, i.pinned AS pinned
             FROM item i WHERE i.id = ?`;
 
-  const scored: HybridSearchResult[] = [];
-  for (const id of itemIds) {
-    const rb = bm25RankById.get(id);
-    const rv = vecBestRank.get(id);
-    const rrfB = rb === undefined ? 0 : wB * rrfTerm(rb, k);
-    const rrfV = rv === undefined ? 0 : wV * rrfTerm(rv, k);
-    const rrfScore = rrfB + rrfV;
-    if (rrfScore <= 0) {
-      continue;
-    }
-    const row =
-      bm25Hits.find((h) => h.item.id === id)?.item ??
-      (db.query(itemRowSql).get(id) as HybridIndexedItem | null);
-    if (row === null || row === undefined) {
-      continue;
-    }
-    const win = winningChunkByItem.get(id);
-    let semanticSnippet: string | undefined;
-    if (win !== undefined) {
-      const parts =
-        contextN > 0
-          ? chunkContextLines(db, id, opts.embeddingModel, win.chunkIndex, contextN)
-          : [win.chunkText];
-      semanticSnippet = parts.join("\n---\n");
-    }
-    const hit: HybridSearchResult = {
-      item: row,
-      bm25Rank: rb ?? null,
-      vectorRank: rv ?? null,
-      rrfScore,
-    };
-    if (semanticSnippet !== undefined) {
-      hit.semanticSnippet = semanticSnippet;
-    }
-    scored.push(hit);
-  }
+export type HybridScoringParams = {
+  db: Database;
+  opts: HybridSearchOptions;
+  k: number;
+  wB: number;
+  wV: number;
+  contextN: number;
+};
 
+type HybridScoreWork = {
+  params: HybridScoringParams;
+  bm25Hits: Bm25Hit[];
+  bm25RankById: Map<string, number>;
+  vecBestRank: Map<string, number>;
+  winningChunkByItem: Map<string, VectorChunkHit>;
+  itemIds: string[];
+};
+
+function bm25RankMap(hits: Bm25Hit[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const h of hits) {
+    m.set(h.item.id, h.rank);
+  }
+  return m;
+}
+
+function firstChunkByItem(vecHitsRaw: VectorChunkHit[]): Map<string, VectorChunkHit> {
+  const m = new Map<string, VectorChunkHit>();
+  for (const h of vecHitsRaw) {
+    if (m.has(h.itemId)) {
+      continue;
+    }
+    m.set(h.itemId, h);
+  }
+  return m;
+}
+
+function hybridItemIdUnion(bm25Hits: Bm25Hit[], vecBestRank: Map<string, number>): string[] {
+  const ids = new Set<string>();
+  for (const h of bm25Hits) {
+    ids.add(h.item.id);
+  }
+  for (const id of vecBestRank.keys()) {
+    ids.add(id);
+  }
+  return [...ids];
+}
+
+function sortHybridResultsByRrf(scored: HybridSearchResult[]): void {
   scored.sort((a, b) => {
     if (b.rrfScore !== a.rrfScore) {
       return b.rrfScore - a.rrfScore;
     }
     return b.item.modified_at - a.item.modified_at;
   });
+}
 
+function semanticSnippetForHit(
+  work: HybridScoreWork,
+  itemId: string,
+  win: VectorChunkHit | undefined,
+): string | undefined {
+  if (win === undefined) {
+    return undefined;
+  }
+  const { db, opts, contextN } = work.params;
+  const parts =
+    contextN > 0
+      ? chunkContextLines(db, itemId, opts.embeddingModel, win.chunkIndex, contextN)
+      : [win.chunkText];
+  return parts.join("\n---\n");
+}
+
+function tryBuildHybridHit(itemId: string, work: HybridScoreWork): HybridSearchResult | null {
+  const { db, k, wB, wV } = work.params;
+  const rb = work.bm25RankById.get(itemId);
+  const rv = work.vecBestRank.get(itemId);
+  const rrfB = rb === undefined ? 0 : wB * rrfTerm(rb, k);
+  const rrfV = rv === undefined ? 0 : wV * rrfTerm(rv, k);
+  const rrfScore = rrfB + rrfV;
+  if (rrfScore <= 0) {
+    return null;
+  }
+  const row =
+    work.bm25Hits.find((h) => h.item.id === itemId)?.item ??
+    (db.query(HYBRID_ITEM_ROW_SQL).get(itemId) as HybridIndexedItem | null);
+  if (row === null || row === undefined) {
+    return null;
+  }
+  const snippet = semanticSnippetForHit(work, itemId, work.winningChunkByItem.get(itemId));
+  const hit: HybridSearchResult = {
+    item: row,
+    bm25Rank: rb ?? null,
+    vectorRank: rv ?? null,
+    rrfScore,
+  };
+  if (snippet !== undefined) {
+    hit.semanticSnippet = snippet;
+  }
+  return hit;
+}
+
+export function scoreHybridItems(
+  bm25Hits: Bm25Hit[],
+  vecHitsRaw: VectorChunkHit[],
+  scoring: HybridScoringParams,
+): HybridSearchResult[] {
+  const bm25RankById = bm25RankMap(bm25Hits);
+  const vecBestRank = bestVectorRanksByItem(vecHitsRaw);
+  const winningChunkByItem = firstChunkByItem(vecHitsRaw);
+  const itemIds = hybridItemIdUnion(bm25Hits, vecBestRank);
+
+  const work: HybridScoreWork = {
+    params: scoring,
+    bm25Hits,
+    bm25RankById,
+    vecBestRank,
+    winningChunkByItem,
+    itemIds,
+  };
+
+  const scored: HybridSearchResult[] = [];
+  for (const id of itemIds) {
+    const hit = tryBuildHybridHit(id, work);
+    if (hit !== null) {
+      scored.push(hit);
+    }
+  }
+  sortHybridResultsByRrf(scored);
   return scored;
 }
