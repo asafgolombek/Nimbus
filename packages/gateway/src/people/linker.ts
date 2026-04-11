@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
 
 import { NIMBUS_PERSON_NAMESPACE_UUID, uuidV5 } from "./person-id.ts";
-import type { PersonRecord, PersonSyncHints } from "./person-types.ts";
 import {
   deletePersonById,
   findPersonByBitbucketUuid,
@@ -19,6 +18,7 @@ import {
   normalizeEmail,
   updatePersonHandles,
 } from "./person-store.ts";
+import type { PersonRecord, PersonSyncHints } from "./person-types.ts";
 
 function nonEmpty(s: string | undefined): s is string {
   return s !== undefined && s.trim() !== "";
@@ -44,8 +44,7 @@ export function resolvePersonForSync(db: Database, hints: PersonSyncHints): stri
     return null;
   }
 
-  const email =
-    nonEmpty(hints.canonicalEmail) ? normalizeEmail(hints.canonicalEmail) : undefined;
+  const email = nonEmpty(hints.canonicalEmail) ? normalizeEmail(hints.canonicalEmail) : undefined;
 
   if (email !== undefined) {
     const byEmail = findPersonByCanonicalEmail(db, email);

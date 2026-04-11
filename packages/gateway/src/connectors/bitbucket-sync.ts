@@ -89,7 +89,10 @@ function maxIso(a: string, b: string): string {
 
 /** Bitbucket Cloud returns UUIDs wrapped in `{…}`; store normalized lowercase hex. */
 function normalizeBitbucketUserUuid(raw: string): string {
-  return raw.replace(/^\{|\}$/g, "").trim().toLowerCase();
+  return raw
+    .replace(/^\{|\}$/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function upsertFromPullRequest(

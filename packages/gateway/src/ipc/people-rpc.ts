@@ -26,7 +26,11 @@ function requireString(rec: Record<string, unknown> | undefined, key: string): s
   return v.trim();
 }
 
-function optionalLimit(rec: Record<string, unknown> | undefined, key: string, fallback: number): number {
+function optionalLimit(
+  rec: Record<string, unknown> | undefined,
+  key: string,
+  fallback: number,
+): number {
   if (rec === undefined) {
     return fallback;
   }
@@ -96,8 +100,7 @@ export function dispatchPeopleRpc(options: {
       };
     }
     case "people.search": {
-      const q =
-        rec !== undefined && typeof rec["query"] === "string" ? rec["query"] : "";
+      const q = rec !== undefined && typeof rec["query"] === "string" ? rec["query"] : "";
       const limit = optionalLimit(rec, "limit", 25);
       const rows = searchPersons(db, q, limit);
       return {
@@ -123,7 +126,13 @@ export function dispatchPeopleRpc(options: {
         if (p === null) {
           throw new PeopleRpcError(-32603, "mergePeople: survivor missing");
         }
-        return { kind: "hit", value: { survivorId: survivor, person: personToJson(p, countItemsByAuthor(db, survivor)) } };
+        return {
+          kind: "hit",
+          value: {
+            survivorId: survivor,
+            person: personToJson(p, countItemsByAuthor(db, survivor)),
+          },
+        };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes("conflicting canonical emails")) {

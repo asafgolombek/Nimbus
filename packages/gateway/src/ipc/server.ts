@@ -10,7 +10,6 @@ import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { AgentInvokeHandler } from "./agent-invoke.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
-import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
 import {
   encodeLine,
@@ -24,6 +23,7 @@ import {
   NdjsonLineReader,
   parseJsonRpcLine,
 } from "./jsonrpc.ts";
+import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import type { IPCServer } from "./types.ts";
 
 class RpcMethodError extends Error {

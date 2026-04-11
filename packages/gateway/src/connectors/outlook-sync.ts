@@ -53,8 +53,7 @@ function upsertMessage(ctx: SyncContext, m: GraphMessage, now: number): void {
     addr !== undefined && addr !== ""
       ? resolvePersonForSync(ctx.db, {
           canonicalEmail: addr,
-          displayName:
-            fromName !== undefined && fromName !== "" ? fromName : addr,
+          displayName: fromName !== undefined && fromName !== "" ? fromName : addr,
         })
       : null;
 

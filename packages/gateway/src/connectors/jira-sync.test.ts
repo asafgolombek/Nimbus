@@ -72,9 +72,9 @@ describeWithFetchRestore("jira-sync", () => {
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-jra1:");
     expectServiceItemCount(db, "jira", 1);
-    const row = db
-      .prepare("SELECT author_id FROM item WHERE service = 'jira' LIMIT 1")
-      .get() as { author_id: string | null } | undefined;
+    const row = db.prepare("SELECT author_id FROM item WHERE service = 'jira' LIMIT 1").get() as
+      | { author_id: string | null }
+      | undefined;
     expect(row?.author_id).not.toBeNull();
   });
 });

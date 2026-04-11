@@ -68,9 +68,9 @@ describeWithFetchRestore("linear-sync", () => {
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-lnr1:");
     expectServiceItemCount(db, "linear", 1);
-    const row = db
-      .prepare("SELECT author_id FROM item WHERE service = 'linear' LIMIT 1")
-      .get() as { author_id: string | null } | undefined;
+    const row = db.prepare("SELECT author_id FROM item WHERE service = 'linear' LIMIT 1").get() as
+      | { author_id: string | null }
+      | undefined;
     expect(row?.author_id).not.toBeNull();
   });
 });

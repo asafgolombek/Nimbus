@@ -55,9 +55,7 @@ reg(
   "List channels in a guild (id, type, name).",
   z.object({ guildId: z.string().min(1) }),
   async (parsed) => {
-    const res = await discordFetch(
-      `/guilds/${encodeURIComponent(parsed.guildId)}/channels`,
-    );
+    const res = await discordFetch(`/guilds/${encodeURIComponent(parsed.guildId)}/channels`);
     return mcpJsonResultIfOk("Discord", res);
   },
 );
@@ -72,9 +70,7 @@ reg(
   }),
   async (parsed) => {
     const lim = parsed.limit ?? 50;
-    const u = new URL(
-      `${DISCORD_API}/channels/${encodeURIComponent(parsed.channelId)}/messages`,
-    );
+    const u = new URL(`${DISCORD_API}/channels/${encodeURIComponent(parsed.channelId)}/messages`);
     u.searchParams.set("limit", String(lim));
     if (parsed.after !== undefined && parsed.after !== "") {
       u.searchParams.set("after", parsed.after);
@@ -89,9 +85,7 @@ reg(
   "List active threads in a guild (includes public threads the bot can see).",
   z.object({ guildId: z.string().min(1) }),
   async (parsed) => {
-    const res = await discordFetch(
-      `/guilds/${encodeURIComponent(parsed.guildId)}/threads/active`,
-    );
+    const res = await discordFetch(`/guilds/${encodeURIComponent(parsed.guildId)}/threads/active`);
     return mcpJsonResultIfOk("Discord", res);
   },
 );

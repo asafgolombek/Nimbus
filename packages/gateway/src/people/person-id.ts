@@ -27,7 +27,12 @@ export function uuidV5(name: string, namespaceUuid: string): string {
   hash.update(ns);
   hash.update(name, "utf8");
   const digest = hash.digest();
-  digest[6] = (digest[6]! & 0x0f) | 0x50;
-  digest[8] = (digest[8]! & 0x3f) | 0x80;
+  const b6 = digest[6];
+  const b8 = digest[8];
+  if (b6 === undefined || b8 === undefined) {
+    throw new Error("unexpected SHA-1 digest length");
+  }
+  digest[6] = (b6 & 0x0f) | 0x50;
+  digest[8] = (b8 & 0x3f) | 0x80;
   return bytesToUuid(digest.subarray(0, 16));
 }

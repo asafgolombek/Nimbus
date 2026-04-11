@@ -90,7 +90,10 @@ describe("createGoogleDriveSyncable", () => {
 
     const row = db
       .query("SELECT title, author_id FROM item WHERE id = ?")
-      .get(itemPrimaryKey("google_drive", "f1")) as { title: string; author_id: string | null } | null;
+      .get(itemPrimaryKey("google_drive", "f1")) as {
+      title: string;
+      author_id: string | null;
+    } | null;
     expect(row?.title).toBe("doc.txt");
     expect(row?.author_id).not.toBeNull();
   });

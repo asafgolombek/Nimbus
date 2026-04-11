@@ -62,9 +62,10 @@ export function getPersonById(db: Database, id: string): PersonRecord | null {
 }
 
 export function findPersonByCanonicalEmail(db: Database, email: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE canonical_email = ?")
-    .get(email) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE canonical_email = ?").get(email) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -72,9 +73,10 @@ export function findPersonByCanonicalEmail(db: Database, email: string): PersonR
 }
 
 export function findPersonByGithubLogin(db: Database, login: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE github_login = ?")
-    .get(login) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE github_login = ?").get(login) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -82,9 +84,10 @@ export function findPersonByGithubLogin(db: Database, login: string): PersonReco
 }
 
 export function findPersonByGitlabLogin(db: Database, login: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE gitlab_login = ?")
-    .get(login) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE gitlab_login = ?").get(login) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -92,9 +95,10 @@ export function findPersonByGitlabLogin(db: Database, login: string): PersonReco
 }
 
 export function findPersonBySlackHandle(db: Database, handle: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE slack_handle = ?")
-    .get(handle) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE slack_handle = ?").get(handle) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -102,9 +106,10 @@ export function findPersonBySlackHandle(db: Database, handle: string): PersonRec
 }
 
 export function findPersonByLinearMemberId(db: Database, memberId: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE linear_member_id = ?")
-    .get(memberId) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE linear_member_id = ?").get(memberId) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -112,9 +117,10 @@ export function findPersonByLinearMemberId(db: Database, memberId: string): Pers
 }
 
 export function findPersonByJiraAccountId(db: Database, accountId: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE jira_account_id = ?")
-    .get(accountId) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE jira_account_id = ?").get(accountId) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -122,9 +128,10 @@ export function findPersonByJiraAccountId(db: Database, accountId: string): Pers
 }
 
 export function findPersonByNotionUserId(db: Database, userId: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE notion_user_id = ?")
-    .get(userId) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE notion_user_id = ?").get(userId) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -132,9 +139,10 @@ export function findPersonByNotionUserId(db: Database, userId: string): PersonRe
 }
 
 export function findPersonByBitbucketUuid(db: Database, uuid: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE bitbucket_uuid = ?")
-    .get(uuid) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE bitbucket_uuid = ?").get(uuid) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -142,9 +150,10 @@ export function findPersonByBitbucketUuid(db: Database, uuid: string): PersonRec
 }
 
 export function findPersonByMicrosoftUserId(db: Database, userId: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE microsoft_user_id = ?")
-    .get(userId) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE microsoft_user_id = ?").get(userId) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -152,9 +161,10 @@ export function findPersonByMicrosoftUserId(db: Database, userId: string): Perso
 }
 
 export function findPersonByDiscordUserId(db: Database, userId: string): PersonRecord | null {
-  const row = db
-    .query("SELECT * FROM person WHERE discord_user_id = ?")
-    .get(userId) as PersonRow | null | undefined;
+  const row = db.query("SELECT * FROM person WHERE discord_user_id = ?").get(userId) as
+    | PersonRow
+    | null
+    | undefined;
   if (row === null || row === undefined) {
     return null;
   }
@@ -286,8 +296,7 @@ export function listPersons(
   options: { unlinkedOnly?: boolean; limit: number },
 ): PersonRecord[] {
   const lim = Math.min(500, Math.max(1, options.limit));
-  const where =
-    options.unlinkedOnly === true ? "WHERE linked = 0" : "";
+  const where = options.unlinkedOnly === true ? "WHERE linked = 0" : "";
   const rows = db
     .query(`SELECT * FROM person ${where} ORDER BY id LIMIT ?`)
     .all(lim) as PersonRow[];
@@ -321,9 +330,10 @@ export function searchPersons(db: Database, query: string, limit: number): Perso
 }
 
 export function countItemsByAuthor(db: Database, personId: string): number {
-  const row = db
-    .query("SELECT COUNT(*) as c FROM item WHERE author_id = ?")
-    .get(personId) as { c: number } | null | undefined;
+  const row = db.query("SELECT COUNT(*) as c FROM item WHERE author_id = ?").get(personId) as
+    | { c: number }
+    | null
+    | undefined;
   const c = row?.c;
   return typeof c === "number" && Number.isFinite(c) ? Math.floor(c) : 0;
 }

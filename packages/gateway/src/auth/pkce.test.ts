@@ -88,6 +88,63 @@ describe("runPKCEFlow", () => {
     expect(threw.includes(secretRefresh)).toBe(false);
   });
 
+  test("Microsoft flow: token exchange failure does not echo secrets in thrown message", async () => {
+    const vault = createMemoryVault();
+    const secretAccess = "MS_ACCESS_SECRET_X";
+    const secretRefresh = "MS_REFRESH_SECRET_Y";
+
+    const ok = await runPKCEFlow({
+      clientId: "test-ms-client",
+      scopes: ["Calendars.Read"],
+      provider: "microsoft",
+      vault,
+      openUrl: googlePkceOpenUrlCompleter("ms-mock-code", {
+        missingParamsMessage: "expected redirect_uri and state",
+        assertFetchOk: false,
+      }),
+      fetchImpl: async (input) => {
+        const s = requestUrlString(input);
+        if (s.includes("login.microsoftonline.com") && s.includes("/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: secretAccess,
+              refresh_token: secretRefresh,
+              expires_in: 3600,
+              scope: "Calendars.Read",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    expect(ok.accessToken).toBe(secretAccess);
+
+    let threw2 = "";
+    try {
+      await runPKCEFlow({
+        clientId: "test-ms-client",
+        scopes: ["Calendars.Read"],
+        provider: "microsoft",
+        vault,
+        openUrl: googlePkceOpenUrlCompleter("code2", {
+          missingParamsMessage: "expected redirect_uri and state",
+          assertFetchOk: false,
+        }),
+        fetchImpl: async (_input) =>
+          new Response(JSON.stringify({ error: "invalid_grant", error_description: "bad" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+      });
+    } catch (e) {
+      threw2 = String(e instanceof Error ? e.message : e);
+    }
+    expect(threw2.length).toBeGreaterThan(0);
+    expect(threw2.includes(secretAccess)).toBe(false);
+    expect(threw2.includes(secretRefresh)).toBe(false);
+  });
+
   test("invokes onRandomPortFallback when using ephemeral port after fixed port busy", async () => {
     const blocker = Bun.serve({
       hostname: "127.0.0.1",

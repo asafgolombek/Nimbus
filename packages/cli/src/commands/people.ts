@@ -43,8 +43,7 @@ function printPerson(p: PersonJson): void {
   const link = p.linked ? "linked" : "unlinked";
   const email = p.canonicalEmail ?? "—";
   const name = p.displayName ?? "—";
-  const items =
-    typeof p.itemCount === "number" ? ` items=${String(p.itemCount)}` : "";
+  const items = typeof p.itemCount === "number" ? ` items=${String(p.itemCount)}` : "";
   console.log(`${p.id}  ${link}  ${name}  ${email}${items}`);
   if (handles.length > 0) {
     console.log(`   ${handles.join("  ")}`);
@@ -74,14 +73,15 @@ Usage:
       const a = args[i];
       if (a === "--unlinked") {
         unlinkedOnly = true;
-      } else if (a === "--limit" && args[i + 1] !== undefined) {
-        limit = Number.parseInt(args[i + 1]!, 10);
-        i += 1;
+      } else if (a === "--limit") {
+        const limStr = args[i + 1];
+        if (limStr !== undefined) {
+          limit = Number.parseInt(limStr, 10);
+          i += 1;
+        }
       }
     }
-    const rows = await withIpc((c) =>
-      c.call<PersonJson[]>("people.list", { unlinkedOnly, limit }),
-    );
+    const rows = await withIpc((c) => c.call<PersonJson[]>("people.list", { unlinkedOnly, limit }));
     for (const p of rows) {
       printPerson(p);
     }
@@ -95,9 +95,12 @@ Usage:
     }
     let limit = 25;
     for (let i = 2; i < args.length; i += 1) {
-      if (args[i] === "--limit" && args[i + 1] !== undefined) {
-        limit = Number.parseInt(args[i + 1]!, 10);
-        i += 1;
+      if (args[i] === "--limit") {
+        const limStr = args[i + 1];
+        if (limStr !== undefined) {
+          limit = Number.parseInt(limStr, 10);
+          i += 1;
+        }
       }
     }
     const rows = await withIpc((c) => c.call<PersonJson[]>("people.search", { query: q, limit }));
@@ -128,9 +131,12 @@ Usage:
     }
     let limit = 50;
     for (let i = 2; i < args.length; i += 1) {
-      if (args[i] === "--limit" && args[i + 1] !== undefined) {
-        limit = Number.parseInt(args[i + 1]!, 10);
-        i += 1;
+      if (args[i] === "--limit") {
+        const limStr = args[i + 1];
+        if (limStr !== undefined) {
+          limit = Number.parseInt(limStr, 10);
+          i += 1;
+        }
       }
     }
     const items = await withIpc((c) =>

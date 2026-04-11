@@ -64,9 +64,9 @@ describeWithFetchRestore("gitlab-sync", () => {
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-glab1:");
     expectServiceItemCount(db, "gitlab", 1);
-    const row = db
-      .prepare("SELECT author_id FROM item WHERE service = 'gitlab' LIMIT 1")
-      .get() as { author_id: string | null } | undefined;
+    const row = db.prepare("SELECT author_id FROM item WHERE service = 'gitlab' LIMIT 1").get() as
+      | { author_id: string | null }
+      | undefined;
     expect(row?.author_id).not.toBeNull();
   });
 

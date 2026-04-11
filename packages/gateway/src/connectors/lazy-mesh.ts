@@ -6,6 +6,7 @@ import { MCPClient } from "@mastra/mcp";
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
+import { readMicrosoftOAuthScopesForOutlookEnv } from "../auth/oauth-vault-tokens.ts";
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
@@ -504,6 +505,12 @@ export class LazyConnectorMesh {
       return;
     }
     const token = await getValidMicrosoftAccessToken(this.vault);
+    const outlookScopes = await readMicrosoftOAuthScopesForOutlookEnv(this.vault);
+    const outlookEnv = {
+      ...process.env,
+      MICROSOFT_OAUTH_ACCESS_TOKEN: token,
+      ...(outlookScopes !== undefined ? { MICROSOFT_OAUTH_SCOPES: outlookScopes } : {}),
+    } as Record<string, string>;
     this.microsoftBundleClient = new MCPClient({
       id: `nimbus-ms-${String(Date.now())}`,
       servers: {
@@ -515,7 +522,7 @@ export class LazyConnectorMesh {
         outlook: {
           command: "bun",
           args: [outlookMcpScriptPath()],
-          env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+          env: outlookEnv,
         },
         teams: {
           command: "bun",

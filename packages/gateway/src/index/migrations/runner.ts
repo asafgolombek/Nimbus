@@ -1,9 +1,8 @@
 import type { Database } from "bun:sqlite";
-
-import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
-import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
+import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
+import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import {
   UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL,
   UNIFIED_ITEM_V3_SCHEMA_SQL,
