@@ -78,6 +78,7 @@ describe("createTeamsSyncable", () => {
                 id: "msg-1",
                 createdDateTime: "2024-05-01T10:00:00Z",
                 body: { contentType: "text", content: "Hello channel" },
+                from: { user: { id: "ms-user-1", displayName: "Pat" } },
               },
             ],
             "@odata.deltaLink":
@@ -106,11 +107,12 @@ describe("createTeamsSyncable", () => {
     expect(r4.hasMore).toBe(false);
 
     const row = db
-      .query("SELECT service, type FROM item WHERE id = ?")
+      .query("SELECT service, type, author_id FROM item WHERE id = ?")
       .get(itemPrimaryKey("teams", "team-1:chan-1:msg-1")) as
-      | { service: string; type: string }
+      | { service: string; type: string; author_id: string | null }
       | undefined;
     expect(row?.service).toBe("teams");
     expect(row?.type).toBe("message");
+    expect(row?.author_id).not.toBeNull();
   });
 });

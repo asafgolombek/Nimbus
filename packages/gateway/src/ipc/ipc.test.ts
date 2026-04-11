@@ -140,6 +140,34 @@ async function rpcPing(listenPath: string): Promise<string> {
 }
 
 describe("ipc server integration", () => {
+  test("people.search over IPC", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+    db.run(
+      `INSERT INTO person (id, display_name, canonical_email, github_login, gitlab_login, slack_handle, linear_member_id, jira_account_id, notion_user_id, linked, metadata)
+       VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 1, '{}')`,
+      ["p-test-1", "Ada Lovelace", "ada@example.com"],
+    );
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+    });
+    await server.start();
+    try {
+      const line = await rpcCall(listenPath, "people.search", { query: "ada", limit: 10 });
+      const res = JSON.parse(line) as { result?: Array<{ id: string; canonicalEmail?: string }> };
+      expect(res.result?.length).toBe(1);
+      expect(res.result?.[0]?.id).toBe("p-test-1");
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("connector.listStatus over IPC", async () => {
     const listenPath = testListenPath();
     const db = new Database(":memory:");

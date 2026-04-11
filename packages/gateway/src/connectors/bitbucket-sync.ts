@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -86,6 +87,14 @@ function maxIso(a: string, b: string): string {
   return a > b ? a : b;
 }
 
+/** Bitbucket Cloud returns UUIDs wrapped in `{…}`; store normalized lowercase hex. */
+function normalizeBitbucketUserUuid(raw: string): string {
+  return raw
+    .replaceAll(/^\{|\}$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function upsertFromPullRequest(
   ctx: SyncContext,
   repoFull: string,
@@ -104,6 +113,16 @@ function upsertFromPullRequest(
   const url = htmlHref(pr);
   const author = asRecord(pr["author"]);
   const displayName = author === undefined ? undefined : stringField(author, "display_name");
+  const uuidRaw = author === undefined ? undefined : stringField(author, "uuid");
+  const bbUuid =
+    uuidRaw !== undefined && uuidRaw !== "" ? normalizeBitbucketUserUuid(uuidRaw) : undefined;
+  const authorId =
+    bbUuid !== undefined && bbUuid !== ""
+      ? resolvePersonForSync(ctx.db, {
+          bitbucketUuid: bbUuid,
+          displayName: displayName ?? bbUuid,
+        })
+      : null;
   const meta: Record<string, unknown> = {
     id,
     repo: repoFull,
@@ -120,7 +139,7 @@ function upsertFromPullRequest(
     url,
     canonicalUrl: url,
     modifiedAt: Number.isFinite(modified) ? modified : now,
-    authorId: null,
+    authorId,
     metadata: meta,
     pinned: false,
     syncedAt: now,

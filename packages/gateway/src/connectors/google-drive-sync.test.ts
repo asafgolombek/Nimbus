@@ -23,6 +23,7 @@ const sampleFile = {
   webViewLink: "https://example.com/f1",
   size: "10",
   description: "hi",
+  owners: [{ emailAddress: "owner@example.com", displayName: "Owner" }],
 };
 
 describe("Google Drive sync cursor codec", () => {
@@ -88,9 +89,13 @@ describe("createGoogleDriveSyncable", () => {
     expect(dec).toEqual({ v: 1, phase: "drain", changePage: "t0" });
 
     const row = db
-      .query("SELECT title FROM item WHERE id = ?")
-      .get(itemPrimaryKey("google_drive", "f1")) as { title: string } | null;
+      .query("SELECT title, author_id FROM item WHERE id = ?")
+      .get(itemPrimaryKey("google_drive", "f1")) as {
+      title: string;
+      author_id: string | null;
+    } | null;
     expect(row?.title).toBe("doc.txt");
+    expect(row?.author_id).not.toBeNull();
   });
 
   test("drain phase applies removal", async () => {

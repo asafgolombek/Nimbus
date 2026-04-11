@@ -7,6 +7,15 @@ import {
 } from "../testing/bun-test-support.ts";
 import { pkceCodeChallengeS256, refreshAccessToken, runPKCEFlow } from "./pkce.ts";
 
+function isHttpsTokenEndpoint(s: string, host: string, pathname: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" && u.hostname === host && u.pathname === pathname;
+  } catch {
+    return false;
+  }
+}
+
 describe("pkceCodeChallengeS256", () => {
   test("matches SHA-256 base64url of verifier (RFC 7636)", async () => {
     const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"; // example shape; URL-safe
@@ -39,7 +48,7 @@ describe("runPKCEFlow", () => {
       openUrl: googlePkceOpenUrlCompleter("mock-auth-code", { expectAccountsHost: true }),
       fetchImpl: async (input) => {
         const s = requestUrlString(input);
-        if (s.includes("oauth2.googleapis.com/token")) {
+        if (isHttpsTokenEndpoint(s, "oauth2.googleapis.com", "/token")) {
           return new Response(
             JSON.stringify({
               access_token: secretAccess,
@@ -88,6 +97,63 @@ describe("runPKCEFlow", () => {
     expect(threw.includes(secretRefresh)).toBe(false);
   });
 
+  test("Microsoft flow: token exchange failure does not echo secrets in thrown message", async () => {
+    const vault = createMemoryVault();
+    const secretAccess = "MS_ACCESS_SECRET_X";
+    const secretRefresh = "MS_REFRESH_SECRET_Y";
+
+    const ok = await runPKCEFlow({
+      clientId: "test-ms-client",
+      scopes: ["Calendars.Read"],
+      provider: "microsoft",
+      vault,
+      openUrl: googlePkceOpenUrlCompleter("ms-mock-code", {
+        missingParamsMessage: "expected redirect_uri and state",
+        assertFetchOk: false,
+      }),
+      fetchImpl: async (input) => {
+        const s = requestUrlString(input);
+        if (isHttpsTokenEndpoint(s, "login.microsoftonline.com", "/common/oauth2/v2.0/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: secretAccess,
+              refresh_token: secretRefresh,
+              expires_in: 3600,
+              scope: "Calendars.Read",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    expect(ok.accessToken).toBe(secretAccess);
+
+    let threw2 = "";
+    try {
+      await runPKCEFlow({
+        clientId: "test-ms-client",
+        scopes: ["Calendars.Read"],
+        provider: "microsoft",
+        vault,
+        openUrl: googlePkceOpenUrlCompleter("code2", {
+          missingParamsMessage: "expected redirect_uri and state",
+          assertFetchOk: false,
+        }),
+        fetchImpl: async (_input) =>
+          new Response(JSON.stringify({ error: "invalid_grant", error_description: "bad" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+      });
+    } catch (e) {
+      threw2 = String(e instanceof Error ? e.message : e);
+    }
+    expect(threw2.length).toBeGreaterThan(0);
+    expect(threw2.includes(secretAccess)).toBe(false);
+    expect(threw2.includes(secretRefresh)).toBe(false);
+  });
+
   test("invokes onRandomPortFallback when using ephemeral port after fixed port busy", async () => {
     const blocker = Bun.serve({
       hostname: "127.0.0.1",
@@ -118,7 +184,7 @@ describe("runPKCEFlow", () => {
         }),
         fetchImpl: async (input) => {
           const s = requestUrlString(input);
-          if (s.includes("oauth2.googleapis.com/token")) {
+          if (isHttpsTokenEndpoint(s, "oauth2.googleapis.com", "/token")) {
             return new Response(
               JSON.stringify({
                 access_token: "a",
@@ -153,7 +219,7 @@ describe("runPKCEFlow", () => {
       }),
       fetchImpl: async (input) => {
         const s = requestUrlString(input);
-        if (s.includes("slack.com/api/oauth.v2.access")) {
+        if (isHttpsTokenEndpoint(s, "slack.com", "/api/oauth.v2.access")) {
           return new Response(
             JSON.stringify({
               ok: true,

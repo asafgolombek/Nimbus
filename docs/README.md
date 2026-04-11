@@ -232,8 +232,8 @@ Script: weekly-cleanup (4 steps)
 
   Step 1  Find PDFs not opened in 90 days       READ — no approval needed
   Step 2  Summarize by project folder            READ — no approval needed
-  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL at runtime
-  Step 4  Send summary email                     ⚠ REQUIRES APPROVAL at runtime
+  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL — calls gdrive_file_move (restricted: gdrive.file.move)
+  Step 4  Send summary email                     ⚠ REQUIRES APPROVAL — calls gmail_send (restricted: gmail.message.send)
 
 Proceed? [y/n]: y
 
@@ -385,13 +385,13 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 
 ---
 
-## 2026 Roadmap
+## Roadmap
 
-> See [`roadmap.md`](./roadmap.md) for the full detailed roadmap including milestones, dependencies, and acceptance criteria.
+> See [`roadmap.md`](./roadmap.md) for the full roadmap — acceptance criteria, inter-phase dependencies, and the reasoning behind sequencing decisions.
 
-**Current quarter (Q2 2026) — detailed implementation plan:** [`q2-2026-plan.md`](./q2-2026-plan.md)
+Nimbus uses **phases**, not calendar quarters. A phase completes when its acceptance criteria pass, not at a date boundary. Phases may overlap when deliverables are independent.
 
-### Q1 2026 — Foundation ✅
+### Phase 1 — Foundation ✅
 
 **Goal:** Make the Gateway real and the security model provable.
 
@@ -402,130 +402,143 @@ Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
 - Local Filesystem MCP connector + SQLite metadata schema
 - HITL executor — frozen whitelist, structural enforcement, audit log
 - `nimbus` CLI: `start`, `stop`, `status`, `ask`, `search`, `vault`
-- Full unit + integration test suite gated in CI
-- `bun audit` + `trivy` security scanning in CI
+- Full unit + integration test suite gated in CI; `bun audit` + `trivy` security scanning
 
 **Milestone:** `nimbus ask "find all markdown files modified this week"` executes end-to-end on all three platforms, with HITL firing correctly for any destructive follow-up.
 
 ---
 
-### Q2 2026 — The Bridge
+### Phase 2 — The Bridge ✅
 
-**Goal:** Connect the cloud, developer tooling, and the communication + collaboration surface every engineer lives in. Unify the index.
+**Goal:** Connect every surface a developer works across and unify them in the local index.
 
-**Status (April 2026):** First-party MCP connectors and Gateway sync are implemented for Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, and Confluence (see the living table in [`q2-2026-plan.md`](./q2-2026-plan.md)). Remaining Q2 scope includes the **Discord** connector (opt-in), **cross-service people graph** (SQLite `person` table exists; linker, sync integration, IPC, and CLI are not started), **engine context tooling** (context ranker / resolver tools — Q2 plan §7.0), **headless installers** (§7.9), and the plan’s **acceptance checklist**.
+**15 first-party MCP connectors** — Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in)
 
-**Cloud storage & email**
-- Google Drive, Gmail, Google Photos MCP connectors (OAuth PKCE)
-- OneDrive, Outlook MCP connectors (Microsoft Graph, first-party)
+**Infrastructure** — delta sync scheduler, unified `item`/`person` schema (v5), cross-service people graph, context ranker, `nimbus connector` CLI, E2E test suite, Linux headless installers
 
-**Source control & code review**
-- **GitHub, GitLab, Bitbucket MCP connectors** — repositories, pull requests, issues, CI status
-
-**Communication**
-- **Slack MCP connector** — messages, channels, threads, DMs, search
-- **Microsoft Teams MCP connector** — chats, channels, meetings
-- **Discord MCP connector** (opt-in) — servers, channels, threads
-
-**Project & issue tracking**
-- **Linear MCP connector** — issues, projects, cycles, roadmap items
-- **Jira MCP connector** — issues, sprints, boards, epics, comments
-
-**Knowledge bases**
-- **Notion MCP connector** — pages, databases, comments, linked mentions
-- **Confluence MCP connector** — spaces, pages, blog posts, inline comments
-
-**Infrastructure**
-- Delta sync scheduler — configurable per-connector intervals
-- Unified metadata index across all services (documents, emails, messages, PRs, issues, pages)
-- Cross-service people graph — links email contacts to PR authors to Slack handles to Linear assignees
-- `nimbus connector` CLI: `auth`, `list`, `sync`, `pause`, `status`, `remove`, `resume`, `set-interval`
-- E2E CLI test suite with mock MCP servers
-
-**Milestone:** `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results from all services in under 200ms using the local index. `nimbus ask "who is the most active reviewer on the payment-service repo and what are they working on in Linear?"` resolves a cross-service identity link without a network call.
+**Milestone:** `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results in under 200ms. Cross-service identity resolves without a network call.
 
 ---
 
-### Q3 2026 — Intelligence
+### Phase 3 — Intelligence
 
-**Goal:** Make Nimbus proactive and semantically aware. Extend into CI/CD, cloud infrastructure, and agentic automation.
+**Goal:** Make Nimbus semantically aware and proactively useful. Extend into CI/CD, cloud infrastructure, and agentic automation.
 
-**Semantic layer**
-- Embedding pipeline: chunk → embed → `sqlite-vec` (`@xenova/transformers`, local)
-- Hybrid search: BM25 keyword + vector reranking
-- RAG-based conversational memory across sessions
+**Status:** Active.
 
-**Extension ecosystem**
-- **Extension Registry v1** — `@nimbus-dev/sdk`, manifest schema, `nimbus scaffold`
-- `nimbus extension install/list/disable/remove` CLI commands
+**Semantic layer** — embedding pipeline (`sqlite-vec`, `@xenova/transformers`), hybrid BM25 + vector search, RAG conversational memory
 
-**CI/CD & infrastructure connectors**
-- **CI/CD connectors** — Jenkins, GitHub Actions, CircleCI, GitLab CI: pipeline runs, job status, artefacts, failure summaries
-- **Cloud infrastructure connectors** — AWS (CloudWatch, ECS, Lambda, EC2, S3, Cost Explorer), Azure (Monitor, App Service, AKS), GCP (Cloud Run, GKE, Cloud Monitoring)
-- **IaC awareness** — Terraform state, CloudFormation stacks, Pulumi outputs: indexed resource state + drift detection
-- **IaC write operations** — `terraform plan` → HITL review → `apply`; rollback tracking via audit log
-- **Kubernetes connector** — pod status, events, recent restarts, rollout history (kubectl-compatible clusters)
-- **Monitoring & incident connectors** — Datadog, Grafana, Sentry, PagerDuty, New Relic: alert indexing, cross-service incident correlation
+**Extension ecosystem** — Extension Registry v1, `@nimbus-dev/sdk`, `nimbus scaffold extension`, extension sandbox
 
-**Workflow automation**
-- **Workflow pipelines** — named, repeatable multi-step workflows defined in natural language; versioned as files; shareable; all write steps HITL-gated
-- **Watcher system** — ambient monitors that fire on conditions:
-  - "Alert me when I receive an email matching this pattern"
-  - "Summarize new files added to this Drive folder"
-  - "Notify me if the Zurich project folder hasn't changed in 3 days"
-  - "Alert me when a production deployment fails CI"
-  - "Summarize all failing Jenkins jobs every morning at 09:00"
-- `nimbus watch` CLI: `create`, `list`, `pause`, `delete`
-- `nimbus workflow` CLI: `run`, `list`, `edit`, `delete`
+**CI/CD & infrastructure connectors** — Jenkins, GitHub Actions, CircleCI, GitLab CI, AWS, Azure, GCP, IaC (Terraform/CloudFormation/Pulumi), Kubernetes, Datadog, Grafana, Sentry, PagerDuty, New Relic
 
-**Knowledge graph & filesystem intelligence**
-- **Local relationship graph** — SQLite-backed knowledge graph linking people → projects → documents → incidents → PRs across all indexed services; queryable in natural language
-- **Filesystem connector v2** — git-aware: commit history, blame, diff summarization; semantic code search; dependency graph indexing (imports, packages)
+**Workflow automation** — workflow pipelines (YAML, HITL-gated), watcher system (event-driven + scheduled), proactive anomaly detection
 
-**Agent specialization**
-- **DevOps agent** — domain-tuned for CI/CD, infrastructure, and incident correlation; pre-built tool set, memory scope
-- **Research agent** — optimized for document synthesis and cross-service knowledge retrieval
+**Knowledge graph** — local relationship graph, Filesystem connector v2 (git-aware, semantic code search, dependency graph)
 
-**Session CLI and Script Files:** `nimbus` (no arguments) opens a persistent interactive session — context-aware across turns, HITL consent as conversation steps. `nimbus run <file.yml>` executes a YAML script as a single session with a mandatory preview phase before any action runs; read-only scripts run unattended for automation.
+**Interaction** — Session CLI (`nimbus` with no args), script files (`nimbus run`), DevOps agent, Research agent
 
-**Milestone:** `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, the GitHub PR, the Jenkins run, the CloudWatch error spike, and the Slack incident thread into a single local answer — without leaving the terminal. A community developer publishes a working Nimbus extension in under a day using the SDK scaffold.
+**Milestone:** `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, GitHub PR, Jenkins run, CloudWatch spike, and Slack thread — from the local index — in a single response.
 
 ---
 
-### Q4 2026 — Presence
+### Phase 4 — Presence
 
-**Goal:** Give Nimbus a face, an ecosystem, and the option to run without any cloud AI dependency.
+**Goal:** Give Nimbus a face, a local AI backbone requiring no cloud API key, and the foundations for a public `v0.1.0` release.
 
-**Desktop application**
-- **Tauri 2.0 desktop application** — Windows + macOS + Linux
-  - System tray with quick-query popup
-  - Dashboard: connector health, index stats, recent actions, sync log
-  - **Extension Marketplace panel** — browse, install, update, manage community extensions; verified publisher badges; ratings
-  - HITL consent dialogs with full action preview and diff view
-  - Watcher management UI
-  - Workflow pipeline editor
-  - Settings: model config, sync intervals, Vault management, audit log viewer
+**Desktop application** — Tauri 2.0 (Windows/macOS/Linux): system tray, dashboard, HITL consent dialogs, Extension Marketplace panel, watcher UI, pipeline editor, settings
 
-**Local LLM & multi-agent**
-- **Local LLM support** — Ollama / llama.cpp integration; model selection per-task (fast local for intent routing, remote for complex reasoning); no API key required for basic use; fully air-gapped operation possible
-- **Multi-agent orchestration** — Nimbus decomposes complex tasks into parallel sub-agents; coordinator agent aggregates results; all write operations remain HITL-gated regardless of which sub-agent initiates them
+**Local LLM & multi-agent** — Ollama / llama.cpp, per-task model routing, fully air-gapped operation, coordinator + parallel sub-agent orchestration (all HITL-gated)
 
-**Terminal power users**
-- **Rich TUI** — full keyboard-driven terminal UI (Ink) with panes: query, results, connector health, active watchers; no mouse required; works over SSH
+**Terminal & voice** — Rich TUI (Ink, SSH-safe), local STT (Whisper.cpp), local TTS, wake word (opt-in)
 
-**Voice interface**
-- **Voice interface** — local Whisper-based speech-to-text in the desktop app; voice queries + spoken result summaries via local TTS; no audio leaves the machine
+**Data sovereignty** — `nimbus data export/import`, GDPR deletion, BLAKE3-chained tamper-evident audit log
 
-**Data sovereignty**
-- **Data portability** — full export: SQLite snapshot + vault credential manifest (re-encrypted for import); full import on new machine in one command; GDPR-compatible deletion with audit trail; tamper-evident audit log signing
+**Release** — signed/notarized binaries (Gatekeeper, Authenticode, GPG), auto-update via self-hosted server, Plugin API v1
 
-**Release infrastructure**
-- Signed + notarized release binaries for all platforms
-- Auto-update via self-hosted `tauri-update-server`
-- Plugin API v1 — third-party connector registration stable API
-- Optional encrypted LAN remote access (E2E encrypted, no relay server)
+**Milestone:** `v0.1.0` — signed installers for all platforms. Fully local Ollama query in under 30 seconds. Five community extensions in the Marketplace.
 
-**Milestone:** First tagged release `v0.1.0` — signed installers for Windows, macOS, and Linux distributed via GitHub Releases. `nimbus ask "summarize everything that happened across my projects this week"` runs fully locally via Ollama with no API key. Five community extensions available in the marketplace at launch.
+---
+
+### Phase 5 — The Extended Surface
+
+**Goal:** Fill every connector gap so wherever a knowledge worker or developer spends time, their data is in the index.
+
+**Browser & reading** — Pocket, Readwise, Raindrop, browser history (local extension, no cloud relay), web clipper
+
+**Email via IMAP/SMTP** — generic IMAP connector (Fastmail, ProtonMail, self-hosted), Fastmail JMAP native, ProtonMail Bridge
+
+**Finance & expenses** — Expensify, Ramp, Mercury, Stripe
+
+**CRM & sales** — HubSpot, Salesforce, Pipedrive
+
+**HR & recruiting** — Greenhouse, Lever, Workday
+
+**Design & creative** — Figma (files, comments, FigJam), Miro, Canva
+
+**Extension Marketplace v2** — ratings, verified publisher badges, paid extensions with revenue sharing, auto-update, dependency resolution
+
+---
+
+### Phase 6 — Team
+
+**Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty.
+
+**Shared infrastructure** — Nimbus-to-Nimbus federation (E2EE, no relay), Team Vault (shared credentials, RBAC), shared index namespaces, LAN peer discovery
+
+**Identity & access** — SSO/OIDC/SAML, SCIM provisioning, role-based access control, multi-user HITL (approval delegation)
+
+**Shared workflows & policy** — team-owned workflow pipelines, org-level `nimbus.policy.toml` (connector allowlists, retention, HITL overrides)
+
+**Admin & observability** — local admin console, team audit log (merged view), org-level GDPR purge
+
+---
+
+### Phase 7 — The Autonomous Agent
+
+**Goal:** Transform Nimbus from a reactive tool into a proactive collaborator that watches, learns, and acts — always within the bounds of what you have authorised.
+
+**Standing approvals** — pre-authorise recurring write patterns; approval learning; `nimbus approve` CLI; full audit trail per standing rule
+
+**Schedule-driven tasks** — unattended scheduled workflows, morning briefing, deadline tracking
+
+**Incident correlation engine** — automatic incident assembly on alert fire, incident timeline, HITL-gated remediation proposals
+
+**Agent memory & personalization** — long-term episodic memory, personalization layer, decision pattern recognition, standing rule suggestions
+
+**Local fine-tuning** — LoRA adapter training on user's own data (writing style, code patterns); runs on local NPU/GPU; no data leaves the machine
+
+**Infrastructure-as-Agent** — autonomous drift detection, remediation proposals, cost anomaly alerts, runbook automation
+
+---
+
+### Phase 8 — Sovereign Mesh
+
+**Goal:** Extend Nimbus across the user's own devices, between trusted people, and into the physical world — with no relay server or trusted third party.
+
+**Cross-device sync** — P2P encrypted index sync, vector-clock conflict resolution, selective sync per device, conflict resolution UI
+
+**Mobile companion** — iOS + Android apps; E2EE LAN/WireGuard; read queries, HITL approval queue, watcher notifications; cryptographically signed mobile HITL
+
+**Physical sovereignty** — YubiKey/Ledger hardware vault, air-gapped secret management, Decentralized Identifiers (DIDs)
+
+**Digital Executor** — dead man's switch; Shamir's Secret Sharing across named recipients; tamper-evident handover audit trail
+
+---
+
+### Phase 9 — Enterprise
+
+**Goal:** Institutional-grade deployment for security-conscious organisations. Tied to the commercial license tier.
+
+**Deployment** — official Docker image, Helm chart, air-gapped bundle, HA Gateway clustering, managed update channel
+
+**Policy & compliance** — policy-as-code (`nimbus.policy.toml`), audit log shipping (SIEM/S3/GCS), `nimbus compliance check` JSON report, data residency controls, formal security audit + bug bounty
+
+**Identity & governance** — enterprise SSO (SAML 2.0 + OIDC), SCIM 2.0, privileged access management
+
+**Admin console** — org-wide dashboard, policy editor, credential rotation assistant
+
+**SLA & support** — priority support tier, deployment runbooks, DPA and legal templates
 
 ---
 

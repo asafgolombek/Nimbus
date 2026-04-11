@@ -38,6 +38,7 @@ describeWithFetchRestore("notion-sync", () => {
               object: "page",
               id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
               last_edited_time: "2026-04-01T12:00:00.000Z",
+              created_by: { object: "user", id: "notion-user-abc" },
               properties: {
                 title: {
                   type: "title",
@@ -69,5 +70,9 @@ describeWithFetchRestore("notion-sync", () => {
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-ntn1:");
     expectServiceItemCount(db, "notion", 1);
+    const row = db.prepare("SELECT author_id FROM item WHERE service = 'notion' LIMIT 1").get() as
+      | { author_id: string | null }
+      | undefined;
+    expect(row?.author_id).not.toBeNull();
   });
 });

@@ -9,11 +9,12 @@ After workflows have run at least once, add as **required checks**:
 | Check | Workflow | When it runs |
 |--------|-----------|----------------|
 | **PR quality — ubuntu-22.04** | CI | Every pull request |
-| **Security** jobs | Security | Every pull request (`Dependency audit`, `Trivy vulnerability scan`) |
+| **E2E Desktop (PR) — ubuntu-22.04** | CI | Every pull request (Tauri + Playwright) |
+| **Security** jobs | Security | Every pull request (`Dependency audit`, `Trivy vulnerability scan`, `Gateway audit JSON + connector.remove vault restore`, `Cargo audit (Tauri)`) |
 | **Analyze (JavaScript / TypeScript)** | CodeQL | Pull requests and pushes |
 | **CI —** `ubuntu-22.04` / `macos-14` / `windows-2022` | CI | Pushes to `main` / `develop` (full matrix) |
 
-**Note:** Required checks must match the **exact** job names shown in the Actions UI. After changing workflow job names, update the rule accordingly.
+**Note:** Required checks must match the **exact** job names shown in the Actions UI. After changing workflow job names, update the rule accordingly. Marking every Security job as required ensures `bun audit`, Trivy, gateway contract tests, and `cargo audit` all block merges when they fail.
 
 ## Security features (org or repo)
 

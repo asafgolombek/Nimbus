@@ -1,3 +1,10 @@
+import {
+  GOOGLE_OAUTH_CLIENT_ID_HELP,
+  MICROSOFT_OAUTH_CLIENT_ID_HELP,
+  NOTION_OAUTH_CLIENT_ID_HELP,
+  NOTION_OAUTH_CLIENT_SECRET_HELP,
+  SLACK_OAUTH_CLIENT_ID_HELP,
+} from "../auth/oauth-env-help-messages.ts";
 import { type PKCEOptions, runPKCEFlow } from "../auth/pkce.ts";
 import { Config } from "../config.ts";
 import {
@@ -61,6 +68,10 @@ async function deleteConnectorPatAndTokenKeys(
       await vault.delete("confluence.email");
       await vault.delete("confluence.base_url");
       return ["confluence.api_token", "confluence.email", "confluence.base_url"];
+    case "discord":
+      await vault.delete("discord.bot_token");
+      await vault.delete("discord.enabled");
+      return ["discord.bot_token", "discord.enabled"];
     default:
       return [];
   }
@@ -302,6 +313,33 @@ async function connectorAuthLinear(
   return authSuccess("linear");
 }
 
+async function connectorAuthDiscord(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const opt =
+    rec?.["discordOptIn"] === true ||
+    rec?.["discordOptIn"] === "true" ||
+    rec?.["discordOptIn"] === "1";
+  if (!opt) {
+    throw new ConnectorRpcError(
+      -32602,
+      "Discord is opt-in: use CLI `nimbus connector auth discord --token <bot_token> --enable`",
+    );
+  }
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Missing bot token for discord");
+  }
+  await vault.set("discord.bot_token", token);
+  await vault.set("discord.enabled", "1");
+  const interval = defaultSyncIntervalMsForService("discord");
+  localIndex.ensureConnectorSchedulerRegistration("discord", interval, Date.now());
+  return authSuccess("discord");
+}
+
 async function connectorAuthBitbucket(
   rec: Record<string, unknown> | undefined,
   vault: NimbusVault,
@@ -332,26 +370,22 @@ function oauthClientConfigForProvider(profile: ReturnType<typeof oauthProfileFor
     case "google":
       return {
         clientId: Config.oauthGoogleClientId,
-        emptyClientIdMessage:
-          "Set NIMBUS_OAUTH_GOOGLE_CLIENT_ID to a registered desktop OAuth client id",
+        emptyClientIdMessage: GOOGLE_OAUTH_CLIENT_ID_HELP,
       };
     case "microsoft":
       return {
         clientId: Config.oauthMicrosoftClientId,
-        emptyClientIdMessage:
-          "Set NIMBUS_OAUTH_MICROSOFT_CLIENT_ID to a registered desktop OAuth client id",
+        emptyClientIdMessage: MICROSOFT_OAUTH_CLIENT_ID_HELP,
       };
     case "slack":
       return {
         clientId: Config.oauthSlackClientId,
-        emptyClientIdMessage:
-          "Set NIMBUS_OAUTH_SLACK_CLIENT_ID to a Slack app client id with PKCE enabled",
+        emptyClientIdMessage: SLACK_OAUTH_CLIENT_ID_HELP,
       };
     case "notion":
       return {
         clientId: Config.oauthNotionClientId,
-        emptyClientIdMessage:
-          "Set NIMBUS_OAUTH_NOTION_CLIENT_ID to your Notion public integration OAuth client id",
+        emptyClientIdMessage: NOTION_OAUTH_CLIENT_ID_HELP,
       };
     default: {
       const _ex: never = profile.provider;
@@ -374,10 +408,7 @@ async function connectorAuthOAuthPkce(
   }
   const notionSecret = profile.provider === "notion" ? Config.oauthNotionClientSecret : undefined;
   if (profile.provider === "notion" && (notionSecret === undefined || notionSecret === "")) {
-    throw new ConnectorRpcError(
-      -32602,
-      "Set NIMBUS_OAUTH_NOTION_CLIENT_SECRET (required for Notion token exchange)",
-    );
+    throw new ConnectorRpcError(-32602, NOTION_OAUTH_CLIENT_SECRET_HELP);
   }
   const scopes = oauthScopesFromConnectorRequest(rec, profile.defaultScopes);
   const redirectPort = oauthRedirectPortFromRec(rec);
@@ -456,6 +487,9 @@ export async function handleConnectorAuth(
   }
   if (id === "bitbucket") {
     return connectorAuthBitbucket(rec, vault, localIndex);
+  }
+  if (id === "discord") {
+    return connectorAuthDiscord(rec, vault, localIndex);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }

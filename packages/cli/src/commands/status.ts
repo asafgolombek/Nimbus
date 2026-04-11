@@ -18,6 +18,9 @@ export async function runStatus(_args: string[]): Promise<void> {
     console.log(`Version: ${ping.version}`);
     console.log(`Uptime:  ${String(Math.round(ping.uptime / 1000))}s`);
     console.log(`Socket:  ${state.socketPath}`);
+    if (state.logPath !== undefined && state.logPath !== "") {
+      console.log(`Log:     ${state.logPath}`);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.log(`Gateway: state exists but IPC failed — ${msg}`);

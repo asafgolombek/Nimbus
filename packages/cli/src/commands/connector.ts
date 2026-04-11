@@ -1,4 +1,12 @@
 import { IPCClient } from "../ipc-client/index.ts";
+import {
+  GOOGLE_OAUTH_CLIENT_ID_HELP,
+  MICROSOFT_OAUTH_CLIENT_ID_HELP,
+  NOTION_OAUTH_ENV_HELP,
+  printConnectorAuthHelpPointer,
+  printConnectorAuthPatOnlyHelp,
+  SLACK_OAUTH_CLIENT_ID_HELP,
+} from "../lib/connector-oauth-env-help.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { parseDurationToMs } from "../lib/parse-duration.ts";
 import { stripTrailingSlashes } from "../lib/strip-trailing-slashes.ts";
@@ -35,6 +43,9 @@ type ConnectorFlags = {
   username?: string;
   apiBase?: string;
   full?: boolean;
+  /** Opt-in flag for Discord bot connector (Q2 §4.3). */
+  enable?: boolean;
+  help?: boolean;
 };
 
 async function withIpc<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
@@ -116,12 +127,18 @@ function parseFlags(args: string[]): ConnectorFlags {
   let username: string | undefined;
   let apiBase: string | undefined;
   let full: boolean | undefined;
+  let enable: boolean | undefined;
+  let help: boolean | undefined;
   const q = [...args];
 
   while (q.length > 0) {
     const a = q.shift();
     if (a === undefined) {
       break;
+    }
+    if (a === "--help" || a === "-h") {
+      help = true;
+      continue;
     }
     if (a === "--port" || a === "-p") {
       const v = takeFlagValue(q, "--port");
@@ -160,6 +177,10 @@ function parseFlags(args: string[]): ConnectorFlags {
       full = true;
       continue;
     }
+    if (a === "--enable") {
+      enable = true;
+      continue;
+    }
     if (a === "--api-base") {
       const v = takeFlagValue(q, "--api-base").trim();
       if (v === "") {
@@ -190,7 +211,36 @@ function parseFlags(args: string[]): ConnectorFlags {
   if (full !== undefined) {
     out.full = full;
   }
+  if (enable !== undefined) {
+    out.enable = enable;
+  }
+  if (help !== undefined) {
+    out.help = help;
+  }
   return out;
+}
+
+function printConnectorAuthServiceHelp(normalized: string): void {
+  switch (normalized) {
+    case "google_drive":
+    case "gmail":
+    case "google_photos":
+      console.log(GOOGLE_OAUTH_CLIENT_ID_HELP);
+      return;
+    case "onedrive":
+    case "outlook":
+    case "teams":
+      console.log(MICROSOFT_OAUTH_CLIENT_ID_HELP);
+      return;
+    case "slack":
+      console.log(SLACK_OAUTH_CLIENT_ID_HELP);
+      return;
+    case "notion":
+      console.log(NOTION_OAUTH_ENV_HELP);
+      return;
+    default:
+      printConnectorAuthPatOnlyHelp(normalized);
+  }
 }
 
 function padField(s: string, w: number): string {
@@ -318,6 +368,7 @@ type ConnectorAuthParams = {
   bitbucketUsername?: string;
   atlassianEmail?: string;
   apiBaseUrl?: string;
+  discordOptIn?: boolean;
 };
 
 function applyLinearConnectorAuth(p: ConnectorAuthParams, token: string | undefined): void {
@@ -333,6 +384,24 @@ function applyGithubConnectorAuth(p: ConnectorAuthParams, token: string | undefi
     token,
     ["NIMBUS_GITHUB_PAT"],
     "GitHub requires a PAT: nimbus connector auth github --token <pat>  (or set NIMBUS_GITHUB_PAT in the environment)",
+  );
+}
+
+function applyDiscordConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  enable: boolean | undefined,
+): void {
+  if (enable !== true) {
+    throw new Error(
+      "Discord is off by default: nimbus connector auth discord --token <bot_token> --enable  (or set NIMBUS_DISCORD_BOT_TOKEN and pass --enable)",
+    );
+  }
+  p.discordOptIn = true;
+  p.personalAccessToken = requirePatFromFlagsOrEnv(
+    token,
+    ["NIMBUS_DISCORD_BOT_TOKEN"],
+    "Discord requires a bot token: nimbus connector auth discord --token <bot_token> --enable  (or set NIMBUS_DISCORD_BOT_TOKEN)",
   );
 }
 
@@ -394,11 +463,22 @@ function applyConfluenceConnectorAuth(
 }
 
 async function runConnectorAuth(tail: string[]): Promise<void> {
-  const { rest, port, scopes, token, username, apiBase } = parseFlags(tail);
+  const { rest, port, scopes, token, username, apiBase, enable, help } = parseFlags(tail);
   const service = rest[0];
+
+  if (help === true) {
+    if (service === undefined) {
+      printConnectorAuthHelpPointer();
+      return;
+    }
+    const normalized = service.trim().toLowerCase().replaceAll("-", "_");
+    printConnectorAuthServiceHelp(normalized);
+    return;
+  }
+
   if (service === undefined) {
     throw new Error(
-      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--username <u>] [--api-base <url>]",
+      "Usage: nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--username <u>] [--api-base <url>] [--enable] [--help]",
     );
   }
   const params: ConnectorAuthParams = { service };
@@ -422,6 +502,9 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     case "bitbucket":
       applyBitbucketConnectorAuth(params, token, username);
       break;
+    case "discord":
+      applyDiscordConnectorAuth(params, token, enable);
+      break;
     case "jira":
       applyJiraConnectorAuth(params, token, username, apiBase);
       break;
@@ -442,6 +525,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     "linear",
     "jira",
     "confluence",
+    "discord",
   ]);
   if (vaultPatServices.has(res.serviceId)) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");
@@ -625,7 +709,7 @@ function printConnectorHelp(): void {
   console.log(`nimbus connector — cloud connector registration and sync (Q2)
 
 Usage:
-  nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>]
+  nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>] [--help]
   nimbus connector list
   nimbus connector status <service> [--stats]
   nimbus connector sync <service> [--full]
@@ -636,16 +720,21 @@ Usage:
 
 Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence
 
-OAuth client ids (required for Google/Microsoft auth):
-  NIMBUS_OAUTH_GOOGLE_CLIENT_ID
-  NIMBUS_OAUTH_MICROSOFT_CLIENT_ID
+OAuth PKCE — set env vars before nimbus start, or run for setup steps:
+  nimbus connector auth google_drive --help    (gmail, google_photos)
+  nimbus connector auth onedrive --help        (outlook, teams)
+  nimbus connector auth slack --help
+  nimbus connector auth notion --help
+
+Env vars: NIMBUS_OAUTH_GOOGLE_CLIENT_ID, NIMBUS_OAUTH_MICROSOFT_CLIENT_ID, NIMBUS_OAUTH_SLACK_CLIENT_ID,
+  NIMBUS_OAUTH_NOTION_CLIENT_ID, NIMBUS_OAUTH_NOTION_CLIENT_SECRET
 
 GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).
 GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-base https://git.example.com/api/v4 (gitlab.api_base).
 Linear: use --token or env NIMBUS_LINEAR_API_KEY (linear.api_key).
 Jira: use --username (Atlassian email), --token (API token), --api-base https://your-domain.atlassian.net
   or env NIMBUS_JIRA_EMAIL, NIMBUS_JIRA_API_TOKEN, NIMBUS_JIRA_BASE_URL (jira.email, jira.api_token, jira.base_url).
-Notion: OAuth in the browser (notion.oauth). Requires NIMBUS_OAUTH_NOTION_CLIENT_ID and NIMBUS_OAUTH_NOTION_CLIENT_SECRET.
+Notion: OAuth in the browser (notion.oauth); see auth notion --help for env setup.
 Confluence: same flags/env pattern as Jira (NIMBUS_CONFLUENCE_* → confluence.email, confluence.api_token, confluence.base_url).
 
 Credentials are stored in the OS vault only (never printed here).

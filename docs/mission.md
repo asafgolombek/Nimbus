@@ -233,41 +233,37 @@ Three converging forces make this the right moment for Nimbus:
 
 ## The Roadmap to Sovereignty
 
-The work of reclaiming agency is not completed in a single quarter. It is a multi-year structural shift. Our roadmap reflects this progression from a foundational index to a fully autonomous, sovereign mesh.
+The work of reclaiming agency is not completed in a single phase. It is a multi-year structural shift. Our roadmap reflects this progression from a foundational index to a fully autonomous, sovereign mesh.
 
-### Phase 1: The Foundation (Q1 2026 — Complete)
+### Phase 1 — Foundation ✅
 * **The Unified Local Index:** SQLite FTS5 index for metadata across the filesystem.
 * **The Secure Vault:** OS-native secret management (DPAPI, Keychain, libsecret) with zero plaintext exposure.
 * **The Consent Gate:** Structural Human-in-the-Loop (HITL) enforcement for all irreversible actions.
 * **The Engine:** Mastra-powered orchestration loop running locally.
 
-### Phase 2: The Integration Surge (Q2–Q3 2026)
+### Phase 2 — The Bridge ✅
+All 15 first-party MCP connectors shipped (Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord opt-in) with delta sync, a unified `item`/`person` index (schema v5), the cross-service people graph, engine context ranker, `nimbus connector` CLI, and headless installers.
 
-**Q2 2026 — The Bridge (active):** Detailed sequencing and a living implementation table are in [`q2-2026-plan.md`](./q2-2026-plan.md). The quarter targets a unified local index across the surfaces engineers use daily:
+### Phase 3 — Intelligence (Active)
+Semantic layer (`sqlite-vec`, hybrid search), Extension Registry v1, CI/CD and cloud connectors (Jenkins, GitHub Actions, AWS/Azure/GCP, Kubernetes, observability tools), workflow pipelines, watchers, Session CLI, script files, filesystem connector v2, and agent specialization — as laid out in [`roadmap.md`](./roadmap.md).
 
-* **Cloud storage & email:** Google Drive, Gmail, Google Photos; Microsoft OneDrive and Outlook (mail + calendar/contact tools where scopes allow).
-* **Source control & review:** GitHub, GitLab, Bitbucket — repositories, pull requests, issues, and CI metadata where exposed by each connector.
-* **Communication:** Slack and Microsoft Teams — channels, messages, search; write paths behind HITL.
-* **Project tracking & docs:** Linear, Jira, Notion, Confluence — issues, pages, and comments; writes behind HITL.
-* **Platform plumbing:** Lazy MCP startup, per-connector delta sync, `nimbus connector` auth/list/sync/status/remove, and E2E CLI tests with mock MCP servers.
+### Phase 4 — Presence
+Tauri 2.0 desktop application, local LLM (Ollama/llama.cpp), multi-agent orchestration, Rich TUI, local voice interface (Whisper.cpp), data portability (export/import), tamper-evident audit log, and `v0.1.0` signed release.
 
-**Still open before Q2 is “done” on its own terms:** cross-service people graph (linker + population + `nimbus people` / IPC), optional Discord MCP (off by default), engine-side context shaping for large index results (§7.0 in the Q2 plan), headless installers (§7.9), and the acceptance checklist in that plan.
+### Phase 5 — The Extended Surface
+New connector categories: browser/reading (Pocket, Readwise, browser history), IMAP email (Fastmail, ProtonMail, generic IMAP), finance (Expensify, Ramp, Stripe), CRM (HubSpot, Salesforce), HR (Greenhouse, Lever), and design (Figma, Miro). Extension Marketplace v2 with paid extensions and verified publishers.
 
-**Q3 2026 — Intelligence (next):** Semantic layer (`sqlite-vec`, hybrid search), Extension Registry v1, deeper DevOps and cloud connectors (Jenkins, GitHub Actions, AWS/Azure/GCP, Kubernetes, observability tools), workflow pipelines, watchers, Session CLI and script files (`nimbus` with no args, `nimbus run`), filesystem connector v2, and agent specialization — as laid out in [`roadmap.md`](./roadmap.md).
+### Phase 6 — Team
+Nimbus-to-Nimbus federation (E2EE, no relay server), Team Vault, shared index namespaces, SSO/SAML/SCIM, multi-user HITL delegation, org-level policy engine, and a local admin console. Shared intelligence without surrendering local sovereignty.
 
-### Phase 3: The Sovereign Workspace (Q4 2026)
-* **The Command Center:** A high-performance Tauri 2.0 desktop application.
-* **Sovereign Multi-Device Sync:** End-to-end encrypted synchronization between your devices (laptop, mobile) without a central Nimbus server.
-* **The Extension Marketplace:** A local-first registry for community-built MCP connectors, sandboxed and permission-gated.
+### Phase 7 — The Autonomous Agent
+Standing approvals, schedule-driven unattended workflows, automatic incident correlation, long-term agent memory, LoRA fine-tuning on user data, and an Infrastructure-as-Agent SRE loop. From a tool you query to a collaborator that watches, learns, and proposes.
 
-### Phase 4: The Autonomous Era (2027 and Beyond)
-This is where Nimbus transitions from a tool you use to an infrastructure that works for you.
+### Phase 8 — Sovereign Mesh
+Cross-device P2P index sync, iOS/Android mobile companion (E2EE LAN/WireGuard, no cloud relay), hardware vault integration (YubiKey/Ledger), Decentralized Identifiers, and the Digital Executor (dead man's switch with Shamir's Secret Sharing).
 
-* **The "Ghost" Protocol (P2P Collaborative Mesh):** A peer-to-peer, E2EE mesh network allowing Nimbus instances to communicate. Share namespaces of your index (e.g., "Project X") with teammates without a SaaS intermediary.
-* **Local Model Sovereignty (The Personal LLM Lab):** Move beyond API dependencies. Nimbus will locally fine-tune small, high-performance models (Llama 3, Mistral) on your data. It learns your jargon and writing style using your NPU/GPU, with zero data exfiltration.
-* **Infrastructure-as-Agent (Autonomous DevOps):** Nimbus operates as a junior SRE. It autonomously scales down idle AWS resources, monitors for drift, and when CI fails, it writes the fix, runs local tests, and proposes the PR for your approval.
-* **Physical Sovereignty:** Integration with hardware vaults (YubiKey, Ledger) for air-gapped secret management, and Decentralized Identifiers (DIDs) to replace federated logins.
-* **The Digital Executor:** A local-first "dead man's switch." Securely hand over specific cryptographic keys and documents to trusted heirs without relying on a cloud provider's inactive account policy.
+### Phase 9 — Enterprise
+Docker/Helm/air-gapped deployment, SIEM audit log shipping, `nimbus compliance check`, SCIM provisioning, privilege management, formal security audit, and SLA-backed support — tied to the commercial license tier.
 
 ---
 

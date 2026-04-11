@@ -2,6 +2,12 @@ import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
 import {
+  compositeSearchScore,
+  recencyScore,
+  servicePriorityScore,
+} from "../engine/search-ranking.ts";
+import { prunePeopleAfterServiceRemoval } from "../people/prune.ts";
+import {
   clearSchedulerCursor,
   countItemsForService,
   deleteSchedulerStateRow,
@@ -18,8 +24,16 @@ import {
   upsertNimbusItemIntoItemTable,
 } from "./item-store.ts";
 import { runIndexedSchemaMigrations } from "./migrations/runner.ts";
+import type { RankedIndexItem } from "./ranked-item.ts";
 
 export { RAW_META_MAX_BYTES } from "./constants.ts";
+export type { RankedIndexItem } from "./ranked-item.ts";
+
+export type SearchRankOptions = {
+  nowMs?: number;
+  searchServicePriority?: ReadonlyMap<string, number>;
+  candidateLimit?: number;
+};
 
 export type AuditEntry = {
   id: number;
@@ -137,8 +151,68 @@ function rowToItem(row: ItemRow): NimbusItem {
   return item;
 }
 
+function rowToRankedItem(
+  row: ItemRow,
+  score: number,
+  duplicates?: readonly string[],
+): RankedIndexItem {
+  const base = rowToItem(row);
+  const canon = row.canonical_url;
+  const trimmed = canon != null && canon !== "" ? canon.trim() : "";
+  const item: RankedIndexItem = {
+    ...base,
+    score,
+    indexPrimaryKey: row.id,
+    indexedType: String(row.type),
+    ...(trimmed === "" ? {} : { canonicalUrl: trimmed }),
+    ...(duplicates !== undefined && duplicates.length > 0 ? { duplicates } : {}),
+  };
+  return item;
+}
+
+function dedupeRankedByCanonicalUrl(
+  scored: Array<{ row: ItemRow; score: number }>,
+): RankedIndexItem[] {
+  const out: RankedIndexItem[] = [];
+  const canonicalToOutIdx = new Map<string, number>();
+  for (const { row, score } of scored) {
+    const canon = row.canonical_url;
+    if (canon === null || canon === undefined || canon.trim() === "") {
+      out.push(rowToRankedItem(row, score));
+      continue;
+    }
+    const c = canon.trim();
+    const idx = canonicalToOutIdx.get(c);
+    if (idx === undefined) {
+      canonicalToOutIdx.set(c, out.length);
+      out.push(rowToRankedItem(row, score));
+      continue;
+    }
+    const prev = out[idx];
+    if (prev === undefined) {
+      out.push(rowToRankedItem(row, score));
+      continue;
+    }
+    const dups = [...(prev.duplicates ?? []), row.service];
+    out[idx] = { ...prev, duplicates: dups };
+  }
+  return out;
+}
+
+function stripRankedToNimbus(r: RankedIndexItem): NimbusItem {
+  const {
+    score: _sc,
+    indexPrimaryKey: _pk,
+    indexedType: _it,
+    duplicates: _dup,
+    canonicalUrl: _cu,
+    ...rest
+  } = r;
+  return rest;
+}
+
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 3;
+  static readonly SCHEMA_VERSION = 5;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -229,8 +303,20 @@ export class LocalIndex {
       deleteAllItemsForService(this.db, serviceId);
       deleteSchedulerStateRow(this.db, serviceId);
       this.db.run("DELETE FROM sync_state WHERE connector_id = ?", [serviceId]);
+      prunePeopleAfterServiceRemoval(this.db, serviceId);
       return n;
     })();
+  }
+
+  /**
+   * Items whose `author_id` matches (newest first). Used by `people.items` IPC.
+   */
+  listItemsForAuthor(personId: string, limit: number): NimbusItem[] {
+    const lim = Math.min(200, Math.max(1, Math.floor(limit)));
+    const rows = this.db
+      .query(`SELECT * FROM item WHERE author_id = ? ORDER BY modified_at DESC LIMIT ?`)
+      .all(personId, lim) as ItemRow[];
+    return rows.map(rowToItem);
   }
 
   upsert(item: NimbusItem): void {
@@ -282,39 +368,45 @@ export class LocalIndex {
     return { filters, params, whereExtra };
   }
 
-  private searchWithFts(
+  private searchWithFtsOrderRank(
     fts: string,
     whereExtra: string,
     params: Array<string | number>,
     limit: number,
-  ): NimbusItem[] {
+  ): ItemRow[] {
     const sql = `
         SELECT i.* FROM item i
         INNER JOIN item_fts ON i.rowid = item_fts.rowid
         WHERE item_fts MATCH ? ${whereExtra}
+        ORDER BY rank
         LIMIT ?
       `;
     const allParams = [fts, ...params, limit];
-    const rows = this.db.query(sql).all(...allParams) as ItemRow[];
-    return rows.map(rowToItem);
+    return this.db.query(sql).all(...allParams) as ItemRow[];
   }
 
-  private searchWithoutFts(
+  private searchWithoutFtsOrdered(
     filters: string[],
     params: Array<string | number>,
     limit: number,
-  ): NimbusItem[] {
+  ): ItemRow[] {
+    const orderClause = " ORDER BY i.modified_at DESC";
     const sql =
       filters.length > 0
-        ? `SELECT i.* FROM item i WHERE ${filters.join(" AND ")} LIMIT ?`
-        : `SELECT i.* FROM item i LIMIT ?`;
+        ? `SELECT i.* FROM item i WHERE ${filters.join(" AND ")}${orderClause} LIMIT ?`
+        : `SELECT i.* FROM item i${orderClause} LIMIT ?`;
     const allParams = [...params, limit];
-    const rows = this.db.query(sql).all(...allParams) as ItemRow[];
-    return rows.map(rowToItem);
+    return this.db.query(sql).all(...allParams) as ItemRow[];
   }
 
-  search(query: IndexSearchQuery): NimbusItem[] {
-    const limit = Math.min(500, Math.max(1, query.limit ?? 50));
+  /**
+   * Q2 §7.2 — ranked + canonical_url dedup. FTS matches use SQLite FTS5 `ORDER BY rank` for relevance ordering.
+   */
+  searchRanked(query: IndexSearchQuery, options?: SearchRankOptions): RankedIndexItem[] {
+    const candidateLimit = Math.min(500, Math.max(1, Math.floor(options?.candidateLimit ?? 500)));
+    const now = options?.nowMs ?? Date.now();
+    const priorities = options?.searchServicePriority ?? new Map<string, number>();
+
     const nameQ = query.name?.trim() ?? "";
     const useFts = nameQ.length > 0;
     const fts = useFts ? ftsTitleMatchQuery(nameQ) : "";
@@ -325,10 +417,62 @@ export class LocalIndex {
 
     const { filters, params, whereExtra } = LocalIndex.searchFiltersAndParams(query);
 
+    let rows: ItemRow[];
+    let normBm25: number[];
+
     if (useFts) {
-      return this.searchWithFts(fts, whereExtra, params, limit);
+      rows = this.searchWithFtsOrderRank(fts, whereExtra, params, candidateLimit);
+      normBm25 =
+        rows.length <= 1 ? rows.map(() => 1) : rows.map((_, i) => 1 - i / (rows.length - 1));
+    } else {
+      rows = this.searchWithoutFtsOrdered(filters, params, candidateLimit);
+      normBm25 = rows.map(() => 0.5);
     }
-    return this.searchWithoutFts(filters, params, limit);
+
+    const scored: Array<{ row: ItemRow; score: number }> = rows.map((row, i) => {
+      const mod = Number(row.modified_at);
+      const rec = recencyScore(mod, now);
+      const sp = servicePriorityScore(row.service, priorities);
+      const bm = normBm25[i];
+      const comp = compositeSearchScore(bm ?? 0.5, rec, sp);
+      return { row, score: comp };
+    });
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return b.row.modified_at - a.row.modified_at;
+    });
+
+    const out = dedupeRankedByCanonicalUrl(scored);
+
+    const limit = Math.min(500, Math.max(1, query.limit ?? 50));
+    return out.slice(0, limit);
+  }
+
+  /**
+   * Q2 §7.0 — page additional items for a service/type bucket (same ordering as ranked browse).
+   */
+  fetchMoreItems(
+    service: string,
+    indexedType: string,
+    offset: number,
+    limit: number,
+  ): NimbusItem[] {
+    const lim = Math.min(100, Math.max(1, Math.floor(limit)));
+    const off = Math.max(0, Math.floor(offset));
+    const rows = this.db
+      .query(
+        `SELECT * FROM item WHERE service = ? AND type = ? ORDER BY modified_at DESC LIMIT ? OFFSET ?`,
+      )
+      .all(service, indexedType, lim, off) as ItemRow[];
+    return rows.map(rowToItem);
+  }
+
+  search(query: IndexSearchQuery): NimbusItem[] {
+    const ranked = this.searchRanked(query, {});
+    return ranked.map(stripRankedToNimbus);
   }
 
   recordSync(connectorId: string, token: string): void {

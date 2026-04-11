@@ -6,6 +6,7 @@ import { MCPClient } from "@mastra/mcp";
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
+import { readMicrosoftOAuthScopesForOutlookEnv } from "../auth/oauth-vault-tokens.ts";
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
@@ -81,6 +82,11 @@ function confluenceMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "confluence", "src", "server.ts");
 }
 
+function discordMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "discord", "src", "server.ts");
+}
+
 type LazyMeshToolMap = Record<
   string,
   { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
@@ -94,7 +100,7 @@ async function listLazyMeshClientTools(client: MCPClient | undefined): Promise<L
 }
 
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence credential MCP when vault keys exist (Q2 §1.6 / Phase 2–5).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence credential MCP when vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -118,6 +124,8 @@ export class LazyConnectorMesh {
   private notionIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private confluenceClient: MCPClient | undefined;
   private confluenceIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private discordClient: MCPClient | undefined;
+  private discordIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
@@ -215,6 +223,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearDiscordIdleTimer(): void {
+    if (this.discordIdleTimer !== undefined) {
+      clearTimeout(this.discordIdleTimer);
+      this.discordIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -292,6 +307,14 @@ export class LazyConnectorMesh {
     this.confluenceIdleTimer = setTimeout(() => {
       this.confluenceIdleTimer = undefined;
       void this.stopConfluenceClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleDiscordDisconnect(): void {
+    this.clearDiscordIdleTimer();
+    this.discordIdleTimer = setTimeout(() => {
+      this.discordIdleTimer = undefined;
+      void this.stopDiscordClient();
     }, this.inactivityMs);
   }
 
@@ -425,6 +448,19 @@ export class LazyConnectorMesh {
     }
   }
 
+  private async stopDiscordClient(): Promise<void> {
+    const c = this.discordClient;
+    this.discordClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   /**
    * Starts Google Drive + Gmail + Google Photos MCP subprocesses when `google.oauth` is present (shared token).
    */
@@ -469,6 +505,14 @@ export class LazyConnectorMesh {
       return;
     }
     const token = await getValidMicrosoftAccessToken(this.vault);
+    const outlookScopes = await readMicrosoftOAuthScopesForOutlookEnv(this.vault);
+    const outlookEnv = {
+      ...process.env,
+      MICROSOFT_OAUTH_ACCESS_TOKEN: token,
+    } as Record<string, string>;
+    if (outlookScopes !== undefined) {
+      outlookEnv["MICROSOFT_OAUTH_SCOPES"] = outlookScopes;
+    }
     this.microsoftBundleClient = new MCPClient({
       id: `nimbus-ms-${String(Date.now())}`,
       servers: {
@@ -480,7 +524,7 @@ export class LazyConnectorMesh {
         outlook: {
           command: "bun",
           args: [outlookMcpScriptPath()],
-          env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+          env: outlookEnv,
         },
         teams: {
           command: "bun",
@@ -763,6 +807,34 @@ export class LazyConnectorMesh {
     this.scheduleConfluenceDisconnect();
   }
 
+  /**
+   * Starts Discord MCP when `discord.enabled` is `1` and `discord.bot_token` is set (Q2 §4.3 opt-in).
+   */
+  async ensureDiscordRunning(): Promise<void> {
+    this.clearDiscordIdleTimer();
+    if (this.discordClient !== undefined) {
+      this.scheduleDiscordDisconnect();
+      return;
+    }
+    const enabled = await this.vault.get("discord.enabled");
+    const token = await this.vault.get("discord.bot_token");
+    if (enabled !== "1" || token === null || token === "") {
+      return;
+    }
+    this.discordClient = new MCPClient({
+      id: `nimbus-discord-${String(Date.now())}`,
+      servers: {
+        discord: {
+          command: "bun",
+          args: [discordMcpScriptPath()],
+          env: { ...process.env, DISCORD_BOT_TOKEN: token },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleDiscordDisconnect();
+  }
+
   private async ensureIfVaultKeyNonEmpty(key: string, run: () => Promise<void>): Promise<void> {
     const v = await this.vault.get(key);
     if (v !== null && v !== "") {
@@ -796,6 +868,14 @@ export class LazyConnectorMesh {
     }
   }
 
+  private async ensureDiscordIfOptIn(): Promise<void> {
+    const en = await this.vault.get("discord.enabled");
+    const tok = await this.vault.get("discord.bot_token");
+    if (en === "1" && tok !== null && tok !== "") {
+      await this.ensureDiscordRunning();
+    }
+  }
+
   /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
   private async ensureCredentialConnectorsRunning(): Promise<void> {
     await this.ensureIfVaultKeyNonEmpty("google.oauth", () => this.ensureGoogleDriveRunning());
@@ -810,6 +890,7 @@ export class LazyConnectorMesh {
     await this.ensureJiraIfVaultCreds();
     await this.ensureIfVaultKeyNonEmpty("notion.oauth", () => this.ensureNotionRunning());
     await this.ensureConfluenceIfVaultCreds();
+    await this.ensureDiscordIfOptIn();
   }
 
   async listTools(): Promise<
@@ -828,6 +909,7 @@ export class LazyConnectorMesh {
     const jiraTools = await listLazyMeshClientTools(this.jiraClient);
     const notionTools = await listLazyMeshClientTools(this.notionClient);
     const confluenceTools = await listLazyMeshClientTools(this.confluenceClient);
+    const discordTools = await listLazyMeshClientTools(this.discordClient);
     return {
       ...fsTools,
       ...gdTools,
@@ -840,6 +922,7 @@ export class LazyConnectorMesh {
       ...jiraTools,
       ...notionTools,
       ...confluenceTools,
+      ...discordTools,
     } as LazyMeshToolMap;
   }
 
@@ -854,6 +937,7 @@ export class LazyConnectorMesh {
     this.clearJiraIdleTimer();
     this.clearNotionIdleTimer();
     this.clearConfluenceIdleTimer();
+    this.clearDiscordIdleTimer();
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
@@ -864,6 +948,7 @@ export class LazyConnectorMesh {
     await this.stopJiraClient();
     await this.stopNotionClient();
     await this.stopConfluenceClient();
+    await this.stopDiscordClient();
     try {
       await this.filesystem.disconnect();
     } catch {

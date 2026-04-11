@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(bun install:*)",
-      "Bash(bun pm:*)"
+      "Bash(bun pm:*)",
+      "Bash(bun run:*)"
     ]
   },
   "hooks": {
@@ -18,8 +19,8 @@
           {
             "type": "command",
             "command": "f=$(node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);const p=j.tool_input?.file_path||'';if(/\\.(ts|tsx)$/i.test(p)){console.log(p)}})\"); if [ -n \"$f\" ]; then cd /c/gitrepo/Nimbus && bun run typecheck || exit 2; fi",
-            "asyncRewake": true,
-            "statusMessage": "TypeScript: type checking..."
+            "statusMessage": "TypeScript: type checking...",
+            "asyncRewake": true
           }
         ]
       }

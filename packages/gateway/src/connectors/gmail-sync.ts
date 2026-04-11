@@ -1,5 +1,7 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
+import { parseFromHeaderForPerson } from "../people/parse-from-header.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -138,6 +140,14 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
   const threadId = typeof m.threadId === "string" ? m.threadId : "";
   const from = headerFrom(m.payload, "From");
   const to = headerFrom(m.payload, "To");
+  const fromParsed = parseFromHeaderForPerson(from);
+  const authorId =
+    fromParsed.email === undefined
+      ? null
+      : resolvePersonForSync(ctx.db, {
+          canonicalEmail: fromParsed.email,
+          ...(fromParsed.displayName === undefined ? {} : { displayName: fromParsed.displayName }),
+        });
   const url =
     threadId === ""
       ? `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(id)}`
@@ -152,7 +162,7 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
     url,
     canonicalUrl: url,
     modifiedAt,
-    authorId: null,
+    authorId,
     metadata: {
       threadId: threadId === "" ? undefined : threadId,
       labelIds: m.labelIds,

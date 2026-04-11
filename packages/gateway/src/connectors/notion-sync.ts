@@ -1,5 +1,6 @@
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { isoMs, maxIso } from "./sync-iso-helpers.ts";
 import {
@@ -137,6 +138,34 @@ type NotionRowProcessAcc = {
   shouldStop: boolean;
 };
 
+function notionWatermarkOrAdvanceMax(
+  edited: string | undefined,
+  opts: { watermarkMs: number },
+  acc: NotionRowProcessAcc,
+): "stop" | "continue" {
+  if (edited === undefined || edited === "") {
+    return "continue";
+  }
+  if (opts.watermarkMs >= 0 && isoMs(edited) <= opts.watermarkMs) {
+    acc.shouldStop = true;
+    return "stop";
+  }
+  acc.maxEdited = acc.maxEdited === "" ? edited : maxIso(acc.maxEdited, edited);
+  return "continue";
+}
+
+function notionAuthorIdFromPageRow(ctx: SyncContext, row: Record<string, unknown>): string | null {
+  const createdBy = asRecord(row["created_by"]);
+  const notionUserId =
+    createdBy !== undefined && stringField(createdBy, "object") === "user"
+      ? stringField(createdBy, "id")
+      : undefined;
+  if (notionUserId === undefined || notionUserId === "") {
+    return null;
+  }
+  return resolvePersonForSync(ctx.db, { notionUserId });
+}
+
 /** `true` when the caller should stop iterating (watermark hit). */
 function notionConsumeSearchResultRow(
   ctx: SyncContext,
@@ -156,17 +185,14 @@ function notionConsumeSearchResultRow(
     return false;
   }
   const edited = stringField(row, "last_edited_time");
-  if (edited !== undefined && edited !== "") {
-    if (opts.watermarkMs >= 0 && isoMs(edited) <= opts.watermarkMs) {
-      acc.shouldStop = true;
-      return true;
-    }
-    acc.maxEdited = acc.maxEdited === "" ? edited : maxIso(acc.maxEdited, edited);
+  if (notionWatermarkOrAdvanceMax(edited, opts, acc) === "stop") {
+    return true;
   }
   const title = extractTitleFromProperties(row["properties"]);
   const url = `https://www.notion.so/${id.replaceAll("-", "")}`;
   const modified = edited !== undefined && edited !== "" ? isoMs(edited) : opts.syncTime;
   acc.upserted += 1;
+  const authorId = notionAuthorIdFromPageRow(ctx, row);
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "page",
@@ -176,7 +202,7 @@ function notionConsumeSearchResultRow(
     url,
     canonicalUrl: url,
     modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
-    authorId: null,
+    authorId,
     metadata: { notionPageId: id },
     pinned: false,
     syncedAt: opts.syncTime,

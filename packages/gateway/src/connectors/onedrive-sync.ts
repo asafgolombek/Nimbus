@@ -1,5 +1,7 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
+import { normalizeEmail } from "../people/person-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import {
   decodeMicrosoftGraphDeltaCursor,
@@ -16,6 +18,13 @@ const CURSOR_PREFIX = "nimbus-odrv1:";
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const PAGE_SIZE = 100;
 
+type GraphDriveIdentityUser = {
+  displayName?: string;
+  email?: string;
+  mail?: string;
+  userPrincipalName?: string;
+};
+
 type DriveItem = {
   id?: string;
   name?: string;
@@ -25,8 +34,22 @@ type DriveItem = {
   lastModifiedDateTime?: string;
   size?: number;
   deleted?: { state?: string };
+  lastModifiedBy?: { user?: GraphDriveIdentityUser };
   "@removed"?: { reason?: string };
 };
+
+function graphDriveUserMailbox(user: GraphDriveIdentityUser | undefined): string | undefined {
+  if (user === undefined) {
+    return undefined;
+  }
+  for (const k of ["email", "mail", "userPrincipalName"] as const) {
+    const v = user[k];
+    if (typeof v === "string" && v.includes("@")) {
+      return normalizeEmail(v);
+    }
+  }
+  return undefined;
+}
 
 export type OneDriveSyncCursorV1 = MicrosoftGraphDeltaCursorV1;
 
@@ -59,6 +82,19 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
         : undefined,
   };
 
+  const lmUser = d.lastModifiedBy?.user;
+  const lmEmail = graphDriveUserMailbox(lmUser);
+  const authorId =
+    lmEmail === undefined
+      ? null
+      : resolvePersonForSync(ctx.db, {
+          canonicalEmail: lmEmail,
+          displayName:
+            lmUser?.displayName !== undefined && lmUser.displayName !== ""
+              ? lmUser.displayName
+              : lmEmail,
+        });
+
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type,
@@ -68,7 +104,7 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
     url,
     canonicalUrl: url,
     modifiedAt: modified,
-    authorId: null,
+    authorId,
     metadata: meta,
     pinned: false,
     syncedAt: now,

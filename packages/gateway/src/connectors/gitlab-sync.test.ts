@@ -6,7 +6,7 @@ import {
   describeWithFetchRestore,
   expectServiceItemCount,
   type SyncTestFetchParams,
-  silentSyncContextExtras,
+  syncTestContext,
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
@@ -42,6 +42,8 @@ describeWithFetchRestore("gitlab-sync", () => {
             target_type: "MergeRequest",
             target_title: "Add feature",
             created_at: "2026-04-01T12:00:00.000Z",
+            author_username: "dev1",
+            author_name: "Dev One",
             project: { path_with_namespace: "acme/app" },
           },
         ]),
@@ -53,15 +55,17 @@ describeWithFetchRestore("gitlab-sync", () => {
     }) as typeof fetch;
 
     const sync = createGitlabSyncable({ ensureGitlabMcpRunning: async () => {} });
-    const ctx = {
-      vault: createStubVault({ "gitlab.pat": "glpat_test" }),
-      db,
-      ...silentSyncContextExtras(),
-    };
-    const r = await sync.sync(ctx, null);
+    const r = await sync.sync(
+      syncTestContext(db, createStubVault({ "gitlab.pat": "glpat_test" })),
+      null,
+    );
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-glab1:");
     expectServiceItemCount(db, "gitlab", 1);
+    const row = db.prepare("SELECT author_id FROM item WHERE service = 'gitlab' LIMIT 1").get() as
+      | { author_id: string | null }
+      | undefined;
+    expect(row?.author_id).not.toBeNull();
   });
 
   test("uses custom api base from vault", async () => {
@@ -74,14 +78,13 @@ describeWithFetchRestore("gitlab-sync", () => {
 
     const sync = createGitlabSyncable({ ensureGitlabMcpRunning: async () => {} });
     await sync.sync(
-      {
-        vault: createStubVault({
+      syncTestContext(
+        db,
+        createStubVault({
           "gitlab.pat": "glpat_x",
           "gitlab.api_base": "https://git.example.com/api/v4",
         }),
-        db,
-        ...silentSyncContextExtras(),
-      },
+      ),
       null,
     );
   });

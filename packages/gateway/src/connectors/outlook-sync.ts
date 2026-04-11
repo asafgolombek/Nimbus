@@ -1,5 +1,6 @@
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import {
   decodeMicrosoftGraphDeltaCursor,
@@ -23,6 +24,7 @@ type GraphMessage = {
   receivedDateTime?: string;
   lastModifiedDateTime?: string;
   webLink?: string;
+  from?: { emailAddress?: { name?: string; address?: string } };
   "@removed"?: { reason?: string };
 };
 
@@ -45,6 +47,15 @@ function upsertMessage(ctx: SyncContext, m: GraphMessage, now: number): void {
   const preview = typeof m.bodyPreview === "string" ? m.bodyPreview.slice(0, 512) : "";
   const url = typeof m.webLink === "string" ? m.webLink : null;
   const modified = modifiedMsFromIso(m.lastModifiedDateTime ?? m.receivedDateTime, now);
+  const addr = m.from?.emailAddress?.address;
+  const fromName = m.from?.emailAddress?.name;
+  const authorId =
+    addr !== undefined && addr !== ""
+      ? resolvePersonForSync(ctx.db, {
+          canonicalEmail: addr,
+          displayName: fromName !== undefined && fromName !== "" ? fromName : addr,
+        })
+      : null;
 
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
@@ -55,7 +66,7 @@ function upsertMessage(ctx: SyncContext, m: GraphMessage, now: number): void {
     url,
     canonicalUrl: url,
     modifiedAt: modified,
-    authorId: null,
+    authorId,
     metadata: {
       receivedDateTime: m.receivedDateTime,
     },

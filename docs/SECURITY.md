@@ -2,14 +2,14 @@
 
 ## Supported Versions
 
-Nimbus is currently in **active development (Q2 2026 — The Bridge)**. Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
+Nimbus is currently in **active development (Phase 3 — Intelligence)**. Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
 
 | Branch / Tag | Supported |
 |---|---|
 | `main` (HEAD) | Yes |
 | Older commits | No |
 
-Once versioned releases begin (target: Q4 2026), this table will be updated with a supported version range.
+Once versioned releases begin (target: Phase 4 — `v0.1.0`), this table will be updated with a supported version range.
 
 ---
 

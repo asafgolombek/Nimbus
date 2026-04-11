@@ -47,6 +47,9 @@ describe("createOutlookSyncable", () => {
                 bodyPreview: "Hello",
                 lastModifiedDateTime: "2024-05-01T10:00:00Z",
                 webLink: "https://outlook.office.com/m1",
+                from: {
+                  emailAddress: { name: "Sender", address: "sender@example.com" },
+                },
               },
             ],
             "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?token=z",
@@ -62,9 +65,12 @@ describe("createOutlookSyncable", () => {
     expect(r.hasMore).toBe(false);
 
     const row = db
-      .query("SELECT service, type FROM item WHERE id = ?")
-      .get(itemPrimaryKey("outlook", "m1")) as { service: string; type: string } | undefined;
+      .query("SELECT service, type, author_id FROM item WHERE id = ?")
+      .get(itemPrimaryKey("outlook", "m1")) as
+      | { service: string; type: string; author_id: string | null }
+      | undefined;
     expect(row?.service).toBe("outlook");
     expect(row?.type).toBe("email");
+    expect(row?.author_id).not.toBeNull();
   });
 });

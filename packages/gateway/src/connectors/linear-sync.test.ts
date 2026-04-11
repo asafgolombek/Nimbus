@@ -6,7 +6,7 @@ import {
   describeWithFetchRestore,
   expectServiceItemCount,
   type SyncTestFetchParams,
-  silentSyncContextExtras,
+  syncTestContext,
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
@@ -30,6 +30,7 @@ describeWithFetchRestore("linear-sync", () => {
       const body =
         init?.body !== undefined && typeof init.body === "string" ? JSON.parse(init.body) : {};
       expect(body.query).toContain("issues(");
+      expect(body.query).toContain("creator");
       return new Response(
         JSON.stringify({
           data: {
@@ -42,6 +43,11 @@ describeWithFetchRestore("linear-sync", () => {
                   description: "Connector",
                   updatedAt: "2026-04-01T12:00:00.000Z",
                   url: "https://linear.example/NIM-1",
+                  creator: {
+                    id: "lin-user-1",
+                    name: "Lin User",
+                    email: "lin@example.com",
+                  },
                 },
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
@@ -53,14 +59,16 @@ describeWithFetchRestore("linear-sync", () => {
     }) as typeof fetch;
 
     const sync = createLinearSyncable({ ensureLinearMcpRunning: async () => {} });
-    const ctx = {
-      vault: createStubVault({ "linear.api_key": "lin_api_test" }),
-      db,
-      ...silentSyncContextExtras(),
-    };
-    const r = await sync.sync(ctx, null);
+    const r = await sync.sync(
+      syncTestContext(db, createStubVault({ "linear.api_key": "lin_api_test" })),
+      null,
+    );
     expect(r.itemsUpserted).toBe(1);
     expect(r.cursor).toContain("nimbus-lnr1:");
     expectServiceItemCount(db, "linear", 1);
+    const row = db.prepare("SELECT author_id FROM item WHERE service = 'linear' LIMIT 1").get() as
+      | { author_id: string | null }
+      | undefined;
+    expect(row?.author_id).not.toBeNull();
   });
 });

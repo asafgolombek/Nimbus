@@ -4,17 +4,27 @@ import { join } from "node:path";
 
 import type { CliPlatformPaths } from "../paths.ts";
 
-function isGatewayStateRaw(raw: unknown): raw is { pid: number; socketPath: string } {
+function isGatewayStateRaw(
+  raw: unknown,
+): raw is { pid: number; socketPath: string; logPath?: string } {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     return false;
   }
-  const o = raw as { pid?: unknown; socketPath?: unknown };
-  return typeof o.pid === "number" && Number.isFinite(o.pid) && typeof o.socketPath === "string";
+  const o = raw as { pid?: unknown; socketPath?: unknown; logPath?: unknown };
+  if (typeof o.pid !== "number" || !Number.isFinite(o.pid) || typeof o.socketPath !== "string") {
+    return false;
+  }
+  if (o.logPath !== undefined && typeof o.logPath !== "string") {
+    return false;
+  }
+  return true;
 }
 
 export type GatewayStateFile = {
   pid: number;
   socketPath: string;
+  /** Absolute path to the gateway log file for this spawn (if known). */
+  logPath?: string;
 };
 
 export function isProcessAlive(pid: number): boolean {
@@ -42,7 +52,11 @@ export async function readGatewayState(
     if (!isGatewayStateRaw(raw)) {
       return undefined;
     }
-    return { pid: raw.pid, socketPath: raw.socketPath };
+    const out: GatewayStateFile = { pid: raw.pid, socketPath: raw.socketPath };
+    if (typeof raw.logPath === "string" && raw.logPath !== "") {
+      out.logPath = raw.logPath;
+    }
+    return out;
   } catch {
     return undefined;
   }

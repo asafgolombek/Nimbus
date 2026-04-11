@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
   asRecord,
@@ -45,6 +46,14 @@ function lastModifiedFromContent(row: Record<string, unknown>): string | undefin
   return stringField(lu, "when");
 }
 
+/** User who last updated the page (when Confluence includes `by` under `history.lastUpdated`). */
+function confluenceLastUpdatedBy(row: Record<string, unknown>): Record<string, unknown> | null {
+  const hist = asRecord(row["history"]);
+  const lu = hist === undefined ? undefined : asRecord(hist["lastUpdated"]);
+  const by = lu === undefined ? undefined : asRecord(lu["by"]);
+  return by ?? null;
+}
+
 type ConfluencePagedSearchParams = {
   ctx: SyncContext;
   apiBase: string;
@@ -56,6 +65,41 @@ type ConfluencePagedSearchParams = {
   watermarkMs: number;
   t0: number;
 };
+
+function resolveConfluenceAuthorId(ctx: SyncContext, by: Record<string, unknown>): string | null {
+  const accountId = stringField(by, "accountId");
+  if (accountId === undefined || accountId === "") {
+    return null;
+  }
+  const email = stringField(by, "email");
+  const displayName = stringField(by, "displayName");
+  if (email !== undefined && email !== "" && email.includes("@")) {
+    return resolvePersonForSync(ctx.db, {
+      jiraAccountId: accountId,
+      canonicalEmail: email,
+      displayName: displayName ?? email,
+    });
+  }
+  return resolvePersonForSync(ctx.db, {
+    jiraAccountId: accountId,
+    displayName: displayName ?? accountId,
+  });
+}
+
+function confluenceWatermarkStopOrBumpMax(
+  when: string | undefined,
+  watermarkMs: number,
+  acc: { maxEdited: string },
+): boolean {
+  if (when === undefined || when === "") {
+    return false;
+  }
+  if (watermarkMs >= 0 && isoMs(when) <= watermarkMs) {
+    return true;
+  }
+  acc.maxEdited = acc.maxEdited === "" ? when : maxIso(acc.maxEdited, when);
+  return false;
+}
 
 /** @returns `true` when watermark ordering says to stop the whole sync. */
 function confluenceUpsertOneSearchHit(
@@ -81,16 +125,15 @@ function confluenceUpsertOneSearchHit(
   }
   const title = stringField(row, "title") ?? id;
   const when = lastModifiedFromContent(row);
-  if (when !== undefined && when !== "") {
-    if (opts.watermarkMs >= 0 && isoMs(when) <= opts.watermarkMs) {
-      return true;
-    }
-    acc.maxEdited = acc.maxEdited === "" ? when : maxIso(acc.maxEdited, when);
+  if (confluenceWatermarkStopOrBumpMax(when, opts.watermarkMs, acc)) {
+    return true;
   }
   const site = normalizeAtlassianSiteBaseUrl(opts.baseRaw);
   const webUi = `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
   const modified = when !== undefined && when !== "" ? isoMs(when) : opts.syncTime;
   acc.upserted += 1;
+  const by = confluenceLastUpdatedBy(row);
+  const authorId = by === null ? null : resolveConfluenceAuthorId(ctx, by);
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "page",
@@ -100,7 +143,7 @@ function confluenceUpsertOneSearchHit(
     url: webUi,
     canonicalUrl: webUi,
     modifiedAt: Number.isFinite(modified) ? modified : opts.syncTime,
-    authorId: null,
+    authorId,
     metadata: { confluencePageId: id },
     pinned: false,
     syncedAt: opts.syncTime,

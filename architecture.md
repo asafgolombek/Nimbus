@@ -850,10 +850,14 @@ CREATE INDEX idx_items_service_modified ON indexed_items(service, modified_at DE
 CREATE INDEX idx_items_name ON indexed_items(name COLLATE NOCASE);
 
 -- Vector search (sqlite-vec extension)
-CREATE VIRTUAL TABLE item_embeddings USING vec0(
-    item_id   TEXT PRIMARY KEY,
-    embedding FLOAT[1536]
+-- Table is dimension-qualified so future models can add side-by-side tables.
+-- Phase 3: vec_items_384 (float[384], all-MiniLM-L6-v2).
+-- See docs/phase-3-intelligence-plan.md §Migration 6 for the full DDL.
+CREATE VIRTUAL TABLE vec_items_384 USING vec0(
+    embedding FLOAT[384]
 );
+-- embedding_chunk table (metadata per chunk) references vec_items_384.rowid
+-- and tracks model + dims to support future multi-model expansion.
 
 -- Full audit trail
 CREATE TABLE action_log (

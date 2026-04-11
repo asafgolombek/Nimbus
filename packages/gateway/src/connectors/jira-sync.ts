@@ -1,4 +1,5 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
+import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
   asRecord,
@@ -129,7 +130,7 @@ async function jiraFetchSearchPage(p: {
     jql,
     startAt,
     maxResults: pageSize,
-    fields: ["summary", "description", "updated", "issuetype", "status"],
+    fields: ["summary", "description", "updated", "issuetype", "status", "creator"],
   });
   const res = await fetch(`${creds.baseUrl}/rest/api/3/search`, {
     method: "POST",
@@ -164,6 +165,64 @@ async function jiraFetchSearchPage(p: {
   return { issues, envelope: envelope ?? {}, text };
 }
 
+function resolveJiraIssueAuthorId(
+  ctx: SyncContext,
+  accountId: string | undefined,
+  creatorEmail: string | undefined,
+  creatorName: string | undefined,
+): string | null {
+  if (accountId === undefined || accountId === "") {
+    return null;
+  }
+  if (creatorEmail !== undefined && creatorEmail !== "") {
+    return resolvePersonForSync(ctx.db, {
+      jiraAccountId: accountId,
+      canonicalEmail: creatorEmail,
+      displayName: creatorName ?? creatorEmail,
+    });
+  }
+  return resolvePersonForSync(ctx.db, {
+    jiraAccountId: accountId,
+    displayName: creatorName ?? accountId,
+  });
+}
+
+function jiraIssueDerivedFromFields(
+  fields: Record<string, unknown> | undefined,
+  key: string,
+  syncTime: number,
+  maxUpdatedIso: { value: string },
+): {
+  summary: string;
+  modified: number;
+  bodyPrev: string;
+  accountId: string | undefined;
+  creatorEmail: string | undefined;
+  creatorName: string | undefined;
+} {
+  let summary = key;
+  if (fields !== undefined) {
+    summary = stringField(fields, "summary") ?? key;
+  }
+  const updatedRaw = fields === undefined ? undefined : stringField(fields, "updated");
+  const modified =
+    updatedRaw === undefined || updatedRaw === "" ? syncTime : Date.parse(updatedRaw);
+  if (updatedRaw !== undefined && updatedRaw !== "") {
+    maxUpdatedIso.value =
+      maxUpdatedIso.value === "" ? updatedRaw : maxIso(maxUpdatedIso.value, updatedRaw);
+  }
+  const bodyPrev = fields === undefined ? "" : descriptionPreview(fields);
+  const creator = fields === undefined ? undefined : asRecord(fields["creator"]);
+  return {
+    summary,
+    modified,
+    bodyPrev,
+    accountId: creator === undefined ? undefined : stringField(creator, "accountId"),
+    creatorEmail: creator === undefined ? undefined : stringField(creator, "emailAddress"),
+    creatorName: creator === undefined ? undefined : stringField(creator, "displayName"),
+  };
+}
+
 function jiraIndexOneIssue(p: {
   ctx: SyncContext;
   issue: Record<string, unknown>;
@@ -178,29 +237,19 @@ function jiraIndexOneIssue(p: {
     return false;
   }
   const fields = asRecord(row["fields"]);
-  let summary = key;
-  if (fields !== undefined) {
-    summary = stringField(fields, "summary") ?? key;
-  }
-  const updatedRaw = fields === undefined ? undefined : stringField(fields, "updated");
-  const modified =
-    updatedRaw === undefined || updatedRaw === "" ? syncTime : Date.parse(updatedRaw);
-  if (updatedRaw !== undefined && updatedRaw !== "") {
-    maxUpdatedIso.value =
-      maxUpdatedIso.value === "" ? updatedRaw : maxIso(maxUpdatedIso.value, updatedRaw);
-  }
-  const bodyPrev = fields === undefined ? "" : descriptionPreview(fields);
+  const d = jiraIssueDerivedFromFields(fields, key, syncTime, maxUpdatedIso);
   const browseUrl = `${baseUrl}/browse/${key}`;
+  const authorId = resolveJiraIssueAuthorId(ctx, d.accountId, d.creatorEmail, d.creatorName);
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "issue",
     externalId: key,
-    title: summary.length > 512 ? summary.slice(0, 512) : summary,
-    bodyPreview: bodyPrev.slice(0, 512),
+    title: d.summary.length > 512 ? d.summary.slice(0, 512) : d.summary,
+    bodyPreview: d.bodyPrev.slice(0, 512),
     url: browseUrl,
     canonicalUrl: browseUrl,
-    modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-    authorId: null,
+    modifiedAt: Number.isFinite(d.modified) ? d.modified : syncTime,
+    authorId,
     metadata: { jiraId: id ?? key, key },
     pinned: false,
     syncedAt: syncTime,

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
-
+import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
+import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import {
@@ -14,6 +15,16 @@ CREATE TABLE IF NOT EXISTS _schema_migrations (
   applied_at INTEGER NOT NULL
 );
 `;
+
+function personTableHasLinkedColumn(db: Database): boolean {
+  const rows = db.query("PRAGMA table_info(person)").all() as Array<{ name: string }>;
+  return rows.some((r) => r.name === "linked");
+}
+
+function personTableHasColumn(db: Database, columnName: string): boolean {
+  const rows = db.query("PRAGMA table_info(person)").all() as Array<{ name: string }>;
+  return rows.some((r) => r.name === columnName);
+}
 
 function readUserVersion(db: Database): number {
   const row = db.query("PRAGMA user_version").get() as { user_version: number } | undefined;
@@ -53,6 +64,12 @@ function backfillMigrationsLedger(db: Database): void {
     }
     if (uv >= 3) {
       recordMigration(db, 3, "unified item + item_fts + person (backfilled)", now);
+    }
+    if (uv >= 4) {
+      recordMigration(db, 4, "person.linked (backfilled)", now);
+    }
+    if (uv >= 5) {
+      recordMigration(db, 5, "person extra handles (backfilled)", now);
     }
   })();
 }
@@ -96,6 +113,29 @@ export function runIndexedSchemaMigrations(db: Database, targetVersion: number):
       recordMigration(db, 3, "unified item + item_fts + person", now);
     })();
     ver = 3;
+  }
+  if (ver === 3 && targetVersion >= 4) {
+    db.transaction(() => {
+      if (!personTableHasLinkedColumn(db)) {
+        db.exec(PERSON_LINKED_V4_ALTER_SQL.trim());
+      }
+      db.run(
+        `UPDATE person SET linked = 0 WHERE canonical_email IS NULL OR trim(canonical_email) = ''`,
+      );
+      db.exec("PRAGMA user_version = 4");
+      recordMigration(db, 4, "person.linked column", now);
+    })();
+    ver = 4;
+  }
+  if (ver === 4 && targetVersion >= 5) {
+    db.transaction(() => {
+      if (!personTableHasColumn(db, "bitbucket_uuid")) {
+        db.exec(PERSON_HANDLES_V5_ALTER_SQL.trim());
+      }
+      db.exec("PRAGMA user_version = 5");
+      recordMigration(db, 5, "person bitbucket_uuid + microsoft_user_id + discord_user_id", now);
+    })();
+    ver = 5;
   }
 
   if (ver !== targetVersion) {

@@ -1,5 +1,9 @@
 import { Config } from "../config.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import {
+  GOOGLE_OAUTH_CLIENT_ID_HELP,
+  MICROSOFT_OAUTH_CLIENT_ID_HELP,
+} from "./oauth-env-help-messages.ts";
 import { refreshAccessToken } from "./pkce.ts";
 
 export type StoredOAuthTokens = {
@@ -94,7 +98,7 @@ export function googleOAuthAccessFromConfig(): {
       missingExpiry: "Missing token expiry",
     },
     getClientId: () => Config.oauthGoogleClientId,
-    emptyClientIdError: "Set NIMBUS_OAUTH_GOOGLE_CLIENT_ID for token refresh",
+    emptyClientIdError: GOOGLE_OAUTH_CLIENT_ID_HELP,
     provider: "google",
   };
 }
@@ -119,7 +123,39 @@ export function microsoftOAuthAccessFromConfig(): {
       missingExpiry: "Missing token expiry",
     },
     getClientId: () => Config.oauthMicrosoftClientId,
-    emptyClientIdError: "Set NIMBUS_OAUTH_MICROSOFT_CLIENT_ID for token refresh",
+    emptyClientIdError: MICROSOFT_OAUTH_CLIENT_ID_HELP,
     provider: "microsoft",
   };
+}
+
+/**
+ * Space-separated Graph delegated scopes from `microsoft.oauth` for `MICROSOFT_OAUTH_SCOPES`
+ * (Outlook MCP registers only tools satisfied by these scopes). Returns `undefined` when
+ * the vault payload has no non-empty `scopes` array — Outlook keeps full tool surface.
+ */
+export async function readMicrosoftOAuthScopesForOutlookEnv(
+  vault: NimbusVault,
+): Promise<string | undefined> {
+  const raw = await vault.get("microsoft.oauth");
+  if (raw === null || raw === "") {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const scopes = (parsed as Record<string, unknown>)["scopes"];
+  if (!Array.isArray(scopes) || scopes.length === 0) {
+    return undefined;
+  }
+  const strings = scopes.filter((s): s is string => typeof s === "string" && s.trim() !== "");
+  if (strings.length === 0) {
+    return undefined;
+  }
+  return strings.join(" ");
 }
