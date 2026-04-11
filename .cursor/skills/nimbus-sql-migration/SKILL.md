@@ -27,7 +27,9 @@ description: >-
 
 ## Vectors (sqlite-vec)
 
-- Embeddings roadmap uses `sqlite-vec` with fixed dimensions (e.g. float[1536]); follow existing types and migration style when that subsystem lands.
+- Embeddings use `sqlite-vec` with **dimension-qualified table names**: `vec_items_384` (float[384], `all-MiniLM-L6-v2` local model, Phase 3). Future model tables (`vec_items_1536` for OpenAI 1536-dim) are added alongside, not replacing.
+- `embedding_chunk` table tracks `model TEXT` and `dims INTEGER` per row — always filter by `model` when querying a specific vector table.
+- Migration 6 creates `vec_items_384` and `embedding_chunk`. Do not reuse `vec_items` as a name — the `_384` suffix is load-bearing for future multi-model support.
 
 ## Verification
 

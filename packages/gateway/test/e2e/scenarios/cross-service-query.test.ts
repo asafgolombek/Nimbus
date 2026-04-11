@@ -16,6 +16,21 @@ function openIndex(): LocalIndex {
   return new LocalIndex(db);
 }
 
+function indexedItemTypeForService(
+  svc: "google_drive" | "github" | "slack" | "linear",
+): "file" | "pr" | "message" | "issue" {
+  if (svc === "github") {
+    return "pr";
+  }
+  if (svc === "slack") {
+    return "message";
+  }
+  if (svc === "linear") {
+    return "issue";
+  }
+  return "file";
+}
+
 describe("cross-service query (local index)", () => {
   test("FTS + ranking returns items from multiple services; median latency under CI budget", () => {
     const idx = openIndex();
@@ -26,14 +41,7 @@ describe("cross-service query (local index)", () => {
       const svc = services[i];
       upsertIndexedItem(db, {
         service: svc,
-        type:
-          svc === "github"
-            ? "pr"
-            : svc === "slack"
-              ? "message"
-              : svc === "linear"
-                ? "issue"
-                : "file",
+        type: indexedItemTypeForService(svc),
         externalId: `x${String(i)}`,
         title: `Sprint payment-service touchpoint ${String(i)}`,
         bodyPreview: `work touched this sprint across ${svc}`,

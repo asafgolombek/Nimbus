@@ -62,7 +62,10 @@ describe("audit payload safety (§7.8)", () => {
       type: "file.move",
       payload: {
         mcpToolId: "filesystem_move_file",
-        input: { source: "/tmp/a.txt", destination: "/tmp/b.txt" },
+        input: {
+          source: "/opt/nimbus/audit-fixture/a.txt",
+          destination: "/opt/nimbus/audit-fixture/b.txt",
+        },
       },
     });
     expect(auditCalls.length).toBe(1);

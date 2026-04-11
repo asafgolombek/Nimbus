@@ -233,7 +233,7 @@ Three converging forces make this the right moment for Nimbus:
 
 ## The Roadmap to Sovereignty
 
-The work of reclaiming agency is not completed in a single quarter. It is a multi-year structural shift. Our roadmap reflects this progression from a foundational index to a fully autonomous, sovereign mesh.
+The work of reclaiming agency is not completed in a single phase. It is a multi-year structural shift. Our roadmap reflects this progression from a foundational index to a fully autonomous, sovereign mesh.
 
 ### Phase 1 — Foundation ✅
 * **The Unified Local Index:** SQLite FTS5 index for metadata across the filesystem.

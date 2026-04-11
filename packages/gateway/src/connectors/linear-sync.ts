@@ -141,6 +141,48 @@ function resolveLinearIssueAuthorId(
   return null;
 }
 
+function linearUpsertSingleIssue(
+  ctx: SyncContext,
+  row: Record<string, unknown>,
+  syncTime: number,
+  maxUpdatedIn: string,
+): { count: number; maxUpdated: string } {
+  const id = stringField(row, "id");
+  const identifier = stringField(row, "identifier");
+  if (id === undefined || identifier === undefined) {
+    return { count: 0, maxUpdated: maxUpdatedIn };
+  }
+  const title = stringField(row, "title") ?? identifier;
+  const desc = stringField(row, "description");
+  const updatedAt = stringField(row, "updatedAt");
+  const url = stringField(row, "url");
+  const modified = updatedAt === undefined || updatedAt === "" ? syncTime : Date.parse(updatedAt);
+  let maxUpdated = maxUpdatedIn;
+  if (updatedAt !== undefined && updatedAt !== "") {
+    maxUpdated = maxIso(maxUpdated, updatedAt);
+  }
+  const creator = asRecord(row["creator"]);
+  const creatorId = creator === undefined ? undefined : stringField(creator, "id");
+  const creatorEmail = creator === undefined ? undefined : stringField(creator, "email");
+  const creatorName = creator === undefined ? undefined : stringField(creator, "name");
+  const authorId = resolveLinearIssueAuthorId(ctx, creatorEmail, creatorId, creatorName);
+  upsertIndexedItem(ctx.db, {
+    service: SERVICE_ID,
+    type: "issue",
+    externalId: identifier,
+    title: title.length > 512 ? title.slice(0, 512) : title,
+    bodyPreview: (desc ?? "").slice(0, 512),
+    url: url ?? null,
+    canonicalUrl: url ?? null,
+    modifiedAt: Number.isFinite(modified) ? modified : syncTime,
+    authorId,
+    metadata: { linearId: id, identifier },
+    pinned: false,
+    syncedAt: syncTime,
+  });
+  return { count: 1, maxUpdated };
+}
+
 function linearUpsertIssueNodes(
   ctx: SyncContext,
   nodes: ReadonlyArray<Record<string, unknown>>,
@@ -154,39 +196,9 @@ function linearUpsertIssueNodes(
     if (row === undefined) {
       continue;
     }
-    const id = stringField(row, "id");
-    const identifier = stringField(row, "identifier");
-    if (id === undefined || identifier === undefined) {
-      continue;
-    }
-    const title = stringField(row, "title") ?? identifier;
-    const desc = stringField(row, "description");
-    const updatedAt = stringField(row, "updatedAt");
-    const url = stringField(row, "url");
-    const modified = updatedAt === undefined || updatedAt === "" ? syncTime : Date.parse(updatedAt);
-    if (updatedAt !== undefined && updatedAt !== "") {
-      maxUpdated = maxIso(maxUpdated, updatedAt);
-    }
-    count += 1;
-    const creator = asRecord(row["creator"]);
-    const creatorId = creator === undefined ? undefined : stringField(creator, "id");
-    const creatorEmail = creator === undefined ? undefined : stringField(creator, "email");
-    const creatorName = creator === undefined ? undefined : stringField(creator, "name");
-    const authorId = resolveLinearIssueAuthorId(ctx, creatorEmail, creatorId, creatorName);
-    upsertIndexedItem(ctx.db, {
-      service: SERVICE_ID,
-      type: "issue",
-      externalId: identifier,
-      title: title.length > 512 ? title.slice(0, 512) : title,
-      bodyPreview: (desc ?? "").slice(0, 512),
-      url: url ?? null,
-      canonicalUrl: url ?? null,
-      modifiedAt: Number.isFinite(modified) ? modified : syncTime,
-      authorId,
-      metadata: { linearId: id, identifier },
-      pinned: false,
-      syncedAt: syncTime,
-    });
+    const r = linearUpsertSingleIssue(ctx, row, syncTime, maxUpdated);
+    count += r.count;
+    maxUpdated = r.maxUpdated;
   }
   return { count, maxUpdated };
 }

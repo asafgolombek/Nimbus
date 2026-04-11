@@ -6,7 +6,7 @@ Before writing any code, read the documents that define what Nimbus is and what 
 
 - [`architecture.md`](./architecture.md) — subsystem contracts, package dependency rules, and the data flow
 - [`docs/mission.md`](./docs/mission.md) — the principles behind every design decision
-- [`docs/roadmap.md`](./docs/roadmap.md) — quarterly scope, acceptance criteria, and inter-quarter dependencies
+- [`docs/roadmap.md`](./docs/roadmap.md) — phase themes, acceptance criteria, and inter-phase dependencies
 
 ---
 

@@ -156,7 +156,7 @@ mcp-connectors/*  ← depend on @nimbus-dev/sdk only
 | Phase 8 | Sovereign Mesh — P2P sync, mobile companion, hardware vault, DIDs, Digital Executor | Planned |
 | Phase 9 | Enterprise — Docker/Helm, SIEM, compliance, SCIM, admin console, security audit, SLA | Planned |
 
-When implementing, focus only on the current quarter. Do not add Q(n+1) features in Q(n) code.
+When implementing, focus only on the current phase. Do not add Phase N+1 features in Phase N code.
 
 ---
 

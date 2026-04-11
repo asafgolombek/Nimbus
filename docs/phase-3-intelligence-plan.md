@@ -1285,6 +1285,7 @@ These gate Phase 3 completion. All must pass before Phase 3 is marked complete.
 - [ ] `bun audit --audit-level high` passes clean; no HIGH/CRITICAL CVEs in any Phase 3 package
 - [ ] All Phase 3 write actions appear in `HITL_REQUIRED` and are exercised by `hitl-write-ops.e2e.test.ts`
 - [ ] The three-platform CI matrix (Ubuntu / macOS / Windows) is green for all Phase 3 tests; `sqlite-vec` loads correctly on all three runners
+- [ ] `scripts/package-headless-bundle.ts` includes the `all-MiniLM-L6-v2` model files (~22 MB); a freshly-installed headless bundle embeds a document without network access
 
 ---
 

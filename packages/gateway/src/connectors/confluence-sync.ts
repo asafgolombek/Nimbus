@@ -66,6 +66,41 @@ type ConfluencePagedSearchParams = {
   t0: number;
 };
 
+function resolveConfluenceAuthorId(ctx: SyncContext, by: Record<string, unknown>): string | null {
+  const accountId = stringField(by, "accountId");
+  if (accountId === undefined || accountId === "") {
+    return null;
+  }
+  const email = stringField(by, "email");
+  const displayName = stringField(by, "displayName");
+  if (email !== undefined && email !== "" && email.includes("@")) {
+    return resolvePersonForSync(ctx.db, {
+      jiraAccountId: accountId,
+      canonicalEmail: email,
+      displayName: displayName ?? email,
+    });
+  }
+  return resolvePersonForSync(ctx.db, {
+    jiraAccountId: accountId,
+    displayName: displayName ?? accountId,
+  });
+}
+
+function confluenceWatermarkStopOrBumpMax(
+  when: string | undefined,
+  watermarkMs: number,
+  acc: { maxEdited: string },
+): boolean {
+  if (when === undefined || when === "") {
+    return false;
+  }
+  if (watermarkMs >= 0 && isoMs(when) <= watermarkMs) {
+    return true;
+  }
+  acc.maxEdited = acc.maxEdited === "" ? when : maxIso(acc.maxEdited, when);
+  return false;
+}
+
 /** @returns `true` when watermark ordering says to stop the whole sync. */
 function confluenceUpsertOneSearchHit(
   ctx: SyncContext,
@@ -90,37 +125,15 @@ function confluenceUpsertOneSearchHit(
   }
   const title = stringField(row, "title") ?? id;
   const when = lastModifiedFromContent(row);
-  if (when !== undefined && when !== "") {
-    if (opts.watermarkMs >= 0 && isoMs(when) <= opts.watermarkMs) {
-      return true;
-    }
-    acc.maxEdited = acc.maxEdited === "" ? when : maxIso(acc.maxEdited, when);
+  if (confluenceWatermarkStopOrBumpMax(when, opts.watermarkMs, acc)) {
+    return true;
   }
   const site = normalizeAtlassianSiteBaseUrl(opts.baseRaw);
   const webUi = `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
   const modified = when !== undefined && when !== "" ? isoMs(when) : opts.syncTime;
   acc.upserted += 1;
   const by = confluenceLastUpdatedBy(row);
-  let authorId: string | null = null;
-  if (by !== null) {
-    const accountId = stringField(by, "accountId");
-    const email = stringField(by, "email");
-    const displayName = stringField(by, "displayName");
-    if (accountId !== undefined && accountId !== "") {
-      if (email !== undefined && email !== "" && email.includes("@")) {
-        authorId = resolvePersonForSync(ctx.db, {
-          jiraAccountId: accountId,
-          canonicalEmail: email,
-          displayName: displayName ?? email,
-        });
-      } else {
-        authorId = resolvePersonForSync(ctx.db, {
-          jiraAccountId: accountId,
-          displayName: displayName ?? accountId,
-        });
-      }
-    }
-  }
+  const authorId = by === null ? null : resolveConfluenceAuthorId(ctx, by);
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: "page",

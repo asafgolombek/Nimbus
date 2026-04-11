@@ -1,3 +1,5 @@
+import type { Database } from "bun:sqlite";
+
 import type { LocalIndex } from "../index/local-index.ts";
 import { mergePeople } from "../people/linker.ts";
 import {
@@ -67,6 +69,88 @@ function personToJson(p: PersonRecord, itemCount: number): Record<string, unknow
   };
 }
 
+type Hit = { kind: "hit"; value: unknown };
+
+function rpcPeopleGet(rec: Record<string, unknown> | undefined, db: Database): Hit {
+  const id = requireString(rec, "id");
+  const p = getPersonById(db, id);
+  if (p === null) {
+    return { kind: "hit", value: null };
+  }
+  return { kind: "hit", value: personToJson(p, countItemsByAuthor(db, id)) };
+}
+
+function rpcPeopleList(rec: Record<string, unknown> | undefined, db: Database): Hit {
+  const limit = optionalLimit(rec, "limit", 100);
+  const unlinkedOnly = rec?.["unlinkedOnly"] === true;
+  const rows = listPersons(db, { unlinkedOnly, limit });
+  return {
+    kind: "hit",
+    value: rows.map((p) => personToJson(p, countItemsByAuthor(db, p.id))),
+  };
+}
+
+function rpcPeopleUnlinked(rec: Record<string, unknown> | undefined, db: Database): Hit {
+  const limit = optionalLimit(rec, "limit", 100);
+  const rows = listPersons(db, { unlinkedOnly: true, limit });
+  return {
+    kind: "hit",
+    value: rows.map((p) => personToJson(p, countItemsByAuthor(db, p.id))),
+  };
+}
+
+function rpcPeopleSearch(rec: Record<string, unknown> | undefined, db: Database): Hit {
+  const q = rec !== undefined && typeof rec["query"] === "string" ? rec["query"] : "";
+  const limit = optionalLimit(rec, "limit", 25);
+  const rows = searchPersons(db, q, limit);
+  return {
+    kind: "hit",
+    value: rows.map((p) => personToJson(p, countItemsByAuthor(db, p.id))),
+  };
+}
+
+function rpcPeopleItems(
+  rec: Record<string, unknown> | undefined,
+  db: Database,
+  localIndex: LocalIndex,
+): Hit {
+  const personId = requireString(rec, "personId");
+  const limit = optionalLimit(rec, "limit", 50);
+  if (getPersonById(db, personId) === null) {
+    throw new PeopleRpcError(-32602, "Unknown person id");
+  }
+  const items = localIndex.listItemsForAuthor(personId, limit);
+  return { kind: "hit", value: items };
+}
+
+function rpcPeopleMerge(rec: Record<string, unknown> | undefined, db: Database): Hit {
+  const a = requireString(rec, "personIdA");
+  const b = requireString(rec, "personIdB");
+  try {
+    const survivor = mergePeople(db, a, b);
+    const p = getPersonById(db, survivor);
+    if (p === null) {
+      throw new PeopleRpcError(-32603, "mergePeople: survivor missing");
+    }
+    return {
+      kind: "hit",
+      value: {
+        survivorId: survivor,
+        person: personToJson(p, countItemsByAuthor(db, survivor)),
+      },
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("conflicting canonical emails")) {
+      throw new PeopleRpcError(-32602, msg);
+    }
+    if (msg.includes("unknown person id")) {
+      throw new PeopleRpcError(-32602, msg);
+    }
+    throw new PeopleRpcError(-32603, msg);
+  }
+}
+
 export function dispatchPeopleRpc(options: {
   method: string;
   params: unknown;
@@ -77,76 +161,18 @@ export function dispatchPeopleRpc(options: {
   const db = localIndex.getDatabase();
 
   switch (method) {
-    case "people.get": {
-      const id = requireString(rec, "id");
-      const p = getPersonById(db, id);
-      if (p === null) {
-        return { kind: "hit", value: null };
-      }
-      return { kind: "hit", value: personToJson(p, countItemsByAuthor(db, id)) };
-    }
-    case "people.list": {
-      const limit = optionalLimit(rec, "limit", 100);
-      const unlinkedOnly = rec?.["unlinkedOnly"] === true;
-      const rows = listPersons(db, { unlinkedOnly, limit });
-      return {
-        kind: "hit",
-        value: rows.map((p) => personToJson(p, countItemsByAuthor(db, p.id))),
-      };
-    }
-    case "people.unlinked": {
-      const limit = optionalLimit(rec, "limit", 100);
-      const rows = listPersons(db, { unlinkedOnly: true, limit });
-      return {
-        kind: "hit",
-        value: rows.map((p) => personToJson(p, countItemsByAuthor(db, p.id))),
-      };
-    }
-    case "people.search": {
-      const q = rec !== undefined && typeof rec["query"] === "string" ? rec["query"] : "";
-      const limit = optionalLimit(rec, "limit", 25);
-      const rows = searchPersons(db, q, limit);
-      return {
-        kind: "hit",
-        value: rows.map((p) => personToJson(p, countItemsByAuthor(db, p.id))),
-      };
-    }
-    case "people.items": {
-      const personId = requireString(rec, "personId");
-      const limit = optionalLimit(rec, "limit", 50);
-      if (getPersonById(db, personId) === null) {
-        throw new PeopleRpcError(-32602, "Unknown person id");
-      }
-      const items = localIndex.listItemsForAuthor(personId, limit);
-      return { kind: "hit", value: items };
-    }
-    case "people.merge": {
-      const a = requireString(rec, "personIdA");
-      const b = requireString(rec, "personIdB");
-      try {
-        const survivor = mergePeople(db, a, b);
-        const p = getPersonById(db, survivor);
-        if (p === null) {
-          throw new PeopleRpcError(-32603, "mergePeople: survivor missing");
-        }
-        return {
-          kind: "hit",
-          value: {
-            survivorId: survivor,
-            person: personToJson(p, countItemsByAuthor(db, survivor)),
-          },
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg.includes("conflicting canonical emails")) {
-          throw new PeopleRpcError(-32602, msg);
-        }
-        if (msg.includes("unknown person id")) {
-          throw new PeopleRpcError(-32602, msg);
-        }
-        throw new PeopleRpcError(-32603, msg);
-      }
-    }
+    case "people.get":
+      return rpcPeopleGet(rec, db);
+    case "people.list":
+      return rpcPeopleList(rec, db);
+    case "people.unlinked":
+      return rpcPeopleUnlinked(rec, db);
+    case "people.search":
+      return rpcPeopleSearch(rec, db);
+    case "people.items":
+      return rpcPeopleItems(rec, db, localIndex);
+    case "people.merge":
+      return rpcPeopleMerge(rec, db);
     default:
       return { kind: "miss" };
   }

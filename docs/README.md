@@ -232,8 +232,8 @@ Script: weekly-cleanup (4 steps)
 
   Step 1  Find PDFs not opened in 90 days       READ — no approval needed
   Step 2  Summarize by project folder            READ — no approval needed
-  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL at runtime
-  Step 4  Send summary email                     ⚠ REQUIRES APPROVAL at runtime
+  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL — calls gdrive_file_move (restricted: gdrive.file.move)
+  Step 4  Send summary email                     ⚠ REQUIRES APPROVAL — calls gmail_send (restricted: gmail.message.send)
 
 Proceed? [y/n]: y
 

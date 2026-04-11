@@ -3,6 +3,18 @@
  * Used when gateway.json is missing or `rename`/`overwrite` of dist/nimbus-gateway fails on Windows.
  */
 import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+
+function windowsTaskkillExe(): string {
+  const root = process.env.SystemRoot ?? "C:\\Windows";
+  return join(root, "System32", "taskkill.exe");
+}
+
+function unixKillallExe(): string {
+  return process.platform === "darwin" ? "/usr/sbin/killall" : "/usr/bin/killall";
+}
+
+const UNIX_PKILL = "/usr/bin/pkill";
 
 export type TerminateGatewayBinaryResult = {
   ran: boolean;
@@ -11,7 +23,7 @@ export type TerminateGatewayBinaryResult = {
 
 export function terminateCompiledGatewayBinary(): TerminateGatewayBinaryResult {
   if (process.platform === "win32") {
-    const r = spawnSync("taskkill", ["/F", "/IM", "nimbus-gateway.exe", "/T"], {
+    const r = spawnSync(windowsTaskkillExe(), ["/F", "/IM", "nimbus-gateway.exe", "/T"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -31,7 +43,7 @@ export function terminateCompiledGatewayBinary(): TerminateGatewayBinaryResult {
     };
   }
 
-  let r = spawnSync("killall", ["nimbus-gateway"], { stdio: "ignore" });
+  let r = spawnSync(unixKillallExe(), ["nimbus-gateway"], { stdio: "ignore" });
   const killallErr = r.error;
   if (
     killallErr !== undefined &&
@@ -40,7 +52,7 @@ export function terminateCompiledGatewayBinary(): TerminateGatewayBinaryResult {
     "code" in killallErr &&
     killallErr.code === "ENOENT"
   ) {
-    r = spawnSync("pkill", ["-x", "nimbus-gateway"], { stdio: "ignore" });
+    r = spawnSync(UNIX_PKILL, ["-x", "nimbus-gateway"], { stdio: "ignore" });
   }
   if (r.status === 0) {
     return { ran: true, message: "Sent signal to nimbus-gateway process(es)." };

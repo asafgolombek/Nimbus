@@ -16,6 +16,10 @@ import { join, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dir, "..");
 
+/** Absolute paths avoid PATH hijack (Sonar S4036); script targets Debian/Ubuntu packagers. */
+const TAR_BIN = "/usr/bin/tar";
+const DPKG_DEB_BIN = "/usr/bin/dpkg-deb";
+
 function parseArg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
   if (i >= 0 && process.argv[i + 1] !== undefined) {
@@ -70,7 +74,7 @@ writeFileSync(
 
 const tgzName = `nimbus-headless-linux-amd64-v${version}.tar.gz`;
 const tgzPath = join(outRoot, tgzName);
-const tar = spawnSync("tar", ["-czf", tgzPath, "-C", tarStage, "bin", "README.txt"], {
+const tar = spawnSync(TAR_BIN, ["-czf", tgzPath, "-C", tarStage, "bin", "README.txt"], {
   stdio: "inherit",
   cwd: repoRoot,
 });
@@ -117,7 +121,7 @@ writeFileSync(
 );
 
 const debPath = join(outRoot, debName);
-const dpkg = spawnSync("dpkg-deb", ["--build", "--root-owner-group", debRoot, debPath], {
+const dpkg = spawnSync(DPKG_DEB_BIN, ["--build", "--root-owner-group", debRoot, debPath], {
   stdio: "inherit",
   cwd: repoRoot,
 });
