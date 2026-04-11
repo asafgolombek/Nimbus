@@ -366,6 +366,79 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return connectorRpcSkipped;
   }
 
+  function rpcGatewayPing(): unknown {
+    const extra = options.getEmbeddingStatus?.() ?? {};
+    return {
+      version: options.version,
+      uptime: Date.now() - startedAtMs,
+      ...extra,
+    };
+  }
+
+  async function rpcIndexSearchRanked(params: unknown): Promise<unknown> {
+    if (options.localIndex === undefined) {
+      throw new RpcMethodError(-32603, "Local index is not available");
+    }
+    const rec = asRecord(params);
+    if (rec === undefined) {
+      throw new RpcMethodError(-32602, "Invalid params");
+    }
+    const name = typeof rec["name"] === "string" ? rec["name"] : "";
+    const service = typeof rec["service"] === "string" ? rec["service"] : undefined;
+    const itemType = typeof rec["itemType"] === "string" ? rec["itemType"] : undefined;
+    const limit =
+      typeof rec["limit"] === "number" && Number.isFinite(rec["limit"])
+        ? Math.min(500, Math.max(1, Math.floor(rec["limit"])))
+        : 20;
+    const semantic = rec["semantic"] !== false;
+    const contextChunks =
+      typeof rec["contextChunks"] === "number" && Number.isFinite(rec["contextChunks"])
+        ? Math.min(8, Math.max(0, Math.floor(rec["contextChunks"])))
+        : 2;
+    const query: IndexSearchQuery = { limit };
+    if (name !== "") {
+      query.name = name;
+    }
+    if (service !== undefined) {
+      query.service = service;
+    }
+    if (itemType !== undefined) {
+      query.itemType = itemType;
+    }
+    return await options.localIndex.searchRankedAsync(query, {
+      semantic,
+      contextChunks,
+    });
+  }
+
+  function rpcConsentRespond(clientId: string, params: unknown): unknown {
+    const err = consentImpl.handleRespond(clientId, params);
+    if (err !== null) {
+      throw new RpcMethodError(err.code, err.message);
+    }
+    return { ok: true };
+  }
+
+  function rpcAuditList(params: unknown): unknown {
+    const rec = asRecord(params);
+    let limit = 100;
+    if (rec !== undefined && typeof rec["limit"] === "number" && Number.isFinite(rec["limit"])) {
+      limit = Math.min(1000, Math.max(1, Math.floor(rec["limit"])));
+    }
+    if (options.localIndex === undefined) {
+      return [];
+    }
+    return options.localIndex.listAudit(limit);
+  }
+
+  async function rpcVaultOrMethodNotFound(method: string, params: unknown): Promise<unknown> {
+    const vaultOutcome = await dispatchVaultIfPresent(options.vault, method, params);
+    if (vaultOutcome.kind === "hit") {
+      return vaultOutcome.value;
+    }
+    throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
+
   async function dispatchMethod(
     clientId: string,
     session: ClientSession,
@@ -385,85 +458,23 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     }
 
     switch (method) {
-      case "gateway.ping": {
-        const extra = options.getEmbeddingStatus?.() ?? {};
-        return {
-          version: options.version,
-          uptime: Date.now() - startedAtMs,
-          ...extra,
-        };
-      }
+      case "gateway.ping":
+        return rpcGatewayPing();
 
-      case "index.searchRanked": {
-        if (options.localIndex === undefined) {
-          throw new RpcMethodError(-32603, "Local index is not available");
-        }
-        const rec = asRecord(params);
-        if (rec === undefined) {
-          throw new RpcMethodError(-32602, "Invalid params");
-        }
-        const name = typeof rec["name"] === "string" ? rec["name"] : "";
-        const service = typeof rec["service"] === "string" ? rec["service"] : undefined;
-        const itemType = typeof rec["itemType"] === "string" ? rec["itemType"] : undefined;
-        const limit =
-          typeof rec["limit"] === "number" && Number.isFinite(rec["limit"])
-            ? Math.min(500, Math.max(1, Math.floor(rec["limit"])))
-            : 20;
-        const semantic = rec["semantic"] !== false;
-        const contextChunks =
-          typeof rec["contextChunks"] === "number" && Number.isFinite(rec["contextChunks"])
-            ? Math.min(8, Math.max(0, Math.floor(rec["contextChunks"])))
-            : 2;
-        const query: IndexSearchQuery = { limit };
-        if (name !== "") {
-          query.name = name;
-        }
-        if (service !== undefined) {
-          query.service = service;
-        }
-        if (itemType !== undefined) {
-          query.itemType = itemType;
-        }
-        return await options.localIndex.searchRankedAsync(query, {
-          semantic,
-          contextChunks,
-        });
-      }
+      case "index.searchRanked":
+        return await rpcIndexSearchRanked(params);
 
       case "agent.invoke":
         return await dispatchAgentInvoke(clientId, session, params);
 
-      case "consent.respond": {
-        const err = consentImpl.handleRespond(clientId, params);
-        if (err !== null) {
-          throw new RpcMethodError(err.code, err.message);
-        }
-        return { ok: true };
-      }
+      case "consent.respond":
+        return rpcConsentRespond(clientId, params);
 
-      case "audit.list": {
-        const rec = asRecord(params);
-        let limit = 100;
-        if (
-          rec !== undefined &&
-          typeof rec["limit"] === "number" &&
-          Number.isFinite(rec["limit"])
-        ) {
-          limit = Math.min(1000, Math.max(1, Math.floor(rec["limit"])));
-        }
-        if (options.localIndex === undefined) {
-          return [];
-        }
-        return options.localIndex.listAudit(limit);
-      }
+      case "audit.list":
+        return rpcAuditList(params);
 
-      default: {
-        const vaultOutcome = await dispatchVaultIfPresent(options.vault, method, params);
-        if (vaultOutcome.kind === "hit") {
-          return vaultOutcome.value;
-        }
-        throw new RpcMethodError(-32601, `Method not found: ${method}`);
-      }
+      default:
+        return await rpcVaultOrMethodNotFound(method, params);
     }
   }
 

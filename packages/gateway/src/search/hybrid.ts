@@ -62,8 +62,10 @@ export async function hybridSearch(
   const semantic = opts.semantic ?? true;
   const contextN = Math.min(8, Math.max(0, Math.floor(opts.contextChunks ?? 2)));
 
-  const serviceFilter =
-    opts.service !== undefined && opts.service !== "" ? opts.service : undefined;
+  let serviceFilter: string | undefined;
+  if (opts.service !== undefined && opts.service !== "") {
+    serviceFilter = opts.service;
+  }
 
   const fts = ftsMatchQuery(nameQ);
   const useFts = nameQ.length > 0 && fts !== "";
@@ -114,22 +116,37 @@ export async function hybridSearch(
 
   let vecHitsRaw: ReturnType<typeof vectorSearchChunks> = [];
   if (semantic && opts.queryEmbedding !== undefined && nameQ.length > 0) {
-    vecHitsRaw = vectorSearchChunks(db, {
+    const vecOpts: {
+      queryEmbedding: Float32Array;
+      model: string;
+      limit: number;
+      service?: string;
+      itemType?: string;
+      since?: number;
+    } = {
       queryEmbedding: opts.queryEmbedding,
       model: opts.embeddingModel,
       limit: Math.min(500, limit * 25),
-      ...(serviceFilter !== undefined ? { service: serviceFilter } : {}),
-      ...(opts.itemType !== undefined && opts.itemType !== "" ? { itemType: opts.itemType } : {}),
-      ...(opts.since !== undefined && opts.since > 0 ? { since: opts.since } : {}),
-    });
+    };
+    if (serviceFilter !== undefined) {
+      vecOpts.service = serviceFilter;
+    }
+    if (opts.itemType !== undefined && opts.itemType !== "") {
+      vecOpts.itemType = opts.itemType;
+    }
+    if (opts.since !== undefined && opts.since > 0) {
+      vecOpts.since = opts.since;
+    }
+    vecHitsRaw = vectorSearchChunks(db, vecOpts);
   }
 
   const vecBestRank = bestVectorRanksByItem(vecHitsRaw);
   const winningChunkByItem = new Map<string, (typeof vecHitsRaw)[0]>();
   for (const h of vecHitsRaw) {
-    if (!winningChunkByItem.has(h.itemId)) {
-      winningChunkByItem.set(h.itemId, h);
+    if (winningChunkByItem.has(h.itemId)) {
+      continue;
     }
+    winningChunkByItem.set(h.itemId, h);
   }
 
   const itemIds = new Set<string>();
@@ -144,40 +161,41 @@ export async function hybridSearch(
   for (const id of itemIds) {
     const rb = bm25RankById.get(id);
     const rv = vecBestRank.get(id);
-    const rrfB = rb !== undefined ? wB * rrfTerm(rb, k) : 0;
-    const rrfV = rv !== undefined ? wV * rrfTerm(rv, k) : 0;
+    const rrfB = rb === undefined ? 0 : wB * rrfTerm(rb, k);
+    const rrfV = rv === undefined ? 0 : wV * rrfTerm(rv, k);
     const rrfScore = rrfB + rrfV;
-    if (rrfScore <= 0) {
-      continue;
-    }
-    const row =
-      bm25Hits.find((h) => h.item.id === id)?.item ??
-      (db
-        .query(`SELECT i.id AS id, i.service AS service, i.type AS type, i.external_id AS external_id,
+    if (rrfScore > 0) {
+      const row =
+        bm25Hits.find((h) => h.item.id === id)?.item ??
+        (db
+          .query(`SELECT i.id AS id, i.service AS service, i.type AS type, i.external_id AS external_id,
             i.title AS title, i.body_preview AS body_preview, i.url AS url, i.canonical_url AS canonical_url,
             i.modified_at AS modified_at, i.author_id AS author_id, i.metadata AS metadata,
             i.synced_at AS synced_at, i.pinned AS pinned
             FROM item i WHERE i.id = ?`)
-        .get(id) as HybridIndexedItem | null);
-    if (row === null || row === undefined) {
-      continue;
+          .get(id) as HybridIndexedItem | null);
+      if (row !== null && row !== undefined) {
+        const win = winningChunkByItem.get(id);
+        let semanticSnippet: string | undefined;
+        if (win !== undefined) {
+          const parts =
+            contextN > 0
+              ? chunkContextLines(db, id, opts.embeddingModel, win.chunkIndex, contextN)
+              : [win.chunkText];
+          semanticSnippet = parts.join("\n---\n");
+        }
+        const hit: HybridSearchResult = {
+          item: row,
+          bm25Rank: rb ?? null,
+          vectorRank: rv ?? null,
+          rrfScore,
+        };
+        if (semanticSnippet !== undefined) {
+          hit.semanticSnippet = semanticSnippet;
+        }
+        scored.push(hit);
+      }
     }
-    const win = winningChunkByItem.get(id);
-    let semanticSnippet: string | undefined;
-    if (win !== undefined) {
-      const parts =
-        contextN > 0
-          ? chunkContextLines(db, id, opts.embeddingModel, win.chunkIndex, contextN)
-          : [win.chunkText];
-      semanticSnippet = parts.join("\n---\n");
-    }
-    scored.push({
-      item: row,
-      bm25Rank: rb ?? null,
-      vectorRank: rv ?? null,
-      rrfScore,
-      ...(semanticSnippet !== undefined ? { semanticSnippet } : {}),
-    });
   }
 
   scored.sort((a, b) => {

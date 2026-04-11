@@ -79,6 +79,7 @@ describe("Platform Abstraction Layer", () => {
       env: {
         ...process.env,
         PATH: dirname(process.execPath),
+        NIMBUS_LINUX_VAULT_PROBE_STRICT_PATH: "1",
       },
       stderr: "pipe",
       stdout: "pipe",

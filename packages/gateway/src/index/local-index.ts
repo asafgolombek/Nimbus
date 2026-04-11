@@ -9,6 +9,7 @@ import {
 } from "../engine/search-ranking.ts";
 import { prunePeopleAfterServiceRemoval } from "../people/prune.ts";
 import { hybridSearch } from "../search/hybrid.ts";
+import type { HybridSearchOptions } from "../search/hybrid-types.ts";
 import {
   clearSchedulerCursor,
   countItemsForService,
@@ -496,48 +497,53 @@ export class LocalIndex {
     const semanticOn = options?.semantic ?? true;
     const ss = this.semanticSearch;
     const uv = readIndexedUserVersion(this.db);
-    if (
-      !semanticOn ||
-      nameQ === "" ||
-      ss === undefined ||
-      uv < 6 ||
-      !ensureSqliteVecForConnection(this.db, uv)
-    ) {
-      return this.searchRanked(query, options);
+    const vecReady = ensureSqliteVecForConnection(this.db, uv);
+    const canHybrid = semanticOn && nameQ !== "" && ss !== undefined && uv >= 6 && vecReady;
+
+    if (canHybrid) {
+      const qVec = await ss.embedQuery(nameQ);
+      const hybridOpts: HybridSearchOptions = {
+        query: nameQ,
+        limit: query.limit ?? 50,
+        semantic: true,
+        embeddingModel: ss.model,
+        contextChunks: options?.contextChunks ?? 2,
+      };
+      if (query.service !== undefined && query.service !== "") {
+        hybridOpts.service = query.service;
+      }
+      if (query.itemType !== undefined && query.itemType !== "") {
+        hybridOpts.itemType = query.itemType;
+      }
+      if (qVec !== null && qVec !== undefined) {
+        hybridOpts.queryEmbedding = qVec;
+      }
+      const hybridResults = await hybridSearch(this.db, hybridOpts);
+
+      const normRrf = normalizeHigherIsBetter(hybridResults.map((h) => h.rrfScore));
+      const now = options?.nowMs ?? Date.now();
+      const priorities = options?.searchServicePriority ?? new Map();
+
+      return hybridResults.map((h, i) => {
+        const row = h.item as ItemRow;
+        const rec = recencyScore(row.modified_at, now);
+        const sp = servicePriorityScore(row.service, priorities);
+        const nr = normRrf[i] ?? 0.5;
+        const comp = compositeSearchScore(nr, rec, sp);
+        const base = rowToRankedItem(row, comp, h.duplicates);
+        const ranked: RankedIndexItem = {
+          ...base,
+          bm25Rank: h.bm25Rank,
+          vectorRank: h.vectorRank,
+        };
+        if (h.semanticSnippet !== undefined) {
+          ranked.semanticSnippet = h.semanticSnippet;
+        }
+        return ranked;
+      });
     }
 
-    const qVec = await ss.embedQuery(nameQ);
-    const hybridResults = await hybridSearch(this.db, {
-      query: nameQ,
-      limit: query.limit ?? 50,
-      semantic: true,
-      embeddingModel: ss.model,
-      ...(query.service !== undefined && query.service !== "" ? { service: query.service } : {}),
-      ...(query.itemType !== undefined && query.itemType !== ""
-        ? { itemType: query.itemType }
-        : {}),
-      ...(qVec != null ? { queryEmbedding: qVec } : {}),
-      contextChunks: options?.contextChunks ?? 2,
-    });
-
-    const normRrf = normalizeHigherIsBetter(hybridResults.map((h) => h.rrfScore));
-    const now = options?.nowMs ?? Date.now();
-    const priorities = options?.searchServicePriority ?? new Map();
-
-    return hybridResults.map((h, i) => {
-      const row = h.item as ItemRow;
-      const rec = recencyScore(row.modified_at, now);
-      const sp = servicePriorityScore(row.service, priorities);
-      const nr = normRrf[i] ?? 0.5;
-      const comp = compositeSearchScore(nr, rec, sp);
-      const base = rowToRankedItem(row, comp, h.duplicates);
-      return {
-        ...base,
-        bm25Rank: h.bm25Rank,
-        vectorRank: h.vectorRank,
-        ...(h.semanticSnippet !== undefined ? { semanticSnippet: h.semanticSnippet } : {}),
-      };
-    });
+    return this.searchRanked(query, options);
   }
 
   /**

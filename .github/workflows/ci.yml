@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Detect Rust/Tauri changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
         id: changes
         with:
           filters: |
@@ -68,7 +68,9 @@ jobs:
         uses: ./.github/actions/setup-nimbus-ci
 
       - name: Detect code duplication (jscpd)
-        run: bunx jscpd --min-lines 10 --min-tokens 50 --threshold 5 --reporters console packages/
+        # Exclude dependencies: each connector vendors @modelcontextprotocol/sdk, which duplicates
+        # cjs/esm builds and inflates clone metrics without reflecting authored code.
+        run: bunx jscpd --min-lines 10 --min-tokens 50 --threshold 5 --reporters console -i "**/node_modules/**" packages/
 
   # ── Push: full cross-platform matrix (two parallel matrix jobs) ────────────
 

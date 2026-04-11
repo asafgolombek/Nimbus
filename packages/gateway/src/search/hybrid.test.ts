@@ -79,7 +79,7 @@ describe("hybridSearch", () => {
       semantic: true,
       queryEmbedding: q,
     });
-    const ids = rows.map((r) => r.item.id).sort();
+    const ids = rows.map((r) => r.item.id).sort((a, b) => a.localeCompare(b));
     expect(ids).toEqual(["s:fts", "s:vec"]);
   });
 });

@@ -57,13 +57,20 @@ function parseSearchArgs(args: string[]): {
     positional.push(a);
   }
   const query = positional.join(" ").trim();
-  return {
-    query,
-    limit,
-    semantic,
-    ...(service !== undefined ? { service } : {}),
-    ...(itemType !== undefined ? { itemType } : {}),
-  };
+  const out: {
+    query: string;
+    limit: number;
+    semantic: boolean;
+    service?: string;
+    itemType?: string;
+  } = { query, limit, semantic };
+  if (service !== undefined) {
+    out.service = service;
+  }
+  if (itemType !== undefined) {
+    out.itemType = itemType;
+  }
+  return out;
 }
 
 export async function runSearch(args: string[]): Promise<void> {
@@ -81,14 +88,19 @@ export async function runSearch(args: string[]): Promise<void> {
   const client = new IPCClient(state.socketPath);
   try {
     await client.connect();
-    const rows = await client.call<unknown[]>("index.searchRanked", {
+    const params: Record<string, unknown> = {
       name: query,
       limit,
       semantic,
       contextChunks: 2,
-      ...(service !== undefined ? { service } : {}),
-      ...(itemType !== undefined ? { itemType } : {}),
-    });
+    };
+    if (service !== undefined) {
+      params["service"] = service;
+    }
+    if (itemType !== undefined) {
+      params["itemType"] = itemType;
+    }
+    const rows = await client.call<unknown[]>("index.searchRanked", params);
     console.log(JSON.stringify(rows, null, 2));
   } finally {
     await client.disconnect().catch(() => {});

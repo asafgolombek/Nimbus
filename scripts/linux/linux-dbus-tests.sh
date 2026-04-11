@@ -2,6 +2,8 @@
 # D-Bus session + Secret Service for Linux vault tests (libsecret / secret-tool).
 # dbus-run-session alone does not register org.freedesktop.secrets; gnome-keyring-daemon does.
 set -euo pipefail
+# Ensure standard locations are visible to Bun.which("secret-tool") in minimal environments.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "linux-dbus-tests.sh: expected Linux" >&2
   exit 1

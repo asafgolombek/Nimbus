@@ -30,6 +30,11 @@ jobs:
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
 
+      - name: Linux — libsecret + D-Bus (vault / PAL tests)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
+
       - name: Typecheck
         run: bun run typecheck
 

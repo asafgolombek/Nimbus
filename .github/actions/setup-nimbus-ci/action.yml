@@ -33,11 +33,14 @@ runs:
 
     - name: Install and verify dependencies
       shell: bash
+      env:
+        VERIFY_LOCK: ${{ inputs.verify-lock }}
+        FROZEN_INSTALL: ${{ inputs.frozen-install }}
       run: |
-        if [ "${{ inputs.verify-lock }}" = "true" ]; then
+        if [ "$VERIFY_LOCK" = "true" ]; then
           bun install
           git diff --exit-code -- bun.lock
-        elif [ "${{ inputs.frozen-install }}" = "true" ]; then
+        elif [ "$FROZEN_INSTALL" = "true" ]; then
           bun install --frozen-lockfile
         else
           bun install
