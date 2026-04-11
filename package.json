@@ -48,7 +48,7 @@
     "clean": "bun run --filter '*' clean && rm -rf node_modules"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.10",
+    "@biomejs/biome": "^2.4.11",
     "typescript": "^6.0.2"
   }
 }
