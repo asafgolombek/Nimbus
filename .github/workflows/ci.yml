@@ -28,6 +28,7 @@ jobs:
           bun-version: "1.3"
 
       - name: Verify bun.lock is up to date
+        shell: bash
         run: |
           set -e
           bun install
@@ -160,6 +161,7 @@ jobs:
           bun-version: "1.3"
 
       - name: Verify bun.lock is up to date
+        shell: bash
         run: |
           set -e
           bun install
@@ -282,6 +284,7 @@ jobs:
           bun-version: "1.3"
 
       - name: Verify bun.lock is up to date
+        shell: bash
         run: |
           set -e
           bun install
@@ -333,6 +336,7 @@ jobs:
           bun-version: "1.3"
 
       - name: Verify bun.lock is up to date
+        shell: bash
         run: |
           set -e
           bun install
