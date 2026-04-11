@@ -144,16 +144,15 @@ export function createDiscordSyncable(options: DiscordSyncableOptions): Syncable
         return syncNoopResult(cursor, t0);
       }
 
-      let state = decodeCursor(cursor);
-      if (state === null) {
-        state = {
+      let state =
+        decodeCursor(cursor) ??
+        ({
           guildIds: [],
           guildIndex: 0,
           channelIds: [],
           channelIndex: 0,
           lastMsgByChannel: {},
-        };
-      }
+        } satisfies DiscordSyncCursorV1);
 
       let upserted = 0;
       let bytesTransferred = 0;

@@ -390,7 +390,7 @@ export function mergePeople(db: Database, personIdA: string, personIdB: string):
     throw new Error("mergePeople: conflicting canonical emails");
   }
   const mergedEmail = emailA ?? emailB;
-  const linked = mergedEmail !== null ? true : a.linked || b.linked;
+  const linked = mergedEmail === null ? a.linked || b.linked : true;
   updatePersonHandles(db, personIdA, {
     displayName: a.displayName ?? b.displayName,
     canonicalEmail: mergedEmail,

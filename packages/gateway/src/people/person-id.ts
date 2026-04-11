@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 export const NIMBUS_PERSON_NAMESPACE_UUID = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
 
 function uuidStringToBytes(uuid: string): Buffer {
-  const hex = uuid.replace(/-/g, "");
+  const hex = uuid.replaceAll("-", "");
   if (hex.length !== 32) {
     throw new Error("Invalid namespace UUID");
   }

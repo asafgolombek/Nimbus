@@ -142,12 +142,12 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
   const to = headerFrom(m.payload, "To");
   const fromParsed = parseFromHeaderForPerson(from);
   const authorId =
-    fromParsed.email !== undefined
-      ? resolvePersonForSync(ctx.db, {
+    fromParsed.email === undefined
+      ? null
+      : resolvePersonForSync(ctx.db, {
           canonicalEmail: fromParsed.email,
-          ...(fromParsed.displayName !== undefined ? { displayName: fromParsed.displayName } : {}),
-        })
-      : null;
+          ...(fromParsed.displayName === undefined ? {} : { displayName: fromParsed.displayName }),
+        });
   const url =
     threadId === ""
       ? `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(id)}`

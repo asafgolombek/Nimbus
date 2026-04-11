@@ -19,7 +19,10 @@ export class PeopleRpcError extends Error {
 }
 
 function requireString(rec: Record<string, unknown> | undefined, key: string): string {
-  const v = rec !== undefined ? rec[key] : undefined;
+  if (rec === undefined) {
+    throw new PeopleRpcError(-32602, `Missing or invalid ${key}`);
+  }
+  const v = rec[key];
   if (typeof v !== "string" || v.trim() === "") {
     throw new PeopleRpcError(-32602, `Missing or invalid ${key}`);
   }

@@ -23,15 +23,23 @@ export function terminateCompiledGatewayBinary(): TerminateGatewayBinaryResult {
     if (r.status === 128) {
       return { ran: true, message: "No nimbus-gateway.exe process was running." };
     }
+    const statusMsg = `taskkill exited ${String(r.status)}`;
+    const detail = combined === "" ? "" : `: ${combined}`;
     return {
       ran: true,
-      message: `taskkill exited ${String(r.status)}${combined !== "" ? `: ${combined}` : ""}`,
+      message: `${statusMsg}${detail}`,
     };
   }
 
   let r = spawnSync("killall", ["nimbus-gateway"], { stdio: "ignore" });
-  const err = r.error as NodeJS.ErrnoException | undefined;
-  if (err?.code === "ENOENT") {
+  const killallErr = r.error;
+  if (
+    killallErr !== undefined &&
+    killallErr !== null &&
+    typeof killallErr === "object" &&
+    "code" in killallErr &&
+    killallErr.code === "ENOENT"
+  ) {
     r = spawnSync("pkill", ["-x", "nimbus-gateway"], { stdio: "ignore" });
   }
   if (r.status === 0) {

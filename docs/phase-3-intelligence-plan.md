@@ -368,13 +368,23 @@ backfill_batch_size = 50     # items per batch during backfill (throttled to avo
 pause_on_battery = true      # pause worker thread when running on battery (laptop/mobile)
 ```
 
-> **Offline / installer bundling:** The `all-MiniLM-L6-v2` model files (~22 MB) are downloaded on first use and cached in `{dataDir}/models/`. The headless installer bundles the model files so no internet connection is required after installation. The `NIMBUS_EMBEDDING_MODEL_DIR` environment variable overrides the cache location (used in CI to point at a pre-downloaded artefact).
+> **Offline / installer bundling:** The `all-MiniLM-L6-v2` model files (~22 MB) are downloaded on first use and cached in `{dataDir}/models/`. The headless installer bundles the model files so no internet connection is required after installation. The `NIMBUS_EMBEDDING_MODEL_DIR` environment variable overrides the cache location (used in CI to point at a pre-downloaded artefact). **`scripts/package-headless-bundle.ts` must be updated** to copy the model directory from `{dataDir}/models/` into the bundle before packaging — this is a build prerequisite tracked as an acceptance criterion.
 
 **Sync integration:** After every `upsertIndexedItem`, the scheduler calls `pipeline.embedItem(item)` asynchronously (non-blocking; errors are logged but do not fail the sync). To avoid CPU contention with the Gateway's IPC and sync scheduling loops, the embedding pipeline runs inside a **Bun Worker thread** (`new Worker("./embedding/worker.ts")`). The main thread sends work items via `postMessage` and receives `{ itemId, vecRowid }` acknowledgements; the worker manages the `@xenova/transformers` pipeline instance and writes directly to the DB.
 
 **Backfill:** On first startup after migration 6, `EmbeddingPipeline.backfillAll()` runs as a background job inside the same worker thread. Progress is visible via `nimbus status` (`embedding_backfill: 12340 / 50000`).
 
-**Provider switching:** If the user changes `[embedding] provider` in `nimbus.toml` (e.g. from `"local"` to `"openai"`), the Gateway detects the model name change on startup, deletes all rows from `embedding_chunk` (cascading to `vec_items_384`), and re-triggers `backfillAll()`. A warning is printed: `Embedding provider changed — re-indexing all items. This may take several minutes.`
+**Provider / model switching:** On startup the Gateway reads the `model` field from `nimbus.toml` and compares it against the `model` column in `embedding_chunk`. Three cases:
+
+| Situation | Action |
+|---|---|
+| All existing chunks use the current model | No re-index needed — proceed normally. |
+| Model changed (e.g. `local` → `openai`, or local model version bump) | Delete all `embedding_chunk` rows where `model ≠ currentModel` (cascading to `vec_items_384`), then re-trigger `backfillAll()`. Progress tracked in `nimbus status`. |
+| Switching back to a previously-used model | Check if `embedding_chunk` rows already exist for the target `model`. Items that already have chunks under the target model are skipped during backfill — only the delta is re-embedded. |
+
+A warning is always printed before a re-index begins: `Embedding model changed (old → new) — re-indexing N items in the background.` Re-indexing is resumable: if the Gateway restarts mid-backfill, the worker picks up from the last un-embedded item (identified by `NOT EXISTS` in `embedding_chunk` for the current model).
+
+**Model version upgrades:** `embedding/model.ts` exports a `MINIMUM_MODEL_VERSION` string. If the bundled model on disk predates this version (checked via the model's `config.json` metadata), the worker treats it as a model change and re-triggers backfill automatically. This ensures a project-wide model upgrade is applied without user intervention.
 
 **Tests required:**
 - `embedding/pipeline.test.ts` — chunk + embed + vec_items insert; verify `embedding_chunk` FK integrity; delete cascade on `item` delete.
@@ -451,7 +461,9 @@ export interface SessionMemoryStore {
 
 **Session scoping:** Each `nimbus` interactive session and each `nimbus run` invocation gets a unique `sessionId` (UUID). Session memory is pruned 24 hours after the last write (configurable via `nimbus.toml` `[session] memory_ttl_hours = 24`).
 
-**Privacy:** Session memory is stored locally only. `nimbus session clear` deletes all session chunks and their vec_items rows.
+**Proactive cleanup:** Pruning is performed by a Gateway background job (a scheduled task that runs once per hour, not triggered by new sessions). This prevents stale `session_memory` rows from accumulating on long-lived Gateway processes where no new sessions are started. The cleanup job calls `pruneOlderThan(sessionId, ttlMs)` for every `session_id` found in `session_memory`, then removes the corresponding `vec_items_384` rows. `nimbus session list` shows active session IDs and their last-write timestamps.
+
+**Privacy:** Session memory is stored locally only. `nimbus session clear` deletes all session chunks and their `vec_items_384` rows. Session chunks are stored as plaintext in SQLite (no encryption at the SQLite level in Phase 3 — OS filesystem encryption covers the threat model for a locked machine, per the security boundary in `docs/SECURITY.md`). Encrypting `session_memory` rows with a user-derived or Vault-backed key is noted as a Phase 4/5 consideration if user demand or threat-model analysis warrants it.
 
 ---
 
@@ -468,6 +480,8 @@ export interface SessionMemoryStore {
 | `deployment` | `deployment –triggers→ ci_run`, `ci_run –tests→ pr`, `deployment –affects→ service` |
 | `alert` | `alert –fires_on→ service`, `alert –correlates_with→ deployment` |
 | `message` | `person –posted→ message`, `message –mentions→ entity` (via regex on known entity names) |
+
+**Graph cleanup:** `graph_entity.external_id` references `item.id` or `person.id` by value, not by foreign key (entities span multiple sources). To prevent "ghost nodes" accumulating after item deletion, `graph-populator.ts` registers a `beforeItemDelete` sync hook: when an item is removed from the index, the populator looks up its associated `graph_entity` by `(type, external_id = item.id)` and deletes it. Because `graph_relation` has `ON DELETE CASCADE` on both `from_id` and `to_id`, all edges are removed automatically. The same hook fires for `person` removals.
 
 **Agent tool:** `traverseGraph(entityId: string, relationTypes?: string[], depth?: number)` — returns a subgraph as a structured JSON payload. Added to the core Gateway agent toolset alongside `searchLocalIndex`.
 
@@ -518,16 +532,42 @@ export interface SessionMemoryStore {
 | `nimbus.permissions.network` | hostname allowlist; Gateway validates (does not enforce at network layer — honour system in v1, syscall filter in v2) |
 | `nimbus.permissions.hitl` | action IDs that will be registered in `HITL_REQUIRED`; Gateway merges these in on extension load |
 
+**Install sources:** `nimbus extension install` accepts three source formats:
+
+| Format | Example | Resolution |
+|---|---|---|
+| npm package name | `nimbus extension install @community/nimbus-jenkins` | Resolved via the npm registry (or a configured private registry via `.npmrc`) |
+| Direct URL | `nimbus extension install https://github.com/user/repo/releases/download/v1.0.0/plugin.tgz` | Fetched directly; content-addressed by SHA-256 of the tarball |
+| Local path | `nimbus extension install ./my-local-extension` | Used for development; `entry_hash` is recomputed on every Gateway start for local-path extensions |
+
 **Install flow (`nimbus extension install <pkg>`):**
 
-1. `npm pack` or `bun install <pkg>` to a temp dir.
+1. Resolve and download the source to a temp dir (npm pack / URL fetch / local copy).
 2. Read and validate `nimbus.extension.json`.
 3. Compute SHA-256 of the manifest file → store in `extension.manifest_hash`.
-4. Move to `{dataDir}/extensions/<name>/`.
-5. Insert into `extension` table.
-6. Gateway restart (or hot reload signal) triggers the hash verifier and loads the extension.
+4. Resolve the entry point path (`manifest.nimbus.entry`) and compute its SHA-256 → store in `extension.entry_hash`.
+5. Move to `{dataDir}/extensions/<name>/`.
+6. Print a security notice:
+   ```
+   ⚠  Security notice: network permissions declared in this extension are enforced on
+      a best-effort basis in v1 (process isolation only). Full network sandboxing ships
+      in a future release. Only install extensions you trust.
+   
+   Declared permissions:
+     vault:   jenkins.url, jenkins.api_token
+     network: *.jenkins.internal
+     hitl:    jenkins.build.trigger, jenkins.build.abort
+   
+   Proceed with installation? [y/n]:
+   ```
+7. Insert into `extension` table.
+8. Gateway restart (or hot reload signal) triggers the hash verifier and loads the extension.
 
-**Hash verifier (`hash-verifier.ts`):** On every Gateway startup, for each row in `extension` where `enabled = 1`, recompute the SHA-256 of the manifest on disk and compare to `manifest_hash`. If they diverge: log a security warning, set `enabled = 0`, never start the extension process.
+**Hash verifier (`hash-verifier.ts`):** On every Gateway startup, for each row in `extension` where `enabled = 1`, recompute two SHA-256 hashes:
+1. The manifest file (`nimbus.extension.json`) — compared against `manifest_hash`.
+2. The compiled entry point (resolved from `manifest.nimbus.entry`, e.g. `dist/server.js`) — compared against `entry_hash`.
+
+If either hash diverges: log an `ERROR`-level security warning identifying the extension by name and the file that was tampered, set `enabled = 0`, and skip process spawn. This ensures that modifying the code while leaving the manifest intact is still detected.
 
 **`nimbus scaffold extension` generator:**
 
@@ -569,8 +609,10 @@ export function spawnSandboxed(opts: SandboxOptions): ChildProcess;
 - Stdout/stderr are captured; logged under `extension:<name>` in the structured log.
 - Process is killed on `inactivityTimeoutMs` (default: 5 min, same as lazy mesh) and on extension disable/remove.
 
+**v1 network isolation caveat:** Network permissions declared in the manifest are validated against the allowlist at install time and shown to the user, but are **not enforced at the OS/syscall level** in v1. An extension that calls `fetch()` to an undeclared host will succeed. Phase 5 will add kernel-level enforcement (seccomp on Linux, Sandbox entitlement on macOS, AppContainer on Windows). An alternative being evaluated for Phase 5 is running extensions as [Extism](https://extism.org/) WASM plugins, which provides strict network and filesystem isolation without platform-specific syscall filters.
+
 **Tests required:**
-- `extensions/sandbox.test.ts` — verify injected env contains only declared vault keys; verify IPC socket path not present; verify process kill on timeout.
+- `extensions/sandbox.test.ts` — verify injected env contains only declared vault keys; verify IPC socket path not present; verify process kill on timeout; verify that a mock extension attempting to read an undeclared vault key via env receives `undefined`.
 
 ---
 
@@ -605,6 +647,16 @@ export type {
 ## Wave 3 — CI/CD & Infrastructure Connectors
 
 All connectors in this wave follow the same Phase 2 pattern: a workspace package under `packages/mcp-connectors/<name>/`, a sync handler in `packages/gateway/src/connectors/<name>-sync.ts`, and lazy mesh registration in `lazy-mesh.ts`. Connectors that require no user auth beyond an API token are simpler than OAuth connectors.
+
+**Wave 3 is split into three sub-batches to keep CI manageable and allow early user feedback on each domain before the next batch ships.** Each batch requires all three-platform CI checks to be green before the next batch merges.
+
+| Sub-wave | Connectors | Focus |
+|---|---|---|
+| **3a — CI/CD Foundation** | Jenkins, GitHub Actions, GitLab CI, CircleCI | Core dev loop: build triggers, log tailing, PR ↔ CI cross-links |
+| **3b — Infrastructure** | AWS, Azure, GCP, Kubernetes, IaC | Cloud resource awareness and IaC write ops |
+| **3c — Observability** | Datadog, Grafana, Sentry, PagerDuty, New Relic | Alert → incident → deployment correlation |
+
+> Filesystem v2 ships alongside Wave 3a (no external auth, lower risk) so the dependency graph is available for cross-linking by the time cloud connectors land.
 
 **Shared `CIContext` type injected into all CI/CD sync handlers:**
 
@@ -718,7 +770,12 @@ The existing `nimbus-mcp-gitlab` package gains additional tools for pipelines an
 | CloudFormation stack | `iac_resource` | `nimbus-iac-cfn1:<stack_name>:<last_event_id>` |
 | Pulumi stack | `iac_resource` | `nimbus-iac-pul1:<stack_name>:<update_id>` |
 
-**Drift detection:** After each sync, compare indexed `iac_resource` items against live cloud state (queried via the AWS/Azure/GCP connectors). Resources present in IaC but absent in the cloud (or with differing config values) are flagged with `metadata.drift = true` and surfaced in `nimbus status --drift`.
+**Drift detection:** After each IaC sync, compare indexed `iac_resource` items against live cloud state (queried via the AWS/Azure/GCP connectors). Resources present in IaC but absent in the cloud (or with differing config values) are flagged with `metadata.drift = true` and surfaced in `nimbus status --drift`.
+
+**Connector availability handling:** Before attempting drift comparison, the IaC sync handler checks whether the corresponding cloud connector is active by querying `sync_state` for a recent successful sync of the relevant service (within the last 2× the connector's `defaultIntervalMs`). Three cases:
+- **Connector active and recently synced:** drift check runs against indexed cloud items — no extra network call.
+- **Connector configured but stale (last sync > 2× interval ago):** IaC connector triggers a one-off lazy fetch of just the relevant resource types from the cloud provider before running the comparison. This is non-blocking but adds latency to that sync cycle.
+- **Connector not configured:** drift check is skipped; `nimbus status --drift` shows `⚠ Drift detection unavailable — AWS connector not configured` for affected resources.
 
 **IaC write operations:**
 
@@ -917,6 +974,14 @@ export interface WatcherAction {
 
 **Evaluation loop:** The `SyncScheduler` calls `WatcherEngine.evaluate()` after each connector sync completes. Evaluation is lightweight — it queries the `item` table with indexed conditions and compares to the watcher's last-checked snapshot. Fired watchers append to `watcher_event` and run their action.
 
+**`schedule` (cron) watchers:** Cron watchers are evaluated only when the cron expression matches the current tick — not on every sync cycle completion. `WatcherEngine.evaluate()` gates `schedule` watchers with a quick `isCronDue(expression, lastCheckedAt, now)` check before running the condition; watchers whose cron has not yet elapsed are skipped in O(1) without a DB query. This prevents every sync cycle from running cron parsing against all schedule watchers.
+
+**Infinite-loop protection:** Two guards prevent runaway automation:
+1. **Rate limit:** Each watcher tracks `fires_in_last_hour` (count of `watcher_event` rows in the past 60 min). If this count exceeds `max_fires_per_hour` (default: 10, configurable per watcher), the watcher is automatically paused and the user is notified: `Watcher "p1-alerts" rate-limited (10 fires in 60 min). Resume with: nimbus watch resume p1-alerts`.
+2. **Cycle detection:** A watcher action of type `run_workflow` passes its `watcher_id` as the `triggeredBy` value. If the resulting workflow steps generate new items that would re-trigger the same watcher within the same evaluation cycle, the evaluation loop detects the `watcher_id` already in the active-run set and skips the re-trigger.
+
+Each watcher condition evaluation is also bounded by a 500 ms timeout; slow evaluations are logged as warnings and do not block subsequent watchers.
+
 **CLI commands:**
 
 ```bash
@@ -1073,11 +1138,13 @@ Script: zurich-weekly-cleanup (4 steps)
 
   Step 1  Find PDFs not opened in 90 days       READ — no approval needed
   Step 2  Summarize by subfolder                READ — no approval needed
-  Step 3  Move files to /Archive/2026           ⚠ REQUIRES APPROVAL at runtime
-  Step 4  Send summary email                    ⚠ REQUIRES APPROVAL at runtime
+  Step 3  Move files to /Archive/2026           ⚠ REQUIRES APPROVAL — calls gdrive_file_move (restricted: gdrive.file.move)
+  Step 4  Send summary email                    ⚠ REQUIRES APPROVAL — calls gmail_send (restricted: gmail.message.send)
 
 Proceed? [y/n]:
 ```
+
+The dry-run preview always names the specific tool call and HITL action ID that will require consent. This ensures users understand exactly which security boundary is being crossed before agreeing to run the script.
 
 **Script files and workflow pipelines share the same `WorkflowEngine`. `nimbus workflow save ./zurich-cleanup.yml --name zurich-cleanup` promotes an ad-hoc script into a saved, named pipeline.**
 
@@ -1243,7 +1310,7 @@ Items raised during Phase 3 planning that are acknowledged but deliberately not 
 
 | Topic | Decision | Reason |
 |---|---|---|
-| **Multi-model embedding** (different models per item type — e.g. code vs prose) | Deferred to Phase 5 | Single `all-MiniLM-L6-v2` model is sufficient for Phase 3 use cases. Multi-model adds schema complexity (different dims → separate vec tables) and model management overhead. |
+| **Multi-model embedding** (different models per item type — e.g. code vs prose) | Deferred to Phase 5 | Single `all-MiniLM-L6-v2` model is sufficient for Phase 3 use cases. Multi-model adds schema complexity (different dims → separate vec tables) and model management overhead. **Schema is pre-positioned for this:** `vec_items_384` is named by dimension, `embedding_chunk.dims` records the dimension, and `embedding_chunk.model` records the model name — adding `vec_items_1536` for OpenAI in Phase 5 requires only a new virtual table and an additional `dims = 1536` code path, not a schema migration. |
 | **Remote vector store** (Qdrant, Weaviate, Pinecone) | Deferred to Phase 9 | Local-first principle: `sqlite-vec` is the correct choice for Phase 3. Remote vector stores introduce a cloud dependency and a privacy boundary violation unless self-hosted. Revisit for enterprise deployments in Phase 9. |
 | **Extension network sandboxing** (syscall filter, seccomp, container) | Deferred to Phase 5 | Phase 3 sandbox is process isolation + env restriction (honour system for network). Full syscall filtering requires platform-specific implementation (seccomp on Linux, Sandbox on macOS, AppContainer on Windows) — a Phase 5 security hardening item. |
 | **Watcher conditions on relationship graph** (e.g. "alert me when a new PR author has no prior reviews") | Deferred to Phase 4 | Requires graph traversal in the watcher condition evaluator, which adds significant complexity. The Phase 3 condition types cover the most common use cases. |

@@ -125,6 +125,30 @@ function listQueryForInitial(sinceIso: string): string {
   return `trashed = false and modifiedTime > '${sinceIso}'`;
 }
 
+function resolveDriveOwnerAuthorId(
+  ctx: SyncContext,
+  owners: DriveFileOwner[] | undefined,
+): string | null {
+  if (!Array.isArray(owners) || owners.length === 0) {
+    return null;
+  }
+  const o = owners[0];
+  if (o === undefined) {
+    return null;
+  }
+  const email =
+    typeof o.emailAddress === "string" && o.emailAddress !== "" ? o.emailAddress : undefined;
+  const ownerName =
+    typeof o.displayName === "string" && o.displayName !== "" ? o.displayName : undefined;
+  if (email === undefined) {
+    return null;
+  }
+  return resolvePersonForSync(ctx.db, {
+    canonicalEmail: email,
+    displayName: ownerName ?? email,
+  });
+}
+
 function upsertDriveFile(ctx: SyncContext, f: DriveFile, now: number): void {
   const id = f.id;
   const name = f.name;
@@ -142,25 +166,7 @@ function upsertDriveFile(ctx: SyncContext, f: DriveFile, now: number): void {
   const desc = f.description ?? "";
   const previewBase = desc === "" ? name : desc;
   const bodyPreview = previewBase.length > 512 ? previewBase.slice(0, 512) : previewBase;
-  const owners = f.owners;
-  let authorId: string | null = null;
-  if (Array.isArray(owners) && owners.length > 0) {
-    const o = owners[0];
-    const email =
-      o !== undefined && typeof o.emailAddress === "string" && o.emailAddress !== ""
-        ? o.emailAddress
-        : undefined;
-    const ownerName =
-      o !== undefined && typeof o.displayName === "string" && o.displayName !== ""
-        ? o.displayName
-        : undefined;
-    if (email !== undefined) {
-      authorId = resolvePersonForSync(ctx.db, {
-        canonicalEmail: email,
-        displayName: ownerName ?? email,
-      });
-    }
-  }
+  const authorId = resolveDriveOwnerAuthorId(ctx, f.owners);
   upsertIndexedItem(ctx.db, {
     service: SERVICE_ID,
     type: isFolder ? "folder" : "file",

@@ -1,5 +1,6 @@
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
+import type { PersonSyncHints } from "../people/person-types.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -115,6 +116,31 @@ function linearRequireIssuesData(
   return data;
 }
 
+function resolveLinearIssueAuthorId(
+  ctx: SyncContext,
+  creatorEmail: string | undefined,
+  creatorId: string | undefined,
+  creatorName: string | undefined,
+): string | null {
+  if (creatorEmail !== undefined && creatorEmail !== "") {
+    const hints: PersonSyncHints = {
+      canonicalEmail: creatorEmail,
+      displayName: creatorName ?? creatorEmail,
+    };
+    if (creatorId !== undefined) {
+      hints.linearMemberId = creatorId;
+    }
+    return resolvePersonForSync(ctx.db, hints);
+  }
+  if (creatorId !== undefined && creatorId !== "") {
+    return resolvePersonForSync(ctx.db, {
+      linearMemberId: creatorId,
+      displayName: creatorName ?? creatorId,
+    });
+  }
+  return null;
+}
+
 function linearUpsertIssueNodes(
   ctx: SyncContext,
   nodes: ReadonlyArray<Record<string, unknown>>,
@@ -146,19 +172,7 @@ function linearUpsertIssueNodes(
     const creatorId = creator === undefined ? undefined : stringField(creator, "id");
     const creatorEmail = creator === undefined ? undefined : stringField(creator, "email");
     const creatorName = creator === undefined ? undefined : stringField(creator, "name");
-    let authorId: string | null = null;
-    if (creatorEmail !== undefined && creatorEmail !== "") {
-      authorId = resolvePersonForSync(ctx.db, {
-        canonicalEmail: creatorEmail,
-        ...(creatorId !== undefined ? { linearMemberId: creatorId } : {}),
-        displayName: creatorName ?? creatorEmail,
-      });
-    } else if (creatorId !== undefined && creatorId !== "") {
-      authorId = resolvePersonForSync(ctx.db, {
-        linearMemberId: creatorId,
-        displayName: creatorName ?? creatorId,
-      });
-    }
+    const authorId = resolveLinearIssueAuthorId(ctx, creatorEmail, creatorId, creatorName);
     upsertIndexedItem(ctx.db, {
       service: SERVICE_ID,
       type: "issue",
