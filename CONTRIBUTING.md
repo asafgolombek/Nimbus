@@ -139,7 +139,7 @@ Circular dependencies are forbidden. The linter will catch cross-package source 
 
 1. Open an issue or discussion first for anything non-trivial
 2. Fill in the pull request template completely — incomplete PRs will be returned
-3. All CI checks must be green: `pr-quality` (Ubuntu) must pass before review begins
+3. All CI checks must be green: `pr-quality` (Ubuntu) must pass before review begins. To run optional desktop E2E (Tauri + Playwright) on a PR, add the `ci:e2e-desktop` label (that retriggers CI so the E2E job can run).
 4. At least one maintainer approval is required before merge
 5. Squash-merge is preferred for feature branches; merge commits for release branches
 

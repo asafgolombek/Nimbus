@@ -44,6 +44,8 @@ Closes #
 
 <!-- Describe what you tested and how. Include platform(s) tested if relevant. -->
 
+<!-- Desktop E2E (Tauri + Playwright) on PRs: add the `ci:e2e-desktop` label to run the optional Ubuntu job after `pr-quality`. -->
+
 ## Screenshots / Output
 
 <!-- Optional — include terminal output, logs, or screenshots if helpful for review. -->

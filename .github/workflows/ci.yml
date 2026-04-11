@@ -5,303 +5,143 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+    types: [opened, synchronize, reopened, labeled]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Fast PR feedback — single OS (see plan: Option B)
-  pr-quality:
-    name: PR quality — ubuntu-22.04
+  # ── PR: fast feedback (three jobs run in parallel) ─────────────────────────
+
+  # TS/Bun test suite — ubuntu only, runs in parallel with pr-quality-rust
+  pr-quality-ts:
+    name: PR quality — TS/Bun (ubuntu-22.04)
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/_test-suite.yml
+    with:
+      runner: ubuntu-22.04
+      run-packaging: true
+    permissions:
+      contents: read
+      checks: write
+
+  # Rust/Tauri checks — ubuntu only, runs in parallel with pr-quality-ts
+  pr-quality-rust:
+    name: PR quality — Rust/Tauri (ubuntu-22.04)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 30
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Detect Rust/Tauri changes
+        uses: dorny/paths-filter@v3
+        id: changes
         with:
-          bun-version: "1.3"
+          filters: |
+            rust:
+              - 'packages/ui/src-tauri/**'
 
-      - name: Verify bun.lock is up to date
-        shell: bash
-        run: |
-          set -e
-          bun install
-          git diff --exit-code -- bun.lock
+      - name: Setup Rust + Tauri checks
+        if: steps.changes.outputs.rust == 'true'
+        uses: ./.github/actions/setup-rust-tauri
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+  # Code duplication scan — runs in parallel with the above two jobs
+  pr-quality-duplication:
+    name: PR quality — Duplication scan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
 
-      - name: Typecheck
-        run: bun run typecheck
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Lint + format (Biome)
-        run: bun run lint
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
 
-      - name: Build all packages
-        run: bun run build
+      - name: Detect code duplication (jscpd)
+        run: bunx jscpd --min-lines 10 --min-tokens 50 --threshold 5 --reporters console packages/
 
-      # Tauri Linux deps — required so cargo clippy can link gdk-sys / webkit
-      - name: Install Linux libs for Tauri (Rust)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
-            libsecret-tools gnome-keyring
+  # ── Push: full cross-platform matrix (two parallel matrix jobs) ────────────
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Rustfmt (Tauri)
-        working-directory: packages/ui/src-tauri
-        run: cargo fmt --all -- --check
-
-      - name: Clippy (Tauri)
-        working-directory: packages/ui/src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Unit tests (with coverage)
-        shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk --coverage
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Engine (≥85%)
-        run: bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Vault (≥90%)
-        shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Sync scheduler (≥80%)
-        run: bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Rate limiter (≥85%)
-        run: bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85
-        env:
-          CI: "true"
-
-      - name: Coverage gate — People / linker (≥80%)
-        run: bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80
-        env:
-          CI: "true"
-
-      - name: Integration tests
-        run: bun test packages/gateway/test/integration/ packages/cli/test/integration/
-        env:
-          CI: "true"
-
-      - name: E2E Gateway tests
-        run: bun test packages/gateway/test/e2e/
-        env:
-          CI: "true"
-
-      - name: E2E CLI tests
-        run: bun test packages/cli/test/e2e/
-        env:
-          CI: "true"
-
-      - name: UI component tests (Vitest)
-        run: cd packages/ui && bunx vitest run --coverage
-        env:
-          CI: "true"
-
-      - name: Headless bundle layout (smoke)
-        shell: bash
-        run: |
-          set -e
-          mkdir -p dist
-          (cd packages/gateway && bun build src/index.ts --compile --outfile ../../dist/nimbus-gateway --target bun)
-          (cd packages/cli && bun build src/index.ts --compile --outfile ../../dist/nimbus --target bun)
-          bun run package:headless
-          test -f dist/headless-bundle/nimbus-gateway
-          test -f dist/headless-bundle/nimbus
-
-      - name: Linux installers — .deb + tarball (§7.9)
-        shell: bash
-        run: |
-          set -e
-          bun run package:installers:linux -- --version 0.0.0-ci
-          test -f dist/installers/nimbus-headless_0.0.0-ci_amd64.deb
-          test -f dist/installers/nimbus-headless-linux-amd64-v0.0.0-ci.tar.gz
-
-  # Full cross-platform matrix — pushes only
-  ci:
-    name: CI — ${{ matrix.os }}
+  # TS/Bun suite — all 3 OSes, runs in parallel with ci-rust
+  ci-ts:
+    name: CI — TS/Bun (${{ matrix.os }})
     if: github.event_name == 'push'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    uses: ./.github/workflows/_test-suite.yml
     strategy:
       fail-fast: false
       matrix:
-        # macos-13 retired Dec 2025 — macOS 14 (Apple Silicon) for CI parity
+        os: [ubuntu-22.04, macos-14, windows-2022]
+    with:
+      runner: ${{ matrix.os }}
+      run-packaging: ${{ matrix.os == 'ubuntu-22.04' }}
+    permissions:
+      contents: read
+      checks: write
+
+  # Rust/Tauri checks — all 3 OSes, runs in parallel with ci-ts
+  ci-rust:
+    name: CI — Rust/Tauri (${{ matrix.os }})
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: "1.3"
+      - name: Setup Rust + Tauri checks
+        uses: ./.github/actions/setup-rust-tauri
 
-      - name: Verify bun.lock is up to date
-        shell: bash
-        run: |
-          set -e
-          bun install
-          git diff --exit-code -- bun.lock
+  # ── E2E Desktop ─────────────────────────────────────────────────────────────
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Lint + format (Biome)
-        run: bun run lint
-
-      - name: Build all packages
-        run: bun run build
-
-      - name: Install Linux libs for Tauri (Rust)
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
-            libsecret-tools gnome-keyring
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Rustfmt (Tauri)
-        working-directory: packages/ui/src-tauri
-        run: cargo fmt --all -- --check
-
-      - name: Clippy (Tauri)
-        working-directory: packages/ui/src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Unit tests (with coverage)
-        shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk --coverage
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Engine (≥85%)
-        run: bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Vault (≥90%)
-        shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Sync scheduler (≥80%)
-        run: bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80
-        env:
-          CI: "true"
-
-      - name: Coverage gate — Rate limiter (≥85%)
-        run: bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85
-        env:
-          CI: "true"
-
-      - name: Coverage gate — People / linker (≥80%)
-        run: bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80
-        env:
-          CI: "true"
-
-      - name: Integration tests
-        run: bun test packages/gateway/test/integration/ packages/cli/test/integration/
-        env:
-          CI: "true"
-
-      - name: E2E Gateway tests
-        run: bun test packages/gateway/test/e2e/
-        env:
-          CI: "true"
-
-      - name: E2E CLI tests
-        run: bun test packages/cli/test/e2e/
-        env:
-          CI: "true"
-
-      - name: UI component tests (Vitest)
-        run: cd packages/ui && bunx vitest run --coverage
-        env:
-          CI: "true"
-
-      - name: Headless bundle + Linux installers (Ubuntu only)
-        if: matrix.os == 'ubuntu-22.04'
-        shell: bash
-        run: |
-          set -e
-          mkdir -p dist
-          (cd packages/gateway && bun build src/index.ts --compile --outfile ../../dist/nimbus-gateway --target bun)
-          (cd packages/cli && bun build src/index.ts --compile --outfile ../../dist/nimbus --target bun)
-          bun run package:headless
-          bun run package:installers:linux -- --version 0.0.0-ci
-          test -f dist/installers/nimbus-headless_0.0.0-ci_amd64.deb
-          test -f dist/installers/nimbus-headless-linux-amd64-v0.0.0-ci.tar.gz
-
-  # E2E Desktop (PR) — Ubuntu only; catches Tauri/Playwright regressions before merge
+  # E2E Desktop (PR) — optional: add label ci:e2e-desktop to the PR
   e2e-desktop-pr:
     name: E2E Desktop (PR) — ubuntu-22.04
-    if: github.event_name == 'pull_request'
-    needs: pr-quality
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:e2e-desktop')
+    needs: [pr-quality-ts, pr-quality-rust]
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    permissions:
+      contents: read
+      checks: write
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Setup Rust + Tauri (install only, no checks)
+        uses: ./.github/actions/setup-rust-tauri
         with:
-          bun-version: "1.3"
+          run-checks: "false"
 
-      - name: Verify bun.lock is up to date
-        shell: bash
-        run: |
-          set -e
-          bun install
-          git diff --exit-code -- bun.lock
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-
-      - name: Install system dependencies (Ubuntu)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .playwright-browsers
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Build Tauri app
         run: cd packages/ui && bunx tauri build
@@ -310,17 +150,34 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Run E2E desktop tests
-        run: bun test packages/ui/test/e2e/
+        shell: bash
+        run: |
+          mkdir -p reports
+          bun test packages/ui/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-desktop.xml
         env:
           CI: "true"
+
+      - name: JUnit test report (E2E desktop)
+        uses: dorny/test-reporter@4a2e97665d5fa767581ef38eca97b9694bd4eef4 # v2
+        if: always()
+        with:
+          name: E2E desktop (PR)
+          path: reports/junit-*.xml
+          reporter: java-junit
+          fail-on-error: false
 
   # E2E Desktop (Playwright + Tauri WebDriver) — push to main only, full OS matrix
   e2e-desktop:
     name: E2E Desktop — ${{ matrix.os }}
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: ci
+    needs: [ci-ts, ci-rust]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    permissions:
+      contents: read
+      checks: write
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     strategy:
       fail-fast: false
       matrix:
@@ -330,31 +187,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Setup Rust + Tauri (install only, no checks)
+        uses: ./.github/actions/setup-rust-tauri
         with:
-          bun-version: "1.3"
+          run-checks: "false"
 
-      - name: Verify bun.lock is up to date
-        shell: bash
-        run: |
-          set -e
-          bun install
-          git diff --exit-code -- bun.lock
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-
-      - name: Install system dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .playwright-browsers
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Build Tauri app
         run: cd packages/ui && bunx tauri build
@@ -363,6 +210,18 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Run E2E desktop tests
-        run: bun test packages/ui/test/e2e/
+        shell: bash
+        run: |
+          mkdir -p reports
+          bun test packages/ui/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-desktop.xml
         env:
           CI: "true"
+
+      - name: JUnit test report (E2E desktop)
+        uses: dorny/test-reporter@4a2e97665d5fa767581ef38eca97b9694bd4eef4 # v2
+        if: always()
+        with:
+          name: E2E desktop (${{ matrix.os }})
+          path: reports/junit-*.xml
+          reporter: java-junit
+          fail-on-error: false

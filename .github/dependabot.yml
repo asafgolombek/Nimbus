@@ -25,6 +25,16 @@ updates:
         patterns:
           - "@biomejs/biome"
           - "typescript"
+      playwright:
+        patterns:
+          - "playwright"
+          - "@playwright/*"
+      tauri-js:
+        patterns:
+          - "@tauri-apps/*"
+      types:
+        patterns:
+          - "@types/*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -42,3 +52,6 @@ updates:
           - "dtolnay/rust-toolchain"
           - "oven-sh/setup-bun"
           - "softprops/action-gh-release"
+          - "dorny/test-reporter"
+          - "dorny/paths-filter"
+          - "Swatinem/rust-cache"
