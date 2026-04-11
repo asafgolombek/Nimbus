@@ -31,16 +31,21 @@ assignees: []
 - [ ] **No plaintext credentials** — any credential handling goes through the Vault only
 - [ ] **MCP as connector standard** — if this requires a cloud API, it belongs in an MCP connector, not the Engine
 - [ ] **Platform equality** — this works on Windows, macOS, and Linux
-- [ ] **Roadmap alignment** — this fits the current quarter's scope (see [Roadmap](../../docs/README.md#2026-roadmap))
+- [ ] **Roadmap alignment** — this fits the current phase's scope (see [Roadmap](../../docs/roadmap.md))
 
-## Roadmap Quarter
+## Roadmap Phase
 
-<!-- Which quarter does this belong to? Features outside the current quarter (Q2 2026) will be deferred. -->
+<!-- Which phase does this belong to? Features outside the active phase will be deferred. -->
 
-- [ ] Q1 2026 — Foundation
-- [ ] Q2 2026 — The Bridge
-- [ ] Q3 2026 — Intelligence
-- [ ] Q4 2026 — Presence
+- [ ] Phase 1 — Foundation ✅
+- [ ] Phase 2 — The Bridge ✅
+- [ ] Phase 3 — Intelligence (Active)
+- [ ] Phase 4 — Presence
+- [ ] Phase 5 — The Extended Surface
+- [ ] Phase 6 — Team
+- [ ] Phase 7 — The Autonomous Agent
+- [ ] Phase 8 — Sovereign Mesh
+- [ ] Phase 9 — Enterprise
 
 ## Additional Context
 

@@ -1,6 +1,6 @@
 # Contributing to Nimbus
 
-Thank you for your interest in contributing. Nimbus is in active early development (Q3 2026 — Intelligence). Architecture is stabilising but not all interfaces are frozen.
+Thank you for your interest in contributing. Nimbus is in active early development (Phase 3 — Intelligence). Architecture is stabilising but not all interfaces are frozen.
 
 Before writing any code, read the documents that define what Nimbus is and what we are building this quarter:
 
