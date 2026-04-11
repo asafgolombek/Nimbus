@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -9,6 +9,13 @@ import { createDarwinPaths, createLinuxPaths, createWindowsPaths } from "./paths
 const gatewayRoot = join(import.meta.dirname, "..", "..");
 
 describe("Platform Abstraction Layer", () => {
+  beforeEach(() => {
+    processEnvSet("NIMBUS_SKIP_EMBEDDING_RUNTIME", "1");
+  });
+  afterEach(() => {
+    processEnvDelete("NIMBUS_SKIP_EMBEDDING_RUNTIME");
+  });
+
   it("createPlatformServices is exported", async () => {
     const { createPlatformServices } = await import("./index.ts");
     expect(typeof createPlatformServices).toBe("function");

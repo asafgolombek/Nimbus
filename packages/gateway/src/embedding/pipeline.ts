@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
-import { chunkText, itemTextForEmbedding } from "./chunker.ts";
+import { type ChunkOptions, chunkText, itemTextForEmbedding } from "./chunker.ts";
 import type { Embedder, EmbeddingPipeline, IndexedItem } from "./types.ts";
 
 const DEFAULT_BACKFILL_BATCH = 50;
@@ -11,6 +11,7 @@ export type SqliteEmbeddingPipelineOptions = {
   embedder: Embedder;
   backfillBatchSize?: number;
   logger?: Logger;
+  chunkOptions?: Partial<ChunkOptions>;
 };
 
 /**
@@ -21,17 +22,24 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
   private readonly embedder: Embedder;
   private readonly backfillBatchSize: number;
   private readonly logger: Logger | undefined;
+  private readonly chunkOptions: Partial<ChunkOptions> | undefined;
 
   constructor(options: SqliteEmbeddingPipelineOptions) {
     this.db = options.db;
     this.embedder = options.embedder;
     this.backfillBatchSize = Math.max(1, options.backfillBatchSize ?? DEFAULT_BACKFILL_BATCH);
     this.logger = options.logger;
+    this.chunkOptions = options.chunkOptions;
+  }
+
+  /** Embed arbitrary text (e.g. search query) using the same model as item chunks. */
+  async embedTexts(texts: string[]): Promise<Float32Array[]> {
+    return this.embedder.embed(texts);
   }
 
   async embedItem(item: IndexedItem): Promise<void> {
     const fullText = itemTextForEmbedding(item);
-    const pieces = chunkText(fullText);
+    const pieces = chunkText(fullText, this.chunkOptions);
     if (pieces.length === 0) {
       return;
     }

@@ -3,10 +3,12 @@ import type { NimbusItem } from "@nimbus-dev/sdk";
 
 import {
   compositeSearchScore,
+  normalizeHigherIsBetter,
   recencyScore,
   servicePriorityScore,
 } from "../engine/search-ranking.ts";
 import { prunePeopleAfterServiceRemoval } from "../people/prune.ts";
+import { hybridSearch } from "../search/hybrid.ts";
 import {
   clearSchedulerCursor,
   countItemsForService,
@@ -209,14 +211,25 @@ function stripRankedToNimbus(r: RankedIndexItem): NimbusItem {
     indexedType: _it,
     duplicates: _dup,
     canonicalUrl: _cu,
+    semanticSnippet: _ss,
+    bm25Rank: _br,
+    vectorRank: _vr,
     ...rest
   } = r;
   return rest;
 }
 
+export type SemanticSearchDeps = {
+  /** Must match `embedding_chunk.model` (e.g. `all-MiniLM-L6-v2`). */
+  model: string;
+  embedQuery: (text: string) => Promise<Float32Array | null>;
+};
+
 export type LocalIndexOptions = {
   /** Phase 3 — queue embedding work after index upserts (non-blocking). */
   scheduleItemEmbedding?: (itemId: string) => void;
+  /** Phase 3 — hybrid BM25 + vector search when set. */
+  semanticSearch?: SemanticSearchDeps;
 };
 
 export class LocalIndex {
@@ -235,6 +248,10 @@ export class LocalIndex {
     private readonly db: Database,
     private readonly options?: LocalIndexOptions,
   ) {}
+
+  private get semanticSearch(): SemanticSearchDeps | undefined {
+    return this.options?.semanticSearch;
+  }
 
   /** Gateway IPC only — OAuth retention checks after connector removal. */
   getDatabase(): Database {
@@ -465,6 +482,62 @@ export class LocalIndex {
 
     const limit = Math.min(500, Math.max(1, query.limit ?? 50));
     return out.slice(0, limit);
+  }
+
+  /**
+   * Phase 3 — like {@link searchRanked} but runs hybrid BM25 + vector RRF when `semantic` is true
+   * and {@link LocalIndexOptions.semanticSearch} is configured.
+   */
+  async searchRankedAsync(
+    query: IndexSearchQuery,
+    options?: SearchRankOptions & { semantic?: boolean; contextChunks?: number },
+  ): Promise<RankedIndexItem[]> {
+    const nameQ = query.name?.trim() ?? "";
+    const semanticOn = options?.semantic ?? true;
+    const ss = this.semanticSearch;
+    const uv = readIndexedUserVersion(this.db);
+    if (
+      !semanticOn ||
+      nameQ === "" ||
+      ss === undefined ||
+      uv < 6 ||
+      !ensureSqliteVecForConnection(this.db, uv)
+    ) {
+      return this.searchRanked(query, options);
+    }
+
+    const qVec = await ss.embedQuery(nameQ);
+    const hybridResults = await hybridSearch(this.db, {
+      query: nameQ,
+      limit: query.limit ?? 50,
+      semantic: true,
+      embeddingModel: ss.model,
+      ...(query.service !== undefined && query.service !== "" ? { service: query.service } : {}),
+      ...(query.itemType !== undefined && query.itemType !== ""
+        ? { itemType: query.itemType }
+        : {}),
+      ...(qVec != null ? { queryEmbedding: qVec } : {}),
+      contextChunks: options?.contextChunks ?? 2,
+    });
+
+    const normRrf = normalizeHigherIsBetter(hybridResults.map((h) => h.rrfScore));
+    const now = options?.nowMs ?? Date.now();
+    const priorities = options?.searchServicePriority ?? new Map();
+
+    return hybridResults.map((h, i) => {
+      const row = h.item as ItemRow;
+      const rec = recencyScore(row.modified_at, now);
+      const sp = servicePriorityScore(row.service, priorities);
+      const nr = normRrf[i] ?? 0.5;
+      const comp = compositeSearchScore(nr, rec, sp);
+      const base = rowToRankedItem(row, comp, h.duplicates);
+      return {
+        ...base,
+        bm25Rank: h.bm25Rank,
+        vectorRank: h.vectorRank,
+        ...(h.semanticSnippet !== undefined ? { semanticSnippet: h.semanticSnippet } : {}),
+      };
+    });
   }
 
   /**

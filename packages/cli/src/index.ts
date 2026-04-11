@@ -12,6 +12,7 @@ import {
   runAudit,
   runConnector,
   runPeople,
+  runSearch,
   runStart,
   runStatus,
   runStop,
@@ -58,6 +59,9 @@ async function main(): Promise<void> {
         break;
       case "people":
         await runPeople(args);
+        break;
+      case "search":
+        await runSearch(args);
         break;
       default:
         console.error(`Unknown command: ${command}`);

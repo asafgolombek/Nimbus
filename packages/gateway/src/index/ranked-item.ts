@@ -9,4 +9,8 @@ export type RankedIndexItem = NimbusItem & {
   /** Present when row had `canonical_url` (used for §7.2 deduplication). */
   canonicalUrl?: string;
   duplicates?: readonly string[];
+  /** Phase 3 hybrid search — fused chunk context for the best-matching embedding. */
+  semanticSnippet?: string;
+  bm25Rank?: number | null;
+  vectorRank?: number | null;
 };

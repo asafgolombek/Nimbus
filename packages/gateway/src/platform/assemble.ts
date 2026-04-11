@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
+import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
 import { Config } from "../config.ts";
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
 import { createConfluenceSyncable } from "../connectors/confluence-sync.ts";
@@ -18,9 +19,9 @@ import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
 import { createSlackSyncable } from "../connectors/slack-sync.ts";
 import { createTeamsSyncable } from "../connectors/teams-sync.ts";
-import { createLazyItemEmbeddingScheduler } from "../embedding/lazy-scheduler.ts";
+import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
+import { LOCAL_EMBEDDING_MODEL_ID } from "../embedding/model.ts";
 import { LocalIndex } from "../index/local-index.ts";
-import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
@@ -52,17 +53,35 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const vault = await createNimbusVault(paths);
   const db = new Database(join(paths.dataDir, "nimbus.db"));
   LocalIndex.ensureSchema(db);
+  db.run("PRAGMA busy_timeout = 8000");
   const notifications = createStubNotifications();
   const syncLogger = pino({ level: processEnvGet("NIMBUS_LOG_LEVEL") ?? "warn" });
   const rateLimiter = new ProviderRateLimiter();
-  const scheduleItemEmbedding =
-    Config.embeddingsEnabled && readIndexedUserVersion(db) >= 6
-      ? createLazyItemEmbeddingScheduler(db, paths.dataDir, syncLogger)
+  const tomlEmbedding = loadNimbusEmbeddingFromConfigDir(paths.configDir);
+  const embeddingRuntime = await createEmbeddingRuntime(
+    db,
+    paths,
+    syncLogger,
+    tomlEmbedding,
+    Config.embeddingsEnabled,
+  );
+  const rt = embeddingRuntime;
+  const scheduleItemEmbedding = rt?.scheduleItemEmbedding.bind(rt);
+  const semanticSearch =
+    rt != null
+      ? {
+          model: LOCAL_EMBEDDING_MODEL_ID,
+          embedQuery: (text: string) => rt.embedQuery(text),
+        }
       : undefined;
-  const localIndex =
-    scheduleItemEmbedding !== undefined
-      ? new LocalIndex(db, { scheduleItemEmbedding })
-      : new LocalIndex(db);
+  const localOpts =
+    scheduleItemEmbedding !== undefined || semanticSearch !== undefined
+      ? {
+          ...(scheduleItemEmbedding !== undefined ? { scheduleItemEmbedding } : {}),
+          ...(semanticSearch !== undefined ? { semanticSearch } : {}),
+        }
+      : undefined;
+  const localIndex = localOpts !== undefined ? new LocalIndex(db, localOpts) : new LocalIndex(db);
   const syncContext =
     scheduleItemEmbedding !== undefined
       ? { vault, db, logger: syncLogger, rateLimiter, scheduleItemEmbedding }
@@ -149,6 +168,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     }),
   );
   syncScheduler.start();
+  rt?.startBackgroundJobs();
   return {
     vault,
     ipc: createIpcServer({
@@ -158,6 +178,13 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       localIndex,
       openUrl: openUrlInDefaultBrowser,
       syncScheduler,
+      ...(rt != null
+        ? {
+            getEmbeddingStatus: () => ({
+              embeddingBackfill: rt.getBackfillProgress(),
+            }),
+          }
+        : {}),
     }),
     paths,
     localIndex,

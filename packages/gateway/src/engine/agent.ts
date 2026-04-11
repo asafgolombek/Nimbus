@@ -31,7 +31,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   const searchLocalIndex = createTool({
     id: "searchLocalIndex",
     description:
-      "Ranked search of the local SQLite metadata index (FTS5 when name is set). Returns a context window (top full items) plus a sourceSummary of remaining matches. Use fetchMoreIndexResults(service, indexedType, offset, limit) to page within a bucket. Use resolvePerson to map names to person ids.",
+      "Ranked search of the local SQLite index: FTS5 keywords plus optional semantic (vector) fusion when enabled. Set semantic false for keyword-only. Returns a context window (top full items) plus sourceSummary. Use fetchMoreIndexResults to page within a bucket.",
     execute: async (inputData: unknown) => {
       const q =
         inputData !== null && typeof inputData === "object" && !Array.isArray(inputData)
@@ -44,6 +44,11 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         typeof q["limit"] === "number" && Number.isFinite(q["limit"])
           ? Math.min(500, Math.max(1, Math.floor(q["limit"])))
           : 20;
+      const semantic = q["semantic"] !== false;
+      const contextChunks =
+        typeof q["contextChunks"] === "number" && Number.isFinite(q["contextChunks"])
+          ? Math.min(8, Math.max(0, Math.floor(q["contextChunks"])))
+          : 2;
       const query: IndexSearchQuery = { limit };
       if (name !== undefined) {
         query.name = name;
@@ -54,8 +59,10 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
       if (itemType !== undefined) {
         query.itemType = itemType;
       }
-      const ranked = deps.localIndex.searchRanked(query, {
+      const ranked = await deps.localIndex.searchRankedAsync(query, {
         searchServicePriority: searchPriority,
+        semantic,
+        contextChunks,
       });
       const window = buildContextWindow(ranked, contextWindowItems);
       return {

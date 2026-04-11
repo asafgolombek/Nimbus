@@ -13,10 +13,18 @@ export async function runStatus(_args: string[]): Promise<void> {
   const client = new IPCClient(state.socketPath);
   try {
     await client.connect();
-    const ping = await client.call<{ version: string; uptime: number }>("gateway.ping");
+    const ping = await client.call<{
+      version: string;
+      uptime: number;
+      embeddingBackfill?: { done: number; total: number } | null;
+    }>("gateway.ping");
     console.log(`Gateway: running (pid ${String(state.pid)})`);
     console.log(`Version: ${ping.version}`);
     console.log(`Uptime:  ${String(Math.round(ping.uptime / 1000))}s`);
+    const emb = ping.embeddingBackfill;
+    if (emb !== undefined && emb !== null && emb.total > 0) {
+      console.log(`Embedding backfill: ${String(emb.done)} / ${String(emb.total)}`);
+    }
     console.log(`Socket:  ${state.socketPath}`);
     if (state.logPath !== undefined && state.logPath !== "") {
       console.log(`Log:     ${state.logPath}`);
