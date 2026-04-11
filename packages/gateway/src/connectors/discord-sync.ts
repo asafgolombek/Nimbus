@@ -167,6 +167,56 @@ function discordTextChannelIdsFromJson(json: unknown): string[] {
   return chIds;
 }
 
+/** Returns whether a row was written (valid id + author). */
+function upsertOneDiscordMessageIfValid(
+  ctx: SyncContext,
+  mr: Record<string, unknown>,
+  guildId: string,
+  channelId: string,
+  now: number,
+): boolean {
+  const mid = stringField(mr, "id");
+  const content = typeof mr["content"] === "string" ? mr["content"] : "";
+  const author = asRecord(mr["author"]);
+  if (mid === undefined || mid === "" || author === undefined) {
+    return false;
+  }
+  const authorSnowflake = stringField(author, "id");
+  const bodyPreview = content.length > 512 ? content.slice(0, 512) : content;
+  const titleBase =
+    bodyPreview.trim() === ""
+      ? displayNameFromDiscordAuthor(author)
+      : bodyPreview.replaceAll(/\s+/g, " ").slice(0, 80);
+  const title = titleBase.length > 512 ? titleBase.slice(0, 512) : titleBase;
+  const url = `https://discord.com/channels/${guildId}/${channelId}/${mid}`;
+  const authorId =
+    authorSnowflake !== undefined && authorSnowflake !== ""
+      ? resolvePersonForSync(ctx.db, {
+          discordUserId: authorSnowflake,
+          displayName: displayNameFromDiscordAuthor(author),
+        })
+      : null;
+  upsertIndexedItem(ctx.db, {
+    service: SERVICE_ID,
+    type: "message",
+    externalId: `${channelId}:${mid}`,
+    title,
+    bodyPreview,
+    url,
+    canonicalUrl: url,
+    modifiedAt: now,
+    authorId,
+    metadata: {
+      guildId,
+      channelId,
+      messageId: mid,
+    },
+    pinned: false,
+    syncedAt: now,
+  });
+  return true;
+}
+
 function discordUpsertMessagesFromPage(
   ctx: SyncContext,
   guildId: string,
@@ -180,46 +230,9 @@ function discordUpsertMessagesFromPage(
     if (mr === undefined) {
       continue;
     }
-    const mid = stringField(mr, "id");
-    const content = typeof mr["content"] === "string" ? mr["content"] : "";
-    const author = asRecord(mr["author"]);
-    if (mid === undefined || mid === "" || author === undefined) {
-      continue;
+    if (upsertOneDiscordMessageIfValid(ctx, mr, guildId, channelId, now)) {
+      acc.upserted += 1;
     }
-    const authorSnowflake = stringField(author, "id");
-    const bodyPreview = content.length > 512 ? content.slice(0, 512) : content;
-    const titleBase =
-      bodyPreview.trim() === ""
-        ? displayNameFromDiscordAuthor(author)
-        : bodyPreview.replaceAll(/\s+/g, " ").slice(0, 80);
-    const title = titleBase.length > 512 ? titleBase.slice(0, 512) : titleBase;
-    const url = `https://discord.com/channels/${guildId}/${channelId}/${mid}`;
-    const authorId =
-      authorSnowflake !== undefined && authorSnowflake !== ""
-        ? resolvePersonForSync(ctx.db, {
-            discordUserId: authorSnowflake,
-            displayName: displayNameFromDiscordAuthor(author),
-          })
-        : null;
-    upsertIndexedItem(ctx.db, {
-      service: SERVICE_ID,
-      type: "message",
-      externalId: `${channelId}:${mid}`,
-      title,
-      bodyPreview,
-      url,
-      canonicalUrl: url,
-      modifiedAt: now,
-      authorId,
-      metadata: {
-        guildId,
-        channelId,
-        messageId: mid,
-      },
-      pinned: false,
-      syncedAt: now,
-    });
-    acc.upserted += 1;
   }
 }
 
