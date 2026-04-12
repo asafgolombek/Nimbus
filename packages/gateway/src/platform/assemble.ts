@@ -6,6 +6,7 @@ import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromConfigDir } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
 import { verifyExtensionsBestEffort } from "../extensions/verify-extensions.ts";
 import {
@@ -25,6 +26,7 @@ import { openUrlInDefaultBrowser } from "./browser.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
 import { processEnvGet } from "./env-access.ts";
 import type { PlatformPaths } from "./paths.ts";
+import { registerUserMcpSyncablesFromDatabase } from "./register-user-mcp-sync.ts";
 import type { AutostartManager, NotificationService, PlatformServices } from "./types.ts";
 
 function createStubAutostart(): AutostartManager {
@@ -122,8 +124,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       evaluateWatchersAfterSync(db, serviceId, Date.now(), (t, b) => notifications.show(t, b));
     },
   });
-  const connectorMesh = await createLazyConnectorMesh(paths, vault);
+  const connectorMesh = await createLazyConnectorMesh(paths, vault, {
+    listUserMcpConnectors: () => listUserMcpConnectors(db),
+  });
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
+  registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);
   syncScheduler.start();
   rt?.startBackgroundJobs();
   const ipcOpts: Parameters<typeof createIpcServer>[0] = {
@@ -134,6 +139,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     extensionsDir: paths.extensionsDir,
     openUrl: openUrlInDefaultBrowser,
     syncScheduler,
+    connectorMesh,
   };
   if (sessionMemoryStore !== undefined) {
     ipcOpts.sessionMemoryStore = sessionMemoryStore;

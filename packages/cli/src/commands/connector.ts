@@ -652,6 +652,18 @@ async function runConnectorSync(tail: string[]): Promise<void> {
   console.log(`Sync requested: ${service}${suffix}`);
 }
 
+async function runConnectorAddMcp(tail: string[]): Promise<void> {
+  const id = tail[0]?.trim() ?? "";
+  const commandLine = tail.slice(1).join(" ").trim();
+  if (id === "" || commandLine === "") {
+    throw new Error(
+      "Usage: nimbus connector add --mcp <mcp_id> <command...>\nExample: nimbus connector add --mcp mcp_brave npx -y @some/mcp-server",
+    );
+  }
+  await withIpc((c) => c.call("connector.addMcp", { serviceId: id, commandLine }));
+  console.log(`Registered user MCP connector: ${id}`);
+}
+
 async function runConnectorRemove(tail: string[]): Promise<void> {
   const service = tail[0];
   if (service === undefined) {
@@ -680,6 +692,14 @@ export async function runConnector(args: string[]): Promise<void> {
   if (sub === "auth") {
     await runConnectorAuth(tail);
     return;
+  }
+  if (sub === "add") {
+    const mode = tail[0]?.trim() ?? "";
+    if (mode === "--mcp") {
+      await runConnectorAddMcp(tail.slice(1));
+      return;
+    }
+    throw new Error("Usage: nimbus connector add --mcp <mcp_id> <command...>");
   }
   if (sub === "list") {
     await runConnectorList();
@@ -710,6 +730,7 @@ function printConnectorHelp(): void {
 
 Usage:
   nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>] [--help]
+  nimbus connector add --mcp <mcp_id> <command...>   Register a user MCP server (id must be mcp_*)
   nimbus connector list
   nimbus connector status <service> [--stats]
   nimbus connector sync <service> [--full]

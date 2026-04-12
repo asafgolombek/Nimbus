@@ -16,6 +16,15 @@ import {
   oauthProfileForService,
 } from "../connectors/connector-catalog.ts";
 import { clearOAuthVaultIfProviderUnused } from "../connectors/connector-vault.ts";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import {
+  deleteUserMcpConnector,
+  insertUserMcpConnector,
+  normalizeUserMcpServiceId,
+  parseUserMcpCommandLine,
+  validateUserMcpArgsJson,
+} from "../connectors/user-mcp-store.ts";
+import { createUserMcpSyncable } from "../connectors/user-mcp-sync.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -27,8 +36,8 @@ import {
   parseAtlassianSiteCredentials,
   parseServiceArg,
   registerAtlassianApiConnectorAuth,
-  requireRegisteredConnector,
-  requireServiceId,
+  requireRegisteredSchedulerServiceId,
+  resolveConnectorListFilterServiceId,
   sumItemsSiblingServices,
 } from "./connector-rpc-shared.ts";
 
@@ -115,7 +124,48 @@ export type ConnectorRpcHandlerContext = {
   localIndex: LocalIndex;
   openUrl: (url: string) => Promise<void>;
   syncScheduler: SyncScheduler | undefined;
+  connectorMesh: LazyConnectorMesh | undefined;
 };
+
+export async function handleConnectorAddMcp(
+  ctx: ConnectorRpcHandlerContext,
+): Promise<ConnectorRpcHit> {
+  const { rec, localIndex, syncScheduler, connectorMesh } = ctx;
+  if (syncScheduler === undefined || connectorMesh === undefined) {
+    throw new ConnectorRpcError(-32603, "User MCP registration requires sync and connector mesh");
+  }
+  const serviceRaw = rec?.["serviceId"];
+  const cmdRaw = rec?.["commandLine"];
+  if (typeof serviceRaw !== "string" || typeof cmdRaw !== "string") {
+    throw new ConnectorRpcError(-32602, "Missing serviceId or commandLine");
+  }
+  const serviceId = normalizeUserMcpServiceId(serviceRaw);
+  if (serviceId === null) {
+    throw new ConnectorRpcError(
+      -32602,
+      "serviceId must match mcp_<lowercase_letters_numbers_underscores> (1–62 chars after prefix)",
+    );
+  }
+  if (normalizeConnectorServiceId(serviceId) !== null) {
+    throw new ConnectorRpcError(-32602, "serviceId conflicts with a built-in connector id");
+  }
+  const { command, args } = parseUserMcpCommandLine(cmdRaw);
+  const argsJson = validateUserMcpArgsJson(args);
+  const db = localIndex.getDatabase();
+  try {
+    insertUserMcpConnector(db, { service_id: serviceId, command, args_json: argsJson });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("UNIQUE") || msg.includes("unique")) {
+      throw new ConnectorRpcError(-32602, `User MCP connector already exists: ${serviceId}`);
+    }
+    throw new ConnectorRpcError(-32603, `Failed to save user MCP connector: ${msg}`);
+  }
+  syncScheduler.register(
+    createUserMcpSyncable(serviceId, () => connectorMesh.ensureUserMcpRunning(serviceId)),
+  );
+  return { kind: "hit", value: { ok: true, serviceId } };
+}
 
 export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex } = ctx;
@@ -123,7 +173,7 @@ export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): Conn
     rec !== undefined && typeof rec["serviceId"] === "string" ? rec["serviceId"] : undefined;
   let list: SyncStatus[];
   if (filter !== undefined && filter !== "") {
-    const sid = normalizeConnectorServiceId(filter);
+    const sid = resolveConnectorListFilterServiceId(filter);
     if (sid === null) {
       throw new ConnectorRpcError(-32602, "Invalid serviceId filter");
     }
@@ -136,8 +186,7 @@ export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): Conn
 
 export function handleConnectorPause(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
-  requireRegisteredConnector(localIndex, id);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.pauseConnectorSync(id);
   } else {
@@ -148,8 +197,7 @@ export function handleConnectorPause(ctx: ConnectorRpcHandlerContext): Connector
 
 export function handleConnectorResume(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
-  requireRegisteredConnector(localIndex, id);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.resumeConnectorSync(id);
   } else {
@@ -160,7 +208,7 @@ export function handleConnectorResume(ctx: ConnectorRpcHandlerContext): Connecto
 
 export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const msRaw = rec?.["intervalMs"];
   if (typeof msRaw !== "number" || !Number.isFinite(msRaw) || msRaw < 1) {
     throw new ConnectorRpcError(-32602, "Invalid intervalMs");
@@ -175,7 +223,7 @@ export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): Con
 
 export function handleConnectorStatus(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex } = ctx;
-  const id = requireServiceId(rec);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const rows = localIndex.persistedConnectorStatuses(id);
   if (rows.length === 0) {
     throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
@@ -196,30 +244,37 @@ export async function handleConnectorRemove(
   ctx: ConnectorRpcHandlerContext,
 ): Promise<ConnectorRpcHit> {
   const { rec, vault, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const db = localIndex.getDatabase();
   let googleOAuthBackup: string | null = null;
   let microsoftOAuthBackup: string | null = null;
+  const normalizedForFamily = normalizeConnectorServiceId(id);
   if (
-    GOOGLE_CONNECTOR_SERVICES.has(id) &&
-    sumItemsSiblingServices(db, id, GOOGLE_CONNECTOR_SERVICES) === 0
+    normalizedForFamily !== null &&
+    GOOGLE_CONNECTOR_SERVICES.has(normalizedForFamily) &&
+    sumItemsSiblingServices(db, normalizedForFamily, GOOGLE_CONNECTOR_SERVICES) === 0
   ) {
     googleOAuthBackup = await vault.get("google.oauth");
   }
   if (
-    MICROSOFT_CONNECTOR_SERVICES.has(id) &&
-    sumItemsSiblingServices(db, id, MICROSOFT_CONNECTOR_SERVICES) === 0
+    normalizedForFamily !== null &&
+    MICROSOFT_CONNECTOR_SERVICES.has(normalizedForFamily) &&
+    sumItemsSiblingServices(db, normalizedForFamily, MICROSOFT_CONNECTOR_SERVICES) === 0
   ) {
     microsoftOAuthBackup = await vault.get("microsoft.oauth");
   }
   if (syncScheduler !== undefined) {
     syncScheduler.unregister(id);
   }
+  deleteUserMcpConnector(db, id);
   const itemsDeleted = localIndex.removeConnectorIndexData(id);
   let vaultKeys: string[] = [];
   try {
     vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
-    vaultKeys.push(...(await deleteConnectorPatAndTokenKeys(vault, id)));
+    const normalizedBuiltin = normalizeConnectorServiceId(id);
+    if (normalizedBuiltin !== null) {
+      vaultKeys.push(...(await deleteConnectorPatAndTokenKeys(vault, normalizedBuiltin)));
+    }
   } catch (removeErr) {
     if (googleOAuthBackup !== null) {
       await vault.set("google.oauth", googleOAuthBackup);
@@ -236,8 +291,7 @@ export async function handleConnectorSync(
   ctx: ConnectorRpcHandlerContext,
 ): Promise<ConnectorRpcHit> {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
-  requireRegisteredConnector(localIndex, id);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (rec?.["full"] === true) {
     localIndex.clearConnectorSyncCursor(id);
   }

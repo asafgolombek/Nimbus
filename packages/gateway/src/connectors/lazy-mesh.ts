@@ -11,6 +11,7 @@ import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import type { UserMcpConnectorRow } from "./user-mcp-store.ts";
 
 function googleDriveMcpScriptPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -126,15 +127,22 @@ export class LazyConnectorMesh {
   private confluenceIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private discordClient: MCPClient | undefined;
   private discordIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly userMcpClients = new Map<string, MCPClient>();
+  private readonly userMcpIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly listUserMcpConnectors: () => readonly UserMcpConnectorRow[];
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
 
   constructor(
     paths: PlatformPaths,
     private readonly vault: NimbusVault,
-    options?: { inactivityMs?: number },
+    options?: {
+      inactivityMs?: number;
+      listUserMcpConnectors?: () => readonly UserMcpConnectorRow[];
+    },
   ) {
     this.inactivityMs = options?.inactivityMs ?? 300_000;
+    this.listUserMcpConnectors = options?.listUserMcpConnectors ?? (() => []);
     this.filesystem = new MCPClient({
       servers: {
         filesystem: {
@@ -316,6 +324,96 @@ export class LazyConnectorMesh {
       this.discordIdleTimer = undefined;
       void this.stopDiscordClient();
     }, this.inactivityMs);
+  }
+
+  private clearUserMcpIdleTimer(serviceId: string): void {
+    const t = this.userMcpIdleTimers.get(serviceId);
+    if (t !== undefined) {
+      clearTimeout(t);
+      this.userMcpIdleTimers.delete(serviceId);
+    }
+  }
+
+  private scheduleUserMcpDisconnect(serviceId: string): void {
+    this.clearUserMcpIdleTimer(serviceId);
+    const handle = setTimeout(() => {
+      this.userMcpIdleTimers.delete(serviceId);
+      void this.stopUserMcpClient(serviceId);
+    }, this.inactivityMs);
+    this.userMcpIdleTimers.set(serviceId, handle);
+  }
+
+  private async stopUserMcpClient(serviceId: string): Promise<void> {
+    this.clearUserMcpIdleTimer(serviceId);
+    const c = this.userMcpClients.get(serviceId);
+    this.userMcpClients.delete(serviceId);
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private mcpServerKeyForUserConnector(serviceId: string): string {
+    return serviceId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  private async ensureUserMcpClient(row: UserMcpConnectorRow): Promise<void> {
+    this.clearUserMcpIdleTimer(row.service_id);
+    if (this.userMcpClients.has(row.service_id)) {
+      this.scheduleUserMcpDisconnect(row.service_id);
+      return;
+    }
+    let args: string[];
+    try {
+      const parsed: unknown = JSON.parse(row.args_json);
+      if (!Array.isArray(parsed) || !parsed.every((x) => typeof x === "string")) {
+        return;
+      }
+      args = parsed;
+    } catch {
+      return;
+    }
+    const key = this.mcpServerKeyForUserConnector(row.service_id);
+    const client = new MCPClient({
+      id: `nimbus-user-mcp-${row.service_id}-${String(Date.now())}`,
+      servers: {
+        [key]: {
+          command: row.command,
+          args,
+          env: { ...process.env } as Record<string, string>,
+        },
+      },
+    });
+    this.userMcpClients.set(row.service_id, client);
+    this.bumpToolsEpoch();
+    this.scheduleUserMcpDisconnect(row.service_id);
+  }
+
+  private async ensureUserMcpConnectorsRunning(): Promise<void> {
+    const rows = this.listUserMcpConnectors();
+    const active = new Set(rows.map((r) => r.service_id));
+    for (const id of [...this.userMcpClients.keys()]) {
+      if (!active.has(id)) {
+        await this.stopUserMcpClient(id);
+      }
+    }
+    for (const row of rows) {
+      await this.ensureUserMcpClient(row);
+    }
+  }
+
+  /** Ensures the persisted user MCP server for `serviceId` is spawned (sync + agent tool listing). */
+  async ensureUserMcpRunning(serviceId: string): Promise<void> {
+    const rows = this.listUserMcpConnectors();
+    const row = rows.find((r) => r.service_id === serviceId);
+    if (row === undefined) {
+      return;
+    }
+    await this.ensureUserMcpClient(row);
   }
 
   private async stopGoogleBundle(): Promise<void> {
@@ -897,6 +995,7 @@ export class LazyConnectorMesh {
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
     await this.ensureCredentialConnectorsRunning();
+    await this.ensureUserMcpConnectorsRunning();
 
     const fsTools = await this.filesystem.listTools();
     const gdTools = await listLazyMeshClientTools(this.googleBundleClient);
@@ -910,6 +1009,10 @@ export class LazyConnectorMesh {
     const notionTools = await listLazyMeshClientTools(this.notionClient);
     const confluenceTools = await listLazyMeshClientTools(this.confluenceClient);
     const discordTools = await listLazyMeshClientTools(this.discordClient);
+    let userMcpMerged: LazyMeshToolMap = {};
+    for (const c of this.userMcpClients.values()) {
+      userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
+    }
     return {
       ...fsTools,
       ...gdTools,
@@ -923,6 +1026,7 @@ export class LazyConnectorMesh {
       ...notionTools,
       ...confluenceTools,
       ...discordTools,
+      ...userMcpMerged,
     } as LazyMeshToolMap;
   }
 
@@ -938,6 +1042,12 @@ export class LazyConnectorMesh {
     this.clearNotionIdleTimer();
     this.clearConfluenceIdleTimer();
     this.clearDiscordIdleTimer();
+    for (const id of [...this.userMcpIdleTimers.keys()]) {
+      this.clearUserMcpIdleTimer(id);
+    }
+    for (const id of [...this.userMcpClients.keys()]) {
+      await this.stopUserMcpClient(id);
+    }
     await this.stopGoogleBundle();
     await this.stopMicrosoftBundle();
     await this.stopGithubClient();
@@ -960,6 +1070,7 @@ export class LazyConnectorMesh {
 export async function createLazyConnectorMesh(
   paths: PlatformPaths,
   vault: NimbusVault,
+  options?: { inactivityMs?: number; listUserMcpConnectors?: () => readonly UserMcpConnectorRow[] },
 ): Promise<LazyConnectorMesh> {
-  return new LazyConnectorMesh(paths, vault);
+  return new LazyConnectorMesh(paths, vault, options);
 }

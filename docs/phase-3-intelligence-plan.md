@@ -24,7 +24,7 @@
 | Extension sandbox (scoped child process, env injection) | Partial | Intended via extension spawn path; hardening per risk register |
 | `nimbus scaffold extension` CLI command | **Done** | `packages/cli/src/commands/scaffold.ts` |
 | `nimbus extension install/list/enable/disable/remove` | **Done** | CLI `extension.ts`; IPC `extension.*`; local path install + `extensionsDir` copy |
-| `nimbus connector add --mcp "<cmd>"` (generic user MCP) | Planned | |
+| `nimbus connector add --mcp "<cmd>"` (generic user MCP) | **Done** | `user_mcp_connector` schema v11; IPC `connector.addMcp`; lazy mesh spawn + noop sync |
 | Jenkins MCP connector + sync | Planned | |
 | GitHub Actions MCP connector + sync | Planned | |
 | CircleCI MCP connector + sync | Planned | |
