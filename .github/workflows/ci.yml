@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Detect Rust/Tauri changes
-        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         id: changes
         with:
           filters: |
@@ -160,7 +160,7 @@ jobs:
           CI: "true"
 
       - name: JUnit test report (E2E desktop)
-        uses: dorny/test-reporter@4a2e97665d5fa767581ef38eca97b9694bd4eef4 # v2
+        uses: dorny/test-reporter@df6247429542221bc30d46a036ee47af1102c451 # v2
         if: always()
         with:
           name: E2E desktop (PR)
@@ -220,7 +220,7 @@ jobs:
           CI: "true"
 
       - name: JUnit test report (E2E desktop)
-        uses: dorny/test-reporter@4a2e97665d5fa767581ef38eca97b9694bd4eef4 # v2
+        uses: dorny/test-reporter@df6247429542221bc30d46a036ee47af1102c451 # v2
         if: always()
         with:
           name: E2E desktop (${{ matrix.os }})
