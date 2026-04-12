@@ -26,32 +26,39 @@ describeWithFetchRestore("gitlab-sync", () => {
       init?: SyncTestFetchParams[1],
     ): Promise<Response> => {
       const u = urlFromFetchInput(input);
-      expect(u).toContain("gitlab.com/api/v4/events");
-      expect(u).toContain("after=");
-      expect(init?.headers).toBeDefined();
-      const h = new Headers(init?.headers ?? undefined);
-      expect(h.get("PRIVATE-TOKEN")).toBe("glpat_test");
-      return new Response(
-        JSON.stringify([
+      if (u.includes("/events")) {
+        expect(u).toContain("after=");
+        expect(init?.headers).toBeDefined();
+        const h = new Headers(init?.headers ?? undefined);
+        expect(h.get("PRIVATE-TOKEN")).toBe("glpat_test");
+        return new Response(
+          JSON.stringify([
+            {
+              id: 101,
+              project_id: 1,
+              action_name: "opened",
+              target_id: 9,
+              target_iid: 4,
+              target_type: "MergeRequest",
+              target_title: "Add feature",
+              created_at: "2026-04-01T12:00:00.000Z",
+              author_username: "dev1",
+              author_name: "Dev One",
+              project: { path_with_namespace: "acme/app" },
+            },
+          ]),
           {
-            id: 101,
-            project_id: 1,
-            action_name: "opened",
-            target_id: 9,
-            target_iid: 4,
-            target_type: "MergeRequest",
-            target_title: "Add feature",
-            created_at: "2026-04-01T12:00:00.000Z",
-            author_username: "dev1",
-            author_name: "Dev One",
-            project: { path_with_namespace: "acme/app" },
+            status: 200,
+            headers: {},
           },
-        ]),
-        {
-          status: 200,
-          headers: {},
-        },
-      );
+        );
+      }
+      if (u.includes("/pipelines") && !/\/pipelines\/\d/.test(u)) {
+        const hp = new Headers(init?.headers ?? undefined);
+        expect(hp.get("PRIVATE-TOKEN")).toBe("glpat_test");
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
     }) as typeof fetch;
 
     const sync = createGitlabSyncable({ ensureGitlabMcpRunning: async () => {} });

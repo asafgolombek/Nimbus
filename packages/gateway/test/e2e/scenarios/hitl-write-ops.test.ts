@@ -13,6 +13,8 @@
  *   - Jenkins (jenkins.build.trigger, jenkins.build.abort)
  *   - GitHub Actions (github_actions.run.trigger, github_actions.run.cancel)
  *   - CircleCI (circleci.pipeline.trigger, circleci.job.cancel)
+ *   - GitLab CI (gitlab.pipeline.retry, gitlab.pipeline.cancel)
+ *   - Phase 3 cloud / IaC / K8s / PagerDuty HITL action ids (see executor.ts)
  *
  * No subprocess, no cloud.  Uses the real ToolExecutor with mock consent / audit / dispatcher.
  */
@@ -51,6 +53,26 @@ const Q2_WRITE_ACTIONS: ReadonlyArray<string> = [
   "github_actions.run.cancel",
   "circleci.pipeline.trigger",
   "circleci.job.cancel",
+  "gitlab.pipeline.retry",
+  "gitlab.pipeline.cancel",
+  "aws.ecs.service.update",
+  "aws.lambda.invoke",
+  "aws.ec2.instance.stop",
+  "aws.ec2.instance.start",
+  "azure.app_service.restart",
+  "azure.aks.node_pool.scale",
+  "gcp.cloud_run.deploy",
+  "gcp.gke.workload.restart",
+  "iac.terraform.apply",
+  "iac.terraform.destroy",
+  "iac.cloudformation.deploy",
+  "iac.pulumi.up",
+  "kubernetes.rollout.restart",
+  "kubernetes.pod.delete",
+  "kubernetes.deployment.scale",
+  "pagerduty.incident.acknowledge",
+  "pagerduty.incident.resolve",
+  "pagerduty.incident.escalate",
 ];
 
 /** Minimal representative payload for each write action type. */
@@ -165,6 +187,94 @@ function payloadFor(actionType: string): Record<string, unknown> {
         mcpToolId: "circleci_circleci_job_cancel",
         input: { projectSlug: "gh/org/svc", jobNumber: 101 },
       };
+    case "gitlab.pipeline.retry":
+      return {
+        mcpToolId: "gitlab_gitlab_pipeline_retry",
+        input: { projectPath: "org/svc", pipelineId: 55 },
+      };
+    case "gitlab.pipeline.cancel":
+      return {
+        mcpToolId: "gitlab_gitlab_pipeline_cancel",
+        input: { projectPath: "org/svc", pipelineId: 56 },
+      };
+    case "aws.ecs.service.update":
+      return {
+        mcpToolId: "aws_aws_ecs_service_update",
+        input: { cluster: "c1", service: "svc1", taskDefinition: "td:1" },
+      };
+    case "aws.lambda.invoke":
+      return {
+        mcpToolId: "aws_aws_lambda_invoke",
+        input: { functionName: "fn1", payloadJson: "{}" },
+      };
+    case "aws.ec2.instance.stop":
+      return { mcpToolId: "aws_aws_ec2_instance_stop", input: { instanceIds: "i-1" } };
+    case "aws.ec2.instance.start":
+      return { mcpToolId: "aws_aws_ec2_instance_start", input: { instanceIds: "i-1" } };
+    case "azure.app_service.restart":
+      return {
+        mcpToolId: "azure_azure_app_service_restart",
+        input: { subscriptionId: "sub", resourceGroup: "rg", name: "app" },
+      };
+    case "azure.aks.node_pool.scale":
+      return {
+        mcpToolId: "azure_azure_aks_node_pool_scale",
+        input: {
+          subscriptionId: "sub",
+          resourceGroup: "rg",
+          clusterName: "aks",
+          poolName: "default",
+          nodeCount: 2,
+        },
+      };
+    case "gcp.cloud_run.deploy":
+      return {
+        mcpToolId: "gcp_gcp_cloud_run_deploy",
+        input: { projectId: "p", region: "us-central1", service: "svc", image: "gcr.io/x/img:1" },
+      };
+    case "gcp.gke.workload.restart":
+      return {
+        mcpToolId: "gcp_gcp_gke_workload_restart",
+        input: {
+          projectId: "p",
+          location: "zone",
+          cluster: "c",
+          namespace: "default",
+          deployment: "d",
+        },
+      };
+    case "iac.terraform.apply":
+      return { mcpToolId: "iac_iac_terraform_apply", input: { workingDirectory: "/tmp/tf" } };
+    case "iac.terraform.destroy":
+      return { mcpToolId: "iac_iac_terraform_destroy", input: { workingDirectory: "/tmp/tf" } };
+    case "iac.cloudformation.deploy":
+      return {
+        mcpToolId: "iac_iac_cloudformation_deploy",
+        input: { stackName: "s", templateBody: "{}" },
+      };
+    case "iac.pulumi.up":
+      return { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: "/tmp/pu" } };
+    case "kubernetes.rollout.restart":
+      return {
+        mcpToolId: "kubernetes_k8s_rollout_restart",
+        input: { namespace: "default", resourceType: "deployment", name: "api" },
+      };
+    case "kubernetes.pod.delete":
+      return {
+        mcpToolId: "kubernetes_k8s_pod_delete",
+        input: { namespace: "default", podName: "p1" },
+      };
+    case "kubernetes.deployment.scale":
+      return {
+        mcpToolId: "kubernetes_k8s_deployment_scale",
+        input: { namespace: "default", deploymentName: "api", replicas: 2 },
+      };
+    case "pagerduty.incident.acknowledge":
+      return { mcpToolId: "pagerduty_pd_incident_acknowledge", input: { incidentId: "Q123" } };
+    case "pagerduty.incident.resolve":
+      return { mcpToolId: "pagerduty_pd_incident_resolve", input: { incidentId: "Q123" } };
+    case "pagerduty.incident.escalate":
+      return { mcpToolId: "pagerduty_pd_incident_escalate", input: { incidentId: "Q123" } };
     default:
       return {};
   }

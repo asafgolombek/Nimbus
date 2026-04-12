@@ -89,6 +89,9 @@ async function deleteConnectorPatAndTokenKeys(
     case "circleci":
       await vault.delete("circleci.api_token");
       return ["circleci.api_token"];
+    case "pagerduty":
+      await vault.delete("pagerduty.api_token");
+      return ["pagerduty.api_token"];
     default:
       return [];
   }
@@ -428,6 +431,22 @@ async function connectorAuthCircleci(
   return authSuccess("circleci");
 }
 
+async function connectorAuthPagerduty(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Missing API token for pagerduty");
+  }
+  await vault.set("pagerduty.api_token", token);
+  const interval = defaultSyncIntervalMsForService("pagerduty");
+  localIndex.ensureConnectorSchedulerRegistration("pagerduty", interval, Date.now());
+  return authSuccess("pagerduty");
+}
+
 async function connectorAuthJenkins(
   rec: Record<string, unknown> | undefined,
   vault: NimbusVault,
@@ -620,6 +639,9 @@ export async function handleConnectorAuth(
   }
   if (id === "circleci") {
     return connectorAuthCircleci(rec, vault, localIndex);
+  }
+  if (id === "pagerduty") {
+    return connectorAuthPagerduty(rec, vault, localIndex);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }

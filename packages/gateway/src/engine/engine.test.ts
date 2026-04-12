@@ -72,6 +72,11 @@ describe("HITL_REQUIRED", () => {
       "github_actions.run.cancel",
       "circleci.pipeline.trigger",
       "circleci.job.cancel",
+      "gitlab.pipeline.retry",
+      "gitlab.pipeline.cancel",
+      "pagerduty.incident.acknowledge",
+      "pagerduty.incident.resolve",
+      "pagerduty.incident.escalate",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -302,6 +307,45 @@ function hitlCircleciRejectPayload(
   };
 }
 
+function hitlGitlabCiRejectPayload(
+  glAction: "gitlab.pipeline.retry" | "gitlab.pipeline.cancel",
+): Record<string, unknown> {
+  if (glAction === "gitlab.pipeline.retry") {
+    return {
+      mcpToolId: "gitlab_gitlab_pipeline_retry",
+      input: { projectPath: "acme/app", pipelineId: 9001 },
+    };
+  }
+  return {
+    mcpToolId: "gitlab_gitlab_pipeline_cancel",
+    input: { projectPath: "acme/app", pipelineId: 9002 },
+  };
+}
+
+function hitlPagerdutyRejectPayload(
+  pdAction:
+    | "pagerduty.incident.acknowledge"
+    | "pagerduty.incident.resolve"
+    | "pagerduty.incident.escalate",
+): Record<string, unknown> {
+  if (pdAction === "pagerduty.incident.acknowledge") {
+    return {
+      mcpToolId: "pagerduty_pd_incident_acknowledge",
+      input: { incidentId: "Q123" },
+    };
+  }
+  if (pdAction === "pagerduty.incident.resolve") {
+    return {
+      mcpToolId: "pagerduty_pd_incident_resolve",
+      input: { incidentId: "Q123" },
+    };
+  }
+  return {
+    mcpToolId: "pagerduty_pd_incident_escalate",
+    input: { incidentId: "Q123" },
+  };
+}
+
 function hitlConfluenceRejectPayload(
   confluenceAction: ConfluenceHitlRejectAction,
 ): Record<string, unknown> {
@@ -525,6 +569,40 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(cciAction);
+    });
+  }
+
+  for (const glAction of ["gitlab.pipeline.retry", "gitlab.pipeline.cancel"] as const) {
+    test(`rejected consent for ${glAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlGitlabCiRejectPayload(glAction);
+      const out = await exec.execute({ type: glAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(glAction);
+    });
+  }
+
+  for (const pdAction of [
+    "pagerduty.incident.acknowledge",
+    "pagerduty.incident.resolve",
+    "pagerduty.incident.escalate",
+  ] as const) {
+    test(`rejected consent for ${pdAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlPagerdutyRejectPayload(pdAction);
+      const out = await exec.execute({ type: pdAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(pdAction);
     });
   }
 

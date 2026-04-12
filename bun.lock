@@ -274,6 +274,18 @@
         "@types/bun": "latest",
       },
     },
+    "packages/mcp-connectors/pagerduty": {
+      "name": "nimbus-mcp-pagerduty",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/mcp-connectors/slack": {
       "name": "nimbus-mcp-slack",
       "version": "0.1.0",
@@ -1199,6 +1211,8 @@
     "nimbus-mcp-onedrive": ["nimbus-mcp-onedrive@workspace:packages/mcp-connectors/onedrive"],
 
     "nimbus-mcp-outlook": ["nimbus-mcp-outlook@workspace:packages/mcp-connectors/outlook"],
+
+    "nimbus-mcp-pagerduty": ["nimbus-mcp-pagerduty@workspace:packages/mcp-connectors/pagerduty"],
 
     "nimbus-mcp-slack": ["nimbus-mcp-slack@workspace:packages/mcp-connectors/slack"],
 

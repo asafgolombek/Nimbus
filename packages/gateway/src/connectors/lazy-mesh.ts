@@ -103,6 +103,11 @@ function circleciMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "circleci", "src", "server.ts");
 }
 
+function pagerdutyMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "pagerduty", "src", "server.ts");
+}
+
 type LazyMeshToolMap = Record<
   string,
   { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
@@ -116,7 +121,7 @@ async function listLazyMeshClientTools(client: MCPClient | undefined): Promise<L
 }
 
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub (includes GitHub Actions MCP child) / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence / Jenkins / CircleCI credential MCP when vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub (includes GitHub Actions MCP child) / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence / Jenkins / CircleCI / PagerDuty credential MCP when vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -146,6 +151,8 @@ export class LazyConnectorMesh {
   private jenkinsIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private circleciClient: MCPClient | undefined;
   private circleciIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private pagerdutyClient: MCPClient | undefined;
+  private pagerdutyIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly userMcpClients = new Map<string, MCPClient>();
   private readonly userMcpIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly listUserMcpConnectors: () => readonly UserMcpConnectorRow[];
@@ -271,6 +278,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearPagerdutyIdleTimer(): void {
+    if (this.pagerdutyIdleTimer !== undefined) {
+      clearTimeout(this.pagerdutyIdleTimer);
+      this.pagerdutyIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -372,6 +386,14 @@ export class LazyConnectorMesh {
     this.circleciIdleTimer = setTimeout(() => {
       this.circleciIdleTimer = undefined;
       void this.stopCircleciClient();
+    }, this.inactivityMs);
+  }
+
+  private schedulePagerdutyDisconnect(): void {
+    this.clearPagerdutyIdleTimer();
+    this.pagerdutyIdleTimer = setTimeout(() => {
+      this.pagerdutyIdleTimer = undefined;
+      void this.stopPagerdutyClient();
     }, this.inactivityMs);
   }
 
@@ -624,6 +646,19 @@ export class LazyConnectorMesh {
   private async stopCircleciClient(): Promise<void> {
     const c = this.circleciClient;
     this.circleciClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopPagerdutyClient(): Promise<void> {
+    const c = this.pagerdutyClient;
+    this.pagerdutyClient = undefined;
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -1082,6 +1117,33 @@ export class LazyConnectorMesh {
     this.scheduleCircleciDisconnect();
   }
 
+  /**
+   * Starts PagerDuty MCP when `pagerduty.api_token` is present in the Vault.
+   */
+  async ensurePagerdutyRunning(): Promise<void> {
+    this.clearPagerdutyIdleTimer();
+    if (this.pagerdutyClient !== undefined) {
+      this.schedulePagerdutyDisconnect();
+      return;
+    }
+    const tok = await this.vault.get("pagerduty.api_token");
+    if (tok === null || tok.trim() === "") {
+      return;
+    }
+    this.pagerdutyClient = new MCPClient({
+      id: `nimbus-pagerduty-${String(Date.now())}`,
+      servers: {
+        pagerduty: {
+          command: "bun",
+          args: [pagerdutyMcpScriptPath()],
+          env: { ...process.env, PAGERDUTY_API_TOKEN: tok.trim() },
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.schedulePagerdutyDisconnect();
+  }
+
   private async ensureIfVaultKeyNonEmpty(key: string, run: () => Promise<void>): Promise<void> {
     const v = await this.vault.get(key);
     if (v !== null && v !== "") {
@@ -1146,6 +1208,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private async ensurePagerdutyIfVaultCreds(): Promise<void> {
+    const t = await this.vault.get("pagerduty.api_token");
+    if (t !== null && t.trim() !== "") {
+      await this.ensurePagerdutyRunning();
+    }
+  }
+
   /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
   private async ensureCredentialConnectorsRunning(): Promise<void> {
     await this.ensureIfVaultKeyNonEmpty("google.oauth", () => this.ensureGoogleDriveRunning());
@@ -1163,6 +1232,7 @@ export class LazyConnectorMesh {
     await this.ensureDiscordIfOptIn();
     await this.ensureJenkinsIfVaultCreds();
     await this.ensureCircleciIfVaultCreds();
+    await this.ensurePagerdutyIfVaultCreds();
   }
 
   async listTools(): Promise<
@@ -1185,6 +1255,7 @@ export class LazyConnectorMesh {
     const discordTools = await listLazyMeshClientTools(this.discordClient);
     const jenkinsTools = await listLazyMeshClientTools(this.jenkinsClient);
     const circleciTools = await listLazyMeshClientTools(this.circleciClient);
+    const pagerdutyTools = await listLazyMeshClientTools(this.pagerdutyClient);
     let userMcpMerged: LazyMeshToolMap = {};
     for (const c of this.userMcpClients.values()) {
       userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
@@ -1204,6 +1275,7 @@ export class LazyConnectorMesh {
       ...discordTools,
       ...jenkinsTools,
       ...circleciTools,
+      ...pagerdutyTools,
       ...userMcpMerged,
     } as LazyMeshToolMap;
   }
@@ -1222,6 +1294,7 @@ export class LazyConnectorMesh {
     this.clearDiscordIdleTimer();
     this.clearJenkinsIdleTimer();
     this.clearCircleciIdleTimer();
+    this.clearPagerdutyIdleTimer();
     for (const id of [...this.userMcpIdleTimers.keys()]) {
       this.clearUserMcpIdleTimer(id);
     }
@@ -1241,6 +1314,7 @@ export class LazyConnectorMesh {
     await this.stopDiscordClient();
     await this.stopJenkinsClient();
     await this.stopCircleciClient();
+    await this.stopPagerdutyClient();
     try {
       await this.filesystem.disconnect();
     } catch {

@@ -20,6 +20,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "discord",
   "jenkins",
   "circleci",
+  "pagerduty",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -72,6 +73,8 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
       return 120 * 1000;
     case "circleci":
       return 90 * 1000;
+    case "pagerduty":
+      return 120 * 1000;
     default: {
       const _exhaustive: never = serviceId;
       return _exhaustive;
@@ -198,6 +201,10 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "circleci":
       throw new Error(
         "oauthProfileForService: circleci uses a personal API token (connector.auth circleci)",
+      );
+    case "pagerduty":
+      throw new Error(
+        "oauthProfileForService: pagerduty uses a REST API token (connector.auth pagerduty)",
       );
     default: {
       const _never: never = serviceId;

@@ -57,7 +57,9 @@ export type McpToolListingClient = {
  * `repo.tag.create` → `github_github_tag_create`; `repo.commit.push` → `github_github_commit_push`
  * (stub — not implemented server-side).
  *
- * GitLab (HITL): `repo.pr.merge` → `gitlab_gitlab_mr_merge` (set `payload.mcpToolId` + `input`).
+ * GitLab (HITL): `repo.pr.merge` → `gitlab_gitlab_mr_merge` (set `payload.mcpToolId` + `input`);
+ * `gitlab.pipeline.retry` → `gitlab_gitlab_pipeline_retry`;
+ * `gitlab.pipeline.cancel` → `gitlab_gitlab_pipeline_cancel`.
  *
  * Bitbucket (HITL): `repo.pr.merge` → `bitbucket_bitbucket_pr_merge`.
  *
@@ -90,6 +92,10 @@ export type McpToolListingClient = {
  *
  * CircleCI (HITL): `circleci.pipeline.trigger` → `circleci_circleci_pipeline_trigger`;
  * `circleci.job.cancel` → `circleci_circleci_job_cancel`.
+ *
+ * PagerDuty (HITL): `pagerduty.incident.acknowledge` → `pagerduty_pd_incident_acknowledge`;
+ * `pagerduty.incident.resolve` → `pagerduty_pd_incident_resolve`;
+ * `pagerduty.incident.escalate` → `pagerduty_pd_incident_escalate`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

@@ -28,7 +28,7 @@
 | Jenkins MCP connector + sync | **Done** | `packages/mcp-connectors/jenkins/`; `jenkins-sync.ts`; lazy mesh + `assemble-sync-registrations`; `connector.auth` jenkins; HITL `jenkins.build.*` |
 | GitHub Actions MCP connector + sync | **Done** | `packages/mcp-connectors/github-actions/` (spawn with GitHub MCP); `github-actions-sync.ts`; `github_actions` scheduler + companion registration; HITL `github_actions.run.*` |
 | CircleCI MCP connector + sync | **Done** | `packages/mcp-connectors/circleci/`; `circleci-sync.ts`; lazy mesh + `circleci.api_token`; HITL `circleci.pipeline.trigger`, `circleci.job.cancel` |
-| GitLab CI MCP connector + sync (extends GitLab connector) | Planned | |
+| GitLab CI MCP connector + sync (extends GitLab connector) | **Done** | `gitlab_pipeline_jobs_get`, `gitlab_job_log_tail`, `gitlab_pipeline_retry` / `gitlab_pipeline_cancel` (HITL); `gitlab-sync` cursor v2 + pipeline index as `ci_run`; `gitlab.pipeline.retry` / `gitlab.pipeline.cancel` in executor |
 | AWS MCP connector + sync | Planned | |
 | Azure MCP connector + sync | Planned | |
 | GCP MCP connector + sync | Planned | |

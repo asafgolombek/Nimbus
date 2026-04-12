@@ -16,7 +16,8 @@ export type Provider =
   | "confluence"
   | "discord"
   | "jenkins"
-  | "circleci";
+  | "circleci"
+  | "pagerduty";
 
 export interface ProviderQuota {
   requestsPerMinute: number;
@@ -38,6 +39,7 @@ export const DEFAULT_QUOTAS: Record<Provider, ProviderQuota> = {
   discord: { requestsPerMinute: 50, burstSize: 10 },
   jenkins: { requestsPerMinute: 60, burstSize: 10 },
   circleci: { requestsPerMinute: 60, burstSize: 10 },
+  pagerduty: { requestsPerMinute: 60, burstSize: 10 },
 };
 
 type BucketState = {

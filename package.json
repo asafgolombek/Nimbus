@@ -24,7 +24,8 @@
     "packages/mcp-connectors/discord",
     "packages/mcp-connectors/jenkins",
     "packages/mcp-connectors/github-actions",
-    "packages/mcp-connectors/circleci"
+    "packages/mcp-connectors/circleci",
+    "packages/mcp-connectors/pagerduty"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",

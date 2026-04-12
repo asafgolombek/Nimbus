@@ -15,6 +15,7 @@ import { createLinearSyncable } from "../connectors/linear-sync.ts";
 import { createNotionSyncable } from "../connectors/notion-sync.ts";
 import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
+import { createPagerdutySyncable } from "../connectors/pagerduty-sync.ts";
 import { createSlackSyncable } from "../connectors/slack-sync.ts";
 import { createTeamsSyncable } from "../connectors/teams-sync.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -112,6 +113,11 @@ export function registerConnectorMeshSyncables(
   syncScheduler.register(
     createCircleciSyncable({
       ensureCircleciMcpRunning: () => connectorMesh.ensureCircleciRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createPagerdutySyncable({
+      ensurePagerdutyMcpRunning: () => connectorMesh.ensurePagerdutyRunning(),
     }),
   );
 }
