@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
 import { type AgentRequestContext, agentRequestContext } from "../engine/agent-request-context.ts";
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
@@ -215,10 +216,14 @@ export type CreateIpcServerOptions = {
   version: string;
   /** When set, `audit.list` reads from the local index; otherwise returns []. */
   localIndex?: LocalIndex;
+  /** Host path for `extension.install` copies; same as platform `extensionsDir`. */
+  extensionsDir?: string;
   /** Opens URLs for OAuth (`connector.auth`). */
   openUrl?: (url: string) => Promise<void>;
   /** Background sync; required for `connector.sync` force runs. */
   syncScheduler?: SyncScheduler;
+  /** Required for `connector.addMcp`. */
+  connectorMesh?: LazyConnectorMesh;
   /** Merged into `gateway.ping` (e.g. embedding backfill progress). */
   getEmbeddingStatus?: () => Record<string, unknown>;
   /** Monotonic gateway start time (ms) for ping.uptime */
@@ -469,6 +474,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
           method,
           params,
           db: options.localIndex.getDatabase(),
+          ...(options.extensionsDir === undefined ? {} : { extensionsDir: options.extensionsDir }),
         });
         if (out.kind === "hit") {
           return out.value;
@@ -523,6 +529,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         localIndex: options.localIndex,
         openUrl: openUrl ?? (async () => {}),
         syncScheduler: options.syncScheduler,
+        ...(options.connectorMesh === undefined ? {} : { connectorMesh: options.connectorMesh }),
       });
       if (out.kind === "hit") {
         return out.value;

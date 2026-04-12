@@ -1,7 +1,9 @@
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import {
+  handleConnectorAddMcp,
   handleConnectorAuth,
   handleConnectorListStatus,
   handleConnectorPause,
@@ -22,12 +24,15 @@ export async function dispatchConnectorRpc(options: {
   localIndex: LocalIndex;
   openUrl: (url: string) => Promise<void>;
   syncScheduler: SyncScheduler | undefined;
+  connectorMesh?: LazyConnectorMesh;
 }): Promise<{ kind: "hit"; value: unknown } | { kind: "miss" }> {
-  const { method, params, vault, localIndex, openUrl, syncScheduler } = options;
+  const { method, params, vault, localIndex, openUrl, syncScheduler, connectorMesh } = options;
   const rec = asRecord(params);
-  const ctx = { rec, vault, localIndex, openUrl, syncScheduler };
+  const ctx = { rec, vault, localIndex, openUrl, syncScheduler, connectorMesh };
 
   switch (method) {
+    case "connector.addMcp":
+      return handleConnectorAddMcp(ctx);
     case "connector.listStatus":
       return handleConnectorListStatus(ctx);
     case "connector.pause":

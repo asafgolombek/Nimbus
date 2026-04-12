@@ -10,6 +10,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "teams",
   "slack",
   "github",
+  "github_actions",
   "gitlab",
   "bitbucket",
   "linear",
@@ -17,6 +18,18 @@ export const CONNECTOR_SERVICE_IDS = [
   "notion",
   "confluence",
   "discord",
+  "jenkins",
+  "circleci",
+  "pagerduty",
+  "kubernetes",
+  "aws",
+  "azure",
+  "gcp",
+  "iac",
+  "grafana",
+  "sentry",
+  "newrelic",
+  "datadog",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -33,6 +46,46 @@ export const MICROSOFT_CONNECTOR_SERVICES: ReadonlySet<string> = new Set([
   "teams",
 ]);
 
+const MIN1 = 60 * 1000;
+const MIN5 = 5 * 60 * 1000;
+const MIN10 = 10 * 60 * 1000;
+const MIN30 = 30 * 60 * 1000;
+const SEC90 = 90 * 1000;
+const MIN120 = 120 * 1000;
+const HOUR6 = 6 * 60 * 60 * 1000;
+
+/** Default scheduler interval per service (must list every {@link ConnectorServiceId}). */
+const CONNECTOR_SYNC_INTERVAL_MS: { readonly [K in ConnectorServiceId]: number } = {
+  google_drive: MIN30,
+  onedrive: MIN30,
+  gmail: MIN5,
+  outlook: MIN5,
+  teams: MIN5,
+  slack: MIN5,
+  notion: MIN5,
+  confluence: MIN10,
+  google_photos: HOUR6,
+  github: MIN1,
+  github_actions: MIN1,
+  gitlab: MIN1,
+  bitbucket: MIN1,
+  linear: MIN1,
+  jira: MIN1,
+  discord: MIN5,
+  jenkins: MIN120,
+  circleci: SEC90,
+  pagerduty: MIN120,
+  kubernetes: MIN120,
+  aws: MIN120,
+  azure: MIN120,
+  gcp: MIN120,
+  iac: MIN120,
+  grafana: MIN120,
+  sentry: MIN120,
+  newrelic: MIN120,
+  datadog: MIN120,
+};
+
 export function normalizeConnectorServiceId(raw: string): ConnectorServiceId | null {
   const s = raw.trim().toLowerCase().replaceAll("-", "_");
   if ((CONNECTOR_SERVICE_IDS as readonly string[]).includes(s)) {
@@ -42,39 +95,17 @@ export function normalizeConnectorServiceId(raw: string): ConnectorServiceId | n
 }
 
 export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): number {
-  switch (serviceId) {
-    case "google_drive":
-    case "onedrive":
-      return 30 * 60 * 1000;
-    case "gmail":
-    case "outlook":
-    case "teams":
-    case "slack":
-    case "notion":
-      return 5 * 60 * 1000;
-    case "confluence":
-      return 10 * 60 * 1000;
-    case "google_photos":
-      return 6 * 60 * 60 * 1000;
-    case "github":
-    case "gitlab":
-    case "bitbucket":
-    case "linear":
-    case "jira":
-      return 60 * 1000;
-    case "discord":
-      return 5 * 60 * 1000;
-    default: {
-      const _exhaustive: never = serviceId;
-      return _exhaustive;
-    }
-  }
+  return CONNECTOR_SYNC_INTERVAL_MS[serviceId];
 }
 
 export type ConnectorOAuthProfile = {
   provider: OAuthProvider;
   defaultScopes: string[];
 };
+
+function oauthUnsupported(serviceId: ConnectorServiceId, detail: string): never {
+  throw new Error(`oauthProfileForService: ${serviceId} ${detail}`);
+}
 
 export function oauthProfileForService(serviceId: ConnectorServiceId): ConnectorOAuthProfile {
   switch (serviceId) {
@@ -150,35 +181,59 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
         ],
       };
     case "github":
-      throw new Error(
-        "oauthProfileForService: github uses a PAT (connector.auth personalAccessToken)",
+      return oauthUnsupported("github", "uses a PAT (connector.auth personalAccessToken)");
+    case "github_actions":
+      return oauthUnsupported(
+        "github_actions",
+        "uses the same PAT as github (connector.auth github)",
       );
     case "gitlab":
-      throw new Error(
-        "oauthProfileForService: gitlab uses a PAT (connector.auth personalAccessToken)",
-      );
+      return oauthUnsupported("gitlab", "uses a PAT (connector.auth personalAccessToken)");
     case "bitbucket":
-      throw new Error(
-        "oauthProfileForService: bitbucket uses app password (connector.auth username + token)",
-      );
+      return oauthUnsupported("bitbucket", "uses app password (connector.auth username + token)");
     case "linear":
-      throw new Error(
-        "oauthProfileForService: linear uses an API key (connector.auth personalAccessToken)",
-      );
+      return oauthUnsupported("linear", "uses an API key (connector.auth personalAccessToken)");
     case "jira":
-      throw new Error(
-        "oauthProfileForService: jira uses email + API token + base URL (connector.auth)",
-      );
+      return oauthUnsupported("jira", "uses email + API token + base URL (connector.auth)");
     case "notion":
       return { provider: "notion", defaultScopes: [] };
     case "confluence":
-      throw new Error(
-        "oauthProfileForService: confluence uses email + API token + base URL (connector.auth)",
-      );
+      return oauthUnsupported("confluence", "uses email + API token + base URL (connector.auth)");
     case "discord":
-      throw new Error(
-        "oauthProfileForService: discord uses a bot token + opt-in (connector.auth --enable)",
+      return oauthUnsupported("discord", "uses a bot token + opt-in (connector.auth --enable)");
+    case "jenkins":
+      return oauthUnsupported("jenkins", "uses base URL + username + API token (connector.auth)");
+    case "circleci":
+      return oauthUnsupported("circleci", "uses a personal API token (connector.auth circleci)");
+    case "pagerduty":
+      return oauthUnsupported("pagerduty", "uses a REST API token (connector.auth pagerduty)");
+    case "kubernetes":
+      return oauthUnsupported(
+        "kubernetes",
+        "uses a kubeconfig file path (connector.auth kubernetes)",
       );
+    case "aws":
+      return oauthUnsupported(
+        "aws",
+        "uses access key + secret + region or profile (connector.auth aws)",
+      );
+    case "azure":
+      return oauthUnsupported(
+        "azure",
+        "uses service principal tenant + client id + secret (connector.auth azure)",
+      );
+    case "gcp":
+      return oauthUnsupported("gcp", "uses a service account JSON key path (connector.auth gcp)");
+    case "iac":
+      return oauthUnsupported("iac", "is opt-in for local CLIs (connector.auth iac --enable)");
+    case "grafana":
+      return oauthUnsupported("grafana", "uses base URL + API token (connector.auth grafana)");
+    case "sentry":
+      return oauthUnsupported("sentry", "uses auth token + org slug (connector.auth sentry)");
+    case "newrelic":
+      return oauthUnsupported("newrelic", "uses a user API key (connector.auth newrelic)");
+    case "datadog":
+      return oauthUnsupported("datadog", "uses API + application keys (connector.auth datadog)");
     default: {
       const _never: never = serviceId;
       return _never;

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,8 +19,10 @@ import type { AuditSink, ConnectorDispatcher, ConsentChannel, PlannedAction } fr
 
 type AuditRecord = Parameters<AuditSink["recordAudit"]>[0];
 
-/** Avoid hardcoded `/tmp/…` in tests (world-writable; Sonar security hotspot). */
+/** Avoid hardcoded `/tmp/…` literals in tests (world-writable; Sonar S5443). */
 const HITL_TEST_TARGET_PATH = join(tmpdir(), "nimbus-engine-hitl-test-target");
+const HITL_TEST_IAC_TF_DIR = mkdtempSync(join(tmpdir(), "nimbus-engine-iac-tf-"));
+const HITL_TEST_IAC_PU_DIR = mkdtempSync(join(tmpdir(), "nimbus-engine-iac-pu-"));
 
 describe("engine subsystem", () => {
   test("exports stable subsystem id", () => {
@@ -66,6 +69,32 @@ describe("HITL_REQUIRED", () => {
       "confluence.page.create",
       "confluence.page.update",
       "confluence.comment.add",
+      "jenkins.build.trigger",
+      "jenkins.build.abort",
+      "github_actions.run.trigger",
+      "github_actions.run.cancel",
+      "circleci.pipeline.trigger",
+      "circleci.job.cancel",
+      "gitlab.pipeline.retry",
+      "gitlab.pipeline.cancel",
+      "pagerduty.incident.acknowledge",
+      "pagerduty.incident.resolve",
+      "pagerduty.incident.escalate",
+      "kubernetes.rollout.restart",
+      "kubernetes.pod.delete",
+      "kubernetes.deployment.scale",
+      "aws.ecs.service.update",
+      "aws.lambda.invoke",
+      "aws.ec2.instance.stop",
+      "aws.ec2.instance.start",
+      "azure.app_service.restart",
+      "azure.aks.node_pool.scale",
+      "gcp.cloud_run.deploy",
+      "gcp.gke.workload.restart",
+      "iac.terraform.apply",
+      "iac.terraform.destroy",
+      "iac.cloudformation.deploy",
+      "iac.pulumi.up",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -251,6 +280,206 @@ type ConfluenceHitlRejectAction =
   | "confluence.page.update"
   | "confluence.comment.add";
 
+function hitlJenkinsRejectPayload(
+  jenkinsAction: "jenkins.build.trigger" | "jenkins.build.abort",
+): Record<string, unknown> {
+  if (jenkinsAction === "jenkins.build.trigger") {
+    return {
+      mcpToolId: "jenkins_jenkins_build_trigger",
+      input: { jobName: "folder/job" },
+    };
+  }
+  return {
+    mcpToolId: "jenkins_jenkins_build_abort",
+    input: { jobName: "folder/job", buildNumber: 42 },
+  };
+}
+
+function hitlGithubActionsRejectPayload(
+  ghaAction: "github_actions.run.trigger" | "github_actions.run.cancel",
+): Record<string, unknown> {
+  if (ghaAction === "github_actions.run.trigger") {
+    return {
+      mcpToolId: "github_actions_gha_run_trigger",
+      input: { owner: "acme", repo: "app", workflowId: "ci.yml", ref: "main" },
+    };
+  }
+  return {
+    mcpToolId: "github_actions_gha_run_cancel",
+    input: { owner: "acme", repo: "app", runId: 99 },
+  };
+}
+
+function hitlCircleciRejectPayload(
+  cciAction: "circleci.pipeline.trigger" | "circleci.job.cancel",
+): Record<string, unknown> {
+  if (cciAction === "circleci.pipeline.trigger") {
+    return {
+      mcpToolId: "circleci_circleci_pipeline_trigger",
+      input: { projectSlug: "gh/acme/app", branch: "main" },
+    };
+  }
+  return {
+    mcpToolId: "circleci_circleci_job_cancel",
+    input: { projectSlug: "gh/acme/app", jobNumber: 42 },
+  };
+}
+
+function hitlGitlabCiRejectPayload(
+  glAction: "gitlab.pipeline.retry" | "gitlab.pipeline.cancel",
+): Record<string, unknown> {
+  if (glAction === "gitlab.pipeline.retry") {
+    return {
+      mcpToolId: "gitlab_gitlab_pipeline_retry",
+      input: { projectPath: "acme/app", pipelineId: 9001 },
+    };
+  }
+  return {
+    mcpToolId: "gitlab_gitlab_pipeline_cancel",
+    input: { projectPath: "acme/app", pipelineId: 9002 },
+  };
+}
+
+function hitlKubernetesRejectPayload(
+  k8sAction: "kubernetes.rollout.restart" | "kubernetes.pod.delete" | "kubernetes.deployment.scale",
+): Record<string, unknown> {
+  if (k8sAction === "kubernetes.rollout.restart") {
+    return {
+      mcpToolId: "kubernetes_k8s_rollout_restart",
+      input: { namespace: "default", resourceType: "deployment", name: "api" },
+    };
+  }
+  if (k8sAction === "kubernetes.pod.delete") {
+    return {
+      mcpToolId: "kubernetes_k8s_pod_delete",
+      input: { namespace: "default", podName: "p1" },
+    };
+  }
+  return {
+    mcpToolId: "kubernetes_k8s_deployment_scale",
+    input: { namespace: "default", deploymentName: "api", replicas: 2 },
+  };
+}
+
+function hitlAwsRejectPayload(
+  awsAction:
+    | "aws.ecs.service.update"
+    | "aws.lambda.invoke"
+    | "aws.ec2.instance.stop"
+    | "aws.ec2.instance.start",
+): Record<string, unknown> {
+  if (awsAction === "aws.ecs.service.update") {
+    return {
+      mcpToolId: "aws_aws_ecs_service_update",
+      input: { cluster: "c1", service: "svc1", taskDefinition: "td:1" },
+    };
+  }
+  if (awsAction === "aws.lambda.invoke") {
+    return {
+      mcpToolId: "aws_aws_lambda_invoke",
+      input: { functionName: "fn1", payloadJson: "{}" },
+    };
+  }
+  if (awsAction === "aws.ec2.instance.stop") {
+    return { mcpToolId: "aws_aws_ec2_instance_stop", input: { instanceIds: "i-1" } };
+  }
+  return { mcpToolId: "aws_aws_ec2_instance_start", input: { instanceIds: "i-1" } };
+}
+
+function hitlAzureRejectPayload(
+  azAction: "azure.app_service.restart" | "azure.aks.node_pool.scale",
+): Record<string, unknown> {
+  if (azAction === "azure.app_service.restart") {
+    return {
+      mcpToolId: "azure_azure_app_service_restart",
+      input: { subscriptionId: "sub", resourceGroup: "rg", name: "app" },
+    };
+  }
+  return {
+    mcpToolId: "azure_azure_aks_node_pool_scale",
+    input: {
+      subscriptionId: "sub",
+      resourceGroup: "rg",
+      clusterName: "aks",
+      poolName: "default",
+      nodeCount: 2,
+    },
+  };
+}
+
+function hitlGcpRejectPayload(
+  gcpAction: "gcp.cloud_run.deploy" | "gcp.gke.workload.restart",
+): Record<string, unknown> {
+  if (gcpAction === "gcp.cloud_run.deploy") {
+    return {
+      mcpToolId: "gcp_gcp_cloud_run_deploy",
+      input: { projectId: "p", region: "us-central1", service: "svc", image: "gcr.io/x/img:1" },
+    };
+  }
+  return {
+    mcpToolId: "gcp_gcp_gke_workload_restart",
+    input: {
+      projectId: "p",
+      location: "zone",
+      cluster: "c",
+      namespace: "default",
+      deployment: "d",
+    },
+  };
+}
+
+function hitlIacRejectPayload(
+  iacAction:
+    | "iac.terraform.apply"
+    | "iac.terraform.destroy"
+    | "iac.cloudformation.deploy"
+    | "iac.pulumi.up",
+): Record<string, unknown> {
+  if (iacAction === "iac.terraform.apply") {
+    return {
+      mcpToolId: "iac_iac_terraform_apply",
+      input: { workingDirectory: HITL_TEST_IAC_TF_DIR },
+    };
+  }
+  if (iacAction === "iac.terraform.destroy") {
+    return {
+      mcpToolId: "iac_iac_terraform_destroy",
+      input: { workingDirectory: HITL_TEST_IAC_TF_DIR },
+    };
+  }
+  if (iacAction === "iac.cloudformation.deploy") {
+    return {
+      mcpToolId: "iac_iac_cloudformation_deploy",
+      input: { stackName: "s", templateBody: "{}" },
+    };
+  }
+  return { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: HITL_TEST_IAC_PU_DIR } };
+}
+
+function hitlPagerdutyRejectPayload(
+  pdAction:
+    | "pagerduty.incident.acknowledge"
+    | "pagerduty.incident.resolve"
+    | "pagerduty.incident.escalate",
+): Record<string, unknown> {
+  if (pdAction === "pagerduty.incident.acknowledge") {
+    return {
+      mcpToolId: "pagerduty_pd_incident_acknowledge",
+      input: { incidentId: "Q123" },
+    };
+  }
+  if (pdAction === "pagerduty.incident.resolve") {
+    return {
+      mcpToolId: "pagerduty_pd_incident_resolve",
+      input: { incidentId: "Q123" },
+    };
+  }
+  return {
+    mcpToolId: "pagerduty_pd_incident_escalate",
+    input: { incidentId: "Q123" },
+  };
+}
+
 function hitlConfluenceRejectPayload(
   confluenceAction: ConfluenceHitlRejectAction,
 ): Record<string, unknown> {
@@ -277,7 +506,7 @@ function hitlConfluenceRejectPayload(
   };
 }
 
-describe("ToolExecutor", () => {
+describe("ToolExecutor — HITL whitelist", () => {
   test("every HITL_REQUIRED action type triggers the consent channel", async () => {
     for (const actionType of HITL_REQUIRED) {
       const m = createMocks(true);
@@ -306,7 +535,9 @@ describe("ToolExecutor", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("file.delete");
   });
+});
 
+describe("ToolExecutor — rejected consent (email)", () => {
   for (const emailAction of ["email.send", "email.draft.send", "email.draft.create"] as const) {
     test(`rejected consent for ${emailAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -321,7 +552,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(emailAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (slack)", () => {
   test("rejected consent for slack.message.post does not call the connector; audit rejected", async () => {
     const m = createMocks(true);
     m.approveNext = false;
@@ -339,7 +572,9 @@ describe("ToolExecutor", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("slack.message.post");
   });
+});
 
+describe("ToolExecutor — rejected consent (teams)", () => {
   for (const teamsAction of ["teams.message.post", "teams.message.postChat"] as const) {
     test(`rejected consent for ${teamsAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -354,7 +589,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(teamsAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (linear)", () => {
   for (const linearAction of [
     "linear.issue.create",
     "linear.issue.update",
@@ -373,7 +610,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(linearAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (jira)", () => {
   for (const jiraAction of [
     "jira.issue.create",
     "jira.issue.update",
@@ -392,7 +631,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(jiraAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (notion)", () => {
   for (const notionAction of [
     "notion.page.create",
     "notion.page.update",
@@ -412,7 +653,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(notionAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (confluence)", () => {
   for (const confluenceAction of [
     "confluence.page.create",
     "confluence.page.update",
@@ -431,7 +674,197 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(confluenceAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (jenkins)", () => {
+  for (const jenkinsAction of ["jenkins.build.trigger", "jenkins.build.abort"] as const) {
+    test(`rejected consent for ${jenkinsAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlJenkinsRejectPayload(jenkinsAction);
+      const out = await exec.execute({ type: jenkinsAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(jenkinsAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (github_actions)", () => {
+  for (const ghaAction of ["github_actions.run.trigger", "github_actions.run.cancel"] as const) {
+    test(`rejected consent for ${ghaAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlGithubActionsRejectPayload(ghaAction);
+      const out = await exec.execute({ type: ghaAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(ghaAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (circleci)", () => {
+  for (const cciAction of ["circleci.pipeline.trigger", "circleci.job.cancel"] as const) {
+    test(`rejected consent for ${cciAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlCircleciRejectPayload(cciAction);
+      const out = await exec.execute({ type: cciAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(cciAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (gitlab)", () => {
+  for (const glAction of ["gitlab.pipeline.retry", "gitlab.pipeline.cancel"] as const) {
+    test(`rejected consent for ${glAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlGitlabCiRejectPayload(glAction);
+      const out = await exec.execute({ type: glAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(glAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (pagerduty)", () => {
+  for (const pdAction of [
+    "pagerduty.incident.acknowledge",
+    "pagerduty.incident.resolve",
+    "pagerduty.incident.escalate",
+  ] as const) {
+    test(`rejected consent for ${pdAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlPagerdutyRejectPayload(pdAction);
+      const out = await exec.execute({ type: pdAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(pdAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (kubernetes)", () => {
+  for (const k8sAction of [
+    "kubernetes.rollout.restart",
+    "kubernetes.pod.delete",
+    "kubernetes.deployment.scale",
+  ] as const) {
+    test(`rejected consent for ${k8sAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlKubernetesRejectPayload(k8sAction);
+      const out = await exec.execute({ type: k8sAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(k8sAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (aws)", () => {
+  for (const awsAction of [
+    "aws.ecs.service.update",
+    "aws.lambda.invoke",
+    "aws.ec2.instance.stop",
+    "aws.ec2.instance.start",
+  ] as const) {
+    test(`rejected consent for ${awsAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlAwsRejectPayload(awsAction);
+      const out = await exec.execute({ type: awsAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(awsAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (azure)", () => {
+  for (const azAction of ["azure.app_service.restart", "azure.aks.node_pool.scale"] as const) {
+    test(`rejected consent for ${azAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlAzureRejectPayload(azAction);
+      const out = await exec.execute({ type: azAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(azAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (gcp)", () => {
+  for (const gcpAction of ["gcp.cloud_run.deploy", "gcp.gke.workload.restart"] as const) {
+    test(`rejected consent for ${gcpAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlGcpRejectPayload(gcpAction);
+      const out = await exec.execute({ type: gcpAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(gcpAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (iac)", () => {
+  for (const iacAction of [
+    "iac.terraform.apply",
+    "iac.terraform.destroy",
+    "iac.cloudformation.deploy",
+    "iac.pulumi.up",
+  ] as const) {
+    test(`rejected consent for ${iacAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlIacRejectPayload(iacAction);
+      const out = await exec.execute({ type: iacAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(iacAction);
+    });
+  }
+});
+
+describe("ToolExecutor — rejected consent (filesystem writes)", () => {
   for (const fileAction of ["file.create", "file.move", "file.rename"] as const) {
     test(`rejected consent for ${fileAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -446,7 +879,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(fileAction);
     });
   }
+});
 
+describe("ToolExecutor — approval, ordering, and consent channel", () => {
   test("approved consent calls the connector; audit shows approved", async () => {
     const m = createMocks(true);
     const exec = new ToolExecutor(m.consent, m.audit, m.connectors);

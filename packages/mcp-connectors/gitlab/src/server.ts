@@ -2,6 +2,7 @@
  * nimbus-mcp-gitlab — GitLab REST MCP server (API v4).
  * PAT is injected as GITLAB_PAT (PRIVATE-TOKEN). Optional GITLAB_API_BASE_URL for self-hosted.
  * MR merge requires Gateway HITL (`repo.pr.merge`).
+ * Pipeline retry/cancel require Gateway HITL (`gitlab.pipeline.retry`, `gitlab.pipeline.cancel`).
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -249,6 +250,77 @@ reg(
       throw new Error(`GitLab ${String(res.status)}: ${text.slice(0, 300)}`);
     }
     return jsonResult({ trace: text });
+  },
+);
+
+reg(
+  "gitlab_pipeline_jobs_get",
+  "List jobs for a CI pipeline (by pipeline id).",
+  gitlabPipelineGetSchema,
+  async (parsed) => {
+    const token = requireProcessEnv("GITLAB_PAT");
+    const enc = encodeURIComponent(parsed.projectPath);
+    const path = `/projects/${enc}/pipelines/${String(parsed.pipelineId)}/jobs`;
+    const res = await glFetch(token, path);
+    return mcpJsonResultIfOk("GitLab", res);
+  },
+);
+
+reg(
+  "gitlab_job_log_tail",
+  "Download job trace text, optionally keeping only the last N characters (tail).",
+  gitlabJobTraceSchema.extend({
+    maxChars: z.number().int().min(1000).max(500_000).optional(),
+  }),
+  async (parsed) => {
+    const token = requireProcessEnv("GITLAB_PAT");
+    const enc = encodeURIComponent(parsed.projectPath);
+    const url = `${apiBase()}/projects/${enc}/jobs/${String(parsed.jobId)}/trace`;
+    const res = await fetch(url, { headers: { "PRIVATE-TOKEN": token } });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`GitLab ${String(res.status)}: ${text.slice(0, 300)}`);
+    }
+    const max = parsed.maxChars ?? 64_000;
+    const tail = text.length > max ? text.slice(-max) : text;
+    return jsonResult({
+      jobId: parsed.jobId,
+      truncated: text.length > max,
+      totalChars: text.length,
+      trace: tail,
+    });
+  },
+);
+
+reg(
+  "gitlab_pipeline_retry",
+  "Retry failed jobs in a pipeline. Requires Gateway HITL.",
+  gitlabPipelineGetSchema,
+  async (parsed) => {
+    const token = requireProcessEnv("GITLAB_PAT");
+    const enc = encodeURIComponent(parsed.projectPath);
+    const path = `/projects/${enc}/pipelines/${String(parsed.pipelineId)}/retry`;
+    const res = await glFetch(token, path, { method: "POST" });
+    if (!res.ok) {
+      throw new Error(`GitLab pipeline retry ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return mcpJsonResultIfOk("GitLab", res);
+  },
+);
+
+reg(
+  "gitlab_pipeline_cancel",
+  "Cancel a pipeline. Requires Gateway HITL.",
+  gitlabPipelineGetSchema,
+  async (parsed) => {
+    const token = requireProcessEnv("GITLAB_PAT");
+    const enc = encodeURIComponent(parsed.projectPath);
+    const path = `/projects/${enc}/pipelines/${String(parsed.pipelineId)}/cancel`;
+    const res = await glFetch(token, path, { method: "POST" });
+    if (!res.ok) {
+      throw new Error(`GitLab pipeline cancel ${String(res.status)}: ${res.text.slice(0, 400)}`);
+    }
+    return mcpJsonResultIfOk("GitLab", res);
   },
 );
 

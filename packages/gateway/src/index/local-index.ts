@@ -240,7 +240,7 @@ export type LocalIndexOptions = {
 };
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 10;
+  static readonly SCHEMA_VERSION = 12;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -303,6 +303,48 @@ export class LocalIndex {
 
   ensureConnectorSchedulerRegistration(serviceId: string, intervalMs: number, now: number): void {
     upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, false);
+  }
+
+  /**
+   * When GitHub is already registered and a PAT is present, ensure the companion `github_actions`
+   * scheduler row exists (backfill for installs that predated Phase 3 GHA sync).
+   */
+  ensureGithubActionsSchedulerCompanionIfNeeded(params: {
+    githubPatPresent: boolean;
+    now: number;
+    intervalMs: number;
+  }): void {
+    if (!params.githubPatPresent) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "github") === null) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "github_actions") !== null) {
+      return;
+    }
+    upsertSchedulerRegistration(this.db, "github_actions", params.intervalMs, params.now, false);
+  }
+
+  /**
+   * When GitHub is registered and a CircleCI token is present, ensure the `circleci` scheduler row
+   * exists (backfill for installs that predated the CircleCI connector).
+   */
+  ensureCircleciSchedulerCompanionIfNeeded(params: {
+    circleciTokenPresent: boolean;
+    now: number;
+    intervalMs: number;
+  }): void {
+    if (!params.circleciTokenPresent) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "github") === null) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "circleci") !== null) {
+      return;
+    }
+    upsertSchedulerRegistration(this.db, "circleci", params.intervalMs, params.now, false);
   }
 
   pauseConnectorSync(serviceId: string): void {

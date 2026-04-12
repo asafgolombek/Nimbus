@@ -21,7 +21,20 @@
     "packages/mcp-connectors/jira",
     "packages/mcp-connectors/notion",
     "packages/mcp-connectors/confluence",
-    "packages/mcp-connectors/discord"
+    "packages/mcp-connectors/discord",
+    "packages/mcp-connectors/jenkins",
+    "packages/mcp-connectors/github-actions",
+    "packages/mcp-connectors/circleci",
+    "packages/mcp-connectors/pagerduty",
+    "packages/mcp-connectors/kubernetes",
+    "packages/mcp-connectors/aws",
+    "packages/mcp-connectors/azure",
+    "packages/mcp-connectors/gcp",
+    "packages/mcp-connectors/iac",
+    "packages/mcp-connectors/grafana",
+    "packages/mcp-connectors/sentry",
+    "packages/mcp-connectors/newrelic",
+    "packages/mcp-connectors/datadog"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",
@@ -43,6 +56,7 @@
     "test:coverage:sync": "bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:rate-limiter": "bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85",
     "test:coverage:people": "bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80",
+    "test:coverage:embedding": "bun test packages/gateway/src/embedding --coverage --coverage-threshold-lines=80",
     "package:headless": "bun scripts/package-headless-bundle.ts",
     "package:installers:linux": "bun scripts/package-linux-installers.ts",
     "clean": "bun run --filter '*' clean && rm -rf node_modules"

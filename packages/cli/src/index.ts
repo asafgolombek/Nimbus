@@ -11,6 +11,7 @@ import {
   runAsk,
   runAudit,
   runConnector,
+  runExtension,
   runPeople,
   runRepl,
   runScaffold,
@@ -67,6 +68,9 @@ async function main(): Promise<void> {
           break;
         case "connector":
           await runConnector(args);
+          break;
+        case "extension":
+          await runExtension(args);
           break;
         case "people":
           await runPeople(args);

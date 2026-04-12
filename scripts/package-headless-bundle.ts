@@ -9,7 +9,7 @@
  *   bun scripts/package-headless-bundle.ts --out dist/headless-bundle
  *   bun scripts/package-headless-bundle.ts --gateway dist/custom-gw --cli dist/custom-cli
  */
-import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const isWin = process.platform === "win32";
@@ -30,6 +30,9 @@ const defaultCli = join(repoRoot, "dist", `nimbus${ext}`);
 const outDir = resolve(repoRoot, parseArg("--out") ?? join("dist", "headless-bundle"));
 const gatewaySrc = resolve(repoRoot, parseArg("--gateway") ?? defaultGateway);
 const cliSrc = resolve(repoRoot, parseArg("--cli") ?? defaultCli);
+/** Pre-downloaded Xenova ONNX weights dir; also read from env `NIMBUS_EMBEDDING_MODEL_DIR`. */
+const embeddingModelDir =
+  parseArg("--embedding-model-dir") ?? process.env["NIMBUS_EMBEDDING_MODEL_DIR"];
 
 for (const [label, p] of [
   ["gateway", gatewaySrc],
@@ -53,6 +56,26 @@ const gwDest = join(outDir, `nimbus-gateway${ext}`);
 const cliDest = join(outDir, `nimbus${ext}`);
 copyFileSync(gatewaySrc, gwDest);
 copyFileSync(cliSrc, cliDest);
+
+if (embeddingModelDir !== undefined && embeddingModelDir.trim() !== "") {
+  const src = resolve(embeddingModelDir.trim());
+  if (existsSync(src)) {
+    const dest = join(outDir, "embedding-model");
+    cpSync(src, dest, { recursive: true });
+    console.log(`Embedding weights copied to ${dest}`);
+    console.log(
+      "Set NIMBUS_EMBEDDING_MODEL_DIR to this directory on the target host (or pass the same path to --embedding-model-dir when packaging).",
+    );
+  } else {
+    console.warn(
+      `package-headless-bundle: NIMBUS_EMBEDDING_MODEL_DIR / --embedding-model-dir points to missing path: ${src}`,
+    );
+  }
+} else {
+  console.log(
+    "Tip: pre-download MiniLM weights, then re-run with NIMBUS_EMBEDDING_MODEL_DIR=<dir> or --embedding-model-dir <dir> to embed them in the bundle.",
+  );
+}
 
 console.log(`Headless bundle written to ${outDir}`);
 console.log(`  ${gwDest}`);

@@ -1,6 +1,11 @@
 import type { Database } from "bun:sqlite";
+import { rmSync } from "node:fs";
 
-import { listExtensions } from "../automation/extension-store.ts";
+import {
+  deleteExtensionById,
+  listExtensions,
+  setExtensionEnabled,
+} from "../automation/extension-store.ts";
 import {
   deleteWatcher,
   insertWatcher,
@@ -12,6 +17,7 @@ import {
   listWorkflows,
   upsertWorkflowByName,
 } from "../automation/workflow-store.ts";
+import { installExtensionFromLocalDirectory } from "../extensions/install-from-local.ts";
 import { asRecord } from "./connector-rpc-shared.ts";
 
 export class AutomationRpcError extends Error {
@@ -40,6 +46,8 @@ export function dispatchAutomationRpc(options: {
   method: string;
   params: unknown;
   db: Database;
+  /** Required for `extension.install`. */
+  extensionsDir?: string;
 }): Hit | { kind: "miss" } {
   const { method, db } = options;
   const rec = asRecord(options.params);
@@ -86,6 +94,63 @@ export function dispatchAutomationRpc(options: {
 
     case "extension.list":
       return { kind: "hit", value: { extensions: listExtensions(db) } };
+
+    case "extension.install": {
+      const sourcePath = requireString(rec, "sourcePath");
+      const dir = options.extensionsDir;
+      if (dir === undefined || dir.trim() === "") {
+        throw new AutomationRpcError(
+          -32603,
+          "Gateway is not configured with an extensions directory",
+        );
+      }
+      try {
+        const installed = installExtensionFromLocalDirectory({
+          db,
+          extensionsDir: dir,
+          sourcePath,
+        });
+        return {
+          kind: "hit",
+          value: {
+            id: installed.id,
+            version: installed.version,
+            installPath: installed.installPath,
+            manifestHash: installed.manifestHash,
+            entryHash: installed.entryHash,
+          },
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new AutomationRpcError(-32602, msg);
+      }
+    }
+
+    case "extension.enable": {
+      const id = requireString(rec, "id");
+      const ok = setExtensionEnabled(db, id, true);
+      return { kind: "hit", value: { ok } };
+    }
+
+    case "extension.disable": {
+      const id = requireString(rec, "id");
+      const ok = setExtensionEnabled(db, id, false);
+      return { kind: "hit", value: { ok } };
+    }
+
+    case "extension.remove": {
+      const id = requireString(rec, "id");
+      const installPath = deleteExtensionById(db, id);
+      if (installPath === null) {
+        throw new AutomationRpcError(-32602, "Extension not found");
+      }
+      try {
+        rmSync(installPath, { recursive: true, force: true });
+      } catch {
+        /* row already removed; best-effort filesystem cleanup */
+      }
+      return { kind: "hit", value: { ok: true } };
+    }
 
     case "workflow.list":
       return { kind: "hit", value: { workflows: listWorkflows(db) } };

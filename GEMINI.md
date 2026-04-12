@@ -1,6 +1,6 @@
 # Nimbus — Gemini CLI Context
 
-Nimbus is a **local-first AI agent framework** — a headless Bun Gateway process that maintains a private SQLite index of the user's data across cloud services (Google Drive, Gmail, OneDrive, Outlook, Google Photos, and other first-party MCP connectors) and executes multi-step agentic workflows on their behalf. Clients (CLI and Tauri 2.0 desktop app) communicate with the Gateway exclusively over JSON-RPC 2.0 IPC.
+Nimbus is a **local-first AI agent framework** — a headless Bun Gateway process that maintains a private SQLite index of the user's data across cloud services (Google Drive, Gmail, OneDrive, Outlook, Google Photos, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord opt-in, Jenkins, GitHub Actions, CircleCI, GitLab CI, PagerDuty, Kubernetes, AWS, Azure, GCP, IaC CLIs, Grafana, Sentry, New Relic, Datadog, optional filesystem roots, and other first-party MCP connectors) and executes multi-step agentic workflows on their behalf. Clients (CLI and Tauri 2.0 desktop app) communicate with the Gateway exclusively over JSON-RPC 2.0 IPC.
 
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
@@ -35,7 +35,7 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/gateway/src/platform/darwin.ts` | macOS platform implementation |
 | `packages/gateway/src/platform/linux.ts` | Linux platform implementation |
 | `packages/gateway/src/vault/index.ts` | `NimbusVault` interface |
-| `packages/gateway/src/connectors/` | MCP connector mesh |
+| `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh.ts` — Phase 3 bundle for infra/obs MCPs when vault keys exist) |
 | `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
@@ -68,6 +68,7 @@ bun run test:coverage
 # Coverage gates (enforced in CI)
 bun run test:coverage:engine   # ≥85% threshold (engine)
 bun run test:coverage:vault    # ≥90% threshold (vault)
+bun run test:coverage:embedding # ≥80% threshold (embedding)
 
 # Integration tests
 bun run test:integration
@@ -88,6 +89,7 @@ bun run clean
 bun audit --audit-level high
 
 # Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
+# Optional: NIMBUS_EMBEDDING_MODEL_DIR or bun run package:headless -- --embedding-model-dir <path>
 bun run package:headless
 bun run package:installers:linux -- --version 0.1.0
 ```
@@ -136,7 +138,7 @@ mcp-connectors/*  ← depend on @nimbus-dev/sdk only
 - **Vault tests** — `get()` returns `null` for missing keys; secrets never in errors; `listKeys()` returns names only
 - **Integration tests** — real SQLite, real Bun subprocesses, fresh temp dirs
 - **E2E CLI tests** — real Gateway subprocess + mock MCP wire protocol
-- **Coverage gates** — Engine ≥85%, Vault ≥90%
+- **Coverage gates** — Engine ≥85%, Vault ≥90%, Embedding ≥80% (see `_test-suite.yml` for full matrix)
 
 ---
 

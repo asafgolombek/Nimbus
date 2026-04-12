@@ -503,6 +503,8 @@ export async function buildConnectorMesh(): Promise<MCPClient> {
 }
 ```
 
+> **Implementation note:** The Gateway’s **lazy connector mesh** (`packages/gateway/src/connectors/lazy-mesh.ts`) spawns first-party MCP servers with `bun` and paths into `packages/mcp-connectors/*/src/server.ts`. Phase 3 groups **AWS, Azure, GCP, IaC, Grafana, Sentry, New Relic, and Datadog** into one multi-server MCP client when matching vault keys are present; **Kubernetes** and **PagerDuty** use dedicated clients. Vault keys and CLI auth flags match `packages/gateway/src/ipc/connector-rpc-handlers.ts` and `packages/cli/src/commands/connector.ts` (e.g. `aws.default_region` / `aws.profile`, `azure.tenant_id`, `gcp.credentials_json_path`, `iac.enabled`, observability tokens).
+
 ### Connector Tool Contract
 
 Every first-party connector must expose this minimum tool surface:

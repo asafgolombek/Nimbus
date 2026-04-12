@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const EXTENSION_MANIFEST_FILENAME = "nimbus-extension.json";
+/** Phase 3 §2.1 canonical manifest name; gateway also accepts legacy nimbus-extension.json. */
+const EXTENSION_MANIFEST_FILENAME = "nimbus.extension.json";
 
 export async function runScaffold(args: string[]): Promise<void> {
   const kind = args[0]?.trim() ?? "";

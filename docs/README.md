@@ -17,7 +17,7 @@
 
 ---
 
-Nimbus is an open-source, local-first AI agent framework that bridges the gap between your machine and the services you connect. A headless **Nimbus Gateway** runs as a background process, maintaining a private local index of metadata across **shipped** first-party connectors — Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, and the local filesystem — with more surfaces (CI/CD hosts, cloud control planes, observability tools, semantic search) on the **[roadmap](./roadmap.md)** for later quarters. The Nimbus agent — powered by [Mastra](https://mastra.ai) and a configurable model provider — reasons over this index and executes multi-step workflows on your behalf. Every destructive or outgoing action is gated by an explicit Human-in-the-Loop consent step.
+Nimbus is an open-source, local-first AI agent framework that bridges the gap between your machine and the services you connect. A headless **Nimbus Gateway** runs as a background process, maintaining a private local index of metadata across **shipped** first-party connectors — Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in), Jenkins, GitHub Actions, CircleCI, GitLab CI, PagerDuty, Kubernetes, AWS, Azure, GCP, IaC (Terraform/Pulumi/CloudFormation CLIs), Grafana, Sentry, New Relic, Datadog, configurable `[[filesystem.roots]]` intelligence, and the local filesystem MCP — with deeper parity (e.g. IaC drift, full filesystem v2 vision) still on the **[roadmap](./roadmap.md)**. The Nimbus agent — powered by [Mastra](https://mastra.ai) and a configurable model provider — reasons over this index and executes multi-step workflows on your behalf. Every destructive or outgoing action is gated by an explicit Human-in-the-Loop consent step.
 
 Your data never passes through a Nimbus server. There is no Nimbus server.
 
@@ -54,7 +54,7 @@ Nimbus understands intent, decomposes multi-step tasks, executes them across ser
 
 ### 🔧 DevOps Intelligence — Not Another Dashboard
 
-Pull requests, issues, and messages already land in the local index from the shipped source-control and comms connectors. The **[roadmap](./roadmap.md)** extends that story to CI/CD hosts, Kubernetes, cloud accounts, and observability tools so you can ask cross-layer questions in one place. When those connectors ship, write operations — merging a PR, triggering a build, applying a plan, acknowledging an alert — will go through the same consent-gated executor as every other Nimbus action: the agent proposes; you approve.
+Pull requests, issues, pipelines, cloud resources, and observability metadata can land in the local index from the shipped CI/CD, infrastructure, and monitoring connectors (see **[roadmap](./roadmap.md)** for depth and remaining gaps). Write operations — merging a PR, triggering a build, applying IaC, scaling a pool, acknowledging an incident — go through the same consent-gated executor as every other Nimbus action: the agent proposes; you approve.
 
 ---
 

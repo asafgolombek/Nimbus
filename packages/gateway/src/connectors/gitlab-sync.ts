@@ -9,14 +9,34 @@ const SERVICE_ID = "gitlab";
 const CURSOR_PREFIX = "nimbus-glab1:";
 const DEFAULT_API_BASE = "https://gitlab.com/api/v4";
 const MAX_PAGES_PER_SYNC = 8;
+const MAX_PIPELINE_PROJECTS_PER_SYNC = 15;
 
-type GitlabSyncCursorV1 = { after: string; page: number };
+/** Cursor v2 adds per-project pipeline id watermarks (Phase 3 GitLab CI index). */
+type GitlabSyncCursorV2 = {
+  v: 2;
+  after: string;
+  page: number;
+  pipelines: Record<string, number>;
+};
 
-function encodeCursor(c: GitlabSyncCursorV1): string {
+function parsePipelineCursorMap(raw: unknown): Record<string, number> {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[k] = Math.floor(v);
+    }
+  }
+  return out;
+}
+
+function encodeCursor(c: GitlabSyncCursorV2): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
-function decodeCursor(raw: string | null): GitlabSyncCursorV1 | null {
+function decodeCursor(raw: string | null): GitlabSyncCursorV2 | null {
   if (raw === null || raw === "") {
     return null;
   }
@@ -34,7 +54,10 @@ function decodeCursor(raw: string | null): GitlabSyncCursorV1 | null {
     return null;
   }
   const p = typeof page === "number" && Number.isInteger(page) && page >= 1 ? page : 1;
-  return { after, page: p };
+  if (rec["v"] === 2) {
+    return { v: 2, after, page: p, pipelines: parsePipelineCursorMap(rec["pipelines"]) };
+  }
+  return { v: 2, after, page: p, pipelines: {} };
 }
 
 function webOriginFromApiBase(apiBase: string): string {
@@ -294,6 +317,15 @@ function gitlabShouldContinuePaging(
   return { nextPage: np };
 }
 
+type GitlabEventsPagesResult = {
+  itemsUpserted: number;
+  bytesTransferred: number;
+  hasMore: boolean;
+  cursorAfter: string;
+  cursorPage: number;
+  durationMs: number;
+};
+
 async function gitlabSyncEventsPages(
   ctx: SyncContext,
   pat: string,
@@ -302,7 +334,7 @@ async function gitlabSyncEventsPages(
   floorAfter: string,
   startPage: number,
   t0: number,
-): Promise<SyncResult> {
+): Promise<GitlabEventsPagesResult> {
   let page = startPage;
   let upserted = 0;
   let bytesTransferred = 0;
@@ -322,24 +354,227 @@ async function gitlabSyncEventsPages(
     page = cont.nextPage;
     if (pagesThisRun + 1 >= MAX_PAGES_PER_SYNC) {
       return {
-        cursor: encodeCursor({ after: floorAfter, page }),
+        cursorAfter: floorAfter,
+        cursorPage: page,
         itemsUpserted: upserted,
-        itemsDeleted: 0,
+        bytesTransferred,
         hasMore: true,
         durationMs: Math.round(performance.now() - t0),
-        bytesTransferred,
       };
     }
   }
 
   return {
-    cursor: encodeCursor({ after: newestIso, page: 1 }),
+    cursorAfter: newestIso,
+    cursorPage: 1,
     itemsUpserted: upserted,
-    itemsDeleted: 0,
+    bytesTransferred,
     hasMore: false,
     durationMs: Math.round(performance.now() - t0),
-    bytesTransferred,
   };
+}
+
+function listGitlabProjectsFromIndex(db: import("bun:sqlite").Database): string[] {
+  const rows = db
+    .query(
+      `SELECT DISTINCT json_extract(metadata, '$.project') AS p
+       FROM item
+       WHERE service = ?
+         AND json_extract(metadata, '$.project') IS NOT NULL
+         AND length(trim(json_extract(metadata, '$.project'))) > 0`,
+    )
+    .all(SERVICE_ID) as { p: string | null }[];
+  const out: string[] = [];
+  for (const r of rows) {
+    const p = typeof r.p === "string" ? r.p.trim() : "";
+    if (p !== "" && !out.includes(p)) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+type GitlabPipelineItemUpsertResult =
+  | { kind: "skip" }
+  | { kind: "break" }
+  | { kind: "upserted"; id: number };
+
+function tryUpsertGitlabPipelineItem(
+  ctx: SyncContext,
+  item: unknown,
+  path: string,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+  webOrigin: string,
+): GitlabPipelineItemUpsertResult {
+  const row = asRecord(item);
+  if (row === undefined) {
+    return { kind: "skip" };
+  }
+  const id = numberField(row, "id");
+  if (id === undefined) {
+    return { kind: "skip" };
+  }
+  if (id <= lastSeen) {
+    return { kind: "break" };
+  }
+  const createdRaw = stringField(row, "created_at");
+  const createdMs = createdRaw === undefined ? Number.NaN : Date.parse(createdRaw);
+  if (Number.isFinite(createdMs) && createdMs < floorMs) {
+    return { kind: "skip" };
+  }
+  const status = stringField(row, "status");
+  const ref = stringField(row, "ref");
+  const webUrl = stringField(row, "web_url");
+  const duration = numberField(row, "duration");
+  const sha = stringField(row, "sha");
+  const titleBase =
+    ref !== undefined && ref !== "" ? `Pipeline on ${ref}` : `Pipeline #${String(id)}`;
+  const title = status !== undefined && status !== "" ? `${titleBase} — ${status}` : titleBase;
+  const externalId = `${path}#pipeline-${String(id)}`;
+  const modifiedAt = Number.isFinite(createdMs) ? createdMs : now;
+  const linkUrl = webUrl ?? `${webOrigin}/${path}/-/pipelines/${String(id)}`;
+  const meta: Record<string, unknown> = {
+    project: path,
+    pipelineId: id,
+    status: status ?? null,
+    ref: ref ?? null,
+    duration: duration ?? null,
+    sha: sha ?? null,
+  };
+  upsertIndexedItemForSync(ctx, {
+    service: SERVICE_ID,
+    type: "ci_run",
+    externalId,
+    title: title.length > 512 ? title.slice(0, 512) : title,
+    bodyPreview: "",
+    url: webUrl ?? null,
+    canonicalUrl: linkUrl,
+    modifiedAt,
+    authorId: null,
+    metadata: meta,
+    pinned: false,
+    syncedAt: now,
+  });
+  return { kind: "upserted", id };
+}
+
+function applyGitlabPipelineArray(
+  ctx: SyncContext,
+  parsedRoot: unknown[],
+  path: string,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+  webOrigin: string,
+): { upserted: number; maxId: number } {
+  let maxId = lastSeen;
+  let upserted = 0;
+  for (const item of parsedRoot) {
+    const r = tryUpsertGitlabPipelineItem(ctx, item, path, lastSeen, floorMs, now, webOrigin);
+    if (r.kind === "break") {
+      break;
+    }
+    if (r.kind === "upserted") {
+      upserted += 1;
+      if (r.id > maxId) {
+        maxId = r.id;
+      }
+    }
+  }
+  return { upserted, maxId };
+}
+
+type GitlabOneProjectPipelineSyncArgs = {
+  ctx: SyncContext;
+  pat: string;
+  apiBase: string;
+  webOrigin: string;
+  path: string;
+  lastSeen: number;
+  floorMs: number;
+  now: number;
+};
+
+async function syncGitlabPipelinesForOneProject(
+  args: GitlabOneProjectPipelineSyncArgs,
+): Promise<{ upserted: number; bytes: number; maxId: number }> {
+  const { ctx, pat, apiBase, webOrigin, path, lastSeen, floorMs, now } = args;
+  await ctx.rateLimiter.acquire("gitlab");
+  const enc = encodeURIComponent(path);
+  const u = new URL(`${apiBase}/projects/${enc}/pipelines`);
+  u.searchParams.set("per_page", "25");
+  u.searchParams.set("order_by", "id");
+  u.searchParams.set("sort", "desc");
+  const res = await fetch(u.toString(), {
+    headers: { "PRIVATE-TOKEN": pat },
+  });
+  const text = await res.text();
+  const bytes = text.length;
+  if (res.status === 429) {
+    const ra = res.headers.get("retry-after");
+    const sec = ra === null ? 60 : Number.parseInt(ra, 10);
+    const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
+    ctx.rateLimiter.penalise("gitlab", ms);
+    ctx.logger.warn({ serviceId: SERVICE_ID, project: path }, "gitlab pipeline sync: rate limited");
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  if (!res.ok) {
+    ctx.logger.warn(
+      { serviceId: SERVICE_ID, project: path, status: res.status },
+      "gitlab pipeline sync: list failed",
+    );
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  let parsedRoot: unknown;
+  try {
+    parsedRoot = JSON.parse(text) as unknown;
+  } catch {
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  if (!Array.isArray(parsedRoot)) {
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  const r = applyGitlabPipelineArray(ctx, parsedRoot, path, lastSeen, floorMs, now, webOrigin);
+  return { upserted: r.upserted, bytes, maxId: r.maxId };
+}
+
+async function syncGitlabPipelinesForIndexedProjects(
+  ctx: SyncContext,
+  pat: string,
+  apiBase: string,
+  webOrigin: string,
+  pipelineCursor: Record<string, number>,
+  floorMs: number,
+): Promise<{ upserted: number; bytes: number; pipelines: Record<string, number> }> {
+  const projects = listGitlabProjectsFromIndex(ctx.db);
+  const next: Record<string, number> = { ...pipelineCursor };
+  let upserted = 0;
+  let bytes = 0;
+  const now = Date.now();
+  let scanned = 0;
+  for (const path of projects) {
+    if (scanned >= MAX_PIPELINE_PROJECTS_PER_SYNC) {
+      break;
+    }
+    scanned += 1;
+    const lastSeen = next[path] ?? 0;
+    const r = await syncGitlabPipelinesForOneProject({
+      ctx,
+      pat,
+      apiBase,
+      webOrigin,
+      path,
+      lastSeen,
+      floorMs,
+      now,
+    });
+    bytes += r.bytes;
+    upserted += r.upserted;
+    next[path] = r.maxId;
+  }
+  return { upserted, bytes, pipelines: next };
 }
 
 export type GitlabSyncableOptions = {
@@ -371,8 +606,33 @@ export function createGitlabSyncable(options: GitlabSyncableOptions): Syncable {
           : prev.after;
       const page = prev === null ? 1 : prev.page;
       const floorAfter = prev === null ? initialAfter : prev.after;
+      const pipelinesIn = prev === null ? {} : prev.pipelines;
+      const floorMs = nowMs - initialSyncDepthDays * 86_400_000;
 
-      return gitlabSyncEventsPages(ctx, pat, apiBase, webOrigin, floorAfter, page, t0);
+      const ev = await gitlabSyncEventsPages(ctx, pat, apiBase, webOrigin, floorAfter, page, t0);
+      const pipe = await syncGitlabPipelinesForIndexedProjects(
+        ctx,
+        pat,
+        apiBase,
+        webOrigin,
+        pipelinesIn,
+        floorMs,
+      );
+
+      const durationMs = Math.round(performance.now() - t0);
+      return {
+        cursor: encodeCursor({
+          v: 2,
+          after: ev.cursorAfter,
+          page: ev.cursorPage,
+          pipelines: pipe.pipelines,
+        }),
+        itemsUpserted: ev.itemsUpserted + pipe.upserted,
+        itemsDeleted: 0,
+        hasMore: ev.hasMore,
+        durationMs,
+        bytesTransferred: ev.bytesTransferred + pipe.bytes,
+      };
     },
   };
 }

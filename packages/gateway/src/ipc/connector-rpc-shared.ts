@@ -3,6 +3,7 @@ import {
   defaultSyncIntervalMsForService,
   normalizeConnectorServiceId,
 } from "../connectors/connector-catalog.ts";
+import { USER_MCP_SERVICE_ID_PATTERN } from "../connectors/user-mcp-store.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { countItemsForService } from "../sync/scheduler-store.ts";
@@ -32,6 +33,40 @@ export function requireRegisteredConnector(localIndex: LocalIndex, id: Connector
   if (localIndex.persistedConnectorStatuses(id).length === 0) {
     throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
   }
+}
+
+/** Built-in OAuth/PAT connector id or persisted `mcp_*` user MCP id. */
+export function requireRegisteredSchedulerServiceId(
+  rec: Record<string, unknown> | undefined,
+  localIndex: LocalIndex,
+): string {
+  const raw = rec !== undefined && typeof rec["serviceId"] === "string" ? rec["serviceId"] : "";
+  if (raw.trim() === "") {
+    throw new ConnectorRpcError(-32602, "Missing serviceId");
+  }
+  const trimmed = raw.trim();
+  const builtIn = normalizeConnectorServiceId(trimmed);
+  const id = builtIn ?? trimmed.toLowerCase();
+  if (builtIn === null && !USER_MCP_SERVICE_ID_PATTERN.test(id)) {
+    throw new ConnectorRpcError(-32602, "Invalid serviceId");
+  }
+  if (localIndex.persistedConnectorStatuses(id).length === 0) {
+    throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
+  }
+  return id;
+}
+
+export function resolveConnectorListFilterServiceId(raw: string): string | null {
+  const t = raw.trim();
+  const builtIn = normalizeConnectorServiceId(t);
+  if (builtIn !== null) {
+    return builtIn;
+  }
+  const lower = t.toLowerCase();
+  if (USER_MCP_SERVICE_ID_PATTERN.test(lower)) {
+    return lower;
+  }
+  return null;
 }
 
 export function sumItemsSiblingServices(

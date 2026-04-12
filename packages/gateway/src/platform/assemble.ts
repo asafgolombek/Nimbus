@@ -2,10 +2,14 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
 import { evaluateWatchersAfterSync } from "../automation/watcher-engine.ts";
+import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
 import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromConfigDir } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
+import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
+import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
 import { verifyExtensionsBestEffort } from "../extensions/verify-extensions.ts";
 import {
@@ -25,6 +29,7 @@ import { openUrlInDefaultBrowser } from "./browser.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
 import { processEnvGet } from "./env-access.ts";
 import type { PlatformPaths } from "./paths.ts";
+import { registerUserMcpSyncablesFromDatabase } from "./register-user-mcp-sync.ts";
 import type { AutostartManager, NotificationService, PlatformServices } from "./types.ts";
 
 function createStubAutostart(): AutostartManager {
@@ -86,6 +91,20 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   } else {
     localIndex = new LocalIndex(db);
   }
+  {
+    const pat = await vault.get("github.pat");
+    localIndex.ensureGithubActionsSchedulerCompanionIfNeeded({
+      githubPatPresent: pat !== null && pat !== "",
+      now: Date.now(),
+      intervalMs: defaultSyncIntervalMsForService("github_actions"),
+    });
+    const cciTok = await vault.get("circleci.api_token");
+    localIndex.ensureCircleciSchedulerCompanionIfNeeded({
+      circleciTokenPresent: cciTok !== null && cciTok !== "",
+      now: Date.now(),
+      intervalMs: defaultSyncIntervalMsForService("circleci"),
+    });
+  }
   const syncBase: SyncContext = { vault, db, logger: syncLogger, rateLimiter };
   let syncContext: SyncContext;
   if (scheduleItemEmbedding) {
@@ -122,8 +141,16 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       evaluateWatchersAfterSync(db, serviceId, Date.now(), (t, b) => notifications.show(t, b));
     },
   });
-  const connectorMesh = await createLazyConnectorMesh(paths, vault);
+  const fsV2Roots = loadNimbusFilesystemRootsFromConfigDir(paths.configDir);
+  if (fsV2Roots.length > 0) {
+    localIndex.ensureConnectorSchedulerRegistration("filesystem", 10 * 60 * 1000, Date.now());
+    syncScheduler.register(createFilesystemV2Syncable({ roots: fsV2Roots }));
+  }
+  const connectorMesh = await createLazyConnectorMesh(paths, vault, {
+    listUserMcpConnectors: () => listUserMcpConnectors(db),
+  });
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
+  registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);
   syncScheduler.start();
   rt?.startBackgroundJobs();
   const ipcOpts: Parameters<typeof createIpcServer>[0] = {
@@ -131,8 +158,10 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     vault,
     version: "0.1.0",
     localIndex,
+    extensionsDir: paths.extensionsDir,
     openUrl: openUrlInDefaultBrowser,
     syncScheduler,
+    connectorMesh,
   };
   if (sessionMemoryStore !== undefined) {
     ipcOpts.sessionMemoryStore = sessionMemoryStore;

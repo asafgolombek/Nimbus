@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,8 @@ import {
   NdjsonLineReader,
   parseJsonRpcLine,
 } from "./jsonrpc.ts";
-import { createIpcServer } from "./server.ts";
+import { type CreateIpcServerOptions, createIpcServer } from "./server.ts";
+import type { IPCServer } from "./types.ts";
 
 /** Accumulate UTF-8 chunks and return the first complete line (excluding `\n`) when present. */
 function appendAndTakeFirstLine(buffer: string, chunk: string): { next: string; line?: string } {
@@ -73,6 +74,40 @@ function testListenPath(): string {
     return String.raw`\\.\pipe\nimbus-ipc-test-${randomUUID()}`;
   }
   return join(mkdtempSync(join(tmpdir(), "nimbus-ipc-")), "sock");
+}
+
+type MemoryIndexServerOptions = {
+  extras?: Omit<CreateIpcServerOptions, "listenPath" | "vault" | "localIndex" | "version">;
+  prepare?: (ctx: { localIndex: LocalIndex; db: Database }) => void;
+};
+
+async function withMemoryLocalIndexServer<T>(
+  fn: (ctx: {
+    listenPath: string;
+    localIndex: LocalIndex;
+    db: Database;
+    server: IPCServer;
+  }) => Promise<T>,
+  options?: MemoryIndexServerOptions,
+): Promise<T> {
+  const listenPath = testListenPath();
+  const db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  const localIndex = new LocalIndex(db);
+  options?.prepare?.({ localIndex, db });
+  const server = createIpcServer({
+    listenPath,
+    vault: new MockVault(),
+    version: "t",
+    localIndex,
+    ...options?.extras,
+  });
+  await server.start();
+  try {
+    return await fn({ listenPath, localIndex, db, server });
+  } finally {
+    await server.stop();
+  }
 }
 
 function jsonRpcNdjsonLine(method: string, id: number, params?: unknown): string {
@@ -141,56 +176,34 @@ async function rpcPing(listenPath: string): Promise<string> {
 
 describe("ipc server integration", () => {
   test("people.search over IPC", async () => {
-    const listenPath = testListenPath();
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const localIndex = new LocalIndex(db);
-    db.run(
-      `INSERT INTO person (id, display_name, canonical_email, github_login, gitlab_login, slack_handle, linear_member_id, jira_account_id, notion_user_id, linked, metadata)
-       VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 1, '{}')`,
-      ["p-test-1", "Ada Lovelace", "ada@example.com"],
-    );
-
-    const server = createIpcServer({
-      listenPath,
-      vault: new MockVault(),
-      version: "t",
-      localIndex,
-    });
-    await server.start();
-    try {
+    await withMemoryLocalIndexServer(async ({ listenPath, db }) => {
+      db.run(
+        `INSERT INTO person (id, display_name, canonical_email, github_login, gitlab_login, slack_handle, linear_member_id, jira_account_id, notion_user_id, linked, metadata)
+         VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 1, '{}')`,
+        ["p-test-1", "Ada Lovelace", "ada@example.com"],
+      );
       const line = await rpcCall(listenPath, "people.search", { query: "ada", limit: 10 });
       const res = JSON.parse(line) as { result?: Array<{ id: string; canonicalEmail?: string }> };
       expect(res.result?.length).toBe(1);
       expect(res.result?.[0]?.id).toBe("p-test-1");
-    } finally {
-      await server.stop();
-    }
+    });
   });
 
   test("connector.listStatus over IPC", async () => {
-    const listenPath = testListenPath();
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const localIndex = new LocalIndex(db);
-    localIndex.ensureConnectorSchedulerRegistration("google_drive", 30_000, Date.now());
-
-    const server = createIpcServer({
-      listenPath,
-      vault: new MockVault(),
-      version: "t",
-      localIndex,
-      openUrl: async () => {},
-    });
-    await server.start();
-    try {
-      const line = await rpcCall(listenPath, "connector.listStatus", {});
-      const res = JSON.parse(line) as { result?: Array<{ serviceId: string }> };
-      expect(res.result?.length).toBe(1);
-      expect(res.result?.[0]?.serviceId).toBe("google_drive");
-    } finally {
-      await server.stop();
-    }
+    await withMemoryLocalIndexServer(
+      async ({ listenPath }) => {
+        const line = await rpcCall(listenPath, "connector.listStatus", {});
+        const res = JSON.parse(line) as { result?: Array<{ serviceId: string }> };
+        expect(res.result?.length).toBe(1);
+        expect(res.result?.[0]?.serviceId).toBe("google_drive");
+      },
+      {
+        prepare: ({ localIndex }) => {
+          localIndex.ensureConnectorSchedulerRegistration("google_drive", 30_000, Date.now());
+        },
+        extras: { openUrl: async () => {} },
+      },
+    );
   });
 
   test("gateway.ping over IPC transport", async () => {
@@ -347,6 +360,49 @@ describe("ipc server integration", () => {
       const line = await exchangeFirstNdjsonLine(listenPath, req);
       const res = JSON.parse(line) as { result?: { reply?: string } };
       expect(res.result?.reply).toBe("from-handler");
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("extension.install over IPC", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+
+    const tmp = mkdtempSync(join(tmpdir(), "nimbus-ipc-ext-"));
+    const extensionsDir = join(tmp, "extensions");
+    const src = join(tmp, "src");
+    mkdirSync(join(src, "dist"), { recursive: true });
+    writeFileSync(
+      join(src, "nimbus.extension.json"),
+      JSON.stringify({
+        id: "ipc.ext.demo",
+        version: "2.0.0",
+        entry: "dist/index.js",
+      }),
+      "utf8",
+    );
+    writeFileSync(join(src, "dist", "index.js"), "export const x = 1\n", "utf8");
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+      extensionsDir,
+    });
+    await server.start();
+    try {
+      const line = await rpcCall(listenPath, "extension.install", { sourcePath: src });
+      const res = JSON.parse(line) as {
+        result?: { id?: string; installPath?: string };
+        error?: { message?: string };
+      };
+      expect(res.error).toBeUndefined();
+      expect(res.result?.id).toBe("ipc.ext.demo");
+      expect(res.result?.installPath).toBe(join(extensionsDir, "ipc.ext.demo"));
     } finally {
       await server.stop();
     }

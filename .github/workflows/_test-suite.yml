@@ -105,6 +105,11 @@ jobs:
         env:
           CI: "true"
 
+      - name: Coverage gate — Embedding (≥80%)
+        run: bun test packages/gateway/src/embedding --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=junit-reports/junit-embedding.xml
+        env:
+          CI: "true"
+
       - name: Integration tests
         run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=junit-reports/junit-integration.xml
         env:

@@ -5,6 +5,7 @@
 export { runAsk } from "./ask.ts";
 export { runAudit } from "./audit.ts";
 export { runConnector } from "./connector.ts";
+export { runExtension } from "./extension.ts";
 export { printHelp } from "./help.ts";
 export { runPeople } from "./people.ts";
 export { runRepl } from "./repl.ts";

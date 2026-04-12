@@ -16,6 +16,15 @@ import {
   oauthProfileForService,
 } from "../connectors/connector-catalog.ts";
 import { clearOAuthVaultIfProviderUnused } from "../connectors/connector-vault.ts";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import {
+  deleteUserMcpConnector,
+  insertUserMcpConnector,
+  normalizeUserMcpServiceId,
+  parseUserMcpCommandLine,
+  validateUserMcpArgsJson,
+} from "../connectors/user-mcp-store.ts";
+import { createUserMcpSyncable } from "../connectors/user-mcp-sync.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -27,8 +36,8 @@ import {
   parseAtlassianSiteCredentials,
   parseServiceArg,
   registerAtlassianApiConnectorAuth,
-  requireRegisteredConnector,
-  requireServiceId,
+  requireRegisteredSchedulerServiceId,
+  resolveConnectorListFilterServiceId,
   sumItemsSiblingServices,
 } from "./connector-rpc-shared.ts";
 
@@ -72,6 +81,57 @@ async function deleteConnectorPatAndTokenKeys(
       await vault.delete("discord.bot_token");
       await vault.delete("discord.enabled");
       return ["discord.bot_token", "discord.enabled"];
+    case "jenkins":
+      await vault.delete("jenkins.base_url");
+      await vault.delete("jenkins.username");
+      await vault.delete("jenkins.api_token");
+      return ["jenkins.base_url", "jenkins.username", "jenkins.api_token"];
+    case "circleci":
+      await vault.delete("circleci.api_token");
+      return ["circleci.api_token"];
+    case "pagerduty":
+      await vault.delete("pagerduty.api_token");
+      return ["pagerduty.api_token"];
+    case "kubernetes":
+      await vault.delete("kubernetes.kubeconfig");
+      await vault.delete("kubernetes.context");
+      return ["kubernetes.kubeconfig", "kubernetes.context"];
+    case "aws":
+      await vault.delete("aws.access_key_id");
+      await vault.delete("aws.secret_access_key");
+      await vault.delete("aws.default_region");
+      await vault.delete("aws.profile");
+      return ["aws.access_key_id", "aws.secret_access_key", "aws.default_region", "aws.profile"];
+    case "azure":
+      await vault.delete("azure.tenant_id");
+      await vault.delete("azure.client_id");
+      await vault.delete("azure.client_secret");
+      return ["azure.tenant_id", "azure.client_id", "azure.client_secret"];
+    case "gcp":
+      await vault.delete("gcp.credentials_json_path");
+      await vault.delete("gcp.project_id");
+      return ["gcp.credentials_json_path", "gcp.project_id"];
+    case "iac":
+      await vault.delete("iac.enabled");
+      return ["iac.enabled"];
+    case "grafana":
+      await vault.delete("grafana.url");
+      await vault.delete("grafana.api_token");
+      return ["grafana.url", "grafana.api_token"];
+    case "sentry":
+      await vault.delete("sentry.auth_token");
+      await vault.delete("sentry.org_slug");
+      await vault.delete("sentry.url");
+      return ["sentry.auth_token", "sentry.org_slug", "sentry.url"];
+    case "newrelic":
+      await vault.delete("newrelic.api_key");
+      await vault.delete("newrelic.account_id");
+      return ["newrelic.api_key", "newrelic.account_id"];
+    case "datadog":
+      await vault.delete("datadog.api_key");
+      await vault.delete("datadog.app_key");
+      await vault.delete("datadog.site");
+      return ["datadog.api_key", "datadog.app_key", "datadog.site"];
     default:
       return [];
   }
@@ -115,7 +175,48 @@ export type ConnectorRpcHandlerContext = {
   localIndex: LocalIndex;
   openUrl: (url: string) => Promise<void>;
   syncScheduler: SyncScheduler | undefined;
+  connectorMesh: LazyConnectorMesh | undefined;
 };
+
+export async function handleConnectorAddMcp(
+  ctx: ConnectorRpcHandlerContext,
+): Promise<ConnectorRpcHit> {
+  const { rec, localIndex, syncScheduler, connectorMesh } = ctx;
+  if (syncScheduler === undefined || connectorMesh === undefined) {
+    throw new ConnectorRpcError(-32603, "User MCP registration requires sync and connector mesh");
+  }
+  const serviceRaw = rec?.["serviceId"];
+  const cmdRaw = rec?.["commandLine"];
+  if (typeof serviceRaw !== "string" || typeof cmdRaw !== "string") {
+    throw new ConnectorRpcError(-32602, "Missing serviceId or commandLine");
+  }
+  const serviceId = normalizeUserMcpServiceId(serviceRaw);
+  if (serviceId === null) {
+    throw new ConnectorRpcError(
+      -32602,
+      "serviceId must match mcp_<lowercase_letters_numbers_underscores> (1–62 chars after prefix)",
+    );
+  }
+  if (normalizeConnectorServiceId(serviceId) !== null) {
+    throw new ConnectorRpcError(-32602, "serviceId conflicts with a built-in connector id");
+  }
+  const { command, args } = parseUserMcpCommandLine(cmdRaw);
+  const argsJson = validateUserMcpArgsJson(args);
+  const db = localIndex.getDatabase();
+  try {
+    insertUserMcpConnector(db, { service_id: serviceId, command, args_json: argsJson });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("UNIQUE") || msg.includes("unique")) {
+      throw new ConnectorRpcError(-32602, `User MCP connector already exists: ${serviceId}`);
+    }
+    throw new ConnectorRpcError(-32603, `Failed to save user MCP connector: ${msg}`);
+  }
+  syncScheduler.register(
+    createUserMcpSyncable(serviceId, () => connectorMesh.ensureUserMcpRunning(serviceId)),
+  );
+  return { kind: "hit", value: { ok: true, serviceId } };
+}
 
 export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex } = ctx;
@@ -123,7 +224,7 @@ export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): Conn
     rec !== undefined && typeof rec["serviceId"] === "string" ? rec["serviceId"] : undefined;
   let list: SyncStatus[];
   if (filter !== undefined && filter !== "") {
-    const sid = normalizeConnectorServiceId(filter);
+    const sid = resolveConnectorListFilterServiceId(filter);
     if (sid === null) {
       throw new ConnectorRpcError(-32602, "Invalid serviceId filter");
     }
@@ -136,8 +237,7 @@ export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): Conn
 
 export function handleConnectorPause(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
-  requireRegisteredConnector(localIndex, id);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.pauseConnectorSync(id);
   } else {
@@ -148,8 +248,7 @@ export function handleConnectorPause(ctx: ConnectorRpcHandlerContext): Connector
 
 export function handleConnectorResume(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
-  requireRegisteredConnector(localIndex, id);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.resumeConnectorSync(id);
   } else {
@@ -160,7 +259,7 @@ export function handleConnectorResume(ctx: ConnectorRpcHandlerContext): Connecto
 
 export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const msRaw = rec?.["intervalMs"];
   if (typeof msRaw !== "number" || !Number.isFinite(msRaw) || msRaw < 1) {
     throw new ConnectorRpcError(-32602, "Invalid intervalMs");
@@ -175,7 +274,7 @@ export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): Con
 
 export function handleConnectorStatus(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex } = ctx;
-  const id = requireServiceId(rec);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const rows = localIndex.persistedConnectorStatuses(id);
   if (rows.length === 0) {
     throw new ConnectorRpcError(-32602, `Unknown connector: ${id}`);
@@ -196,30 +295,44 @@ export async function handleConnectorRemove(
   ctx: ConnectorRpcHandlerContext,
 ): Promise<ConnectorRpcHit> {
   const { rec, vault, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const db = localIndex.getDatabase();
   let googleOAuthBackup: string | null = null;
   let microsoftOAuthBackup: string | null = null;
+  const normalizedForFamily = normalizeConnectorServiceId(id);
   if (
-    GOOGLE_CONNECTOR_SERVICES.has(id) &&
-    sumItemsSiblingServices(db, id, GOOGLE_CONNECTOR_SERVICES) === 0
+    normalizedForFamily !== null &&
+    GOOGLE_CONNECTOR_SERVICES.has(normalizedForFamily) &&
+    sumItemsSiblingServices(db, normalizedForFamily, GOOGLE_CONNECTOR_SERVICES) === 0
   ) {
     googleOAuthBackup = await vault.get("google.oauth");
   }
   if (
-    MICROSOFT_CONNECTOR_SERVICES.has(id) &&
-    sumItemsSiblingServices(db, id, MICROSOFT_CONNECTOR_SERVICES) === 0
+    normalizedForFamily !== null &&
+    MICROSOFT_CONNECTOR_SERVICES.has(normalizedForFamily) &&
+    sumItemsSiblingServices(db, normalizedForFamily, MICROSOFT_CONNECTOR_SERVICES) === 0
   ) {
     microsoftOAuthBackup = await vault.get("microsoft.oauth");
   }
   if (syncScheduler !== undefined) {
+    if (id === "github") {
+      syncScheduler.unregister("github_actions");
+    }
     syncScheduler.unregister(id);
   }
-  const itemsDeleted = localIndex.removeConnectorIndexData(id);
+  deleteUserMcpConnector(db, id);
+  let itemsDeleted = 0;
+  if (id === "github") {
+    itemsDeleted += localIndex.removeConnectorIndexData("github_actions");
+  }
+  itemsDeleted += localIndex.removeConnectorIndexData(id);
   let vaultKeys: string[] = [];
   try {
     vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
-    vaultKeys.push(...(await deleteConnectorPatAndTokenKeys(vault, id)));
+    const normalizedBuiltin = normalizeConnectorServiceId(id);
+    if (normalizedBuiltin !== null) {
+      vaultKeys.push(...(await deleteConnectorPatAndTokenKeys(vault, normalizedBuiltin)));
+    }
   } catch (removeErr) {
     if (googleOAuthBackup !== null) {
       await vault.set("google.oauth", googleOAuthBackup);
@@ -236,8 +349,7 @@ export async function handleConnectorSync(
   ctx: ConnectorRpcHandlerContext,
 ): Promise<ConnectorRpcHit> {
   const { rec, localIndex, syncScheduler } = ctx;
-  const id = requireServiceId(rec);
-  requireRegisteredConnector(localIndex, id);
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (rec?.["full"] === true) {
     localIndex.clearConnectorSyncCursor(id);
   }
@@ -270,8 +382,11 @@ async function connectorAuthGithub(
     throw new ConnectorRpcError(-32602, "Missing personalAccessToken for github");
   }
   await vault.set("github.pat", token);
+  const now = Date.now();
   const interval = defaultSyncIntervalMsForService("github");
-  localIndex.ensureConnectorSchedulerRegistration("github", interval, Date.now());
+  localIndex.ensureConnectorSchedulerRegistration("github", interval, now);
+  const ghaInterval = defaultSyncIntervalMsForService("github_actions");
+  localIndex.ensureConnectorSchedulerRegistration("github_actions", ghaInterval, now);
   return authSuccess("github");
 }
 
@@ -338,6 +453,348 @@ async function connectorAuthDiscord(
   const interval = defaultSyncIntervalMsForService("discord");
   localIndex.ensureConnectorSchedulerRegistration("discord", interval, Date.now());
   return authSuccess("discord");
+}
+
+async function connectorAuthCircleci(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Missing API token for circleci");
+  }
+  await vault.set("circleci.api_token", token);
+  const interval = defaultSyncIntervalMsForService("circleci");
+  localIndex.ensureConnectorSchedulerRegistration("circleci", interval, Date.now());
+  return authSuccess("circleci");
+}
+
+async function persistAwsAccessKeyPair(
+  vault: NimbusVault,
+  ak: string,
+  sk: string,
+  reg: string,
+  prof: string,
+): Promise<void> {
+  if (reg === "" && prof === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "AWS key pair requires a default region or profile (connector.auth aws --region … or --profile …)",
+    );
+  }
+  await vault.set("aws.access_key_id", ak);
+  await vault.set("aws.secret_access_key", sk);
+  if (reg === "") {
+    await vault.delete("aws.default_region");
+  } else {
+    await vault.set("aws.default_region", reg);
+  }
+  if (prof === "") {
+    await vault.delete("aws.profile");
+  } else {
+    await vault.set("aws.profile", prof);
+  }
+}
+
+async function persistAwsProfileOnly(vault: NimbusVault, prof: string): Promise<void> {
+  await vault.delete("aws.access_key_id");
+  await vault.delete("aws.secret_access_key");
+  await vault.delete("aws.default_region");
+  await vault.set("aws.profile", prof);
+}
+
+async function connectorAuthAws(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const akRaw = rec?.["awsAccessKeyId"] ?? rec?.["accessKeyId"];
+  const skRaw = rec?.["awsSecretAccessKey"] ?? rec?.["secretAccessKey"];
+  const regRaw = rec?.["awsDefaultRegion"] ?? rec?.["defaultRegion"];
+  const profRaw = rec?.["awsProfile"] ?? rec?.["profile"];
+  const ak = typeof akRaw === "string" ? akRaw.trim() : "";
+  const sk = typeof skRaw === "string" ? skRaw.trim() : "";
+  const reg = typeof regRaw === "string" ? regRaw.trim() : "";
+  const prof = typeof profRaw === "string" ? profRaw.trim() : "";
+
+  const hasKeyPair = ak !== "" && sk !== "";
+  if (hasKeyPair) {
+    await persistAwsAccessKeyPair(vault, ak, sk, reg, prof);
+  } else {
+    if (prof === "") {
+      throw new ConnectorRpcError(
+        -32602,
+        "Missing AWS credentials: access key + secret + region/profile, or profile-only (connector.auth aws …)",
+      );
+    }
+    await persistAwsProfileOnly(vault, prof);
+  }
+  const interval = defaultSyncIntervalMsForService("aws");
+  localIndex.ensureConnectorSchedulerRegistration("aws", interval, Date.now());
+  return authSuccess("aws");
+}
+
+async function connectorAuthAzure(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tRaw = rec?.["azureTenantId"] ?? rec?.["tenantId"];
+  const cRaw = rec?.["azureClientId"] ?? rec?.["clientId"];
+  const sRaw = rec?.["azureClientSecret"] ?? rec?.["clientSecret"];
+  const tenant = typeof tRaw === "string" ? tRaw.trim() : "";
+  const clientId = typeof cRaw === "string" ? cRaw.trim() : "";
+  const secret = typeof sRaw === "string" ? sRaw.trim() : "";
+  if (tenant === "" || clientId === "" || secret === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Azure requires tenant id, client id, and client secret (connector.auth azure …)",
+    );
+  }
+  await vault.set("azure.tenant_id", tenant);
+  await vault.set("azure.client_id", clientId);
+  await vault.set("azure.client_secret", secret);
+  const interval = defaultSyncIntervalMsForService("azure");
+  localIndex.ensureConnectorSchedulerRegistration("azure", interval, Date.now());
+  return authSuccess("azure");
+}
+
+async function connectorAuthGcp(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const pathRaw = rec?.["gcpCredentialsJsonPath"] ?? rec?.["credentialsJsonPath"] ?? rec?.["path"];
+  const path = typeof pathRaw === "string" && pathRaw.trim() !== "" ? pathRaw.trim() : "";
+  if (path === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "GCP requires a service account JSON key path (connector.auth gcp --credentials-json <path>)",
+    );
+  }
+  await vault.set("gcp.credentials_json_path", path);
+  const projRaw = rec?.["gcpProjectId"] ?? rec?.["projectId"];
+  const proj = typeof projRaw === "string" && projRaw.trim() !== "" ? projRaw.trim() : "";
+  if (proj === "") {
+    await vault.delete("gcp.project_id");
+  } else {
+    await vault.set("gcp.project_id", proj);
+  }
+  const interval = defaultSyncIntervalMsForService("gcp");
+  localIndex.ensureConnectorSchedulerRegistration("gcp", interval, Date.now());
+  return authSuccess("gcp");
+}
+
+async function connectorAuthIac(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const opt =
+    rec?.["iacOptIn"] === true || rec?.["iacOptIn"] === "true" || rec?.["iacOptIn"] === "1";
+  if (!opt) {
+    throw new ConnectorRpcError(
+      -32602,
+      "IaC connector is opt-in: nimbus connector auth iac --enable",
+    );
+  }
+  await vault.set("iac.enabled", "1");
+  const interval = defaultSyncIntervalMsForService("iac");
+  localIndex.ensureConnectorSchedulerRegistration("iac", interval, Date.now());
+  return authSuccess("iac");
+}
+
+async function connectorAuthGrafana(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["grafanaUrl"] ?? rec?.["url"];
+  const base =
+    typeof baseRaw === "string" && baseRaw.trim() !== ""
+      ? stripTrailingSlashes(baseRaw.trim())
+      : "";
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (base === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Grafana requires base URL (connector.auth grafana --api-base https://grafana.example/)",
+    );
+  }
+  if (token === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Grafana requires an API token (connector.auth grafana --token …)",
+    );
+  }
+  await vault.set("grafana.url", base);
+  await vault.set("grafana.api_token", token);
+  const interval = defaultSyncIntervalMsForService("grafana");
+  localIndex.ensureConnectorSchedulerRegistration("grafana", interval, Date.now());
+  return authSuccess("grafana");
+}
+
+async function connectorAuthSentry(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  const orgRaw = rec?.["sentryOrgSlug"] ?? rec?.["orgSlug"];
+  const org = typeof orgRaw === "string" && orgRaw.trim() !== "" ? orgRaw.trim() : "";
+  if (token === "" || org === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Sentry requires auth token and org slug (connector.auth sentry --token … --org …)",
+    );
+  }
+  await vault.set("sentry.auth_token", token);
+  await vault.set("sentry.org_slug", org);
+  const urlRaw = rec?.["sentryUrl"] ?? rec?.["apiBaseUrl"];
+  const surl =
+    typeof urlRaw === "string" && urlRaw.trim() !== "" ? stripTrailingSlashes(urlRaw.trim()) : "";
+  if (surl === "") {
+    await vault.delete("sentry.url");
+  } else {
+    await vault.set("sentry.url", surl);
+  }
+  const interval = defaultSyncIntervalMsForService("sentry");
+  localIndex.ensureConnectorSchedulerRegistration("sentry", interval, Date.now());
+  return authSuccess("sentry");
+}
+
+async function connectorAuthNewrelic(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "New Relic requires a user API key (connector.auth newrelic --token …)",
+    );
+  }
+  await vault.set("newrelic.api_key", token);
+  const acctRaw = rec?.["newrelicAccountId"] ?? rec?.["accountId"];
+  const acct = typeof acctRaw === "string" && acctRaw.trim() !== "" ? acctRaw.trim() : "";
+  if (acct === "") {
+    await vault.delete("newrelic.account_id");
+  } else {
+    await vault.set("newrelic.account_id", acct);
+  }
+  const interval = defaultSyncIntervalMsForService("newrelic");
+  localIndex.ensureConnectorSchedulerRegistration("newrelic", interval, Date.now());
+  return authSuccess("newrelic");
+}
+
+async function connectorAuthDatadog(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const apiRaw = rec?.["datadogApiKey"] ?? rec?.["apiKey"];
+  const appRaw = rec?.["datadogAppKey"] ?? rec?.["appKey"];
+  const api = typeof apiRaw === "string" && apiRaw.trim() !== "" ? apiRaw.trim() : "";
+  const app = typeof appRaw === "string" && appRaw.trim() !== "" ? appRaw.trim() : "";
+  if (api === "" || app === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Datadog requires API key and application key (connector.auth datadog …)",
+    );
+  }
+  await vault.set("datadog.api_key", api);
+  await vault.set("datadog.app_key", app);
+  const siteRaw = rec?.["datadogSite"] ?? rec?.["site"];
+  const site = typeof siteRaw === "string" && siteRaw.trim() !== "" ? siteRaw.trim() : "";
+  if (site === "") {
+    await vault.delete("datadog.site");
+  } else {
+    await vault.set("datadog.site", site);
+  }
+  const interval = defaultSyncIntervalMsForService("datadog");
+  localIndex.ensureConnectorSchedulerRegistration("datadog", interval, Date.now());
+  return authSuccess("datadog");
+}
+
+async function connectorAuthKubernetes(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const pathRaw = rec?.["kubeconfigPath"] ?? rec?.["kubeconfig"] ?? rec?.["path"];
+  const kubePath = typeof pathRaw === "string" && pathRaw.trim() !== "" ? pathRaw.trim() : "";
+  if (kubePath === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Kubernetes requires kubeconfig path: connector.auth kubernetes --kubeconfig <path>",
+    );
+  }
+  await vault.set("kubernetes.kubeconfig", kubePath);
+  const ctxRaw = rec?.["context"];
+  if (typeof ctxRaw === "string" && ctxRaw.trim() !== "") {
+    await vault.set("kubernetes.context", ctxRaw.trim());
+  } else {
+    await vault.delete("kubernetes.context");
+  }
+  const interval = defaultSyncIntervalMsForService("kubernetes");
+  localIndex.ensureConnectorSchedulerRegistration("kubernetes", interval, Date.now());
+  return authSuccess("kubernetes");
+}
+
+async function connectorAuthPagerduty(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Missing API token for pagerduty");
+  }
+  await vault.set("pagerduty.api_token", token);
+  const interval = defaultSyncIntervalMsForService("pagerduty");
+  localIndex.ensureConnectorSchedulerRegistration("pagerduty", interval, Date.now());
+  return authSuccess("pagerduty");
+}
+
+async function connectorAuthJenkins(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["baseUrl"];
+  const base =
+    typeof baseRaw === "string" && baseRaw.trim() !== ""
+      ? stripTrailingSlashes(baseRaw.trim())
+      : "";
+  if (base === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Jenkins requires --api-base <url> (e.g. https://ci.example/)",
+    );
+  }
+  const userRaw = rec?.["username"];
+  const user = typeof userRaw === "string" && userRaw.trim() !== "" ? userRaw.trim() : "";
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (user === "") {
+    throw new ConnectorRpcError(-32602, "Jenkins requires --username <jenkins_user>");
+  }
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Jenkins requires --token <api_token>");
+  }
+  await vault.set("jenkins.base_url", base);
+  await vault.set("jenkins.username", user);
+  await vault.set("jenkins.api_token", token);
+  const interval = defaultSyncIntervalMsForService("jenkins");
+  localIndex.ensureConnectorSchedulerRegistration("jenkins", interval, Date.now());
+  return authSuccess("jenkins");
 }
 
 async function connectorAuthBitbucket(
@@ -443,55 +900,66 @@ async function connectorAuthOAuthPkce(
   };
 }
 
-export async function handleConnectorAuth(
-  ctx: ConnectorRpcHandlerContext,
-): Promise<ConnectorRpcHit> {
-  const { rec, vault, localIndex, openUrl } = ctx;
-  const id = parseServiceArg(rec);
-  if (id === "github") {
-    return connectorAuthGithub(rec, vault, localIndex);
-  }
-  if (id === "gitlab") {
-    return connectorAuthGitlab(rec, vault, localIndex);
-  }
-  if (id === "linear") {
-    return connectorAuthLinear(rec, vault, localIndex);
-  }
-  if (id === "jira") {
-    const creds = parseAtlassianSiteCredentials(rec, {
+type PatConnectorAuthHandler = (ctx: ConnectorRpcHandlerContext) => Promise<ConnectorRpcHit>;
+
+const PAT_CONNECTOR_AUTH_HANDLERS: Partial<Record<ConnectorServiceId, PatConnectorAuthHandler>> = {
+  github: (c) => connectorAuthGithub(c.rec, c.vault, c.localIndex),
+  gitlab: (c) => connectorAuthGitlab(c.rec, c.vault, c.localIndex),
+  linear: (c) => connectorAuthLinear(c.rec, c.vault, c.localIndex),
+  bitbucket: (c) => connectorAuthBitbucket(c.rec, c.vault, c.localIndex),
+  discord: (c) => connectorAuthDiscord(c.rec, c.vault, c.localIndex),
+  jenkins: (c) => connectorAuthJenkins(c.rec, c.vault, c.localIndex),
+  circleci: (c) => connectorAuthCircleci(c.rec, c.vault, c.localIndex),
+  pagerduty: (c) => connectorAuthPagerduty(c.rec, c.vault, c.localIndex),
+  kubernetes: (c) => connectorAuthKubernetes(c.rec, c.vault, c.localIndex),
+  aws: (c) => connectorAuthAws(c.rec, c.vault, c.localIndex),
+  azure: (c) => connectorAuthAzure(c.rec, c.vault, c.localIndex),
+  gcp: (c) => connectorAuthGcp(c.rec, c.vault, c.localIndex),
+  iac: (c) => connectorAuthIac(c.rec, c.vault, c.localIndex),
+  grafana: (c) => connectorAuthGrafana(c.rec, c.vault, c.localIndex),
+  sentry: (c) => connectorAuthSentry(c.rec, c.vault, c.localIndex),
+  newrelic: (c) => connectorAuthNewrelic(c.rec, c.vault, c.localIndex),
+  datadog: (c) => connectorAuthDatadog(c.rec, c.vault, c.localIndex),
+  jira: async (c) => {
+    const creds = parseAtlassianSiteCredentials(c.rec, {
       missingEmail: "Missing Atlassian account email for jira (atlassianEmail)",
       missingToken: "Missing API token for jira",
       missingBase:
         "Missing Jira site base URL for jira (apiBaseUrl), e.g. https://your-domain.atlassian.net",
     });
     const value = await registerAtlassianApiConnectorAuth({
-      vault,
-      localIndex,
+      vault: c.vault,
+      localIndex: c.localIndex,
       serviceId: "jira",
       creds,
     });
     return { kind: "hit", value };
-  }
-  if (id === "confluence") {
-    const creds = parseAtlassianSiteCredentials(rec, {
+  },
+  confluence: async (c) => {
+    const creds = parseAtlassianSiteCredentials(c.rec, {
       missingEmail: "Missing Atlassian account email for confluence (atlassianEmail)",
       missingToken: "Missing API token for confluence",
       missingBase:
         "Missing Confluence site base URL (apiBaseUrl), e.g. https://your-domain.atlassian.net",
     });
     const value = await registerAtlassianApiConnectorAuth({
-      vault,
-      localIndex,
+      vault: c.vault,
+      localIndex: c.localIndex,
       serviceId: "confluence",
       creds,
     });
     return { kind: "hit", value };
-  }
-  if (id === "bitbucket") {
-    return connectorAuthBitbucket(rec, vault, localIndex);
-  }
-  if (id === "discord") {
-    return connectorAuthDiscord(rec, vault, localIndex);
+  },
+};
+
+export async function handleConnectorAuth(
+  ctx: ConnectorRpcHandlerContext,
+): Promise<ConnectorRpcHit> {
+  const { rec, vault, localIndex, openUrl } = ctx;
+  const id = parseServiceArg(rec);
+  const patHandler = PAT_CONNECTOR_AUTH_HANDLERS[id];
+  if (patHandler !== undefined) {
+    return patHandler(ctx);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }
