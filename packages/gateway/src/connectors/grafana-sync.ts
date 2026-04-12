@@ -1,4 +1,10 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import {
+  clampSyncTitle,
+  syncPassCursorHttpEmpty,
+  syncPassCursorParseEmpty,
+  syncPassCursorSuccess,
+} from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord } from "./unknown-record.ts";
@@ -10,6 +16,10 @@ type GrafanaCursorV1 = { pass: number };
 
 function encodeCursor(c: GrafanaCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
+}
+
+function pass1Cursor(): string {
+  return encodeCursor({ pass: 1 });
 }
 
 export type GrafanaSyncableOptions = {
@@ -43,27 +53,13 @@ export function createGrafanaSyncable(options: GrafanaSyncableOptions): Syncable
           { serviceId: SERVICE_ID, status: res.status },
           "grafana sync: search failed",
         );
-        return {
-          cursor: cursor ?? encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: text.length,
-        };
+        return syncPassCursorHttpEmpty(t0, text.length, cursor, pass1Cursor());
       }
       let parsed: unknown;
       try {
         parsed = JSON.parse(text) as unknown;
       } catch {
-        return {
-          cursor: encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: text.length,
-        };
+        return syncPassCursorParseEmpty(t0, text.length, pass1Cursor());
       }
       const arr = Array.isArray(parsed) ? parsed : [];
       const now = Date.now();
@@ -83,7 +79,7 @@ export function createGrafanaSyncable(options: GrafanaSyncableOptions): Syncable
           service: SERVICE_ID,
           type: "dashboard",
           externalId: uid,
-          title: t.length > 512 ? t.slice(0, 512) : t,
+          title: clampSyncTitle(t),
           bodyPreview: "",
           url: null,
           canonicalUrl: null,
@@ -96,14 +92,7 @@ export function createGrafanaSyncable(options: GrafanaSyncableOptions): Syncable
         upserted += 1;
       }
 
-      return {
-        cursor: encodeCursor({ pass: 1 }),
-        itemsUpserted: upserted,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred: text.length,
-      };
+      return syncPassCursorSuccess(t0, text.length, pass1Cursor(), upserted);
     },
   };
 }

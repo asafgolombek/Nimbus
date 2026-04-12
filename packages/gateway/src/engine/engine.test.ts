@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,8 +19,10 @@ import type { AuditSink, ConnectorDispatcher, ConsentChannel, PlannedAction } fr
 
 type AuditRecord = Parameters<AuditSink["recordAudit"]>[0];
 
-/** Avoid hardcoded `/tmp/…` in tests (world-writable; Sonar security hotspot). */
+/** Avoid hardcoded `/tmp/…` literals in tests (world-writable; Sonar S5443). */
 const HITL_TEST_TARGET_PATH = join(tmpdir(), "nimbus-engine-hitl-test-target");
+const HITL_TEST_IAC_TF_DIR = mkdtempSync(join(tmpdir(), "nimbus-engine-iac-tf-"));
+const HITL_TEST_IAC_PU_DIR = mkdtempSync(join(tmpdir(), "nimbus-engine-iac-pu-"));
 
 describe("engine subsystem", () => {
   test("exports stable subsystem id", () => {
@@ -433,10 +436,16 @@ function hitlIacRejectPayload(
     | "iac.pulumi.up",
 ): Record<string, unknown> {
   if (iacAction === "iac.terraform.apply") {
-    return { mcpToolId: "iac_iac_terraform_apply", input: { workingDirectory: "/tmp/tf" } };
+    return {
+      mcpToolId: "iac_iac_terraform_apply",
+      input: { workingDirectory: HITL_TEST_IAC_TF_DIR },
+    };
   }
   if (iacAction === "iac.terraform.destroy") {
-    return { mcpToolId: "iac_iac_terraform_destroy", input: { workingDirectory: "/tmp/tf" } };
+    return {
+      mcpToolId: "iac_iac_terraform_destroy",
+      input: { workingDirectory: HITL_TEST_IAC_TF_DIR },
+    };
   }
   if (iacAction === "iac.cloudformation.deploy") {
     return {
@@ -444,7 +453,7 @@ function hitlIacRejectPayload(
       input: { stackName: "s", templateBody: "{}" },
     };
   }
-  return { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: "/tmp/pu" } };
+  return { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: HITL_TEST_IAC_PU_DIR } };
 }
 
 function hitlPagerdutyRejectPayload(

@@ -1,4 +1,10 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import {
+  clampSyncTitle,
+  syncPassCursorHttpEmpty,
+  syncPassCursorParseEmpty,
+  syncPassCursorSuccess,
+} from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -10,6 +16,10 @@ type GcpCursorV1 = { pass: number };
 
 function encodeCursor(c: GcpCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
+}
+
+function pass1Cursor(): string {
+  return encodeCursor({ pass: 1 });
 }
 
 async function gcloudJson(
@@ -61,27 +71,13 @@ export function createGcpSyncable(options: GcpSyncableOptions): Syncable {
       const res = await gcloudJson(ctx, ["projects", "describe", projectId]);
       if (!res.ok) {
         ctx.logger.warn({ serviceId: SERVICE_ID }, "gcp sync: projects describe failed");
-        return {
-          cursor: cursor ?? encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: res.text.length,
-        };
+        return syncPassCursorHttpEmpty(t0, res.text.length, cursor, pass1Cursor());
       }
       let root: unknown;
       try {
         root = JSON.parse(res.text) as unknown;
       } catch {
-        return {
-          cursor: encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: res.text.length,
-        };
+        return syncPassCursorParseEmpty(t0, res.text.length, pass1Cursor());
       }
       const rec = asRecord(root);
       const name = stringField(rec ?? {}, "name") ?? projectId;
@@ -90,7 +86,7 @@ export function createGcpSyncable(options: GcpSyncableOptions): Syncable {
         service: SERVICE_ID,
         type: "project",
         externalId: projectId,
-        title: name.length > 512 ? name.slice(0, 512) : name,
+        title: clampSyncTitle(name),
         bodyPreview: projectId,
         url: null,
         canonicalUrl: null,
@@ -101,14 +97,7 @@ export function createGcpSyncable(options: GcpSyncableOptions): Syncable {
         syncedAt: now,
       });
 
-      return {
-        cursor: encodeCursor({ pass: 1 }),
-        itemsUpserted: 1,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred: res.text.length,
-      };
+      return syncPassCursorSuccess(t0, res.text.length, pass1Cursor(), 1);
     },
   };
 }

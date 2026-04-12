@@ -1,4 +1,10 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import {
+  clampSyncTitle,
+  syncPassCursorHttpEmpty,
+  syncPassCursorParseEmpty,
+  syncPassCursorSuccess,
+} from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -10,6 +16,10 @@ type AzCursorV1 = { pass: number };
 
 function encodeCursor(c: AzCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
+}
+
+function pass1Cursor(): string {
+  return encodeCursor({ pass: 1 });
 }
 
 async function azureCliJson(
@@ -60,38 +70,25 @@ export function createAzureSyncable(options: AzureSyncableOptions): Syncable {
       const res = await azureCliJson(ctx, ["account", "show"]);
       if (!res.ok) {
         ctx.logger.warn({ serviceId: SERVICE_ID }, "azure sync: account show failed");
-        return {
-          cursor: cursor ?? encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: res.text.length,
-        };
+        return syncPassCursorHttpEmpty(t0, res.text.length, cursor, pass1Cursor());
       }
       let root: unknown;
       try {
         root = JSON.parse(res.text) as unknown;
       } catch {
-        return {
-          cursor: encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: res.text.length,
-        };
+        return syncPassCursorParseEmpty(t0, res.text.length, pass1Cursor());
       }
       const rec = asRecord(root);
       const subId = stringField(rec ?? {}, "id");
       const name = stringField(rec ?? {}, "name");
       const id = subId ?? "default";
       const now = Date.now();
+      const titleRaw = name ?? id;
       upsertIndexedItemForSync(ctx, {
         service: SERVICE_ID,
         type: "subscription",
         externalId: id,
-        title: (name ?? id).length > 512 ? (name ?? id).slice(0, 512) : (name ?? id),
+        title: clampSyncTitle(titleRaw),
         bodyPreview: subId ?? "",
         url: null,
         canonicalUrl: null,
@@ -102,14 +99,7 @@ export function createAzureSyncable(options: AzureSyncableOptions): Syncable {
         syncedAt: now,
       });
 
-      return {
-        cursor: encodeCursor({ pass: 1 }),
-        itemsUpserted: 1,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred: res.text.length,
-      };
+      return syncPassCursorSuccess(t0, res.text.length, pass1Cursor(), 1);
     },
   };
 }

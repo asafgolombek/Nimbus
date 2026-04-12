@@ -1608,10 +1608,10 @@ export class LazyConnectorMesh {
     this.clearPagerdutyIdleTimer();
     this.clearKubernetesIdleTimer();
     this.clearPhase3BundleIdleTimer();
-    for (const id of [...this.userMcpIdleTimers.keys()]) {
+    for (const id of this.userMcpIdleTimers.keys()) {
       this.clearUserMcpIdleTimer(id);
     }
-    for (const id of [...this.userMcpClients.keys()]) {
+    for (const id of this.userMcpClients.keys()) {
       await this.stopUserMcpClient(id);
     }
     await this.stopGoogleBundle();

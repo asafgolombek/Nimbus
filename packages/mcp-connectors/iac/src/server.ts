@@ -10,22 +10,21 @@ import {
   createZodToolRegistrar,
   mcpJsonResult as jsonResult,
 } from "../../shared/mcp-tool-kit.ts";
-import { runCliOk } from "../../shared/run-cli-json.ts";
+import { runCliOkThrowing } from "../../shared/run-cli-json.ts";
 
 const mcp = new McpServer({ name: "nimbus-iac", version: "0.1.0" });
 const reg = createZodToolRegistrar(createRegisterSimpleTool(mcp));
+
+const processEnv = process.env as Record<string, string | undefined>;
 
 reg(
   "iac_terraform_plan",
   "Run terraform plan in a directory.",
   z.object({ workingDirectory: z.string().min(1) }),
   async (p) => {
-    const r = await runCliOk(["terraform", "-chdir", p.workingDirectory, "plan", "-input=false"], {
-      ...process.env,
-    } as Record<string, string | undefined>);
-    if (!r.ok) {
-      throw new Error(r.message);
-    }
+    await runCliOkThrowing(["terraform", "-chdir", p.workingDirectory, "plan", "-input=false"], {
+      ...processEnv,
+    });
     return jsonResult({ ok: true });
   },
 );
@@ -35,13 +34,10 @@ reg(
   "Run terraform apply. HITL.",
   z.object({ workingDirectory: z.string().min(1) }),
   async (p) => {
-    const r = await runCliOk(
+    await runCliOkThrowing(
       ["terraform", "-chdir", p.workingDirectory, "apply", "-auto-approve", "-input=false"],
-      { ...process.env } as Record<string, string | undefined>,
+      { ...processEnv },
     );
-    if (!r.ok) {
-      throw new Error(r.message);
-    }
     return jsonResult({ ok: true });
   },
 );
@@ -51,13 +47,10 @@ reg(
   "Run terraform destroy. HITL.",
   z.object({ workingDirectory: z.string().min(1) }),
   async (p) => {
-    const r = await runCliOk(
+    await runCliOkThrowing(
       ["terraform", "-chdir", p.workingDirectory, "destroy", "-auto-approve", "-input=false"],
-      { ...process.env } as Record<string, string | undefined>,
+      { ...processEnv },
     );
-    if (!r.ok) {
-      throw new Error(r.message);
-    }
     return jsonResult({ ok: true });
   },
 );
@@ -70,7 +63,7 @@ reg(
     templateBody: z.string().min(1),
   }),
   async (p) => {
-    const r = await runCliOk(
+    await runCliOkThrowing(
       [
         "aws",
         "cloudformation",
@@ -82,11 +75,8 @@ reg(
         "--capabilities",
         "CAPABILITY_IAM",
       ],
-      { ...process.env } as Record<string, string | undefined>,
+      { ...processEnv },
     );
-    if (!r.ok) {
-      throw new Error(r.message);
-    }
     return jsonResult({ ok: true });
   },
 );
@@ -96,15 +86,10 @@ reg(
   "Run pulumi preview in a stack directory.",
   z.object({ workingDirectory: z.string().min(1) }),
   async (p) => {
-    const r = await runCliOk(
+    await runCliOkThrowing(
       ["pulumi", "preview", "--cwd", p.workingDirectory, "--non-interactive"],
-      {
-        ...process.env,
-      } as Record<string, string | undefined>,
+      { ...processEnv },
     );
-    if (!r.ok) {
-      throw new Error(r.message);
-    }
     return jsonResult({ ok: true });
   },
 );
@@ -114,13 +99,10 @@ reg(
   "Run pulumi up. HITL.",
   z.object({ workingDirectory: z.string().min(1) }),
   async (p) => {
-    const r = await runCliOk(
+    await runCliOkThrowing(
       ["pulumi", "up", "--yes", "--cwd", p.workingDirectory, "--non-interactive"],
-      { ...process.env } as Record<string, string | undefined>,
+      { ...processEnv },
     );
-    if (!r.ok) {
-      throw new Error(r.message);
-    }
     return jsonResult({ ok: true });
   },
 );

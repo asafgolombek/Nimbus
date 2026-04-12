@@ -1,4 +1,10 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import {
+  clampSyncTitle,
+  syncPassCursorHttpEmpty,
+  syncPassCursorParseEmpty,
+  syncPassCursorSuccess,
+} from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord } from "./unknown-record.ts";
@@ -10,6 +16,10 @@ type DdCursorV1 = { pass: number };
 
 function encodeCursor(c: DdCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
+}
+
+function pass1Cursor(): string {
+  return encodeCursor({ pass: 1 });
 }
 
 function siteHost(site: string): string {
@@ -35,7 +45,7 @@ function upsertDatadogMonitorRows(ctx: SyncContext, list: unknown[], now: number
       service: SERVICE_ID,
       type: "monitor",
       externalId: id,
-      title: name.length > 512 ? name.slice(0, 512) : name,
+      title: clampSyncTitle(name),
       bodyPreview: "",
       url: null,
       canonicalUrl: null,
@@ -69,39 +79,18 @@ async function fetchAndUpsertDatadogMonitors(
   const text = await res.text();
   if (!res.ok) {
     ctx.logger.warn({ serviceId: SERVICE_ID, status: res.status }, "datadog sync: monitors failed");
-    return {
-      cursor: cursor ?? encodeCursor({ pass: 1 }),
-      itemsUpserted: 0,
-      itemsDeleted: 0,
-      hasMore: false,
-      durationMs: Math.round(performance.now() - t0),
-      bytesTransferred: text.length,
-    };
+    return syncPassCursorHttpEmpty(t0, text.length, cursor, pass1Cursor());
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text) as unknown;
   } catch {
-    return {
-      cursor: encodeCursor({ pass: 1 }),
-      itemsUpserted: 0,
-      itemsDeleted: 0,
-      hasMore: false,
-      durationMs: Math.round(performance.now() - t0),
-      bytesTransferred: text.length,
-    };
+    return syncPassCursorParseEmpty(t0, text.length, pass1Cursor());
   }
   const list = Array.isArray(parsed) ? parsed : [];
   const now = Date.now();
   const upserted = upsertDatadogMonitorRows(ctx, list, now);
-  return {
-    cursor: encodeCursor({ pass: 1 }),
-    itemsUpserted: upserted,
-    itemsDeleted: 0,
-    hasMore: false,
-    durationMs: Math.round(performance.now() - t0),
-    bytesTransferred: text.length,
-  };
+  return syncPassCursorSuccess(t0, text.length, pass1Cursor(), upserted);
 }
 
 export type DatadogSyncableOptions = {

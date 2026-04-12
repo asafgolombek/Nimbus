@@ -42,12 +42,7 @@ function applyGithubRateLimitPenaltyIfNeeded(ctx: SyncContext, res: Response): v
     const remaining = res.headers.get("x-ratelimit-remaining");
     if (remaining === "0" || remaining === null) {
       const retryAfter = res.headers.get("retry-after");
-      let sec: number;
-      if (retryAfter === null) {
-        sec = 60;
-      } else {
-        sec = Number.parseInt(retryAfter, 10);
-      }
+      const sec = retryAfter === null ? 60 : Number.parseInt(retryAfter, 10);
       const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
       ctx.rateLimiter.penalise("github", ms);
     }
@@ -80,6 +75,145 @@ function splitOwnerRepo(full: string): { owner: string; repo: string } | null {
     return null;
   }
   return { owner: full.slice(0, i), repo: full.slice(i + 1) };
+}
+
+function buildGithubActionsRunTitle(
+  display: string | undefined,
+  name: string | undefined,
+  id: number,
+  conclusion: string | undefined,
+  status: string | undefined,
+): string {
+  const titleBase = display ?? name ?? `Run ${String(id)}`;
+  if (conclusion !== undefined && conclusion !== "") {
+    return `${titleBase} — ${conclusion}`;
+  }
+  if (status !== undefined && status !== "") {
+    return `${titleBase} (${status})`;
+  }
+  return titleBase;
+}
+
+function parseGithubWorkflowRunsArray(text: string): unknown[] | null {
+  let parsedRoot: unknown;
+  try {
+    parsedRoot = JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+  const root = asRecord(parsedRoot);
+  if (root === undefined) {
+    return null;
+  }
+  const wr = root["workflow_runs"];
+  return Array.isArray(wr) ? wr : null;
+}
+
+function tryUpsertGithubActionsRun(
+  ctx: SyncContext,
+  full: string,
+  item: unknown,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+): { upserted: 0 | 1; runId: number | null } {
+  const run = asRecord(item);
+  if (run === undefined) {
+    return { upserted: 0, runId: null };
+  }
+  const id = numberField(run, "id");
+  if (id === undefined || id <= lastSeen) {
+    return { upserted: 0, runId: null };
+  }
+  const createdRaw = stringField(run, "created_at");
+  const createdMs = createdRaw === undefined ? Number.NaN : Date.parse(createdRaw);
+  if (Number.isFinite(createdMs) && createdMs < floorMs) {
+    return { upserted: 0, runId: null };
+  }
+  const htmlUrl = stringField(run, "html_url");
+  const name = stringField(run, "name");
+  const display = stringField(run, "display_title");
+  const conclusion = stringField(run, "conclusion");
+  const status = stringField(run, "status");
+  const event = stringField(run, "event");
+  const headBranch = stringField(run, "head_branch");
+  const headSha = stringField(run, "head_sha");
+  const runStarted = stringField(run, "run_started_at");
+  const updatedAt = stringField(run, "updated_at");
+  const tEnd = updatedAt === undefined ? now : Date.parse(updatedAt);
+  const tStart = runStarted === undefined ? tEnd : Date.parse(runStarted);
+  const durationMs =
+    Number.isFinite(tEnd) && Number.isFinite(tStart) && tEnd >= tStart ? tEnd - tStart : null;
+  const title = buildGithubActionsRunTitle(display, name, id, conclusion, status);
+  const externalId = `${full}#run-${String(id)}`;
+  const modifiedAt = Number.isFinite(createdMs) ? createdMs : now;
+  const meta: Record<string, unknown> = {
+    workflowName: name ?? null,
+    runId: id,
+    event: event ?? null,
+    conclusion: conclusion ?? null,
+    headSha: headSha ?? null,
+    headBranch: headBranch ?? null,
+    durationMs,
+    status: status ?? null,
+  };
+  upsertIndexedItemForSync(ctx, {
+    service: SERVICE_ID,
+    type: "ci_run",
+    externalId,
+    title: title.length > 512 ? title.slice(0, 512) : title,
+    bodyPreview: "",
+    url: htmlUrl ?? null,
+    canonicalUrl: htmlUrl ?? null,
+    modifiedAt,
+    authorId: null,
+    metadata: meta,
+    pinned: false,
+    syncedAt: now,
+  });
+  return { upserted: 1, runId: id };
+}
+
+async function syncGithubActionsForRepo(
+  ctx: SyncContext,
+  full: string,
+  owner: string,
+  repo: string,
+  headers: Record<string, string>,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+): Promise<{ upserted: number; bytes: number; maxId: number }> {
+  await ctx.rateLimiter.acquire("github");
+  const u = new URL(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs`,
+  );
+  u.searchParams.set("per_page", "30");
+  const res = await fetch(u.toString(), { headers });
+  const text = await res.text();
+  const bytes = text.length;
+  applyGithubRateLimitPenaltyIfNeeded(ctx, res);
+  if (!res.ok) {
+    ctx.logger.warn(
+      { serviceId: SERVICE_ID, repo: full, status: res.status },
+      "github_actions sync: failed to list runs",
+    );
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  const wr = parseGithubWorkflowRunsArray(text);
+  if (wr === null) {
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  let maxId = lastSeen;
+  let upserted = 0;
+  for (const item of wr) {
+    const r = tryUpsertGithubActionsRun(ctx, full, item, lastSeen, floorMs, now);
+    upserted += r.upserted;
+    if (r.runId !== null && r.runId > maxId) {
+      maxId = r.runId;
+    }
+  }
+  return { upserted, bytes, maxId };
 }
 
 export type GithubActionsSyncableOptions = {
@@ -125,106 +259,19 @@ export function createGithubActionsSyncable(options: GithubActionsSyncableOption
           continue;
         }
         const lastSeen = nextRepos[full] ?? 0;
-        await ctx.rateLimiter.acquire("github");
-        const u = new URL(
-          `https://api.github.com/repos/${encodeURIComponent(parts.owner)}/${encodeURIComponent(parts.repo)}/actions/runs`,
+        const r = await syncGithubActionsForRepo(
+          ctx,
+          full,
+          parts.owner,
+          parts.repo,
+          headers,
+          lastSeen,
+          floorMs,
+          now,
         );
-        u.searchParams.set("per_page", "30");
-        const res = await fetch(u.toString(), { headers });
-        const text = await res.text();
-        bytes += text.length;
-        applyGithubRateLimitPenaltyIfNeeded(ctx, res);
-        if (!res.ok) {
-          ctx.logger.warn(
-            { serviceId: SERVICE_ID, repo: full, status: res.status },
-            "github_actions sync: failed to list runs",
-          );
-          continue;
-        }
-        let parsedRoot: unknown;
-        try {
-          parsedRoot = JSON.parse(text) as unknown;
-        } catch {
-          continue;
-        }
-        const root = asRecord(parsedRoot);
-        if (root === undefined) {
-          continue;
-        }
-        const wr = root["workflow_runs"];
-        if (!Array.isArray(wr)) {
-          continue;
-        }
-        let maxId = lastSeen;
-        for (const item of wr) {
-          const run = asRecord(item);
-          if (run === undefined) {
-            continue;
-          }
-          const id = numberField(run, "id");
-          if (id === undefined || id <= lastSeen) {
-            continue;
-          }
-          const createdRaw = stringField(run, "created_at");
-          const createdMs = createdRaw !== undefined ? Date.parse(createdRaw) : Number.NaN;
-          if (Number.isFinite(createdMs) && createdMs < floorMs) {
-            continue;
-          }
-          const htmlUrl = stringField(run, "html_url");
-          const name = stringField(run, "name");
-          const display = stringField(run, "display_title");
-          const conclusion = stringField(run, "conclusion");
-          const status = stringField(run, "status");
-          const event = stringField(run, "event");
-          const headBranch = stringField(run, "head_branch");
-          const headSha = stringField(run, "head_sha");
-          const runStarted = stringField(run, "run_started_at");
-          const updatedAt = stringField(run, "updated_at");
-          const tEnd = updatedAt === undefined ? now : Date.parse(updatedAt);
-          const tStart = runStarted === undefined ? tEnd : Date.parse(runStarted);
-          const durationMs =
-            Number.isFinite(tEnd) && Number.isFinite(tStart) && tEnd >= tStart
-              ? tEnd - tStart
-              : null;
-          const titleBase = display ?? name ?? `Run ${String(id)}`;
-          const title =
-            conclusion !== undefined && conclusion !== ""
-              ? `${titleBase} — ${conclusion}`
-              : status !== undefined && status !== ""
-                ? `${titleBase} (${status})`
-                : titleBase;
-          const externalId = `${full}#run-${String(id)}`;
-          const modifiedAt = Number.isFinite(createdMs) ? createdMs : now;
-          const meta: Record<string, unknown> = {
-            workflowName: name ?? null,
-            runId: id,
-            event: event ?? null,
-            conclusion: conclusion ?? null,
-            headSha: headSha ?? null,
-            headBranch: headBranch ?? null,
-            durationMs,
-            status: status ?? null,
-          };
-          upsertIndexedItemForSync(ctx, {
-            service: SERVICE_ID,
-            type: "ci_run",
-            externalId,
-            title: title.length > 512 ? title.slice(0, 512) : title,
-            bodyPreview: "",
-            url: htmlUrl ?? null,
-            canonicalUrl: htmlUrl ?? null,
-            modifiedAt,
-            authorId: null,
-            metadata: meta,
-            pinned: false,
-            syncedAt: now,
-          });
-          upserted += 1;
-          if (id > maxId) {
-            maxId = id;
-          }
-        }
-        nextRepos[full] = maxId;
+        bytes += r.bytes;
+        upserted += r.upserted;
+        nextRepos[full] = r.maxId;
       }
 
       return {

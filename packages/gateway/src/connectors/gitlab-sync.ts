@@ -466,7 +466,7 @@ async function syncGitlabPipelinesForIndexedProjects(
         break;
       }
       const createdRaw = stringField(row, "created_at");
-      const createdMs = createdRaw !== undefined ? Date.parse(createdRaw) : Number.NaN;
+      const createdMs = createdRaw === undefined ? Number.NaN : Date.parse(createdRaw);
       if (Number.isFinite(createdMs) && createdMs < floorMs) {
         continue;
       }

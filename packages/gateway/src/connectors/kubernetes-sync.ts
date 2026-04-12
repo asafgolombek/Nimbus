@@ -93,8 +93,11 @@ export function createKubernetesSyncable(options: KubernetesSyncableOptions): Sy
           continue;
         }
         const meta = asRecord(row["metadata"]);
-        const ns = meta !== undefined ? stringField(meta, "namespace") : undefined;
-        const name = meta !== undefined ? stringField(meta, "name") : undefined;
+        if (meta === undefined) {
+          continue;
+        }
+        const ns = stringField(meta, "namespace");
+        const name = stringField(meta, "name");
         if (ns === undefined || name === undefined) {
           continue;
         }

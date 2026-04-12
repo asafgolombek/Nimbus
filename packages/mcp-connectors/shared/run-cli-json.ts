@@ -28,6 +28,17 @@ export async function runCliOk(
   return { ok: true };
 }
 
+/** Like {@link runCliOk} but throws with the CLI stderr message on failure (MCP tool handlers). */
+export async function runCliOkThrowing(
+  command: readonly string[],
+  env: Record<string, string | undefined>,
+): Promise<void> {
+  const r = await runCliOk(command, env);
+  if (!r.ok) {
+    throw new Error(r.message);
+  }
+}
+
 export async function runCliJson(
   command: readonly string[],
   env: Record<string, string | undefined>,

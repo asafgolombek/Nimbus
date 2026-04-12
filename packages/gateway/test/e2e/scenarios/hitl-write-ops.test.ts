@@ -20,6 +20,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { HITL_REQUIRED, ToolExecutor } from "../../../src/engine/executor.ts";
 import type {
   AuditSink,
@@ -74,6 +77,9 @@ const Q2_WRITE_ACTIONS: ReadonlyArray<string> = [
   "pagerduty.incident.resolve",
   "pagerduty.incident.escalate",
 ];
+
+const HITL_E2E_IAC_TF_DIR = mkdtempSync(join(tmpdir(), "nimbus-hitl-e2e-iac-tf-"));
+const HITL_E2E_IAC_PU_DIR = mkdtempSync(join(tmpdir(), "nimbus-hitl-e2e-iac-pu-"));
 
 /** Minimal representative payload for each write action type. */
 const HITL_WRITE_PAYLOADS: Record<string, Record<string, unknown>> = {
@@ -220,17 +226,20 @@ const HITL_WRITE_PAYLOADS: Record<string, Record<string, unknown>> = {
   },
   "iac.terraform.apply": {
     mcpToolId: "iac_iac_terraform_apply",
-    input: { workingDirectory: "/tmp/tf" },
+    input: { workingDirectory: HITL_E2E_IAC_TF_DIR },
   },
   "iac.terraform.destroy": {
     mcpToolId: "iac_iac_terraform_destroy",
-    input: { workingDirectory: "/tmp/tf" },
+    input: { workingDirectory: HITL_E2E_IAC_TF_DIR },
   },
   "iac.cloudformation.deploy": {
     mcpToolId: "iac_iac_cloudformation_deploy",
     input: { stackName: "s", templateBody: "{}" },
   },
-  "iac.pulumi.up": { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: "/tmp/pu" } },
+  "iac.pulumi.up": {
+    mcpToolId: "iac_iac_pulumi_up",
+    input: { workingDirectory: HITL_E2E_IAC_PU_DIR },
+  },
   "kubernetes.rollout.restart": {
     mcpToolId: "kubernetes_k8s_rollout_restart",
     input: { namespace: "default", resourceType: "deployment", name: "api" },
