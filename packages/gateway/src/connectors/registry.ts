@@ -87,6 +87,9 @@ export type McpToolListingClient = {
  *
  * GitHub Actions (HITL): `github_actions.run.trigger` → `github_actions_gha_run_trigger`;
  * `github_actions.run.cancel` → `github_actions_gha_run_cancel`.
+ *
+ * CircleCI (HITL): `circleci.pipeline.trigger` → `circleci_circleci_pipeline_trigger`;
+ * `circleci.job.cancel` → `circleci_circleci_job_cancel`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

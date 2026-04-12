@@ -96,6 +96,12 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       now: Date.now(),
       intervalMs: defaultSyncIntervalMsForService("github_actions"),
     });
+    const cciTok = await vault.get("circleci.api_token");
+    localIndex.ensureCircleciSchedulerCompanionIfNeeded({
+      circleciTokenPresent: cciTok !== null && cciTok !== "",
+      now: Date.now(),
+      intervalMs: defaultSyncIntervalMsForService("circleci"),
+    });
   }
   const syncBase: SyncContext = { vault, db, logger: syncLogger, rateLimiter };
   let syncContext: SyncContext;

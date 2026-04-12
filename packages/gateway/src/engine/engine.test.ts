@@ -70,6 +70,8 @@ describe("HITL_REQUIRED", () => {
       "jenkins.build.abort",
       "github_actions.run.trigger",
       "github_actions.run.cancel",
+      "circleci.pipeline.trigger",
+      "circleci.job.cancel",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -285,6 +287,21 @@ function hitlGithubActionsRejectPayload(
   };
 }
 
+function hitlCircleciRejectPayload(
+  cciAction: "circleci.pipeline.trigger" | "circleci.job.cancel",
+): Record<string, unknown> {
+  if (cciAction === "circleci.pipeline.trigger") {
+    return {
+      mcpToolId: "circleci_circleci_pipeline_trigger",
+      input: { projectSlug: "gh/acme/app", branch: "main" },
+    };
+  }
+  return {
+    mcpToolId: "circleci_circleci_job_cancel",
+    input: { projectSlug: "gh/acme/app", jobNumber: 42 },
+  };
+}
+
 function hitlConfluenceRejectPayload(
   confluenceAction: ConfluenceHitlRejectAction,
 ): Record<string, unknown> {
@@ -493,6 +510,21 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(ghaAction);
+    });
+  }
+
+  for (const cciAction of ["circleci.pipeline.trigger", "circleci.job.cancel"] as const) {
+    test(`rejected consent for ${cciAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlCircleciRejectPayload(cciAction);
+      const out = await exec.execute({ type: cciAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(cciAction);
     });
   }
 

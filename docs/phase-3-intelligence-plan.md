@@ -27,7 +27,7 @@
 | `nimbus connector add --mcp "<cmd>"` (generic user MCP) | **Done** | `user_mcp_connector` schema v11; IPC `connector.addMcp`; lazy mesh spawn + noop sync |
 | Jenkins MCP connector + sync | **Done** | `packages/mcp-connectors/jenkins/`; `jenkins-sync.ts`; lazy mesh + `assemble-sync-registrations`; `connector.auth` jenkins; HITL `jenkins.build.*` |
 | GitHub Actions MCP connector + sync | **Done** | `packages/mcp-connectors/github-actions/` (spawn with GitHub MCP); `github-actions-sync.ts`; `github_actions` scheduler + companion registration; HITL `github_actions.run.*` |
-| CircleCI MCP connector + sync | Planned | |
+| CircleCI MCP connector + sync | **Done** | `packages/mcp-connectors/circleci/`; `circleci-sync.ts`; lazy mesh + `circleci.api_token`; HITL `circleci.pipeline.trigger`, `circleci.job.cancel` |
 | GitLab CI MCP connector + sync (extends GitLab connector) | Planned | |
 | AWS MCP connector + sync | Planned | |
 | Azure MCP connector + sync | Planned | |

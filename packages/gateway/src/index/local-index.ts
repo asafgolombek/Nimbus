@@ -326,6 +326,27 @@ export class LocalIndex {
     upsertSchedulerRegistration(this.db, "github_actions", params.intervalMs, params.now, false);
   }
 
+  /**
+   * When GitHub is registered and a CircleCI token is present, ensure the `circleci` scheduler row
+   * exists (backfill for installs that predated the CircleCI connector).
+   */
+  ensureCircleciSchedulerCompanionIfNeeded(params: {
+    circleciTokenPresent: boolean;
+    now: number;
+    intervalMs: number;
+  }): void {
+    if (!params.circleciTokenPresent) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "github") === null) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "circleci") !== null) {
+      return;
+    }
+    upsertSchedulerRegistration(this.db, "circleci", params.intervalMs, params.now, false);
+  }
+
   pauseConnectorSync(serviceId: string): void {
     if (loadSchedulerState(this.db, serviceId) === null) {
       throw new Error(`Unknown connector: ${serviceId}`);

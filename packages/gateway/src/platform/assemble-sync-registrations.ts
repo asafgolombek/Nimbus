@@ -1,4 +1,5 @@
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
+import { createCircleciSyncable } from "../connectors/circleci-sync.ts";
 import { createConfluenceSyncable } from "../connectors/confluence-sync.ts";
 import { createDiscordSyncable } from "../connectors/discord-sync.ts";
 import { createGithubActionsSyncable } from "../connectors/github-actions-sync.ts";
@@ -106,6 +107,11 @@ export function registerConnectorMeshSyncables(
   syncScheduler.register(
     createJenkinsSyncable({
       ensureJenkinsMcpRunning: () => connectorMesh.ensureJenkinsRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createCircleciSyncable({
+      ensureCircleciMcpRunning: () => connectorMesh.ensureCircleciRunning(),
     }),
   );
 }

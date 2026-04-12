@@ -86,6 +86,9 @@ async function deleteConnectorPatAndTokenKeys(
       await vault.delete("jenkins.username");
       await vault.delete("jenkins.api_token");
       return ["jenkins.base_url", "jenkins.username", "jenkins.api_token"];
+    case "circleci":
+      await vault.delete("circleci.api_token");
+      return ["circleci.api_token"];
     default:
       return [];
   }
@@ -409,6 +412,22 @@ async function connectorAuthDiscord(
   return authSuccess("discord");
 }
 
+async function connectorAuthCircleci(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Missing API token for circleci");
+  }
+  await vault.set("circleci.api_token", token);
+  const interval = defaultSyncIntervalMsForService("circleci");
+  localIndex.ensureConnectorSchedulerRegistration("circleci", interval, Date.now());
+  return authSuccess("circleci");
+}
+
 async function connectorAuthJenkins(
   rec: Record<string, unknown> | undefined,
   vault: NimbusVault,
@@ -598,6 +617,9 @@ export async function handleConnectorAuth(
   }
   if (id === "jenkins") {
     return connectorAuthJenkins(rec, vault, localIndex);
+  }
+  if (id === "circleci") {
+    return connectorAuthCircleci(rec, vault, localIndex);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }

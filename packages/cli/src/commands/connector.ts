@@ -389,6 +389,14 @@ function applyGithubConnectorAuth(p: ConnectorAuthParams, token: string | undefi
   );
 }
 
+function applyCircleciConnectorAuth(p: ConnectorAuthParams, token: string | undefined): void {
+  p.personalAccessToken = requirePatFromFlagsOrEnv(
+    token,
+    ["NIMBUS_CIRCLECI_API_TOKEN", "CIRCLECI_TOKEN"],
+    "CircleCI requires an API token: nimbus connector auth circleci --token <token>  (or set NIMBUS_CIRCLECI_API_TOKEN)",
+  );
+}
+
 function applyDiscordConnectorAuth(
   p: ConnectorAuthParams,
   token: string | undefined,
@@ -529,6 +537,9 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     case "github":
       applyGithubConnectorAuth(params, token);
       break;
+    case "circleci":
+      applyCircleciConnectorAuth(params, token);
+      break;
     case "gitlab":
       applyGitlabConnectorAuth(params, token, apiBase);
       break;
@@ -563,6 +574,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     "confluence",
     "discord",
     "jenkins",
+    "circleci",
   ]);
   if (vaultPatServices.has(res.serviceId)) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");
@@ -776,7 +788,7 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence, jenkins
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence, jenkins, circleci
 
 OAuth PKCE — set env vars before nimbus start, or run for setup steps:
   nimbus connector auth google_drive --help    (gmail, google_photos)
@@ -795,6 +807,7 @@ Jira: use --username (Atlassian email), --token (API token), --api-base https://
 Notion: OAuth in the browser (notion.oauth); see auth notion --help for env setup.
 Confluence: same flags/env pattern as Jira (NIMBUS_CONFLUENCE_* → confluence.email, confluence.api_token, confluence.base_url).
 Jenkins: --username, --token (API token), --api-base https://ci.example/  or env NIMBUS_JENKINS_USERNAME, NIMBUS_JENKINS_API_TOKEN, NIMBUS_JENKINS_BASE_URL (jenkins.username, jenkins.api_token, jenkins.base_url).
+CircleCI: --token (personal API token) or env NIMBUS_CIRCLECI_API_TOKEN / CIRCLECI_TOKEN (vault key circleci.api_token). Indexes pipelines for GitHub repos already in the local index (project slug gh/owner/repo).
 
 Credentials are stored in the OS vault only (never printed here).
 `);

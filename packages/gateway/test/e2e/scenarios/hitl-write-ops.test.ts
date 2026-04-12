@@ -12,6 +12,7 @@
  *   - Confluence (confluence.page.create, confluence.page.update, confluence.comment.add)
  *   - Jenkins (jenkins.build.trigger, jenkins.build.abort)
  *   - GitHub Actions (github_actions.run.trigger, github_actions.run.cancel)
+ *   - CircleCI (circleci.pipeline.trigger, circleci.job.cancel)
  *
  * No subprocess, no cloud.  Uses the real ToolExecutor with mock consent / audit / dispatcher.
  */
@@ -48,6 +49,8 @@ const Q2_WRITE_ACTIONS: ReadonlyArray<string> = [
   "jenkins.build.abort",
   "github_actions.run.trigger",
   "github_actions.run.cancel",
+  "circleci.pipeline.trigger",
+  "circleci.job.cancel",
 ];
 
 /** Minimal representative payload for each write action type. */
@@ -151,6 +154,16 @@ function payloadFor(actionType: string): Record<string, unknown> {
       return {
         mcpToolId: "github_actions_gha_run_cancel",
         input: { owner: "org", repo: "svc", runId: 12345 },
+      };
+    case "circleci.pipeline.trigger":
+      return {
+        mcpToolId: "circleci_circleci_pipeline_trigger",
+        input: { projectSlug: "gh/org/svc", branch: "main" },
+      };
+    case "circleci.job.cancel":
+      return {
+        mcpToolId: "circleci_circleci_job_cancel",
+        input: { projectSlug: "gh/org/svc", jobNumber: 101 },
       };
     default:
       return {};
