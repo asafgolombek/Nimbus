@@ -42,10 +42,27 @@ type ConnectorFlags = {
   token?: string;
   username?: string;
   apiBase?: string;
+  kubeconfig?: string;
+  kubeContext?: string;
   full?: boolean;
   /** Opt-in flag for Discord bot connector (Q2 §4.3). */
   enable?: boolean;
   help?: boolean;
+  awsAccessKey?: string;
+  awsSecretKey?: string;
+  awsRegion?: string;
+  awsProfile?: string;
+  azureTenantId?: string;
+  azureClientId?: string;
+  azureClientSecret?: string;
+  gcpCredentialsJson?: string;
+  gcpProjectId?: string;
+  sentryOrg?: string;
+  sentryUrl?: string;
+  newrelicAccountId?: string;
+  datadogApiKey?: string;
+  datadogAppKey?: string;
+  datadogSite?: string;
 };
 
 async function withIpc<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
@@ -126,9 +143,26 @@ function parseFlags(args: string[]): ConnectorFlags {
   let token: string | undefined;
   let username: string | undefined;
   let apiBase: string | undefined;
+  let kubeconfig: string | undefined;
+  let kubeContext: string | undefined;
   let full: boolean | undefined;
   let enable: boolean | undefined;
   let help: boolean | undefined;
+  let awsAccessKey: string | undefined;
+  let awsSecretKey: string | undefined;
+  let awsRegion: string | undefined;
+  let awsProfile: string | undefined;
+  let azureTenantId: string | undefined;
+  let azureClientId: string | undefined;
+  let azureClientSecret: string | undefined;
+  let gcpCredentialsJson: string | undefined;
+  let gcpProjectId: string | undefined;
+  let sentryOrg: string | undefined;
+  let sentryUrl: string | undefined;
+  let newrelicAccountId: string | undefined;
+  let datadogApiKey: string | undefined;
+  let datadogAppKey: string | undefined;
+  let datadogSite: string | undefined;
   const q = [...args];
 
   while (q.length > 0) {
@@ -189,6 +223,82 @@ function parseFlags(args: string[]): ConnectorFlags {
       apiBase = stripTrailingSlashes(v);
       continue;
     }
+    if (a === "--kubeconfig") {
+      const v = takeFlagValue(q, "--kubeconfig").trim();
+      if (v === "") {
+        throw new Error("Invalid --kubeconfig (empty)");
+      }
+      kubeconfig = v;
+      continue;
+    }
+    if (a === "--context") {
+      const v = takeFlagValue(q, "--context").trim();
+      if (v === "") {
+        throw new Error("Invalid --context (empty)");
+      }
+      kubeContext = v;
+      continue;
+    }
+    if (a === "--aws-access-key") {
+      awsAccessKey = takeFlagValue(q, "--aws-access-key").trim();
+      continue;
+    }
+    if (a === "--aws-secret-key") {
+      awsSecretKey = takeFlagValue(q, "--aws-secret-key").trim();
+      continue;
+    }
+    if (a === "--aws-region") {
+      awsRegion = takeFlagValue(q, "--aws-region").trim();
+      continue;
+    }
+    if (a === "--aws-profile") {
+      awsProfile = takeFlagValue(q, "--aws-profile").trim();
+      continue;
+    }
+    if (a === "--azure-tenant-id") {
+      azureTenantId = takeFlagValue(q, "--azure-tenant-id").trim();
+      continue;
+    }
+    if (a === "--azure-client-id") {
+      azureClientId = takeFlagValue(q, "--azure-client-id").trim();
+      continue;
+    }
+    if (a === "--azure-client-secret") {
+      azureClientSecret = takeFlagValue(q, "--azure-client-secret").trim();
+      continue;
+    }
+    if (a === "--gcp-credentials-json") {
+      gcpCredentialsJson = takeFlagValue(q, "--gcp-credentials-json").trim();
+      continue;
+    }
+    if (a === "--gcp-project-id") {
+      gcpProjectId = takeFlagValue(q, "--gcp-project-id").trim();
+      continue;
+    }
+    if (a === "--sentry-org") {
+      sentryOrg = takeFlagValue(q, "--sentry-org").trim();
+      continue;
+    }
+    if (a === "--sentry-url") {
+      sentryUrl = takeFlagValue(q, "--sentry-url").trim();
+      continue;
+    }
+    if (a === "--newrelic-account-id") {
+      newrelicAccountId = takeFlagValue(q, "--newrelic-account-id").trim();
+      continue;
+    }
+    if (a === "--datadog-api-key") {
+      datadogApiKey = takeFlagValue(q, "--datadog-api-key").trim();
+      continue;
+    }
+    if (a === "--datadog-app-key") {
+      datadogAppKey = takeFlagValue(q, "--datadog-app-key").trim();
+      continue;
+    }
+    if (a === "--datadog-site") {
+      datadogSite = takeFlagValue(q, "--datadog-site").trim();
+      continue;
+    }
     rest.push(a);
   }
 
@@ -208,6 +318,12 @@ function parseFlags(args: string[]): ConnectorFlags {
   if (apiBase !== undefined) {
     out.apiBase = apiBase;
   }
+  if (kubeconfig !== undefined) {
+    out.kubeconfig = kubeconfig;
+  }
+  if (kubeContext !== undefined) {
+    out.kubeContext = kubeContext;
+  }
   if (full !== undefined) {
     out.full = full;
   }
@@ -216,6 +332,51 @@ function parseFlags(args: string[]): ConnectorFlags {
   }
   if (help !== undefined) {
     out.help = help;
+  }
+  if (awsAccessKey !== undefined) {
+    out.awsAccessKey = awsAccessKey;
+  }
+  if (awsSecretKey !== undefined) {
+    out.awsSecretKey = awsSecretKey;
+  }
+  if (awsRegion !== undefined) {
+    out.awsRegion = awsRegion;
+  }
+  if (awsProfile !== undefined) {
+    out.awsProfile = awsProfile;
+  }
+  if (azureTenantId !== undefined) {
+    out.azureTenantId = azureTenantId;
+  }
+  if (azureClientId !== undefined) {
+    out.azureClientId = azureClientId;
+  }
+  if (azureClientSecret !== undefined) {
+    out.azureClientSecret = azureClientSecret;
+  }
+  if (gcpCredentialsJson !== undefined) {
+    out.gcpCredentialsJson = gcpCredentialsJson;
+  }
+  if (gcpProjectId !== undefined) {
+    out.gcpProjectId = gcpProjectId;
+  }
+  if (sentryOrg !== undefined) {
+    out.sentryOrg = sentryOrg;
+  }
+  if (sentryUrl !== undefined) {
+    out.sentryUrl = sentryUrl;
+  }
+  if (newrelicAccountId !== undefined) {
+    out.newrelicAccountId = newrelicAccountId;
+  }
+  if (datadogApiKey !== undefined) {
+    out.datadogApiKey = datadogApiKey;
+  }
+  if (datadogAppKey !== undefined) {
+    out.datadogAppKey = datadogAppKey;
+  }
+  if (datadogSite !== undefined) {
+    out.datadogSite = datadogSite;
   }
   return out;
 }
@@ -370,7 +531,25 @@ type ConnectorAuthParams = {
   username?: string;
   atlassianEmail?: string;
   apiBaseUrl?: string;
+  kubeconfigPath?: string;
+  context?: string;
   discordOptIn?: boolean;
+  awsAccessKeyId?: string;
+  awsSecretAccessKey?: string;
+  awsDefaultRegion?: string;
+  awsProfile?: string;
+  azureTenantId?: string;
+  azureClientId?: string;
+  azureClientSecret?: string;
+  gcpCredentialsJsonPath?: string;
+  gcpProjectId?: string;
+  iacOptIn?: boolean;
+  sentryOrgSlug?: string;
+  sentryUrl?: string;
+  newrelicAccountId?: string;
+  datadogApiKey?: string;
+  datadogAppKey?: string;
+  datadogSite?: string;
 };
 
 function applyLinearConnectorAuth(p: ConnectorAuthParams, token: string | undefined): void {
@@ -403,6 +582,197 @@ function applyPagerdutyConnectorAuth(p: ConnectorAuthParams, token: string | und
     ["NIMBUS_PAGERDUTY_API_TOKEN", "PAGERDUTY_API_TOKEN"],
     "PagerDuty requires an API token: nimbus connector auth pagerduty --token <token>  (or set NIMBUS_PAGERDUTY_API_TOKEN)",
   );
+}
+
+function applyAwsConnectorAuth(
+  p: ConnectorAuthParams,
+  flags: {
+    awsAccessKey?: string;
+    awsSecretKey?: string;
+    awsRegion?: string;
+    awsProfile?: string;
+  },
+): void {
+  const ak =
+    flags.awsAccessKey?.trim() ||
+    firstEnvTrimmed(["NIMBUS_AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"]);
+  const sk =
+    flags.awsSecretKey?.trim() ||
+    firstEnvTrimmed(["NIMBUS_AWS_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"]);
+  const reg =
+    flags.awsRegion?.trim() || firstEnvTrimmed(["NIMBUS_AWS_DEFAULT_REGION", "AWS_DEFAULT_REGION"]);
+  const prof = flags.awsProfile?.trim() || firstEnvTrimmed(["NIMBUS_AWS_PROFILE", "AWS_PROFILE"]);
+  if (ak !== "" && sk !== "") {
+    if (reg === "" && prof === "") {
+      throw new Error(
+        "AWS key pair requires --aws-region <r> or --aws-profile <p> (or set NIMBUS_AWS_DEFAULT_REGION / NIMBUS_AWS_PROFILE)",
+      );
+    }
+    p.awsAccessKeyId = ak;
+    p.awsSecretAccessKey = sk;
+    if (reg !== "") {
+      p.awsDefaultRegion = reg;
+    }
+    if (prof !== "") {
+      p.awsProfile = prof;
+    }
+  } else if (prof !== "") {
+    p.awsProfile = prof;
+  } else {
+    throw new Error(
+      "AWS: use --aws-access-key + --aws-secret-key + region/profile, or --aws-profile only (or set env vars)",
+    );
+  }
+}
+
+function applyAzureConnectorAuth(
+  p: ConnectorAuthParams,
+  flags: {
+    azureTenantId?: string;
+    azureClientId?: string;
+    azureClientSecret?: string;
+  },
+): void {
+  const tenant =
+    flags.azureTenantId?.trim() || firstEnvTrimmed(["NIMBUS_AZURE_TENANT_ID", "AZURE_TENANT_ID"]);
+  const cid =
+    flags.azureClientId?.trim() || firstEnvTrimmed(["NIMBUS_AZURE_CLIENT_ID", "AZURE_CLIENT_ID"]);
+  const sec =
+    flags.azureClientSecret?.trim() ||
+    firstEnvTrimmed(["NIMBUS_AZURE_CLIENT_SECRET", "AZURE_CLIENT_SECRET"]);
+  if (tenant === "" || cid === "" || sec === "") {
+    throw new Error(
+      "Azure requires tenant id, client id, and client secret (flags --azure-tenant-id, --azure-client-id, --azure-client-secret or env AZURE_*)",
+    );
+  }
+  p.azureTenantId = tenant;
+  p.azureClientId = cid;
+  p.azureClientSecret = sec;
+}
+
+function applyGcpConnectorAuth(
+  p: ConnectorAuthParams,
+  flags: { gcpCredentialsJson?: string; gcpProjectId?: string },
+): void {
+  const pathRaw =
+    flags.gcpCredentialsJson?.trim() ||
+    firstEnvTrimmed(["NIMBUS_GCP_CREDENTIALS_JSON", "GOOGLE_APPLICATION_CREDENTIALS"]);
+  if (pathRaw === "") {
+    throw new Error(
+      "GCP requires --gcp-credentials-json <path> (or set GOOGLE_APPLICATION_CREDENTIALS / NIMBUS_GCP_CREDENTIALS_JSON)",
+    );
+  }
+  p.gcpCredentialsJsonPath = pathRaw;
+  const proj =
+    flags.gcpProjectId?.trim() ||
+    firstEnvTrimmed(["NIMBUS_GCP_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"]);
+  if (proj !== "") {
+    p.gcpProjectId = proj;
+  }
+}
+
+function applyIacConnectorAuth(p: ConnectorAuthParams, enable: boolean | undefined): void {
+  if (enable !== true) {
+    throw new Error("IaC connector is opt-in: nimbus connector auth iac --enable");
+  }
+  p.iacOptIn = true;
+}
+
+function applyGrafanaConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  apiBase: string | undefined,
+): void {
+  const base = apiBase?.trim() || firstEnvTrimmed(["NIMBUS_GRAFANA_URL", "GRAFANA_URL"]);
+  const tok = token?.trim() || firstEnvTrimmed(["NIMBUS_GRAFANA_API_TOKEN", "GRAFANA_API_TOKEN"]);
+  if (base === "") {
+    throw new Error(
+      "Grafana requires base URL: nimbus connector auth grafana --api-base https://grafana.example/ --token <api_token>",
+    );
+  }
+  if (tok === "") {
+    throw new Error("Grafana requires an API token (--token or NIMBUS_GRAFANA_API_TOKEN)");
+  }
+  p.apiBaseUrl = stripTrailingSlashes(base);
+  p.personalAccessToken = tok;
+}
+
+function applySentryConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  flags: { sentryOrg?: string; sentryUrl?: string },
+): void {
+  const tok = token?.trim() || firstEnvTrimmed(["NIMBUS_SENTRY_AUTH_TOKEN", "SENTRY_AUTH_TOKEN"]);
+  const org = flags.sentryOrg?.trim() || firstEnvTrimmed(["NIMBUS_SENTRY_ORG", "SENTRY_ORG"]);
+  if (tok === "" || org === "") {
+    throw new Error(
+      "Sentry requires --token and --sentry-org <slug> (or env NIMBUS_SENTRY_AUTH_TOKEN / NIMBUS_SENTRY_ORG)",
+    );
+  }
+  p.personalAccessToken = tok;
+  p.sentryOrgSlug = org;
+  const surl = flags.sentryUrl?.trim() || firstEnvTrimmed(["NIMBUS_SENTRY_URL"]);
+  if (surl !== "") {
+    p.sentryUrl = stripTrailingSlashes(surl);
+  }
+}
+
+function applyNewrelicConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  flags: { newrelicAccountId?: string },
+): void {
+  const tok = token?.trim() || firstEnvTrimmed(["NIMBUS_NEW_RELIC_API_KEY", "NEW_RELIC_API_KEY"]);
+  if (tok === "") {
+    throw new Error("New Relic requires --token (or NIMBUS_NEW_RELIC_API_KEY / NEW_RELIC_API_KEY)");
+  }
+  p.personalAccessToken = tok;
+  const acct = flags.newrelicAccountId?.trim() || firstEnvTrimmed(["NIMBUS_NEW_RELIC_ACCOUNT_ID"]);
+  if (acct !== "") {
+    p.newrelicAccountId = acct;
+  }
+}
+
+function applyDatadogConnectorAuth(
+  p: ConnectorAuthParams,
+  flags: {
+    datadogApiKey?: string;
+    datadogAppKey?: string;
+    datadogSite?: string;
+  },
+): void {
+  const api =
+    flags.datadogApiKey?.trim() || firstEnvTrimmed(["NIMBUS_DATADOG_API_KEY", "DD_API_KEY"]);
+  const app =
+    flags.datadogAppKey?.trim() || firstEnvTrimmed(["NIMBUS_DATADOG_APP_KEY", "DD_APP_KEY"]);
+  if (api === "" || app === "") {
+    throw new Error(
+      "Datadog requires --datadog-api-key and --datadog-app-key (or DD_API_KEY / DD_APP_KEY)",
+    );
+  }
+  p.datadogApiKey = api;
+  p.datadogAppKey = app;
+  const site = flags.datadogSite?.trim() || firstEnvTrimmed(["NIMBUS_DATADOG_SITE", "DD_SITE"]);
+  if (site !== "") {
+    p.datadogSite = site;
+  }
+}
+
+function applyKubernetesConnectorAuth(
+  p: ConnectorAuthParams,
+  kubeconfig: string | undefined,
+  context: string | undefined,
+): void {
+  const pathRaw = kubeconfig?.trim() || firstEnvTrimmed(["NIMBUS_KUBECONFIG", "KUBECONFIG"]);
+  if (pathRaw === "") {
+    throw new Error(
+      "Kubernetes requires --kubeconfig <path> or env NIMBUS_KUBECONFIG / KUBECONFIG (vault key kubernetes.kubeconfig)",
+    );
+  }
+  p.kubeconfigPath = pathRaw;
+  if (context !== undefined && context.trim() !== "") {
+    p.context = context.trim();
+  }
 }
 
 function applyDiscordConnectorAuth(
@@ -512,7 +882,33 @@ function applyJenkinsConnectorAuth(
 }
 
 async function runConnectorAuth(tail: string[]): Promise<void> {
-  const { rest, port, scopes, token, username, apiBase, enable, help } = parseFlags(tail);
+  const {
+    rest,
+    port,
+    scopes,
+    token,
+    username,
+    apiBase,
+    kubeconfig,
+    kubeContext,
+    enable,
+    help,
+    awsAccessKey,
+    awsSecretKey,
+    awsRegion,
+    awsProfile,
+    azureTenantId,
+    azureClientId,
+    azureClientSecret,
+    gcpCredentialsJson,
+    gcpProjectId,
+    sentryOrg,
+    sentryUrl,
+    newrelicAccountId,
+    datadogApiKey,
+    datadogAppKey,
+    datadogSite,
+  } = parseFlags(tail);
   const service = rest[0];
 
   if (help === true) {
@@ -551,6 +947,103 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     case "pagerduty":
       applyPagerdutyConnectorAuth(params, token);
       break;
+    case "kubernetes":
+      applyKubernetesConnectorAuth(params, kubeconfig, kubeContext);
+      break;
+    case "aws": {
+      const awsFlags: {
+        awsAccessKey?: string;
+        awsSecretKey?: string;
+        awsRegion?: string;
+        awsProfile?: string;
+      } = {};
+      if (awsAccessKey !== undefined) {
+        awsFlags.awsAccessKey = awsAccessKey;
+      }
+      if (awsSecretKey !== undefined) {
+        awsFlags.awsSecretKey = awsSecretKey;
+      }
+      if (awsRegion !== undefined) {
+        awsFlags.awsRegion = awsRegion;
+      }
+      if (awsProfile !== undefined) {
+        awsFlags.awsProfile = awsProfile;
+      }
+      applyAwsConnectorAuth(params, awsFlags);
+      break;
+    }
+    case "azure": {
+      const azFlags: {
+        azureTenantId?: string;
+        azureClientId?: string;
+        azureClientSecret?: string;
+      } = {};
+      if (azureTenantId !== undefined) {
+        azFlags.azureTenantId = azureTenantId;
+      }
+      if (azureClientId !== undefined) {
+        azFlags.azureClientId = azureClientId;
+      }
+      if (azureClientSecret !== undefined) {
+        azFlags.azureClientSecret = azureClientSecret;
+      }
+      applyAzureConnectorAuth(params, azFlags);
+      break;
+    }
+    case "gcp": {
+      const gcpFlags: { gcpCredentialsJson?: string; gcpProjectId?: string } = {};
+      if (gcpCredentialsJson !== undefined) {
+        gcpFlags.gcpCredentialsJson = gcpCredentialsJson;
+      }
+      if (gcpProjectId !== undefined) {
+        gcpFlags.gcpProjectId = gcpProjectId;
+      }
+      applyGcpConnectorAuth(params, gcpFlags);
+      break;
+    }
+    case "iac":
+      applyIacConnectorAuth(params, enable);
+      break;
+    case "grafana":
+      applyGrafanaConnectorAuth(params, token, apiBase);
+      break;
+    case "sentry": {
+      const seFlags: { sentryOrg?: string; sentryUrl?: string } = {};
+      if (sentryOrg !== undefined) {
+        seFlags.sentryOrg = sentryOrg;
+      }
+      if (sentryUrl !== undefined) {
+        seFlags.sentryUrl = sentryUrl;
+      }
+      applySentryConnectorAuth(params, token, seFlags);
+      break;
+    }
+    case "newrelic": {
+      const nrFlags: { newrelicAccountId?: string } = {};
+      if (newrelicAccountId !== undefined) {
+        nrFlags.newrelicAccountId = newrelicAccountId;
+      }
+      applyNewrelicConnectorAuth(params, token, nrFlags);
+      break;
+    }
+    case "datadog": {
+      const ddFlags: {
+        datadogApiKey?: string;
+        datadogAppKey?: string;
+        datadogSite?: string;
+      } = {};
+      if (datadogApiKey !== undefined) {
+        ddFlags.datadogApiKey = datadogApiKey;
+      }
+      if (datadogAppKey !== undefined) {
+        ddFlags.datadogAppKey = datadogAppKey;
+      }
+      if (datadogSite !== undefined) {
+        ddFlags.datadogSite = datadogSite;
+      }
+      applyDatadogConnectorAuth(params, ddFlags);
+      break;
+    }
     case "gitlab":
       applyGitlabConnectorAuth(params, token, apiBase);
       break;
@@ -587,6 +1080,15 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     "jenkins",
     "circleci",
     "pagerduty",
+    "kubernetes",
+    "aws",
+    "azure",
+    "gcp",
+    "iac",
+    "grafana",
+    "sentry",
+    "newrelic",
+    "datadog",
   ]);
   if (vaultPatServices.has(res.serviceId)) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");
@@ -800,7 +1302,7 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence, jenkins, circleci, pagerduty
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence, jenkins, circleci, pagerduty, kubernetes
 
 OAuth PKCE — set env vars before nimbus start, or run for setup steps:
   nimbus connector auth google_drive --help    (gmail, google_photos)
@@ -821,6 +1323,7 @@ Confluence: same flags/env pattern as Jira (NIMBUS_CONFLUENCE_* → confluence.e
 Jenkins: --username, --token (API token), --api-base https://ci.example/  or env NIMBUS_JENKINS_USERNAME, NIMBUS_JENKINS_API_TOKEN, NIMBUS_JENKINS_BASE_URL (jenkins.username, jenkins.api_token, jenkins.base_url).
 CircleCI: --token (personal API token) or env NIMBUS_CIRCLECI_API_TOKEN / CIRCLECI_TOKEN (vault key circleci.api_token). Indexes pipelines for GitHub repos already in the local index (project slug gh/owner/repo).
 PagerDuty: --token (REST API token) or env NIMBUS_PAGERDUTY_API_TOKEN / PAGERDUTY_API_TOKEN (vault key pagerduty.api_token). Indexes open incidents for search.
+Kubernetes: --kubeconfig <path> [--context <name>] or env NIMBUS_KUBECONFIG / KUBECONFIG (vault keys kubernetes.kubeconfig, optional kubernetes.context). Indexes cluster deployments.
 
 Credentials are stored in the OS vault only (never printed here).
 `);

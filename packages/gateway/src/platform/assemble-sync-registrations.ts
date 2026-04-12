@@ -1,21 +1,30 @@
+import { createAwsSyncable } from "../connectors/aws-sync.ts";
+import { createAzureSyncable } from "../connectors/azure-sync.ts";
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
 import { createCircleciSyncable } from "../connectors/circleci-sync.ts";
 import { createConfluenceSyncable } from "../connectors/confluence-sync.ts";
+import { createDatadogSyncable } from "../connectors/datadog-sync.ts";
 import { createDiscordSyncable } from "../connectors/discord-sync.ts";
+import { createGcpSyncable } from "../connectors/gcp-sync.ts";
 import { createGithubActionsSyncable } from "../connectors/github-actions-sync.ts";
 import { createGithubSyncable } from "../connectors/github-sync.ts";
 import { createGitlabSyncable } from "../connectors/gitlab-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
 import { createGoogleDriveSyncable } from "../connectors/google-drive-sync.ts";
 import { createGooglePhotosSyncable } from "../connectors/google-photos-sync.ts";
+import { createGrafanaSyncable } from "../connectors/grafana-sync.ts";
+import { createIacSyncable } from "../connectors/iac-sync.ts";
 import { createJenkinsSyncable } from "../connectors/jenkins-sync.ts";
 import { createJiraSyncable } from "../connectors/jira-sync.ts";
+import { createKubernetesSyncable } from "../connectors/kubernetes-sync.ts";
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { createLinearSyncable } from "../connectors/linear-sync.ts";
+import { createNewrelicSyncable } from "../connectors/newrelic-sync.ts";
 import { createNotionSyncable } from "../connectors/notion-sync.ts";
 import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
 import { createPagerdutySyncable } from "../connectors/pagerduty-sync.ts";
+import { createSentrySyncable } from "../connectors/sentry-sync.ts";
 import { createSlackSyncable } from "../connectors/slack-sync.ts";
 import { createTeamsSyncable } from "../connectors/teams-sync.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -118,6 +127,51 @@ export function registerConnectorMeshSyncables(
   syncScheduler.register(
     createPagerdutySyncable({
       ensurePagerdutyMcpRunning: () => connectorMesh.ensurePagerdutyRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createKubernetesSyncable({
+      ensureKubernetesMcpRunning: () => connectorMesh.ensureKubernetesRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createAwsSyncable({
+      ensureAwsMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createAzureSyncable({
+      ensureAzureMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createGcpSyncable({
+      ensureGcpMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createIacSyncable({
+      ensureIacMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createGrafanaSyncable({
+      ensureGrafanaMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createSentrySyncable({
+      ensureSentryMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createNewrelicSyncable({
+      ensureNewrelicMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createDatadogSyncable({
+      ensureDatadogMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
     }),
   );
 }

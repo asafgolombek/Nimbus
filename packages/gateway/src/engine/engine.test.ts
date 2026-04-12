@@ -77,6 +77,21 @@ describe("HITL_REQUIRED", () => {
       "pagerduty.incident.acknowledge",
       "pagerduty.incident.resolve",
       "pagerduty.incident.escalate",
+      "kubernetes.rollout.restart",
+      "kubernetes.pod.delete",
+      "kubernetes.deployment.scale",
+      "aws.ecs.service.update",
+      "aws.lambda.invoke",
+      "aws.ec2.instance.stop",
+      "aws.ec2.instance.start",
+      "azure.app_service.restart",
+      "azure.aks.node_pool.scale",
+      "gcp.cloud_run.deploy",
+      "gcp.gke.workload.restart",
+      "iac.terraform.apply",
+      "iac.terraform.destroy",
+      "iac.cloudformation.deploy",
+      "iac.pulumi.up",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -320,6 +335,116 @@ function hitlGitlabCiRejectPayload(
     mcpToolId: "gitlab_gitlab_pipeline_cancel",
     input: { projectPath: "acme/app", pipelineId: 9002 },
   };
+}
+
+function hitlKubernetesRejectPayload(
+  k8sAction: "kubernetes.rollout.restart" | "kubernetes.pod.delete" | "kubernetes.deployment.scale",
+): Record<string, unknown> {
+  if (k8sAction === "kubernetes.rollout.restart") {
+    return {
+      mcpToolId: "kubernetes_k8s_rollout_restart",
+      input: { namespace: "default", resourceType: "deployment", name: "api" },
+    };
+  }
+  if (k8sAction === "kubernetes.pod.delete") {
+    return {
+      mcpToolId: "kubernetes_k8s_pod_delete",
+      input: { namespace: "default", podName: "p1" },
+    };
+  }
+  return {
+    mcpToolId: "kubernetes_k8s_deployment_scale",
+    input: { namespace: "default", deploymentName: "api", replicas: 2 },
+  };
+}
+
+function hitlAwsRejectPayload(
+  awsAction:
+    | "aws.ecs.service.update"
+    | "aws.lambda.invoke"
+    | "aws.ec2.instance.stop"
+    | "aws.ec2.instance.start",
+): Record<string, unknown> {
+  if (awsAction === "aws.ecs.service.update") {
+    return {
+      mcpToolId: "aws_aws_ecs_service_update",
+      input: { cluster: "c1", service: "svc1", taskDefinition: "td:1" },
+    };
+  }
+  if (awsAction === "aws.lambda.invoke") {
+    return {
+      mcpToolId: "aws_aws_lambda_invoke",
+      input: { functionName: "fn1", payloadJson: "{}" },
+    };
+  }
+  if (awsAction === "aws.ec2.instance.stop") {
+    return { mcpToolId: "aws_aws_ec2_instance_stop", input: { instanceIds: "i-1" } };
+  }
+  return { mcpToolId: "aws_aws_ec2_instance_start", input: { instanceIds: "i-1" } };
+}
+
+function hitlAzureRejectPayload(
+  azAction: "azure.app_service.restart" | "azure.aks.node_pool.scale",
+): Record<string, unknown> {
+  if (azAction === "azure.app_service.restart") {
+    return {
+      mcpToolId: "azure_azure_app_service_restart",
+      input: { subscriptionId: "sub", resourceGroup: "rg", name: "app" },
+    };
+  }
+  return {
+    mcpToolId: "azure_azure_aks_node_pool_scale",
+    input: {
+      subscriptionId: "sub",
+      resourceGroup: "rg",
+      clusterName: "aks",
+      poolName: "default",
+      nodeCount: 2,
+    },
+  };
+}
+
+function hitlGcpRejectPayload(
+  gcpAction: "gcp.cloud_run.deploy" | "gcp.gke.workload.restart",
+): Record<string, unknown> {
+  if (gcpAction === "gcp.cloud_run.deploy") {
+    return {
+      mcpToolId: "gcp_gcp_cloud_run_deploy",
+      input: { projectId: "p", region: "us-central1", service: "svc", image: "gcr.io/x/img:1" },
+    };
+  }
+  return {
+    mcpToolId: "gcp_gcp_gke_workload_restart",
+    input: {
+      projectId: "p",
+      location: "zone",
+      cluster: "c",
+      namespace: "default",
+      deployment: "d",
+    },
+  };
+}
+
+function hitlIacRejectPayload(
+  iacAction:
+    | "iac.terraform.apply"
+    | "iac.terraform.destroy"
+    | "iac.cloudformation.deploy"
+    | "iac.pulumi.up",
+): Record<string, unknown> {
+  if (iacAction === "iac.terraform.apply") {
+    return { mcpToolId: "iac_iac_terraform_apply", input: { workingDirectory: "/tmp/tf" } };
+  }
+  if (iacAction === "iac.terraform.destroy") {
+    return { mcpToolId: "iac_iac_terraform_destroy", input: { workingDirectory: "/tmp/tf" } };
+  }
+  if (iacAction === "iac.cloudformation.deploy") {
+    return {
+      mcpToolId: "iac_iac_cloudformation_deploy",
+      input: { stackName: "s", templateBody: "{}" },
+    };
+  }
+  return { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: "/tmp/pu" } };
 }
 
 function hitlPagerdutyRejectPayload(
@@ -603,6 +728,95 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(pdAction);
+    });
+  }
+
+  for (const k8sAction of [
+    "kubernetes.rollout.restart",
+    "kubernetes.pod.delete",
+    "kubernetes.deployment.scale",
+  ] as const) {
+    test(`rejected consent for ${k8sAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlKubernetesRejectPayload(k8sAction);
+      const out = await exec.execute({ type: k8sAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(k8sAction);
+    });
+  }
+
+  for (const awsAction of [
+    "aws.ecs.service.update",
+    "aws.lambda.invoke",
+    "aws.ec2.instance.stop",
+    "aws.ec2.instance.start",
+  ] as const) {
+    test(`rejected consent for ${awsAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlAwsRejectPayload(awsAction);
+      const out = await exec.execute({ type: awsAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(awsAction);
+    });
+  }
+
+  for (const azAction of ["azure.app_service.restart", "azure.aks.node_pool.scale"] as const) {
+    test(`rejected consent for ${azAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlAzureRejectPayload(azAction);
+      const out = await exec.execute({ type: azAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(azAction);
+    });
+  }
+
+  for (const gcpAction of ["gcp.cloud_run.deploy", "gcp.gke.workload.restart"] as const) {
+    test(`rejected consent for ${gcpAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlGcpRejectPayload(gcpAction);
+      const out = await exec.execute({ type: gcpAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(gcpAction);
+    });
+  }
+
+  for (const iacAction of [
+    "iac.terraform.apply",
+    "iac.terraform.destroy",
+    "iac.cloudformation.deploy",
+    "iac.pulumi.up",
+  ] as const) {
+    test(`rejected consent for ${iacAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlIacRejectPayload(iacAction);
+      const out = await exec.execute({ type: iacAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(iacAction);
     });
   }
 

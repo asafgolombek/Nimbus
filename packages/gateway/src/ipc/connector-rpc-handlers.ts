@@ -92,6 +92,46 @@ async function deleteConnectorPatAndTokenKeys(
     case "pagerduty":
       await vault.delete("pagerduty.api_token");
       return ["pagerduty.api_token"];
+    case "kubernetes":
+      await vault.delete("kubernetes.kubeconfig");
+      await vault.delete("kubernetes.context");
+      return ["kubernetes.kubeconfig", "kubernetes.context"];
+    case "aws":
+      await vault.delete("aws.access_key_id");
+      await vault.delete("aws.secret_access_key");
+      await vault.delete("aws.default_region");
+      await vault.delete("aws.profile");
+      return ["aws.access_key_id", "aws.secret_access_key", "aws.default_region", "aws.profile"];
+    case "azure":
+      await vault.delete("azure.tenant_id");
+      await vault.delete("azure.client_id");
+      await vault.delete("azure.client_secret");
+      return ["azure.tenant_id", "azure.client_id", "azure.client_secret"];
+    case "gcp":
+      await vault.delete("gcp.credentials_json_path");
+      await vault.delete("gcp.project_id");
+      return ["gcp.credentials_json_path", "gcp.project_id"];
+    case "iac":
+      await vault.delete("iac.enabled");
+      return ["iac.enabled"];
+    case "grafana":
+      await vault.delete("grafana.url");
+      await vault.delete("grafana.api_token");
+      return ["grafana.url", "grafana.api_token"];
+    case "sentry":
+      await vault.delete("sentry.auth_token");
+      await vault.delete("sentry.org_slug");
+      await vault.delete("sentry.url");
+      return ["sentry.auth_token", "sentry.org_slug", "sentry.url"];
+    case "newrelic":
+      await vault.delete("newrelic.api_key");
+      await vault.delete("newrelic.account_id");
+      return ["newrelic.api_key", "newrelic.account_id"];
+    case "datadog":
+      await vault.delete("datadog.api_key");
+      await vault.delete("datadog.app_key");
+      await vault.delete("datadog.site");
+      return ["datadog.api_key", "datadog.app_key", "datadog.site"];
     default:
       return [];
   }
@@ -431,6 +471,266 @@ async function connectorAuthCircleci(
   return authSuccess("circleci");
 }
 
+async function connectorAuthAws(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const akRaw = rec?.["awsAccessKeyId"] ?? rec?.["accessKeyId"];
+  const skRaw = rec?.["awsSecretAccessKey"] ?? rec?.["secretAccessKey"];
+  const regRaw = rec?.["awsDefaultRegion"] ?? rec?.["defaultRegion"];
+  const profRaw = rec?.["awsProfile"] ?? rec?.["profile"];
+  const ak = typeof akRaw === "string" ? akRaw.trim() : "";
+  const sk = typeof skRaw === "string" ? skRaw.trim() : "";
+  const reg = typeof regRaw === "string" ? regRaw.trim() : "";
+  const prof = typeof profRaw === "string" ? profRaw.trim() : "";
+
+  if (ak !== "" && sk !== "") {
+    if (reg === "" && prof === "") {
+      throw new ConnectorRpcError(
+        -32602,
+        "AWS key pair requires a default region or profile (connector.auth aws --region … or --profile …)",
+      );
+    }
+    await vault.set("aws.access_key_id", ak);
+    await vault.set("aws.secret_access_key", sk);
+    if (reg !== "") {
+      await vault.set("aws.default_region", reg);
+    } else {
+      await vault.delete("aws.default_region");
+    }
+    if (prof !== "") {
+      await vault.set("aws.profile", prof);
+    } else {
+      await vault.delete("aws.profile");
+    }
+  } else if (prof !== "") {
+    await vault.delete("aws.access_key_id");
+    await vault.delete("aws.secret_access_key");
+    await vault.delete("aws.default_region");
+    await vault.set("aws.profile", prof);
+  } else {
+    throw new ConnectorRpcError(
+      -32602,
+      "Missing AWS credentials: access key + secret + region/profile, or profile-only (connector.auth aws …)",
+    );
+  }
+  const interval = defaultSyncIntervalMsForService("aws");
+  localIndex.ensureConnectorSchedulerRegistration("aws", interval, Date.now());
+  return authSuccess("aws");
+}
+
+async function connectorAuthAzure(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tRaw = rec?.["azureTenantId"] ?? rec?.["tenantId"];
+  const cRaw = rec?.["azureClientId"] ?? rec?.["clientId"];
+  const sRaw = rec?.["azureClientSecret"] ?? rec?.["clientSecret"];
+  const tenant = typeof tRaw === "string" ? tRaw.trim() : "";
+  const clientId = typeof cRaw === "string" ? cRaw.trim() : "";
+  const secret = typeof sRaw === "string" ? sRaw.trim() : "";
+  if (tenant === "" || clientId === "" || secret === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Azure requires tenant id, client id, and client secret (connector.auth azure …)",
+    );
+  }
+  await vault.set("azure.tenant_id", tenant);
+  await vault.set("azure.client_id", clientId);
+  await vault.set("azure.client_secret", secret);
+  const interval = defaultSyncIntervalMsForService("azure");
+  localIndex.ensureConnectorSchedulerRegistration("azure", interval, Date.now());
+  return authSuccess("azure");
+}
+
+async function connectorAuthGcp(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const pathRaw = rec?.["gcpCredentialsJsonPath"] ?? rec?.["credentialsJsonPath"] ?? rec?.["path"];
+  const path = typeof pathRaw === "string" && pathRaw.trim() !== "" ? pathRaw.trim() : "";
+  if (path === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "GCP requires a service account JSON key path (connector.auth gcp --credentials-json <path>)",
+    );
+  }
+  await vault.set("gcp.credentials_json_path", path);
+  const projRaw = rec?.["gcpProjectId"] ?? rec?.["projectId"];
+  const proj = typeof projRaw === "string" && projRaw.trim() !== "" ? projRaw.trim() : "";
+  if (proj !== "") {
+    await vault.set("gcp.project_id", proj);
+  } else {
+    await vault.delete("gcp.project_id");
+  }
+  const interval = defaultSyncIntervalMsForService("gcp");
+  localIndex.ensureConnectorSchedulerRegistration("gcp", interval, Date.now());
+  return authSuccess("gcp");
+}
+
+async function connectorAuthIac(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const opt =
+    rec?.["iacOptIn"] === true || rec?.["iacOptIn"] === "true" || rec?.["iacOptIn"] === "1";
+  if (!opt) {
+    throw new ConnectorRpcError(
+      -32602,
+      "IaC connector is opt-in: nimbus connector auth iac --enable",
+    );
+  }
+  await vault.set("iac.enabled", "1");
+  const interval = defaultSyncIntervalMsForService("iac");
+  localIndex.ensureConnectorSchedulerRegistration("iac", interval, Date.now());
+  return authSuccess("iac");
+}
+
+async function connectorAuthGrafana(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["grafanaUrl"] ?? rec?.["url"];
+  const base =
+    typeof baseRaw === "string" && baseRaw.trim() !== ""
+      ? stripTrailingSlashes(baseRaw.trim())
+      : "";
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (base === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Grafana requires base URL (connector.auth grafana --api-base https://grafana.example/)",
+    );
+  }
+  if (token === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Grafana requires an API token (connector.auth grafana --token …)",
+    );
+  }
+  await vault.set("grafana.url", base);
+  await vault.set("grafana.api_token", token);
+  const interval = defaultSyncIntervalMsForService("grafana");
+  localIndex.ensureConnectorSchedulerRegistration("grafana", interval, Date.now());
+  return authSuccess("grafana");
+}
+
+async function connectorAuthSentry(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  const orgRaw = rec?.["sentryOrgSlug"] ?? rec?.["orgSlug"];
+  const org = typeof orgRaw === "string" && orgRaw.trim() !== "" ? orgRaw.trim() : "";
+  if (token === "" || org === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Sentry requires auth token and org slug (connector.auth sentry --token … --org …)",
+    );
+  }
+  await vault.set("sentry.auth_token", token);
+  await vault.set("sentry.org_slug", org);
+  const urlRaw = rec?.["sentryUrl"] ?? rec?.["apiBaseUrl"];
+  const surl =
+    typeof urlRaw === "string" && urlRaw.trim() !== "" ? stripTrailingSlashes(urlRaw.trim()) : "";
+  if (surl !== "") {
+    await vault.set("sentry.url", surl);
+  } else {
+    await vault.delete("sentry.url");
+  }
+  const interval = defaultSyncIntervalMsForService("sentry");
+  localIndex.ensureConnectorSchedulerRegistration("sentry", interval, Date.now());
+  return authSuccess("sentry");
+}
+
+async function connectorAuthNewrelic(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (token === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "New Relic requires a user API key (connector.auth newrelic --token …)",
+    );
+  }
+  await vault.set("newrelic.api_key", token);
+  const acctRaw = rec?.["newrelicAccountId"] ?? rec?.["accountId"];
+  const acct = typeof acctRaw === "string" && acctRaw.trim() !== "" ? acctRaw.trim() : "";
+  if (acct !== "") {
+    await vault.set("newrelic.account_id", acct);
+  } else {
+    await vault.delete("newrelic.account_id");
+  }
+  const interval = defaultSyncIntervalMsForService("newrelic");
+  localIndex.ensureConnectorSchedulerRegistration("newrelic", interval, Date.now());
+  return authSuccess("newrelic");
+}
+
+async function connectorAuthDatadog(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const apiRaw = rec?.["datadogApiKey"] ?? rec?.["apiKey"];
+  const appRaw = rec?.["datadogAppKey"] ?? rec?.["appKey"];
+  const api = typeof apiRaw === "string" && apiRaw.trim() !== "" ? apiRaw.trim() : "";
+  const app = typeof appRaw === "string" && appRaw.trim() !== "" ? appRaw.trim() : "";
+  if (api === "" || app === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Datadog requires API key and application key (connector.auth datadog …)",
+    );
+  }
+  await vault.set("datadog.api_key", api);
+  await vault.set("datadog.app_key", app);
+  const siteRaw = rec?.["datadogSite"] ?? rec?.["site"];
+  const site = typeof siteRaw === "string" && siteRaw.trim() !== "" ? siteRaw.trim() : "";
+  if (site !== "") {
+    await vault.set("datadog.site", site);
+  } else {
+    await vault.delete("datadog.site");
+  }
+  const interval = defaultSyncIntervalMsForService("datadog");
+  localIndex.ensureConnectorSchedulerRegistration("datadog", interval, Date.now());
+  return authSuccess("datadog");
+}
+
+async function connectorAuthKubernetes(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const pathRaw = rec?.["kubeconfigPath"] ?? rec?.["kubeconfig"] ?? rec?.["path"];
+  const kubePath = typeof pathRaw === "string" && pathRaw.trim() !== "" ? pathRaw.trim() : "";
+  if (kubePath === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Kubernetes requires kubeconfig path: connector.auth kubernetes --kubeconfig <path>",
+    );
+  }
+  await vault.set("kubernetes.kubeconfig", kubePath);
+  const ctxRaw = rec?.["context"];
+  if (typeof ctxRaw === "string" && ctxRaw.trim() !== "") {
+    await vault.set("kubernetes.context", ctxRaw.trim());
+  } else {
+    await vault.delete("kubernetes.context");
+  }
+  const interval = defaultSyncIntervalMsForService("kubernetes");
+  localIndex.ensureConnectorSchedulerRegistration("kubernetes", interval, Date.now());
+  return authSuccess("kubernetes");
+}
+
 async function connectorAuthPagerduty(
   rec: Record<string, unknown> | undefined,
   vault: NimbusVault,
@@ -642,6 +942,33 @@ export async function handleConnectorAuth(
   }
   if (id === "pagerduty") {
     return connectorAuthPagerduty(rec, vault, localIndex);
+  }
+  if (id === "kubernetes") {
+    return connectorAuthKubernetes(rec, vault, localIndex);
+  }
+  if (id === "aws") {
+    return connectorAuthAws(rec, vault, localIndex);
+  }
+  if (id === "azure") {
+    return connectorAuthAzure(rec, vault, localIndex);
+  }
+  if (id === "gcp") {
+    return connectorAuthGcp(rec, vault, localIndex);
+  }
+  if (id === "iac") {
+    return connectorAuthIac(rec, vault, localIndex);
+  }
+  if (id === "grafana") {
+    return connectorAuthGrafana(rec, vault, localIndex);
+  }
+  if (id === "sentry") {
+    return connectorAuthSentry(rec, vault, localIndex);
+  }
+  if (id === "newrelic") {
+    return connectorAuthNewrelic(rec, vault, localIndex);
+  }
+  if (id === "datadog") {
+    return connectorAuthDatadog(rec, vault, localIndex);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }

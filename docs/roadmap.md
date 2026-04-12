@@ -125,7 +125,7 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 **Goal:** Make Nimbus semantically aware and proactively useful. Extend into CI/CD, cloud infrastructure, and agentic automation.
 
-**Status:** Active — Phase 2 complete as of April 2026.
+**Status:** Active — Phase 2 complete; Wave 1–3b deliverables (semantic layer, extensions core, CI/CD + cloud + observability MCPs, workflows, watchers, partial filesystem v2) are on `main`. Remaining Phase 3 work includes IaC drift indexing, full proactive anomaly loop, deeper AWS/Azure/GCP surface area, and full filesystem v2 vision (see **Phase 3 Implementation Plan**).
 
 ### Dependencies
 
@@ -135,57 +135,53 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 ### Semantic Layer
 
-- [ ] **Embedding pipeline** — chunk items at sync time → local embed via `@xenova/transformers` (no API key); store vectors in `sqlite-vec`; model: `all-MiniLM-L6-v2` (default) / OpenAI opt-in
-- [ ] **Hybrid search** — BM25 full-text (FTS5) + vector cosine similarity; RRF fusion reranking; exposed as `nimbus search --semantic`
-- [ ] **RAG conversational memory** — session context stored as embedded chunks; recalled at query time; scoped per-project
+- [x] **Embedding pipeline** — chunk items at sync time → local embed via `@xenova/transformers` (no API key); store vectors in `sqlite-vec`; model: `all-MiniLM-L6-v2` (default) / OpenAI opt-in
+- [x] **Hybrid search** — BM25 full-text (FTS5) + vector cosine similarity; RRF fusion reranking; exposed as `nimbus search --semantic`
+- [x] **RAG conversational memory** — session context stored as embedded chunks; recalled at query time; scoped per-project
 
 ### Extension Ecosystem
 
-- [ ] **Extension Registry v1** — `@nimbus-dev/sdk` public API stable; manifest schema v1 (`nimbus.extension.json`); `nimbus scaffold extension` generates a working MCP server
-- [ ] Extension manifest hash verification on every Gateway startup (tampered extension → disabled)
-- [ ] `nimbus extension install/list/disable/enable/remove` CLI commands
-- [ ] Extension sandbox: child processes receive only their declared service credentials via env injection; cannot reach Vault or IPC socket
+- [x] **Extension Registry v1** (core) — `@nimbus-dev/sdk` public API; manifest schema v1 (`nimbus.extension.json`); `nimbus scaffold extension`; install/list/enable/disable/remove; manifest hash verification on startup
+- [ ] Extension sandbox hardening — full syscall/network isolation beyond scoped env injection (risk register)
+- [ ] **Extension Marketplace** — browse/discover/update UX (Phase 4 desktop)
 
 ### CI/CD & Infrastructure Connectors
 
-- [ ] **Jenkins MCP connector** — jobs, builds, stages, artefacts, failure logs
-- [ ] **GitHub Actions MCP connector** — workflow runs, job steps, artefact metadata
-- [ ] **CircleCI MCP connector** — pipelines, workflows, jobs
-- [ ] **GitLab CI MCP connector** — pipelines, jobs, artefacts (extends GitLab connector)
-- [ ] **AWS MCP connector** — CloudWatch logs/metrics, ECS services, Lambda functions/invocations, EC2 instances, S3 bucket metadata, Cost Explorer daily spend
-- [ ] **Azure MCP connector** — Azure Monitor alerts, App Service deployments, AKS cluster state
-- [ ] **GCP MCP connector** — Cloud Run revisions, GKE workloads, Cloud Monitoring alerts
-- [ ] **IaC awareness** — index Terraform state files (local + remote backend), CloudFormation stacks, Pulumi outputs; detect config drift between indexed state and live infrastructure
-- [ ] **IaC write operations** — `terraform plan` → diff shown in HITL prompt → `apply` on approval; rollback path recorded in audit log
-- [ ] **Kubernetes connector** — pod status, events, recent restarts, rollout history; kubectl-compatible cluster config; read-only by default, `rollout restart` behind HITL
-- [ ] **Datadog MCP connector** — monitors, dashboards, incidents, service catalog
-- [ ] **Grafana MCP connector** — alerts, dashboards, datasource metadata
-- [ ] **Sentry MCP connector** — issues, events, releases, performance metrics
-- [ ] **PagerDuty MCP connector** — incidents, alerts, escalation policies, on-call schedules; acknowledge/resolve behind HITL
-- [ ] **New Relic MCP connector** — APM metrics, alerts, deployments
+- [x] **Jenkins MCP connector** — jobs, builds, stages, artefacts, failure logs
+- [x] **GitHub Actions MCP connector** — workflow runs, job steps, artefact metadata
+- [x] **CircleCI MCP connector** — pipelines, workflows, jobs
+- [x] **GitLab CI MCP connector** — pipelines, jobs, artefacts (extends GitLab connector)
+- [x] **AWS MCP connector** (first-party) — AWS CLI–backed tools; sync indexes Lambda (paginated); ECS/CloudWatch/S3/Cost Explorer breadth still expandable behind same `aws` service id
+- [x] **Azure MCP connector** — App Service + AKS pool scale via `az` CLI; sync indexes current subscription snapshot
+- [x] **GCP MCP connector** — Cloud Run + GKE workload restart via `gcloud`/kubectl; sync requires `gcp.project_id` in vault
+- [ ] **IaC awareness (full)** — index Terraform state / Pulumi stack metadata into `iac_resource`; **drift compare** vs indexed live cloud (depends on fresh cloud sync)
+- [x] **IaC write operations** (MCP) — Terraform plan/apply/destroy, CloudFormation deploy, Pulumi preview/up; HITL on destructive applies; audit before execution
+- [x] **Kubernetes connector** — workloads via `kubectl`; kubeconfig path in vault; read tools + HITL mutations (`rollout restart`, `pod delete`, `deployment scale`)
+- [x] **Datadog MCP connector** — monitors/incidents API; sync indexes monitors
+- [x] **Grafana MCP connector** — HTTP API read tools; sync indexes dashboards (search API)
+- [x] **Sentry MCP connector** — project/issue-oriented read tools; sync indexes projects
+- [x] **PagerDuty MCP connector** — incidents, alerts, escalation policies, on-call schedules; acknowledge/resolve behind HITL
+- [x] **New Relic MCP connector** — REST v2 applications + alert violations; sync indexes APM applications
 
 ### Workflow Automation
 
-- [ ] **Workflow pipelines** — named, saved multi-step workflows stored in `~/.config/nimbus/workflows/`; same YAML format and execution engine as script files; all write steps individually HITL-gated; pipelines are shareable (no credentials embedded); `nimbus workflow save <path> --name <name>` promotes a script file into a saved pipeline
-- [ ] `nimbus workflow run <name>`, `list`, `edit`, `delete`, `history`
-- [ ] **Watcher system** — SQLite-backed event loop; watchers evaluate conditions on each sync cycle; fire notifications or trigger workflow pipelines
+- [x] **Workflow pipelines** — named, saved multi-step workflows; YAML format shared with script files; HITL per write step; `nimbus workflow` CLI
+- [x] **Watcher system** — SQLite-backed definitions; post-sync evaluation; `nimbus watch` CLI
   - Condition types: `email_match`, `file_changed`, `file_not_changed`, `deploy_failed`, `alert_fired`, `pr_merged`, `schedule`
   - Actions: `notify`, `run_workflow`, `ask_agent`
-- [ ] `nimbus watch create`, `list`, `pause`, `delete`
-- [ ] Proactive anomaly detection — watcher engine learns baseline patterns per connector; surfaces anomalies without explicit trigger definitions
+- [ ] Proactive anomaly detection (full) — baseline learning wired through watcher post-sync; **stub** exists (`watcher/anomaly-detector.ts`)
 
 ### Knowledge Graph & Filesystem Intelligence
 
-- [ ] **Local relationship graph** — SQLite tables: `entity`, `relation`, `relation_type`; populated during sync; entities include people, projects, documents, incidents, PRs, deployments; queryable via natural language → graph traversal
-- [ ] **Filesystem connector v2**:
-  - Git-aware: indexes commit history, file blame, branch/tag list; generates diff summaries on `git push` events
-  - Semantic code search: indexes function signatures, class names, exported symbols; links to GitHub PR history
-  - Dependency graph: parses `package.json`, `go.mod`, `Cargo.toml`, `requirements.txt`; flags known-vulnerable versions
+- [x] **Local relationship graph** — entity/relation tables; populated on sync; graph tools in Gateway
+- [ ] **Filesystem connector v2** (complete vision):
+  - [x] Partial: git commit + `package.json` dependency + regex `code_symbol` indexing for configured `[[filesystem.roots]]` (`filesystem-v2-sync.ts`)
+  - [ ] Full: blame/branch UX, deep semantic code index, PR cross-links, multi-manifest parsers (`go.mod`, `Cargo.toml`, …), vulnerability flagging
 
 ### Interaction Layer
 
-- [ ] **Session CLI** — `nimbus` with no arguments launches an interactive session; conversation history maintained in the Gateway across turns using the RAG conversational memory foundation; context-aware follow-up queries understood without re-specifying prior results; HITL consent rendered as inline conversation turns; session state persists across CLI reconnects if the Gateway is still running
-- [ ] **Script files** — `nimbus run <path>` executes a YAML script as a single session with shared context across steps:
+- [x] **Session CLI** — `nimbus` with no arguments launches the interactive REPL when stdin/stdout are TTYs; session memory via `nimbus session` / `--session`; Gateway holds context while running
+- [x] **Script files** — `nimbus run <path>` executes a YAML script as a single session with shared context across steps:
   - Format: `steps` array of natural language instructions; optional per-step `label` and `continue-on-error`
   - **Preview phase (mandatory):** engine analyses all steps, identifies every action requiring HITL approval, presents a structured plan summary; user must confirm before step 1 runs
   - **No-TTY safety:** if no interactive terminal is attached and the script contains HITL-required steps, the Gateway aborts before executing any step; read-only scripts run without a TTY — safe for automation and CI

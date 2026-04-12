@@ -108,6 +108,65 @@ function pagerdutyMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "pagerduty", "src", "server.ts");
 }
 
+function kubernetesMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "kubernetes", "src", "server.ts");
+}
+
+function awsMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "aws", "src", "server.ts");
+}
+
+function azureMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "azure", "src", "server.ts");
+}
+
+function gcpMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "gcp", "src", "server.ts");
+}
+
+function iacMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "iac", "src", "server.ts");
+}
+
+function grafanaMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "grafana", "src", "server.ts");
+}
+
+function sentryMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "sentry", "src", "server.ts");
+}
+
+function newrelicMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "newrelic", "src", "server.ts");
+}
+
+function datadogMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "datadog", "src", "server.ts");
+}
+
+/** MCP stdio `env` must be `Record<string, string>` (no undefined values). */
+function compactProcessEnv(extra: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) {
+      out[k] = v;
+    }
+  }
+  for (const [k, v] of Object.entries(extra)) {
+    out[k] = v;
+  }
+  return out;
+}
+
 type LazyMeshToolMap = Record<
   string,
   { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
@@ -121,7 +180,7 @@ async function listLazyMeshClientTools(client: MCPClient | undefined): Promise<L
 }
 
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub (includes GitHub Actions MCP child) / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence / Jenkins / CircleCI / PagerDuty credential MCP when vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub (includes GitHub Actions MCP child) / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence / Jenkins / CircleCI / PagerDuty / Kubernetes credential MCP when vault keys exist; Phase 3 bundle (AWS, Azure, GCP, IaC, Grafana, Sentry, New Relic, Datadog) when matching vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -153,6 +212,10 @@ export class LazyConnectorMesh {
   private circleciIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private pagerdutyClient: MCPClient | undefined;
   private pagerdutyIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private kubernetesClient: MCPClient | undefined;
+  private kubernetesIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  private phase3BundleClient: MCPClient | undefined;
+  private phase3BundleIdleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly userMcpClients = new Map<string, MCPClient>();
   private readonly userMcpIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly listUserMcpConnectors: () => readonly UserMcpConnectorRow[];
@@ -285,6 +348,20 @@ export class LazyConnectorMesh {
     }
   }
 
+  private clearKubernetesIdleTimer(): void {
+    if (this.kubernetesIdleTimer !== undefined) {
+      clearTimeout(this.kubernetesIdleTimer);
+      this.kubernetesIdleTimer = undefined;
+    }
+  }
+
+  private clearPhase3BundleIdleTimer(): void {
+    if (this.phase3BundleIdleTimer !== undefined) {
+      clearTimeout(this.phase3BundleIdleTimer);
+      this.phase3BundleIdleTimer = undefined;
+    }
+  }
+
   private scheduleGoogleDisconnect(): void {
     this.clearGoogleIdleTimer();
     this.googleIdleTimer = setTimeout(() => {
@@ -394,6 +471,22 @@ export class LazyConnectorMesh {
     this.pagerdutyIdleTimer = setTimeout(() => {
       this.pagerdutyIdleTimer = undefined;
       void this.stopPagerdutyClient();
+    }, this.inactivityMs);
+  }
+
+  private scheduleKubernetesDisconnect(): void {
+    this.clearKubernetesIdleTimer();
+    this.kubernetesIdleTimer = setTimeout(() => {
+      this.kubernetesIdleTimer = undefined;
+      void this.stopKubernetesClient();
+    }, this.inactivityMs);
+  }
+
+  private schedulePhase3BundleDisconnect(): void {
+    this.clearPhase3BundleIdleTimer();
+    this.phase3BundleIdleTimer = setTimeout(() => {
+      this.phase3BundleIdleTimer = undefined;
+      void this.stopPhase3BundleClient();
     }, this.inactivityMs);
   }
 
@@ -667,6 +760,179 @@ export class LazyConnectorMesh {
         /* ignore */
       }
     }
+  }
+
+  private async stopKubernetesClient(): Promise<void> {
+    const c = this.kubernetesClient;
+    this.kubernetesClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async stopPhase3BundleClient(): Promise<void> {
+    const c = this.phase3BundleClient;
+    this.phase3BundleClient = undefined;
+    if (c !== undefined) {
+      this.bumpToolsEpoch();
+      try {
+        await c.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async buildPhase3Servers(): Promise<
+    Record<string, { command: string; args: string[]; env: Record<string, string> }>
+  > {
+    const servers: Record<
+      string,
+      { command: string; args: string[]; env: Record<string, string> }
+    > = {};
+
+    const ak = (await this.vault.get("aws.access_key_id"))?.trim() ?? "";
+    const sk = (await this.vault.get("aws.secret_access_key"))?.trim() ?? "";
+    const reg = (await this.vault.get("aws.default_region"))?.trim() ?? "";
+    const prof = (await this.vault.get("aws.profile"))?.trim() ?? "";
+    const awsOk =
+      (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
+    if (awsOk) {
+      const extra: Record<string, string> = {};
+      if (ak !== "") {
+        extra["AWS_ACCESS_KEY_ID"] = ak;
+      }
+      if (sk !== "") {
+        extra["AWS_SECRET_ACCESS_KEY"] = sk;
+      }
+      if (reg !== "") {
+        extra["AWS_DEFAULT_REGION"] = reg;
+      }
+      if (prof !== "") {
+        extra["AWS_PROFILE"] = prof;
+      }
+      servers["aws"] = {
+        command: "bun",
+        args: [awsMcpScriptPath()],
+        env: compactProcessEnv(extra),
+      };
+    }
+
+    const azT = (await this.vault.get("azure.tenant_id"))?.trim() ?? "";
+    const azC = (await this.vault.get("azure.client_id"))?.trim() ?? "";
+    const azS = (await this.vault.get("azure.client_secret"))?.trim() ?? "";
+    if (azT !== "" && azC !== "" && azS !== "") {
+      servers["azure"] = {
+        command: "bun",
+        args: [azureMcpScriptPath()],
+        env: compactProcessEnv({
+          AZURE_TENANT_ID: azT,
+          AZURE_CLIENT_ID: azC,
+          AZURE_CLIENT_SECRET: azS,
+        }),
+      };
+    }
+
+    const gcpPath = (await this.vault.get("gcp.credentials_json_path"))?.trim() ?? "";
+    if (gcpPath !== "") {
+      servers["gcp"] = {
+        command: "bun",
+        args: [gcpMcpScriptPath()],
+        env: compactProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: gcpPath }),
+      };
+    }
+
+    const iacEn = await this.vault.get("iac.enabled");
+    if (iacEn === "1") {
+      servers["iac"] = {
+        command: "bun",
+        args: [iacMcpScriptPath()],
+        env: compactProcessEnv({}),
+      };
+    }
+
+    const gfu = (await this.vault.get("grafana.url"))?.trim() ?? "";
+    const gtk = (await this.vault.get("grafana.api_token"))?.trim() ?? "";
+    if (gfu !== "" && gtk !== "") {
+      servers["grafana"] = {
+        command: "bun",
+        args: [grafanaMcpScriptPath()],
+        env: compactProcessEnv({ GRAFANA_URL: gfu, GRAFANA_API_TOKEN: gtk }),
+      };
+    }
+
+    const sentTok = (await this.vault.get("sentry.auth_token"))?.trim() ?? "";
+    const sentOrg = (await this.vault.get("sentry.org_slug"))?.trim() ?? "";
+    if (sentTok !== "" && sentOrg !== "") {
+      const extra: Record<string, string> = {
+        SENTRY_AUTH_TOKEN: sentTok,
+        SENTRY_ORG_SLUG: sentOrg,
+      };
+      const surl = (await this.vault.get("sentry.url"))?.trim() ?? "";
+      if (surl !== "") {
+        extra["SENTRY_URL"] = surl;
+      }
+      servers["sentry"] = {
+        command: "bun",
+        args: [sentryMcpScriptPath()],
+        env: compactProcessEnv(extra),
+      };
+    }
+
+    const nrKey = (await this.vault.get("newrelic.api_key"))?.trim() ?? "";
+    if (nrKey !== "") {
+      servers["newrelic"] = {
+        command: "bun",
+        args: [newrelicMcpScriptPath()],
+        env: compactProcessEnv({ NEW_RELIC_API_KEY: nrKey }),
+      };
+    }
+
+    const ddKey = (await this.vault.get("datadog.api_key"))?.trim() ?? "";
+    const ddApp = (await this.vault.get("datadog.app_key"))?.trim() ?? "";
+    if (ddKey !== "" && ddApp !== "") {
+      const extra: Record<string, string> = {
+        DD_API_KEY: ddKey,
+        DD_APP_KEY: ddApp,
+      };
+      const site = (await this.vault.get("datadog.site"))?.trim() ?? "";
+      if (site !== "") {
+        extra["DD_SITE"] = site;
+      }
+      servers["datadog"] = {
+        command: "bun",
+        args: [datadogMcpScriptPath()],
+        env: compactProcessEnv(extra),
+      };
+    }
+
+    return servers;
+  }
+
+  /**
+   * Starts the Phase 3 MCP bundle (any of AWS / Azure / GCP / IaC / observability) when vault keys are present.
+   */
+  async ensurePhase3BundleRunning(): Promise<void> {
+    this.clearPhase3BundleIdleTimer();
+    if (this.phase3BundleClient !== undefined) {
+      this.schedulePhase3BundleDisconnect();
+      return;
+    }
+    const servers = await this.buildPhase3Servers();
+    if (Object.keys(servers).length === 0) {
+      return;
+    }
+    this.phase3BundleClient = new MCPClient({
+      id: `nimbus-phase3-${String(Date.now())}`,
+      servers,
+    });
+    this.bumpToolsEpoch();
+    this.schedulePhase3BundleDisconnect();
   }
 
   /**
@@ -1144,6 +1410,38 @@ export class LazyConnectorMesh {
     this.schedulePagerdutyDisconnect();
   }
 
+  /**
+   * Starts Kubernetes MCP when `kubernetes.kubeconfig` is set (path to kubeconfig file).
+   */
+  async ensureKubernetesRunning(): Promise<void> {
+    this.clearKubernetesIdleTimer();
+    if (this.kubernetesClient !== undefined) {
+      this.scheduleKubernetesDisconnect();
+      return;
+    }
+    const kc = await this.vault.get("kubernetes.kubeconfig");
+    if (kc === null || kc.trim() === "") {
+      return;
+    }
+    const ctxRaw = await this.vault.get("kubernetes.context");
+    const kubeExtra: Record<string, string> = { KUBECONFIG: kc.trim() };
+    if (ctxRaw !== null && ctxRaw.trim() !== "") {
+      kubeExtra["KUBE_CONTEXT"] = ctxRaw.trim();
+    }
+    this.kubernetesClient = new MCPClient({
+      id: `nimbus-kubernetes-${String(Date.now())}`,
+      servers: {
+        kubernetes: {
+          command: "bun",
+          args: [kubernetesMcpScriptPath()],
+          env: compactProcessEnv(kubeExtra),
+        },
+      },
+    });
+    this.bumpToolsEpoch();
+    this.scheduleKubernetesDisconnect();
+  }
+
   private async ensureIfVaultKeyNonEmpty(key: string, run: () => Promise<void>): Promise<void> {
     const v = await this.vault.get(key);
     if (v !== null && v !== "") {
@@ -1215,6 +1513,13 @@ export class LazyConnectorMesh {
     }
   }
 
+  private async ensureKubernetesIfVaultCreds(): Promise<void> {
+    const k = await this.vault.get("kubernetes.kubeconfig");
+    if (k !== null && k.trim() !== "") {
+      await this.ensureKubernetesRunning();
+    }
+  }
+
   /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
   private async ensureCredentialConnectorsRunning(): Promise<void> {
     await this.ensureIfVaultKeyNonEmpty("google.oauth", () => this.ensureGoogleDriveRunning());
@@ -1233,6 +1538,8 @@ export class LazyConnectorMesh {
     await this.ensureJenkinsIfVaultCreds();
     await this.ensureCircleciIfVaultCreds();
     await this.ensurePagerdutyIfVaultCreds();
+    await this.ensureKubernetesIfVaultCreds();
+    await this.ensurePhase3BundleRunning();
   }
 
   async listTools(): Promise<
@@ -1256,6 +1563,8 @@ export class LazyConnectorMesh {
     const jenkinsTools = await listLazyMeshClientTools(this.jenkinsClient);
     const circleciTools = await listLazyMeshClientTools(this.circleciClient);
     const pagerdutyTools = await listLazyMeshClientTools(this.pagerdutyClient);
+    const kubernetesTools = await listLazyMeshClientTools(this.kubernetesClient);
+    const phase3Tools = await listLazyMeshClientTools(this.phase3BundleClient);
     let userMcpMerged: LazyMeshToolMap = {};
     for (const c of this.userMcpClients.values()) {
       userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
@@ -1276,6 +1585,8 @@ export class LazyConnectorMesh {
       ...jenkinsTools,
       ...circleciTools,
       ...pagerdutyTools,
+      ...kubernetesTools,
+      ...phase3Tools,
       ...userMcpMerged,
     } as LazyMeshToolMap;
   }
@@ -1295,6 +1606,8 @@ export class LazyConnectorMesh {
     this.clearJenkinsIdleTimer();
     this.clearCircleciIdleTimer();
     this.clearPagerdutyIdleTimer();
+    this.clearKubernetesIdleTimer();
+    this.clearPhase3BundleIdleTimer();
     for (const id of [...this.userMcpIdleTimers.keys()]) {
       this.clearUserMcpIdleTimer(id);
     }
@@ -1315,6 +1628,8 @@ export class LazyConnectorMesh {
     await this.stopJenkinsClient();
     await this.stopCircleciClient();
     await this.stopPagerdutyClient();
+    await this.stopKubernetesClient();
+    await this.stopPhase3BundleClient();
     try {
       await this.filesystem.disconnect();
     } catch {

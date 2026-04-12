@@ -96,6 +96,22 @@ export type McpToolListingClient = {
  * PagerDuty (HITL): `pagerduty.incident.acknowledge` → `pagerduty_pd_incident_acknowledge`;
  * `pagerduty.incident.resolve` → `pagerduty_pd_incident_resolve`;
  * `pagerduty.incident.escalate` → `pagerduty_pd_incident_escalate`.
+ *
+ * Kubernetes (HITL): `kubernetes.rollout.restart` → `kubernetes_k8s_rollout_restart`;
+ * `kubernetes.pod.delete` → `kubernetes_k8s_pod_delete`;
+ * `kubernetes.deployment.scale` → `kubernetes_k8s_deployment_scale`.
+ *
+ * AWS (HITL): `aws.ecs.service.update` → `aws_aws_ecs_service_update`; `aws.lambda.invoke` → `aws_aws_lambda_invoke`;
+ * `aws.ec2.instance.stop` → `aws_aws_ec2_instance_stop`; `aws.ec2.instance.start` → `aws_aws_ec2_instance_start`.
+ *
+ * Azure (HITL): `azure.app_service.restart` → `azure_azure_app_service_restart`;
+ * `azure.aks.node_pool.scale` → `azure_azure_aks_node_pool_scale`.
+ *
+ * GCP (HITL): `gcp.cloud_run.deploy` → `gcp_gcp_cloud_run_deploy`;
+ * `gcp.gke.workload.restart` → `gcp_gcp_gke_workload_restart`.
+ *
+ * IaC (HITL): `iac.terraform.apply` → `iac_iac_terraform_apply`; `iac.terraform.destroy` → `iac_iac_terraform_destroy`;
+ * `iac.cloudformation.deploy` → `iac_iac_cloudformation_deploy`; `iac.pulumi.up` → `iac_iac_pulumi_up`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

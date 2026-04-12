@@ -17,7 +17,17 @@ export type Provider =
   | "discord"
   | "jenkins"
   | "circleci"
-  | "pagerduty";
+  | "pagerduty"
+  | "filesystem"
+  | "kubernetes"
+  | "aws"
+  | "azure"
+  | "gcp"
+  | "iac"
+  | "grafana"
+  | "sentry"
+  | "newrelic"
+  | "datadog";
 
 export interface ProviderQuota {
   requestsPerMinute: number;
@@ -40,6 +50,16 @@ export const DEFAULT_QUOTAS: Record<Provider, ProviderQuota> = {
   jenkins: { requestsPerMinute: 60, burstSize: 10 },
   circleci: { requestsPerMinute: 60, burstSize: 10 },
   pagerduty: { requestsPerMinute: 60, burstSize: 10 },
+  filesystem: { requestsPerMinute: 120, burstSize: 20 },
+  kubernetes: { requestsPerMinute: 60, burstSize: 10 },
+  aws: { requestsPerMinute: 40, burstSize: 8 },
+  azure: { requestsPerMinute: 40, burstSize: 8 },
+  gcp: { requestsPerMinute: 40, burstSize: 8 },
+  iac: { requestsPerMinute: 20, burstSize: 3 },
+  grafana: { requestsPerMinute: 60, burstSize: 10 },
+  sentry: { requestsPerMinute: 60, burstSize: 10 },
+  newrelic: { requestsPerMinute: 60, burstSize: 10 },
+  datadog: { requestsPerMinute: 60, burstSize: 10 },
 };
 
 type BucketState = {

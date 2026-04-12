@@ -2,10 +2,12 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
 import { evaluateWatchersAfterSync } from "../automation/watcher-engine.ts";
+import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
 import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromConfigDir } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
 import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
+import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
@@ -139,6 +141,11 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       evaluateWatchersAfterSync(db, serviceId, Date.now(), (t, b) => notifications.show(t, b));
     },
   });
+  const fsV2Roots = loadNimbusFilesystemRootsFromConfigDir(paths.configDir);
+  if (fsV2Roots.length > 0) {
+    localIndex.ensureConnectorSchedulerRegistration("filesystem", 10 * 60 * 1000, Date.now());
+    syncScheduler.register(createFilesystemV2Syncable({ roots: fsV2Roots }));
+  }
   const connectorMesh = await createLazyConnectorMesh(paths, vault, {
     listUserMcpConnectors: () => listUserMcpConnectors(db),
   });

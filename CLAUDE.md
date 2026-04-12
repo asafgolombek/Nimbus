@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Nimbus is a **local-first AI agent framework** — a headless Bun Gateway process that maintains a private SQLite index of the user's data across cloud services (Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, and the local filesystem via first-party MCP connectors) and executes multi-step agentic workflows on their behalf. Clients (CLI and Tauri 2.0 desktop app) communicate with the Gateway exclusively over JSON-RPC 2.0 IPC.
+Nimbus is a **local-first AI agent framework** — a headless Bun Gateway process that maintains a private SQLite index of the user's data across cloud services (Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord opt-in, Jenkins, GitHub Actions, CircleCI, GitLab CI, PagerDuty, Kubernetes, AWS, Azure, GCP, IaC CLIs, Grafana, Sentry, New Relic, Datadog, optional `[[filesystem.roots]]` indexing, and the local filesystem via first-party MCP connectors) and executes multi-step agentic workflows on their behalf. Clients (CLI and Tauri 2.0 desktop app) communicate with the Gateway exclusively over JSON-RPC 2.0 IPC.
 
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
@@ -39,7 +39,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/gateway/src/platform/darwin.ts` | macOS platform implementation |
 | `packages/gateway/src/platform/linux.ts` | Linux platform implementation |
 | `packages/gateway/src/vault/index.ts` | `NimbusVault` interface |
-| `packages/gateway/src/connectors/` | MCP connector mesh |
+| `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh.ts` — Phase 3 bundle spawns AWS/Azure/GCP/IaC/observability MCPs when vault keys exist) |
 | `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
@@ -72,6 +72,7 @@ bun run test:coverage
 # Coverage gates (enforced in CI)
 bun run test:coverage:engine   # ≥85% threshold (engine)
 bun run test:coverage:vault    # ≥90% threshold (vault)
+bun run test:coverage:embedding # ≥80% threshold (embedding)
 
 # Integration tests
 bun run test:integration
@@ -92,6 +93,7 @@ bun run clean
 bun audit --audit-level high
 
 # Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
+# Optional: set NIMBUS_EMBEDDING_MODEL_DIR to pre-downloaded MiniLM weights (or pass --embedding-model-dir) to embed them in the bundle output
 bun run package:headless
 bun run package:installers:linux -- --version 0.1.0
 ```
@@ -147,7 +149,7 @@ A system that orchestrates real actions against real data cannot rely on develop
 - **Vault tests** prove no secret value is exposed through any interface
 - **Integration tests** use real SQLite, real Bun subprocesses, fresh temp dirs per test — no mocks at the DB layer
 - **E2E CLI tests** use a real Gateway subprocess + mock MCP servers (wire protocol, no real cloud calls)
-- **Coverage gates** are enforced in CI: Engine ≥85%, Vault ≥90%
+- **Coverage gates** are enforced in CI: Engine ≥85%, Vault ≥90%, Embedding ≥80%, plus scheduler, rate limiter, and people thresholds (see `.github/workflows/_test-suite.yml`)
 
 ---
 

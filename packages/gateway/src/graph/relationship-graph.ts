@@ -10,6 +10,9 @@ const ITEM_LINKED_ENTITY_TYPES = [
   "message",
   "incident",
   "error_issue",
+  "git_commit",
+  "dependency",
+  "code_symbol",
 ] as const;
 
 export type ItemLinkedEntityType = (typeof ITEM_LINKED_ENTITY_TYPES)[number];

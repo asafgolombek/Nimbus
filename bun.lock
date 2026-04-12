@@ -40,6 +40,30 @@
         "@types/bun": "latest",
       },
     },
+    "packages/mcp-connectors/aws": {
+      "name": "nimbus-mcp-aws",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/mcp-connectors/azure": {
+      "name": "nimbus-mcp-azure",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/mcp-connectors/bitbucket": {
       "name": "nimbus-mcp-bitbucket",
       "version": "0.1.0",
@@ -85,12 +109,36 @@
         "@types/bun": "latest",
       },
     },
+    "packages/mcp-connectors/datadog": {
+      "name": "nimbus-mcp-datadog",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/mcp-connectors/discord": {
       "name": "nimbus-mcp-discord",
       "version": "0.1.0",
       "bin": {
         "nimbus-mcp-discord": "./dist/server.js",
       },
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/mcp-connectors/gcp": {
+      "name": "nimbus-mcp-gcp",
+      "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
@@ -184,6 +232,30 @@
         "@types/bun": "latest",
       },
     },
+    "packages/mcp-connectors/grafana": {
+      "name": "nimbus-mcp-grafana",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/mcp-connectors/iac": {
+      "name": "nimbus-mcp-iac",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/mcp-connectors/jenkins": {
       "name": "nimbus-mcp-jenkins",
       "version": "0.1.0",
@@ -214,12 +286,36 @@
         "@types/bun": "latest",
       },
     },
+    "packages/mcp-connectors/kubernetes": {
+      "name": "nimbus-mcp-kubernetes",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/mcp-connectors/linear": {
       "name": "nimbus-mcp-linear",
       "version": "0.1.0",
       "bin": {
         "nimbus-mcp-linear": "./dist/server.js",
       },
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/mcp-connectors/newrelic": {
+      "name": "nimbus-mcp-newrelic",
+      "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
@@ -276,6 +372,18 @@
     },
     "packages/mcp-connectors/pagerduty": {
       "name": "nimbus-mcp-pagerduty",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/mcp-connectors/sentry": {
+      "name": "nimbus-mcp-sentry",
       "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
@@ -1180,13 +1288,21 @@
 
     "negotiator": ["negotiator@1.0.0", "", {}, "sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg=="],
 
+    "nimbus-mcp-aws": ["nimbus-mcp-aws@workspace:packages/mcp-connectors/aws"],
+
+    "nimbus-mcp-azure": ["nimbus-mcp-azure@workspace:packages/mcp-connectors/azure"],
+
     "nimbus-mcp-bitbucket": ["nimbus-mcp-bitbucket@workspace:packages/mcp-connectors/bitbucket"],
 
     "nimbus-mcp-circleci": ["nimbus-mcp-circleci@workspace:packages/mcp-connectors/circleci"],
 
     "nimbus-mcp-confluence": ["nimbus-mcp-confluence@workspace:packages/mcp-connectors/confluence"],
 
+    "nimbus-mcp-datadog": ["nimbus-mcp-datadog@workspace:packages/mcp-connectors/datadog"],
+
     "nimbus-mcp-discord": ["nimbus-mcp-discord@workspace:packages/mcp-connectors/discord"],
+
+    "nimbus-mcp-gcp": ["nimbus-mcp-gcp@workspace:packages/mcp-connectors/gcp"],
 
     "nimbus-mcp-github": ["nimbus-mcp-github@workspace:packages/mcp-connectors/github"],
 
@@ -1200,11 +1316,19 @@
 
     "nimbus-mcp-google-photos": ["nimbus-mcp-google-photos@workspace:packages/mcp-connectors/google-photos"],
 
+    "nimbus-mcp-grafana": ["nimbus-mcp-grafana@workspace:packages/mcp-connectors/grafana"],
+
+    "nimbus-mcp-iac": ["nimbus-mcp-iac@workspace:packages/mcp-connectors/iac"],
+
     "nimbus-mcp-jenkins": ["nimbus-mcp-jenkins@workspace:packages/mcp-connectors/jenkins"],
 
     "nimbus-mcp-jira": ["nimbus-mcp-jira@workspace:packages/mcp-connectors/jira"],
 
+    "nimbus-mcp-kubernetes": ["nimbus-mcp-kubernetes@workspace:packages/mcp-connectors/kubernetes"],
+
     "nimbus-mcp-linear": ["nimbus-mcp-linear@workspace:packages/mcp-connectors/linear"],
+
+    "nimbus-mcp-newrelic": ["nimbus-mcp-newrelic@workspace:packages/mcp-connectors/newrelic"],
 
     "nimbus-mcp-notion": ["nimbus-mcp-notion@workspace:packages/mcp-connectors/notion"],
 
@@ -1213,6 +1337,8 @@
     "nimbus-mcp-outlook": ["nimbus-mcp-outlook@workspace:packages/mcp-connectors/outlook"],
 
     "nimbus-mcp-pagerduty": ["nimbus-mcp-pagerduty@workspace:packages/mcp-connectors/pagerduty"],
+
+    "nimbus-mcp-sentry": ["nimbus-mcp-sentry@workspace:packages/mcp-connectors/sentry"],
 
     "nimbus-mcp-slack": ["nimbus-mcp-slack@workspace:packages/mcp-connectors/slack"],
 

@@ -4,6 +4,30 @@
 
 export type RunCliJsonResult = { ok: true; data: unknown } | { ok: false; message: string };
 
+/** Run a CLI; succeed when exit code is 0 (stdout ignored). */
+export async function runCliOk(
+  command: readonly string[],
+  env: Record<string, string | undefined>,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (command.length === 0) {
+    return { ok: false, message: "empty command" };
+  }
+  const proc = Bun.spawn([...command], {
+    env: { ...process.env, ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const code = await proc.exited;
+  const err = await new Response(proc.stderr).text();
+  if (code !== 0) {
+    return {
+      ok: false,
+      message: `${command[0] ?? "cli"} exited ${String(code)}: ${err.slice(0, 500)}`,
+    };
+  }
+  return { ok: true };
+}
+
 export async function runCliJson(
   command: readonly string[],
   env: Record<string, string | undefined>,

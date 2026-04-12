@@ -21,6 +21,15 @@ export const CONNECTOR_SERVICE_IDS = [
   "jenkins",
   "circleci",
   "pagerduty",
+  "kubernetes",
+  "aws",
+  "azure",
+  "gcp",
+  "iac",
+  "grafana",
+  "sentry",
+  "newrelic",
+  "datadog",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -74,6 +83,16 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
     case "circleci":
       return 90 * 1000;
     case "pagerduty":
+      return 120 * 1000;
+    case "kubernetes":
+    case "aws":
+    case "azure":
+    case "gcp":
+    case "iac":
+    case "grafana":
+    case "sentry":
+    case "newrelic":
+    case "datadog":
       return 120 * 1000;
     default: {
       const _exhaustive: never = serviceId;
@@ -205,6 +224,42 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "pagerduty":
       throw new Error(
         "oauthProfileForService: pagerduty uses a REST API token (connector.auth pagerduty)",
+      );
+    case "kubernetes":
+      throw new Error(
+        "oauthProfileForService: kubernetes uses a kubeconfig file path (connector.auth kubernetes)",
+      );
+    case "aws":
+      throw new Error(
+        "oauthProfileForService: aws uses access key + secret + region or profile (connector.auth aws)",
+      );
+    case "azure":
+      throw new Error(
+        "oauthProfileForService: azure uses service principal tenant + client id + secret (connector.auth azure)",
+      );
+    case "gcp":
+      throw new Error(
+        "oauthProfileForService: gcp uses a service account JSON key path (connector.auth gcp)",
+      );
+    case "iac":
+      throw new Error(
+        "oauthProfileForService: iac is opt-in for local CLIs (connector.auth iac --enable)",
+      );
+    case "grafana":
+      throw new Error(
+        "oauthProfileForService: grafana uses base URL + API token (connector.auth grafana)",
+      );
+    case "sentry":
+      throw new Error(
+        "oauthProfileForService: sentry uses auth token + org slug (connector.auth sentry)",
+      );
+    case "newrelic":
+      throw new Error(
+        "oauthProfileForService: newrelic uses a user API key (connector.auth newrelic)",
+      );
+    case "datadog":
+      throw new Error(
+        "oauthProfileForService: datadog uses API + application keys (connector.auth datadog)",
       );
     default: {
       const _never: never = serviceId;
