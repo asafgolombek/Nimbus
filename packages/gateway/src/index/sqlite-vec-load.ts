@@ -29,6 +29,20 @@ export function loadSqliteVecOrThrow(db: Database): void {
 }
 
 /**
+ * Returns true if the sqlite-vec extension is currently loaded on this connection.
+ * Useful in tests to skip vec-specific assertions on platforms where the extension
+ * cannot be loaded (e.g. macOS CI without a properly signed native dylib).
+ */
+export function isVecLoaded(db: Database): boolean {
+  try {
+    db.query("SELECT vec_version()").get();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Ensures sqlite-vec is loaded on this connection when the schema includes vector tables (v6+).
  * Migrations load the extension once; reopening `nimbus.db` requires loading again per connection.
  */

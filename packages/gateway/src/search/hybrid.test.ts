@@ -2,7 +2,17 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
 import { hybridSearch } from "./hybrid.ts";
+
+function vecAvailable(): boolean {
+  const db = new Database(":memory:");
+  tryLoadSqliteVec(db);
+  const ok = isVecLoaded(db);
+  db.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
 
 describe("hybridSearch", () => {
   test("BM25-only path when query embedding is absent", async () => {
@@ -27,7 +37,7 @@ describe("hybridSearch", () => {
     expect(rows[0]?.item.id).toBe("s:a");
   });
 
-  test("vector + BM25 RRF returns both item kinds", async () => {
+  test.skipIf(!VEC_AVAILABLE)("vector + BM25 RRF returns both item kinds", async () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
     const now = Date.now();

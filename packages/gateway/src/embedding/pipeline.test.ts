@@ -2,8 +2,18 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
 import { SqliteEmbeddingPipeline } from "./pipeline.ts";
 import type { Embedder } from "./types.ts";
+
+function vecAvailable(): boolean {
+  const db = new Database(":memory:");
+  tryLoadSqliteVec(db);
+  const ok = isVecLoaded(db);
+  db.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
 
 function mockEmbedder(dim: number, model: string): Embedder {
   return {
@@ -15,7 +25,7 @@ function mockEmbedder(dim: number, model: string): Embedder {
   };
 }
 
-describe("SqliteEmbeddingPipeline", () => {
+describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline", () => {
   test("embedItem writes chunks and vectors; item delete cascades", async () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);

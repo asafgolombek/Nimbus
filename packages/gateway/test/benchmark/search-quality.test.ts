@@ -8,11 +8,21 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { upsertIndexedItem } from "../../src/index/item-store.ts";
 import { LocalIndex } from "../../src/index/local-index.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../../src/index/sqlite-vec-load.ts";
 import { hybridSearch } from "../../src/search/hybrid.ts";
 import type { HybridSearchResult } from "../../src/search/hybrid-types.ts";
 
 const MODEL = "search-quality-bench";
 const K = 10;
+
+function vecAvailable(): boolean {
+  const db = new Database(":memory:");
+  tryLoadSqliteVec(db);
+  const ok = isVecLoaded(db);
+  db.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
 
 function reciprocalRankAtK(relevantId: string, orderedIds: readonly string[], k: number): number {
   const cap = Math.min(k, orderedIds.length);
@@ -60,7 +70,7 @@ async function bm25ThenHybridWithEmbedding(
   return { bm25, hybrid };
 }
 
-describe("search quality (hybrid vs BM25 MRR@10)", () => {
+describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => {
   test("mean hybrid MRR@10 improves BM25 by ≥10% or rescues zero-recall queries", async () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);

@@ -1,12 +1,18 @@
 import type { Database } from "bun:sqlite";
-import { EMBEDDING_V6_MIGRATION_SQL } from "../embedding-v6-sql.ts";
-import { EXTENSION_SESSION_V10_MIGRATION_SQL } from "../extension-session-v10-sql.ts";
+import {
+  EMBEDDING_V6_MIGRATION_SQL,
+  EMBEDDING_V6_NO_VEC_MIGRATION_SQL,
+} from "../embedding-v6-sql.ts";
+import {
+  EXTENSION_SESSION_V10_MIGRATION_SQL,
+  EXTENSION_SESSION_V10_NO_VEC_MIGRATION_SQL,
+} from "../extension-session-v10-sql.ts";
 import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
-import { loadSqliteVecOrThrow } from "../sqlite-vec-load.ts";
+import { tryLoadSqliteVec } from "../sqlite-vec-load.ts";
 import {
   UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL,
   UNIFIED_ITEM_V3_SCHEMA_SQL,
@@ -101,11 +107,16 @@ function migrateIndexedV4ToV5(db: Database, now: number): void {
 }
 
 function migrateIndexedV5ToV6(db: Database, now: number): void {
-  loadSqliteVecOrThrow(db);
+  const vecLoaded = tryLoadSqliteVec(db);
   db.transaction(() => {
-    db.exec(EMBEDDING_V6_MIGRATION_SQL);
+    db.exec(vecLoaded ? EMBEDDING_V6_MIGRATION_SQL : EMBEDDING_V6_NO_VEC_MIGRATION_SQL);
     db.exec("PRAGMA user_version = 6");
-    recordMigration(db, 6, "embedding_chunk + vec_items_384", now);
+    recordMigration(
+      db,
+      6,
+      vecLoaded ? "embedding_chunk + vec_items_384" : "embedding_chunk (sqlite-vec unavailable)",
+      now,
+    );
   })();
 }
 
@@ -133,9 +144,19 @@ function migrateIndexedV8ToV9(db: Database, now: number): void {
   })();
 }
 
+function vecTableExists(db: Database): boolean {
+  const row = db
+    .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vec_items_384'`)
+    .get() as { 1: number } | null;
+  return row !== null;
+}
+
 function migrateIndexedV9ToV10(db: Database, now: number): void {
+  const hasVec = vecTableExists(db);
   db.transaction(() => {
-    db.exec(EXTENSION_SESSION_V10_MIGRATION_SQL);
+    db.exec(
+      hasVec ? EXTENSION_SESSION_V10_MIGRATION_SQL : EXTENSION_SESSION_V10_NO_VEC_MIGRATION_SQL,
+    );
     db.exec("PRAGMA user_version = 10");
     recordMigration(db, 10, "extension + session_memory", now);
   })();

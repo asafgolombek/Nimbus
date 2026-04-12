@@ -2,9 +2,19 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
 import { LocalIndex } from "../index/local-index.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
 import { SessionMemoryStore } from "./session-memory-store.ts";
 
-describe("SessionMemoryStore", () => {
+function vecAvailable(): boolean {
+  const db = new Database(":memory:");
+  tryLoadSqliteVec(db);
+  const ok = isVecLoaded(db);
+  db.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
+
+describe.skipIf(!VEC_AVAILABLE)("SessionMemoryStore", () => {
   test("append and recall scoped to session_id", async () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
