@@ -17,6 +17,22 @@ function stripComment(line: string): string {
   return line.slice(0, hash);
 }
 
+function applySessionTomlKey(out: Partial<NimbusSessionToml>, trimmed: string): void {
+  const eq = trimmed.indexOf("=");
+  if (eq <= 0) {
+    return;
+  }
+  const key = trimmed.slice(0, eq).trim();
+  const valRaw = trimmed.slice(eq + 1).trim();
+  if (key !== "memory_ttl_hours") {
+    return;
+  }
+  const n = Number.parseInt(valRaw, 10);
+  if (Number.isFinite(n) && n > 0 && n <= 24 * 365) {
+    out.memoryTtlHours = n;
+  }
+}
+
 export function parseNimbusTomlSessionSection(source: string): Partial<NimbusSessionToml> {
   const lines = source.split(/\r?\n/);
   let inSession = false;
@@ -31,20 +47,8 @@ export function parseNimbusTomlSessionSection(source: string): Partial<NimbusSes
       inSession = trimmed === "[session]";
       continue;
     }
-    if (!inSession) {
-      continue;
-    }
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) {
-      continue;
-    }
-    const key = trimmed.slice(0, eq).trim();
-    const valRaw = trimmed.slice(eq + 1).trim();
-    if (key === "memory_ttl_hours") {
-      const n = Number.parseInt(valRaw, 10);
-      if (Number.isFinite(n) && n > 0 && n <= 24 * 365) {
-        out.memoryTtlHours = n;
-      }
+    if (inSession) {
+      applySessionTomlKey(out, trimmed);
     }
   }
   return out;

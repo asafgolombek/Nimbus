@@ -152,6 +152,6 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     autostart: createStubAutostart(),
     notifications,
     openUrl: openUrlInDefaultBrowser,
-    ...(sessionMemoryStore !== undefined ? { sessionMemoryStore } : {}),
+    ...(sessionMemoryStore === undefined ? {} : { sessionMemoryStore }),
   };
 }

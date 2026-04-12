@@ -69,7 +69,7 @@ export function upsertGraphRelation(
   toId: string,
   relationType: string,
   createdAt: number,
-  weight = 1.0,
+  weight = 1,
 ): void {
   db.run(
     `INSERT INTO graph_relation (from_id, to_id, type, weight, created_at)
@@ -95,6 +95,93 @@ export function deleteGraphEntitiesForItemKeys(db: Database, itemPrimaryKeys: st
        AND type IN (${typePlaceholders})`,
     [...itemPrimaryKeys, ...types],
   );
+}
+
+function graphRelationDedupeKey(r: GraphRelationRow): string {
+  return `${r.from_id}|${r.type}|${r.to_id}`;
+}
+
+function addUniqueGraphRelation(relationsOut: GraphRelationRow[], r: GraphRelationRow): void {
+  const key = graphRelationDedupeKey(r);
+  if (!relationsOut.some((x) => graphRelationDedupeKey(x) === key)) {
+    relationsOut.push(r);
+  }
+}
+
+function tryEnqueueGraphNeighbor(
+  visitedEntityIds: Set<string>,
+  frontier: Array<{ id: string; d: number }>,
+  maxNodes: number,
+  neighbor: string,
+  nextDepth: number,
+): void {
+  if (visitedEntityIds.has(neighbor)) {
+    return;
+  }
+  if (visitedEntityIds.size >= maxNodes) {
+    return;
+  }
+  visitedEntityIds.add(neighbor);
+  frontier.push({ id: neighbor, d: nextDepth });
+}
+
+function expandGraphEdgesFromNode(
+  db: Database,
+  cur: { id: string; d: number },
+  maxDepth: number,
+  maxNodes: number,
+  typeFilter: string[] | null,
+  visitedEntityIds: Set<string>,
+  frontier: Array<{ id: string; d: number }>,
+  relationsOut: GraphRelationRow[],
+): void {
+  if (cur.d >= maxDepth) {
+    return;
+  }
+  let relSql = `SELECT type, from_id, to_id FROM graph_relation WHERE from_id = ? OR to_id = ?`;
+  const relParams: Array<string | number> = [cur.id, cur.id];
+  if (typeFilter !== null && typeFilter.length > 0) {
+    const ph = typeFilter.map(() => "?").join(",");
+    relSql += ` AND type IN (${ph})`;
+    relParams.push(...typeFilter);
+  }
+  const rels = db.query(relSql).all(...relParams) as GraphRelationRow[];
+  for (const r of rels) {
+    addUniqueGraphRelation(relationsOut, r);
+    const neighbor = r.from_id === cur.id ? r.to_id : r.from_id;
+    tryEnqueueGraphNeighbor(visitedEntityIds, frontier, maxNodes, neighbor, cur.d + 1);
+  }
+}
+
+function bfsCollectGraphRelations(
+  db: Database,
+  startId: string,
+  maxDepth: number,
+  maxNodes: number,
+  typeFilter: string[] | null,
+): { visitedEntityIds: Set<string>; relationsOut: GraphRelationRow[] } {
+  const visitedEntityIds = new Set<string>([startId]);
+  const frontier: Array<{ id: string; d: number }> = [{ id: startId, d: 0 }];
+  const relationsOut: GraphRelationRow[] = [];
+
+  while (frontier.length > 0) {
+    const cur = frontier.shift();
+    if (cur === undefined) {
+      break;
+    }
+    expandGraphEdgesFromNode(
+      db,
+      cur,
+      maxDepth,
+      maxNodes,
+      typeFilter,
+      visitedEntityIds,
+      frontier,
+      relationsOut,
+    );
+  }
+
+  return { visitedEntityIds, relationsOut };
 }
 
 function resolveStartEntityId(db: Database, startRef: string): string | null {
@@ -140,44 +227,13 @@ export function traverseGraph(
     return { error: `No graph entity found for ref: ${startRef}` };
   }
 
-  const visitedEntityIds = new Set<string>([startId]);
-  const frontier: Array<{ id: string; d: number }> = [{ id: startId, d: 0 }];
-  const relationsOut: GraphRelationRow[] = [];
-  const relationKey = (r: GraphRelationRow) => `${r.from_id}|${r.type}|${r.to_id}`;
-
-  while (frontier.length > 0) {
-    const cur = frontier.shift();
-    if (cur === undefined) {
-      break;
-    }
-    if (cur.d >= maxDepth) {
-      continue;
-    }
-
-    let relSql = `SELECT type, from_id, to_id FROM graph_relation WHERE from_id = ? OR to_id = ?`;
-    const relParams: Array<string | number> = [cur.id, cur.id];
-    if (typeFilter !== null && typeFilter.length > 0) {
-      const ph = typeFilter.map(() => "?").join(",");
-      relSql += ` AND type IN (${ph})`;
-      relParams.push(...typeFilter);
-    }
-
-    const rels = db.query(relSql).all(...relParams) as GraphRelationRow[];
-    for (const r of rels) {
-      const key = relationKey(r);
-      if (!relationsOut.some((x) => relationKey(x) === key)) {
-        relationsOut.push(r);
-      }
-      const neighbor = r.from_id === cur.id ? r.to_id : r.from_id;
-      if (!visitedEntityIds.has(neighbor)) {
-        if (visitedEntityIds.size >= maxNodes) {
-          continue;
-        }
-        visitedEntityIds.add(neighbor);
-        frontier.push({ id: neighbor, d: cur.d + 1 });
-      }
-    }
-  }
+  const { visitedEntityIds, relationsOut } = bfsCollectGraphRelations(
+    db,
+    startId,
+    maxDepth,
+    maxNodes,
+    typeFilter,
+  );
 
   const idList = [...visitedEntityIds];
   const placeholders = idList.map(() => "?").join(",");

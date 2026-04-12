@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { upsertIndexedItem } from "../../src/index/item-store.ts";
 import { LocalIndex } from "../../src/index/local-index.ts";
 import { hybridSearch } from "../../src/search/hybrid.ts";
+import type { HybridSearchResult } from "../../src/search/hybrid-types.ts";
 
 const MODEL = "search-quality-bench";
 const K = 10;
@@ -27,6 +28,36 @@ function vecPrimarily(dim: number, primary: number, strength = 1): Float32Array 
   const v = new Float32Array(dim);
   v[primary] = strength;
   return v;
+}
+
+function insertVec384AndEmbeddingChunk(
+  db: Database,
+  rowid: number,
+  embedding: Float32Array,
+  itemId: string,
+  chunkText: string,
+  embeddedAt: number,
+): void {
+  db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [
+    BigInt(rowid),
+    embedding,
+  ]);
+  db.run(
+    `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
+     VALUES (?, 0, ?, ?, ?, 384, ?)`,
+    [itemId, chunkText, rowid, MODEL, embeddedAt],
+  );
+}
+
+async function bm25ThenHybridWithEmbedding(
+  db: Database,
+  query: string,
+  queryEmbedding: Float32Array,
+): Promise<{ bm25: HybridSearchResult[]; hybrid: HybridSearchResult[] }> {
+  const common = { query, limit: 50, embeddingModel: MODEL, semantic: true as const };
+  const bm25 = await hybridSearch(db, common);
+  const hybrid = await hybridSearch(db, { ...common, queryEmbedding });
+  return { bm25, hybrid };
 }
 
 describe("search quality (hybrid vs BM25 MRR@10)", () => {
@@ -62,33 +93,11 @@ describe("search quality (hybrid vs BM25 MRR@10)", () => {
     const vRenewal = vecPrimarily(384, 0, 0.99);
     vRenewal[1] = 0.08;
 
-    db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [1n, vChaff]);
-    db.run(
-      `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
-       VALUES (?, 0, 'chaff chunk', 1, ?, 384, ?)`,
-      ["bench:chaff", MODEL, now],
-    );
-    db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [2n, vRenewal]);
-    db.run(
-      `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
-       VALUES (?, 0, 'renewal chunk', 2, ?, 384, ?)`,
-      ["bench:renewal", MODEL, now],
-    );
+    insertVec384AndEmbeddingChunk(db, 1, vChaff, "bench:chaff", "chaff chunk", now);
+    insertVec384AndEmbeddingChunk(db, 2, vRenewal, "bench:renewal", "renewal chunk", now);
 
     const queryA = "refresh OAuth tokens";
-    const bm25A = await hybridSearch(db, {
-      query: queryA,
-      limit: 50,
-      embeddingModel: MODEL,
-      semantic: true,
-    });
-    const hybridA = await hybridSearch(db, {
-      query: queryA,
-      limit: 50,
-      embeddingModel: MODEL,
-      semantic: true,
-      queryEmbedding: qOAuth,
-    });
+    const { bm25: bm25A, hybrid: hybridA } = await bm25ThenHybridWithEmbedding(db, queryA, qOAuth);
     const mrrBm25A = reciprocalRankAtK(
       "bench:renewal",
       bm25A.map((r) => r.item.id),
@@ -124,36 +133,14 @@ describe("search quality (hybrid vs BM25 MRR@10)", () => {
     const vFts = vecPrimarily(384, 3, 1);
     const vVecOnly = vecPrimarily(384, 0, 0.99);
     vVecOnly[1] = 0.02;
-    db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [3n, vFts]);
-    db.run(
-      `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
-       VALUES (?, 0, 'fts chunk', 3, ?, 384, ?)`,
-      ["bench:fts", MODEL, now + 1],
-    );
-    db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [4n, vVecOnly]);
-    db.run(
-      `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
-       VALUES (?, 0, 'vec chunk', 4, ?, 384, ?)`,
-      ["bench:vec", MODEL, now + 1],
-    );
+    insertVec384AndEmbeddingChunk(db, 3, vFts, "bench:fts", "fts chunk", now + 1);
+    insertVec384AndEmbeddingChunk(db, 4, vVecOnly, "bench:vec", "vec chunk", now + 1);
 
     const queryB = "keyword";
     const qKw = new Float32Array(384);
     qKw[0] = 1;
     qKw[1] = 0.03;
-    const bm25B = await hybridSearch(db, {
-      query: queryB,
-      limit: 50,
-      embeddingModel: MODEL,
-      semantic: true,
-    });
-    const hybridB = await hybridSearch(db, {
-      query: queryB,
-      limit: 50,
-      embeddingModel: MODEL,
-      semantic: true,
-      queryEmbedding: qKw,
-    });
+    const { bm25: bm25B, hybrid: hybridB } = await bm25ThenHybridWithEmbedding(db, queryB, qKw);
     const mrrBm25B = reciprocalRankAtK(
       "bench:vec",
       bm25B.map((r) => r.item.id),
@@ -189,36 +176,14 @@ describe("search quality (hybrid vs BM25 MRR@10)", () => {
     const vDecoyZ = vecPrimarily(384, 10, 1);
     const vTargetZ = vecPrimarily(384, 5, 1);
     vTargetZ[6] = 0.4;
-    db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [5n, vDecoyZ]);
-    db.run(
-      `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
-       VALUES (?, 0, 'decoy z', 5, ?, 384, ?)`,
-      ["bench:decoy", MODEL, now + 2],
-    );
-    db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [6n, vTargetZ]);
-    db.run(
-      `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
-       VALUES (?, 0, 'target z chunk', 6, ?, 384, ?)`,
-      ["bench:target", MODEL, now + 2],
-    );
+    insertVec384AndEmbeddingChunk(db, 5, vDecoyZ, "bench:decoy", "decoy z", now + 2);
+    insertVec384AndEmbeddingChunk(db, 6, vTargetZ, "bench:target", "target z chunk", now + 2);
 
     const queryC = "Zurich project budget";
     const qZ = new Float32Array(384);
     qZ[5] = 1;
     qZ[6] = 0.35;
-    const bm25C = await hybridSearch(db, {
-      query: queryC,
-      limit: 50,
-      embeddingModel: MODEL,
-      semantic: true,
-    });
-    const hybridC = await hybridSearch(db, {
-      query: queryC,
-      limit: 50,
-      embeddingModel: MODEL,
-      semantic: true,
-      queryEmbedding: qZ,
-    });
+    const { bm25: bm25C, hybrid: hybridC } = await bm25ThenHybridWithEmbedding(db, queryC, qZ);
     const mrrBm25C = reciprocalRankAtK(
       "bench:target",
       bm25C.map((r) => r.item.id),

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
+import { registerAgentChunkStdout } from "../lib/interactive-ipc-handlers.ts";
 import { parseWorkflowFileContent } from "../lib/workflow-parse.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
@@ -22,15 +23,6 @@ function hasFlag(args: string[], flag: string): boolean {
   }
   args.splice(i, 1);
   return true;
-}
-
-function registerWorkflowAgentChunkStream(client: IPCClient): void {
-  client.onNotification("agent.chunk", (params) => {
-    const t = (params as { text?: string }).text;
-    if (typeof t === "string" && t.length > 0) {
-      process.stdout.write(t);
-    }
-  });
 }
 
 async function workflowCliList(client: IPCClient): Promise<void> {
@@ -91,7 +83,7 @@ async function workflowCliRun(client: IPCClient, rest: string[]): Promise<void> 
     agent = agentArg;
   }
 
-  registerWorkflowAgentChunkStream(client);
+  registerAgentChunkStdout(client);
 
   const runPayload: Record<string, unknown> = {
     name,

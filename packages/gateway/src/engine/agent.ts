@@ -9,6 +9,10 @@ import { searchPersons } from "../people/person-store.ts";
 import { getAgentRequestSessionId } from "./agent-request-context.ts";
 import { buildContextWindow } from "./context-ranker.ts";
 
+function isStringArray(xs: unknown): xs is string[] {
+  return Array.isArray(xs) && xs.every((x) => typeof x === "string");
+}
+
 export type NimbusEngineAgentDeps = {
   localIndex: LocalIndex;
   agentModel?: string;
@@ -125,8 +129,8 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         opts.depth = Math.min(8, Math.max(0, Math.floor(q["depth"])));
       }
       const relationTypesRaw = q["relationTypes"];
-      if (Array.isArray(relationTypesRaw) && relationTypesRaw.every((x) => typeof x === "string")) {
-        opts.relationTypes = relationTypesRaw as string[];
+      if (isStringArray(relationTypesRaw)) {
+        opts.relationTypes = relationTypesRaw;
       }
       return deps.localIndex.traverseGraph(startRef, opts);
     },

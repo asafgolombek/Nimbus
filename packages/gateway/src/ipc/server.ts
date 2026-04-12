@@ -3,7 +3,7 @@ import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
 import { asRecord } from "../connectors/unknown-record.ts";
-import { agentRequestContext } from "../engine/agent-request-context.ts";
+import { type AgentRequestContext, agentRequestContext } from "../engine/agent-request-context.ts";
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
@@ -325,7 +325,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       };
     }
     try {
-      const requestStore = sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
+      const requestStore: AgentRequestContext = {};
+      if (sessionId !== undefined) {
+        requestStore.sessionId = sessionId;
+      }
       return await agentRequestContext.run(requestStore, async () => {
         const payload: AgentInvokeContext = {
           clientId,
@@ -430,7 +433,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     }
 
     try {
-      const requestStore = sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
+      const requestStore: AgentRequestContext = {};
+      if (sessionId !== undefined) {
+        requestStore.sessionId = sessionId;
+      }
       return await agentRequestContext.run(requestStore, async () => handler(ctx));
     } catch (e) {
       if (e instanceof GatewayAgentUnavailableError) {

@@ -17,6 +17,27 @@ export type WorkflowStep = {
   continueOnError?: boolean;
 };
 
+function parseOneWorkflowStepRow(row: unknown): WorkflowStep | null {
+  if (row === null || typeof row !== "object" || Array.isArray(row)) {
+    return null;
+  }
+  const rec = row as Record<string, unknown>;
+  const run = typeof rec["run"] === "string" ? rec["run"].trim() : "";
+  if (run === "") {
+    return null;
+  }
+  const label = typeof rec["label"] === "string" ? rec["label"].trim() : undefined;
+  const continueOnError = rec["continueOnError"] === true || rec["continue_on_error"] === true;
+  const step: WorkflowStep = { run };
+  if (label !== undefined && label !== "") {
+    step.label = label;
+  }
+  if (continueOnError) {
+    step.continueOnError = true;
+  }
+  return step;
+}
+
 export function parseWorkflowStepsJson(stepsJson: string): WorkflowStep[] {
   let parsed: unknown;
   try {
@@ -29,21 +50,10 @@ export function parseWorkflowStepsJson(stepsJson: string): WorkflowStep[] {
   }
   const out: WorkflowStep[] = [];
   for (const row of parsed) {
-    if (row === null || typeof row !== "object" || Array.isArray(row)) {
-      continue;
+    const step = parseOneWorkflowStepRow(row);
+    if (step !== null) {
+      out.push(step);
     }
-    const rec = row as Record<string, unknown>;
-    const run = typeof rec["run"] === "string" ? rec["run"].trim() : "";
-    if (run === "") {
-      continue;
-    }
-    const label = typeof rec["label"] === "string" ? rec["label"].trim() : undefined;
-    const continueOnError = rec["continueOnError"] === true || rec["continue_on_error"] === true;
-    out.push({
-      run,
-      ...(label !== undefined && label !== "" ? { label } : {}),
-      ...(continueOnError ? { continueOnError: true } : {}),
-    });
   }
   if (out.length === 0) {
     throw new Error("workflow has no executable steps (need objects with non-empty run string)");
@@ -66,6 +76,62 @@ export type RunWorkflowExecutionResult = {
   dryRun: boolean;
   stepResults: Array<{ label?: string; status: string; output?: string; error?: string }>;
 };
+
+type StepExecOutcome =
+  | { kind: "ok"; label: string; reply: string }
+  | { kind: "err"; label: string; message: string; halt: boolean };
+
+async function executeWorkflowStep(
+  p: RunWorkflowExecutionParams,
+  runId: string,
+  stepIndex: number,
+  step: WorkflowStep,
+  outputs: string[],
+): Promise<StepExecOutcome> {
+  const label = step.label ?? `step-${String(stepIndex + 1)}`;
+  const stepStart = Date.now();
+  insertWorkflowRunStepRow(p.db, {
+    runId,
+    stepIndex,
+    label,
+    status: "running",
+    startedAt: stepStart,
+  });
+
+  const prior =
+    outputs.length > 0
+      ? `Prior step outputs (summarize, do not repeat verbatim):\n${outputs.join("\n---\n")}\n\n`
+      : "";
+  const prompt = `${prior}Workflow step ${String(stepIndex + 1)} (${label}):\n${step.run}`;
+
+  if (p.stream) {
+    p.sendChunk(`\n— Step ${String(stepIndex + 1)}: ${label} —\n`);
+  }
+
+  try {
+    const { reply } = await runConversationalAgent({
+      agent: p.agent,
+      input: prompt,
+      stream: p.stream,
+      sendChunk: p.sendChunk,
+    });
+    outputs.push(reply);
+    updateWorkflowRunStepRow(p.db, runId, stepIndex, {
+      status: "done",
+      resultJson: JSON.stringify({ reply }),
+      finishedAt: Date.now(),
+    });
+    return { kind: "ok", label, reply };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    updateWorkflowRunStepRow(p.db, runId, stepIndex, {
+      status: "error",
+      resultJson: JSON.stringify({ error: msg }),
+      finishedAt: Date.now(),
+    });
+    return { kind: "err", label, message: msg, halt: step.continueOnError !== true };
+  }
+}
 
 /**
  * Executes a saved workflow sequentially via the conversational agent (tools allowed per step).
@@ -113,52 +179,15 @@ export async function runWorkflowExecution(
       if (step === undefined) {
         continue;
       }
-      const label = step.label ?? `step-${String(i + 1)}`;
-      const stepStart = Date.now();
-      insertWorkflowRunStepRow(p.db, {
-        runId,
-        stepIndex: i,
-        label,
-        status: "running",
-        startedAt: stepStart,
-      });
-
-      const prior =
-        outputs.length > 0
-          ? `Prior step outputs (summarize, do not repeat verbatim):\n${outputs.join("\n---\n")}\n\n`
-          : "";
-      const prompt = `${prior}Workflow step ${String(i + 1)} (${label}):\n${step.run}`;
-
-      if (p.stream) {
-        p.sendChunk(`\n— Step ${String(i + 1)}: ${label} —\n`);
+      const outcome = await executeWorkflowStep(p, runId, i, step, outputs);
+      if (outcome.kind === "ok") {
+        stepResults.push({ label: outcome.label, status: "done", output: outcome.reply });
+        continue;
       }
-
-      try {
-        const { reply } = await runConversationalAgent({
-          agent: p.agent,
-          input: prompt,
-          stream: p.stream,
-          sendChunk: p.sendChunk,
-        });
-        outputs.push(reply);
-        updateWorkflowRunStepRow(p.db, runId, i, {
-          status: "done",
-          resultJson: JSON.stringify({ reply }),
-          finishedAt: Date.now(),
-        });
-        stepResults.push({ label, status: "done", output: reply });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        updateWorkflowRunStepRow(p.db, runId, i, {
-          status: "error",
-          resultJson: JSON.stringify({ error: msg }),
-          finishedAt: Date.now(),
-        });
-        stepResults.push({ label, status: "error", error: msg });
-        if (!step.continueOnError) {
-          finishWorkflowRunRow(p.db, runId, "error", Date.now(), msg);
-          return { runId, dryRun: false, stepResults };
-        }
+      stepResults.push({ label: outcome.label, status: "error", error: outcome.message });
+      if (outcome.halt) {
+        finishWorkflowRunRow(p.db, runId, "error", Date.now(), outcome.message);
+        return { runId, dryRun: false, stepResults };
       }
     }
 
