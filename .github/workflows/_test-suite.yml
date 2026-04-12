@@ -35,6 +35,30 @@ jobs:
         shell: bash
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
 
+      # macOS: sqlite-vec ships a native .dylib that bun install downloads from npm.
+      # Downloaded binaries receive a com.apple.quarantine xattr from macOS, which
+      # blocks dlopen / sqlite3_load_extension at runtime even in a CI sandbox.
+      # Strip the quarantine flag so LocalIndex schema migrations can load the extension.
+      - name: macOS — Strip quarantine from native SQLite extensions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: find node_modules -name "*.dylib" -print0 2>/dev/null | xargs -0 xattr -d com.apple.quarantine 2>/dev/null || true
+
+      # macOS: The system Keychain is locked in headless CI runners. Vault tests
+      # (darwin.ts DarwinKeychainVault) use SecKeychain* APIs that return
+      # errSecInteractionNotAllowed (-25308) against a locked keychain, causing
+      # vault.get / vault.set to throw. Create and unlock a temporary CI keychain.
+      - name: macOS — Create and unlock CI Keychain (vault / PAL tests)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          security create-keychain -p "" nimbus-ci.keychain
+          security list-keychains -d user -s nimbus-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s nimbus-ci.keychain
+          security unlock-keychain -p "" nimbus-ci.keychain
+          # Keep unlocked for the duration of the job (7200 s = 2 h, no auto-lock on sleep)
+          security set-keychain-settings -lut 7200 nimbus-ci.keychain
+
       - name: Typecheck
         run: bun run typecheck
 

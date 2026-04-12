@@ -3,7 +3,8 @@
     "allow": [
       "Bash(bun install:*)",
       "Bash(bun pm:*)",
-      "Bash(bun run:*)"
+      "Bash(bun run:*)",
+      "Bash(bun test:*)"
     ]
   },
   "hooks": {
