@@ -60,7 +60,7 @@ export class AnomalyDetectorStub {
     const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
     const variance = samples.reduce((a, b) => a + (b - mean) ** 2, 0) / samples.length;
     const sd = Math.sqrt(variance);
-    const denom = sd < 1e-9 ? 1e-9 : sd;
+    const denom = Math.max(sd, 1e-9);
     return Math.abs(value - mean) / denom;
   }
 }

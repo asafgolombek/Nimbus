@@ -900,91 +900,66 @@ async function connectorAuthOAuthPkce(
   };
 }
 
-export async function handleConnectorAuth(
-  ctx: ConnectorRpcHandlerContext,
-): Promise<ConnectorRpcHit> {
-  const { rec, vault, localIndex, openUrl } = ctx;
-  const id = parseServiceArg(rec);
-  if (id === "github") {
-    return connectorAuthGithub(rec, vault, localIndex);
-  }
-  if (id === "gitlab") {
-    return connectorAuthGitlab(rec, vault, localIndex);
-  }
-  if (id === "linear") {
-    return connectorAuthLinear(rec, vault, localIndex);
-  }
-  if (id === "jira") {
-    const creds = parseAtlassianSiteCredentials(rec, {
+type PatConnectorAuthHandler = (ctx: ConnectorRpcHandlerContext) => Promise<ConnectorRpcHit>;
+
+const PAT_CONNECTOR_AUTH_HANDLERS: Partial<Record<ConnectorServiceId, PatConnectorAuthHandler>> = {
+  github: (c) => connectorAuthGithub(c.rec, c.vault, c.localIndex),
+  gitlab: (c) => connectorAuthGitlab(c.rec, c.vault, c.localIndex),
+  linear: (c) => connectorAuthLinear(c.rec, c.vault, c.localIndex),
+  bitbucket: (c) => connectorAuthBitbucket(c.rec, c.vault, c.localIndex),
+  discord: (c) => connectorAuthDiscord(c.rec, c.vault, c.localIndex),
+  jenkins: (c) => connectorAuthJenkins(c.rec, c.vault, c.localIndex),
+  circleci: (c) => connectorAuthCircleci(c.rec, c.vault, c.localIndex),
+  pagerduty: (c) => connectorAuthPagerduty(c.rec, c.vault, c.localIndex),
+  kubernetes: (c) => connectorAuthKubernetes(c.rec, c.vault, c.localIndex),
+  aws: (c) => connectorAuthAws(c.rec, c.vault, c.localIndex),
+  azure: (c) => connectorAuthAzure(c.rec, c.vault, c.localIndex),
+  gcp: (c) => connectorAuthGcp(c.rec, c.vault, c.localIndex),
+  iac: (c) => connectorAuthIac(c.rec, c.vault, c.localIndex),
+  grafana: (c) => connectorAuthGrafana(c.rec, c.vault, c.localIndex),
+  sentry: (c) => connectorAuthSentry(c.rec, c.vault, c.localIndex),
+  newrelic: (c) => connectorAuthNewrelic(c.rec, c.vault, c.localIndex),
+  datadog: (c) => connectorAuthDatadog(c.rec, c.vault, c.localIndex),
+  jira: async (c) => {
+    const creds = parseAtlassianSiteCredentials(c.rec, {
       missingEmail: "Missing Atlassian account email for jira (atlassianEmail)",
       missingToken: "Missing API token for jira",
       missingBase:
         "Missing Jira site base URL for jira (apiBaseUrl), e.g. https://your-domain.atlassian.net",
     });
     const value = await registerAtlassianApiConnectorAuth({
-      vault,
-      localIndex,
+      vault: c.vault,
+      localIndex: c.localIndex,
       serviceId: "jira",
       creds,
     });
     return { kind: "hit", value };
-  }
-  if (id === "confluence") {
-    const creds = parseAtlassianSiteCredentials(rec, {
+  },
+  confluence: async (c) => {
+    const creds = parseAtlassianSiteCredentials(c.rec, {
       missingEmail: "Missing Atlassian account email for confluence (atlassianEmail)",
       missingToken: "Missing API token for confluence",
       missingBase:
         "Missing Confluence site base URL (apiBaseUrl), e.g. https://your-domain.atlassian.net",
     });
     const value = await registerAtlassianApiConnectorAuth({
-      vault,
-      localIndex,
+      vault: c.vault,
+      localIndex: c.localIndex,
       serviceId: "confluence",
       creds,
     });
     return { kind: "hit", value };
-  }
-  if (id === "bitbucket") {
-    return connectorAuthBitbucket(rec, vault, localIndex);
-  }
-  if (id === "discord") {
-    return connectorAuthDiscord(rec, vault, localIndex);
-  }
-  if (id === "jenkins") {
-    return connectorAuthJenkins(rec, vault, localIndex);
-  }
-  if (id === "circleci") {
-    return connectorAuthCircleci(rec, vault, localIndex);
-  }
-  if (id === "pagerduty") {
-    return connectorAuthPagerduty(rec, vault, localIndex);
-  }
-  if (id === "kubernetes") {
-    return connectorAuthKubernetes(rec, vault, localIndex);
-  }
-  if (id === "aws") {
-    return connectorAuthAws(rec, vault, localIndex);
-  }
-  if (id === "azure") {
-    return connectorAuthAzure(rec, vault, localIndex);
-  }
-  if (id === "gcp") {
-    return connectorAuthGcp(rec, vault, localIndex);
-  }
-  if (id === "iac") {
-    return connectorAuthIac(rec, vault, localIndex);
-  }
-  if (id === "grafana") {
-    return connectorAuthGrafana(rec, vault, localIndex);
-  }
-  if (id === "sentry") {
-    return connectorAuthSentry(rec, vault, localIndex);
-  }
-  if (id === "newrelic") {
-    return connectorAuthNewrelic(rec, vault, localIndex);
-  }
-  if (id === "datadog") {
-    return connectorAuthDatadog(rec, vault, localIndex);
+  },
+};
+
+export async function handleConnectorAuth(
+  ctx: ConnectorRpcHandlerContext,
+): Promise<ConnectorRpcHit> {
+  const { rec, vault, localIndex, openUrl } = ctx;
+  const id = parseServiceArg(rec);
+  const patHandler = PAT_CONNECTOR_AUTH_HANDLERS[id];
+  if (patHandler !== undefined) {
+    return patHandler(ctx);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }

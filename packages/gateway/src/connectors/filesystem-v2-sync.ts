@@ -307,44 +307,62 @@ function syncFilesystemCodeSymbolsForRoot(
 
 const CODE_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
+function readDirectoryDirentsOrUndefined(dir: string): Dirent[] | undefined {
+  try {
+    return readdirSync(dir, { withFileTypes: true }) as Dirent[];
+  } catch {
+    return undefined;
+  }
+}
+
+function pushIfCodeExtensionFile(name: string, full: string, found: string[]): void {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  const ext = dot >= 0 ? lower.slice(dot) : "";
+  if (CODE_EXT.has(ext)) {
+    found.push(full);
+  }
+}
+
+function walkCodeFilesRecursive(
+  root: string,
+  exclude: readonly string[],
+  maxFiles: number,
+  found: string[],
+  dir: string,
+  depth: number,
+): void {
+  if (found.length >= maxFiles || depth > 10) {
+    return;
+  }
+  const entries = readDirectoryDirentsOrUndefined(dir);
+  if (entries === undefined) {
+    return;
+  }
+  for (const ent of entries) {
+    if (found.length >= maxFiles) {
+      return;
+    }
+    const name = String(ent.name);
+    if (exclude.includes(name)) {
+      continue;
+    }
+    const full = join(dir, name);
+    const rel = relative(root, full);
+    if (isExcluded(rel, exclude)) {
+      continue;
+    }
+    if (ent.isDirectory()) {
+      walkCodeFilesRecursive(root, exclude, maxFiles, found, full, depth + 1);
+    } else if (ent.isFile()) {
+      pushIfCodeExtensionFile(name, full, found);
+    }
+  }
+}
+
 function listCodeFiles(root: string, exclude: readonly string[], maxFiles: number): string[] {
   const found: string[] = [];
-  const walk = (dir: string, depth: number): void => {
-    if (found.length >= maxFiles || depth > 10) {
-      return;
-    }
-    let entries: Dirent[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true }) as Dirent[];
-    } catch {
-      return;
-    }
-    for (const ent of entries) {
-      if (found.length >= maxFiles) {
-        return;
-      }
-      const name = String(ent.name);
-      if (exclude.includes(name)) {
-        continue;
-      }
-      const full = join(dir, name);
-      const rel = relative(root, full);
-      if (isExcluded(rel, exclude)) {
-        continue;
-      }
-      if (ent.isDirectory()) {
-        walk(full, depth + 1);
-      } else if (ent.isFile()) {
-        const lower = name.toLowerCase();
-        const dot = lower.lastIndexOf(".");
-        const ext = dot >= 0 ? lower.slice(dot) : "";
-        if (CODE_EXT.has(ext)) {
-          found.push(full);
-        }
-      }
-    }
-  };
-  walk(root, 0);
+  walkCodeFilesRecursive(root, exclude, maxFiles, found, root, 0);
   return found;
 }
 

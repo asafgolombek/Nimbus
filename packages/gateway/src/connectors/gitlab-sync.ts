@@ -394,6 +394,124 @@ function listGitlabProjectsFromIndex(db: import("bun:sqlite").Database): string[
   return out;
 }
 
+function applyGitlabPipelineArray(
+  ctx: SyncContext,
+  parsedRoot: unknown[],
+  path: string,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+  webOrigin: string,
+): { upserted: number; maxId: number } {
+  let maxId = lastSeen;
+  let upserted = 0;
+  for (const item of parsedRoot) {
+    const row = asRecord(item);
+    if (row === undefined) {
+      continue;
+    }
+    const id = numberField(row, "id");
+    if (id === undefined) {
+      continue;
+    }
+    if (id <= lastSeen) {
+      break;
+    }
+    const createdRaw = stringField(row, "created_at");
+    const createdMs = createdRaw === undefined ? Number.NaN : Date.parse(createdRaw);
+    if (Number.isFinite(createdMs) && createdMs < floorMs) {
+      continue;
+    }
+    const status = stringField(row, "status");
+    const ref = stringField(row, "ref");
+    const webUrl = stringField(row, "web_url");
+    const duration = numberField(row, "duration");
+    const sha = stringField(row, "sha");
+    const titleBase =
+      ref !== undefined && ref !== "" ? `Pipeline on ${ref}` : `Pipeline #${String(id)}`;
+    const title = status !== undefined && status !== "" ? `${titleBase} — ${status}` : titleBase;
+    const externalId = `${path}#pipeline-${String(id)}`;
+    const modifiedAt = Number.isFinite(createdMs) ? createdMs : now;
+    const linkUrl = webUrl ?? `${webOrigin}/${path}/-/pipelines/${String(id)}`;
+    const meta: Record<string, unknown> = {
+      project: path,
+      pipelineId: id,
+      status: status ?? null,
+      ref: ref ?? null,
+      duration: duration ?? null,
+      sha: sha ?? null,
+    };
+    upsertIndexedItemForSync(ctx, {
+      service: SERVICE_ID,
+      type: "ci_run",
+      externalId,
+      title: title.length > 512 ? title.slice(0, 512) : title,
+      bodyPreview: "",
+      url: webUrl ?? null,
+      canonicalUrl: linkUrl,
+      modifiedAt,
+      authorId: null,
+      metadata: meta,
+      pinned: false,
+      syncedAt: now,
+    });
+    upserted += 1;
+    if (id > maxId) {
+      maxId = id;
+    }
+  }
+  return { upserted, maxId };
+}
+
+async function syncGitlabPipelinesForOneProject(
+  ctx: SyncContext,
+  pat: string,
+  apiBase: string,
+  webOrigin: string,
+  path: string,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+): Promise<{ upserted: number; bytes: number; maxId: number }> {
+  await ctx.rateLimiter.acquire("gitlab");
+  const enc = encodeURIComponent(path);
+  const u = new URL(`${apiBase}/projects/${enc}/pipelines`);
+  u.searchParams.set("per_page", "25");
+  u.searchParams.set("order_by", "id");
+  u.searchParams.set("sort", "desc");
+  const res = await fetch(u.toString(), {
+    headers: { "PRIVATE-TOKEN": pat },
+  });
+  const text = await res.text();
+  const bytes = text.length;
+  if (res.status === 429) {
+    const ra = res.headers.get("retry-after");
+    const sec = ra === null ? 60 : Number.parseInt(ra, 10);
+    const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
+    ctx.rateLimiter.penalise("gitlab", ms);
+    ctx.logger.warn({ serviceId: SERVICE_ID, project: path }, "gitlab pipeline sync: rate limited");
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  if (!res.ok) {
+    ctx.logger.warn(
+      { serviceId: SERVICE_ID, project: path, status: res.status },
+      "gitlab pipeline sync: list failed",
+    );
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  let parsedRoot: unknown;
+  try {
+    parsedRoot = JSON.parse(text) as unknown;
+  } catch {
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  if (!Array.isArray(parsedRoot)) {
+    return { upserted: 0, bytes, maxId: lastSeen };
+  }
+  const r = applyGitlabPipelineArray(ctx, parsedRoot, path, lastSeen, floorMs, now, webOrigin);
+  return { upserted: r.upserted, bytes, maxId: r.maxId };
+}
+
 async function syncGitlabPipelinesForIndexedProjects(
   ctx: SyncContext,
   pat: string,
@@ -414,101 +532,19 @@ async function syncGitlabPipelinesForIndexedProjects(
     }
     scanned += 1;
     const lastSeen = next[path] ?? 0;
-    await ctx.rateLimiter.acquire("gitlab");
-    const enc = encodeURIComponent(path);
-    const u = new URL(`${apiBase}/projects/${enc}/pipelines`);
-    u.searchParams.set("per_page", "25");
-    u.searchParams.set("order_by", "id");
-    u.searchParams.set("sort", "desc");
-    const res = await fetch(u.toString(), {
-      headers: { "PRIVATE-TOKEN": pat },
-    });
-    const text = await res.text();
-    bytes += text.length;
-    if (res.status === 429) {
-      const ra = res.headers.get("retry-after");
-      const sec = ra === null ? 60 : Number.parseInt(ra, 10);
-      const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
-      ctx.rateLimiter.penalise("gitlab", ms);
-      ctx.logger.warn(
-        { serviceId: SERVICE_ID, project: path },
-        "gitlab pipeline sync: rate limited",
-      );
-      continue;
-    }
-    if (!res.ok) {
-      ctx.logger.warn(
-        { serviceId: SERVICE_ID, project: path, status: res.status },
-        "gitlab pipeline sync: list failed",
-      );
-      continue;
-    }
-    let parsedRoot: unknown;
-    try {
-      parsedRoot = JSON.parse(text) as unknown;
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(parsedRoot)) {
-      continue;
-    }
-    let maxId = lastSeen;
-    for (const item of parsedRoot) {
-      const row = asRecord(item);
-      if (row === undefined) {
-        continue;
-      }
-      const id = numberField(row, "id");
-      if (id === undefined) {
-        continue;
-      }
-      if (id <= lastSeen) {
-        break;
-      }
-      const createdRaw = stringField(row, "created_at");
-      const createdMs = createdRaw === undefined ? Number.NaN : Date.parse(createdRaw);
-      if (Number.isFinite(createdMs) && createdMs < floorMs) {
-        continue;
-      }
-      const status = stringField(row, "status");
-      const ref = stringField(row, "ref");
-      const webUrl = stringField(row, "web_url");
-      const duration = numberField(row, "duration");
-      const sha = stringField(row, "sha");
-      const titleBase =
-        ref !== undefined && ref !== "" ? `Pipeline on ${ref}` : `Pipeline #${String(id)}`;
-      const title = status !== undefined && status !== "" ? `${titleBase} — ${status}` : titleBase;
-      const externalId = `${path}#pipeline-${String(id)}`;
-      const modifiedAt = Number.isFinite(createdMs) ? createdMs : now;
-      const linkUrl = webUrl ?? `${webOrigin}/${path}/-/pipelines/${String(id)}`;
-      const meta: Record<string, unknown> = {
-        project: path,
-        pipelineId: id,
-        status: status ?? null,
-        ref: ref ?? null,
-        duration: duration ?? null,
-        sha: sha ?? null,
-      };
-      upsertIndexedItemForSync(ctx, {
-        service: SERVICE_ID,
-        type: "ci_run",
-        externalId,
-        title: title.length > 512 ? title.slice(0, 512) : title,
-        bodyPreview: "",
-        url: webUrl ?? null,
-        canonicalUrl: linkUrl,
-        modifiedAt,
-        authorId: null,
-        metadata: meta,
-        pinned: false,
-        syncedAt: now,
-      });
-      upserted += 1;
-      if (id > maxId) {
-        maxId = id;
-      }
-    }
-    next[path] = maxId;
+    const r = await syncGitlabPipelinesForOneProject(
+      ctx,
+      pat,
+      apiBase,
+      webOrigin,
+      path,
+      lastSeen,
+      floorMs,
+      now,
+    );
+    bytes += r.bytes;
+    upserted += r.upserted;
+    next[path] = r.maxId;
   }
   return { upserted, bytes, pipelines: next };
 }

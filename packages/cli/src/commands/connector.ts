@@ -883,43 +883,128 @@ function applyJenkinsConnectorAuth(
   p.apiBaseUrl = stripTrailingSlashes(baseRaw);
 }
 
-async function runConnectorAuth(tail: string[]): Promise<void> {
-  const {
-    rest,
-    port,
-    scopes,
-    token,
-    username,
-    apiBase,
-    kubeconfig,
-    kubeContext,
-    enable,
-    help,
-    awsAccessKey,
-    awsSecretKey,
-    awsRegion,
-    awsProfile,
-    azureTenantId,
-    azureClientId,
-    azureClientSecret,
-    gcpCredentialsJson,
-    gcpProjectId,
-    sentryOrg,
-    sentryUrl,
-    newrelicAccountId,
-    datadogApiKey,
-    datadogAppKey,
-    datadogSite,
-  } = parseFlags(tail);
-  const service = rest[0];
+type ConnectorPatAuthParamApplier = (p: ConnectorAuthParams, f: ConnectorFlags) => void;
 
-  if (help === true) {
+const CONNECTOR_AUTH_PARAM_APPLIERS: Record<string, ConnectorPatAuthParamApplier> = {
+  linear: (p, f) => applyLinearConnectorAuth(p, f.token),
+  github: (p, f) => applyGithubConnectorAuth(p, f.token),
+  circleci: (p, f) => applyCircleciConnectorAuth(p, f.token),
+  pagerduty: (p, f) => applyPagerdutyConnectorAuth(p, f.token),
+  kubernetes: (p, f) => applyKubernetesConnectorAuth(p, f.kubeconfig, f.kubeContext),
+  aws: (p, f) => {
+    const awsFlags: {
+      awsAccessKey?: string;
+      awsSecretKey?: string;
+      awsRegion?: string;
+      awsProfile?: string;
+    } = {};
+    if (f.awsAccessKey !== undefined) {
+      awsFlags.awsAccessKey = f.awsAccessKey;
+    }
+    if (f.awsSecretKey !== undefined) {
+      awsFlags.awsSecretKey = f.awsSecretKey;
+    }
+    if (f.awsRegion !== undefined) {
+      awsFlags.awsRegion = f.awsRegion;
+    }
+    if (f.awsProfile !== undefined) {
+      awsFlags.awsProfile = f.awsProfile;
+    }
+    applyAwsConnectorAuth(p, awsFlags);
+  },
+  azure: (p, f) => {
+    const azFlags: {
+      azureTenantId?: string;
+      azureClientId?: string;
+      azureClientSecret?: string;
+    } = {};
+    if (f.azureTenantId !== undefined) {
+      azFlags.azureTenantId = f.azureTenantId;
+    }
+    if (f.azureClientId !== undefined) {
+      azFlags.azureClientId = f.azureClientId;
+    }
+    if (f.azureClientSecret !== undefined) {
+      azFlags.azureClientSecret = f.azureClientSecret;
+    }
+    applyAzureConnectorAuth(p, azFlags);
+  },
+  gcp: (p, f) => {
+    const gcpFlags: { gcpCredentialsJson?: string; gcpProjectId?: string } = {};
+    if (f.gcpCredentialsJson !== undefined) {
+      gcpFlags.gcpCredentialsJson = f.gcpCredentialsJson;
+    }
+    if (f.gcpProjectId !== undefined) {
+      gcpFlags.gcpProjectId = f.gcpProjectId;
+    }
+    applyGcpConnectorAuth(p, gcpFlags);
+  },
+  iac: (p, f) => applyIacConnectorAuth(p, f.enable),
+  grafana: (p, f) => applyGrafanaConnectorAuth(p, f.token, f.apiBase),
+  sentry: (p, f) => {
+    const seFlags: { sentryOrg?: string; sentryUrl?: string } = {};
+    if (f.sentryOrg !== undefined) {
+      seFlags.sentryOrg = f.sentryOrg;
+    }
+    if (f.sentryUrl !== undefined) {
+      seFlags.sentryUrl = f.sentryUrl;
+    }
+    applySentryConnectorAuth(p, f.token, seFlags);
+  },
+  newrelic: (p, f) => {
+    const nrFlags: { newrelicAccountId?: string } = {};
+    if (f.newrelicAccountId !== undefined) {
+      nrFlags.newrelicAccountId = f.newrelicAccountId;
+    }
+    applyNewrelicConnectorAuth(p, f.token, nrFlags);
+  },
+  datadog: (p, f) => {
+    const ddFlags: {
+      datadogApiKey?: string;
+      datadogAppKey?: string;
+      datadogSite?: string;
+    } = {};
+    if (f.datadogApiKey !== undefined) {
+      ddFlags.datadogApiKey = f.datadogApiKey;
+    }
+    if (f.datadogAppKey !== undefined) {
+      ddFlags.datadogAppKey = f.datadogAppKey;
+    }
+    if (f.datadogSite !== undefined) {
+      ddFlags.datadogSite = f.datadogSite;
+    }
+    applyDatadogConnectorAuth(p, ddFlags);
+  },
+  gitlab: (p, f) => applyGitlabConnectorAuth(p, f.token, f.apiBase),
+  bitbucket: (p, f) => applyBitbucketConnectorAuth(p, f.token, f.username),
+  discord: (p, f) => applyDiscordConnectorAuth(p, f.token, f.enable),
+  jira: (p, f) => applyJiraConnectorAuth(p, f.token, f.username, f.apiBase),
+  confluence: (p, f) => applyConfluenceConnectorAuth(p, f.token, f.username, f.apiBase),
+  jenkins: (p, f) => applyJenkinsConnectorAuth(p, f.token, f.username, f.apiBase),
+};
+
+function applyConnectorAuthParamsForService(
+  normalized: string,
+  params: ConnectorAuthParams,
+  f: ConnectorFlags,
+): void {
+  const applier = CONNECTOR_AUTH_PARAM_APPLIERS[normalized];
+  if (applier !== undefined) {
+    applier(params, f);
+  }
+}
+
+async function runConnectorAuth(tail: string[]): Promise<void> {
+  const f = parseFlags(tail);
+  const service = f.rest[0];
+
+  if (f.help === true) {
     if (service === undefined) {
       printConnectorAuthHelpPointer();
       return;
     }
-    const normalized = service.trim().toLowerCase().replaceAll("-", "_");
-    printConnectorAuthServiceHelp(normalized);
+    const normalizedHelp = service.trim().toLowerCase().replaceAll("-", "_");
+    printConnectorAuthServiceHelp(normalizedHelp);
     return;
   }
 
@@ -929,144 +1014,14 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     );
   }
   const params: ConnectorAuthParams = { service };
-  if (port !== undefined) {
-    params.port = port;
+  if (f.port !== undefined) {
+    params.port = f.port;
   }
-  if (scopes !== undefined) {
-    params.scopes = scopes;
+  if (f.scopes !== undefined) {
+    params.scopes = f.scopes;
   }
   const normalized = service.trim().toLowerCase().replaceAll("-", "_");
-  switch (normalized) {
-    case "linear":
-      applyLinearConnectorAuth(params, token);
-      break;
-    case "github":
-      applyGithubConnectorAuth(params, token);
-      break;
-    case "circleci":
-      applyCircleciConnectorAuth(params, token);
-      break;
-    case "pagerduty":
-      applyPagerdutyConnectorAuth(params, token);
-      break;
-    case "kubernetes":
-      applyKubernetesConnectorAuth(params, kubeconfig, kubeContext);
-      break;
-    case "aws": {
-      const awsFlags: {
-        awsAccessKey?: string;
-        awsSecretKey?: string;
-        awsRegion?: string;
-        awsProfile?: string;
-      } = {};
-      if (awsAccessKey !== undefined) {
-        awsFlags.awsAccessKey = awsAccessKey;
-      }
-      if (awsSecretKey !== undefined) {
-        awsFlags.awsSecretKey = awsSecretKey;
-      }
-      if (awsRegion !== undefined) {
-        awsFlags.awsRegion = awsRegion;
-      }
-      if (awsProfile !== undefined) {
-        awsFlags.awsProfile = awsProfile;
-      }
-      applyAwsConnectorAuth(params, awsFlags);
-      break;
-    }
-    case "azure": {
-      const azFlags: {
-        azureTenantId?: string;
-        azureClientId?: string;
-        azureClientSecret?: string;
-      } = {};
-      if (azureTenantId !== undefined) {
-        azFlags.azureTenantId = azureTenantId;
-      }
-      if (azureClientId !== undefined) {
-        azFlags.azureClientId = azureClientId;
-      }
-      if (azureClientSecret !== undefined) {
-        azFlags.azureClientSecret = azureClientSecret;
-      }
-      applyAzureConnectorAuth(params, azFlags);
-      break;
-    }
-    case "gcp": {
-      const gcpFlags: { gcpCredentialsJson?: string; gcpProjectId?: string } = {};
-      if (gcpCredentialsJson !== undefined) {
-        gcpFlags.gcpCredentialsJson = gcpCredentialsJson;
-      }
-      if (gcpProjectId !== undefined) {
-        gcpFlags.gcpProjectId = gcpProjectId;
-      }
-      applyGcpConnectorAuth(params, gcpFlags);
-      break;
-    }
-    case "iac":
-      applyIacConnectorAuth(params, enable);
-      break;
-    case "grafana":
-      applyGrafanaConnectorAuth(params, token, apiBase);
-      break;
-    case "sentry": {
-      const seFlags: { sentryOrg?: string; sentryUrl?: string } = {};
-      if (sentryOrg !== undefined) {
-        seFlags.sentryOrg = sentryOrg;
-      }
-      if (sentryUrl !== undefined) {
-        seFlags.sentryUrl = sentryUrl;
-      }
-      applySentryConnectorAuth(params, token, seFlags);
-      break;
-    }
-    case "newrelic": {
-      const nrFlags: { newrelicAccountId?: string } = {};
-      if (newrelicAccountId !== undefined) {
-        nrFlags.newrelicAccountId = newrelicAccountId;
-      }
-      applyNewrelicConnectorAuth(params, token, nrFlags);
-      break;
-    }
-    case "datadog": {
-      const ddFlags: {
-        datadogApiKey?: string;
-        datadogAppKey?: string;
-        datadogSite?: string;
-      } = {};
-      if (datadogApiKey !== undefined) {
-        ddFlags.datadogApiKey = datadogApiKey;
-      }
-      if (datadogAppKey !== undefined) {
-        ddFlags.datadogAppKey = datadogAppKey;
-      }
-      if (datadogSite !== undefined) {
-        ddFlags.datadogSite = datadogSite;
-      }
-      applyDatadogConnectorAuth(params, ddFlags);
-      break;
-    }
-    case "gitlab":
-      applyGitlabConnectorAuth(params, token, apiBase);
-      break;
-    case "bitbucket":
-      applyBitbucketConnectorAuth(params, token, username);
-      break;
-    case "discord":
-      applyDiscordConnectorAuth(params, token, enable);
-      break;
-    case "jira":
-      applyJiraConnectorAuth(params, token, username, apiBase);
-      break;
-    case "confluence":
-      applyConfluenceConnectorAuth(params, token, username, apiBase);
-      break;
-    case "jenkins":
-      applyJenkinsConnectorAuth(params, token, username, apiBase);
-      break;
-    default:
-      break;
-  }
+  applyConnectorAuthParamsForService(normalized, params, f);
   const res = await withIpc((c) =>
     c.call<{ ok: boolean; serviceId: string; scopesGranted: string[] }>("connector.auth", params),
   );
