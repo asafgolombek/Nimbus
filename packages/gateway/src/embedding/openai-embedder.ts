@@ -54,7 +54,9 @@ export async function createOpenAIEmbedder(
         out.push(new Float32Array(emb.map(Number)));
       }
       if (out.length !== texts.length) {
-        throw new Error(`OpenAI returned ${String(out.length)} embeddings for ${String(texts.length)} inputs`);
+        throw new Error(
+          `OpenAI returned ${String(out.length)} embeddings for ${String(texts.length)} inputs`,
+        );
       }
       return out;
     },

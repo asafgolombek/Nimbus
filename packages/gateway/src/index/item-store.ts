@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
-import { deleteGraphEntitiesForItemKeys } from "../graph/relationship-graph.ts";
 import { syncGraphFromIndexedItem } from "../graph/graph-populator.ts";
+import { deleteGraphEntitiesForItemKeys } from "../graph/relationship-graph.ts";
 import type { SyncContext } from "../sync/types.ts";
 import { RAW_META_MAX_BYTES } from "./constants.ts";
 

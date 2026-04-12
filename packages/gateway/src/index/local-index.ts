@@ -8,9 +8,9 @@ import {
   servicePriorityScore,
 } from "../engine/search-ranking.ts";
 import {
-  traverseGraph as traverseGraphSubgraph,
   type TraverseGraphOptions,
   type TraverseGraphResult,
+  traverseGraph as traverseGraphSubgraph,
 } from "../graph/relationship-graph.ts";
 import { prunePeopleAfterServiceRemoval } from "../people/prune.ts";
 import { hybridSearch } from "../search/hybrid.ts";
@@ -37,9 +37,9 @@ import { readIndexedUserVersion, runIndexedSchemaMigrations } from "./migrations
 import type { RankedIndexItem } from "./ranked-item.ts";
 import { ensureSqliteVecForConnection } from "./sqlite-vec-load.ts";
 
+export type { TraverseGraphOptions, TraverseGraphResult } from "../graph/relationship-graph.ts";
 export { RAW_META_MAX_BYTES } from "./constants.ts";
 export type { RankedIndexItem } from "./ranked-item.ts";
-export type { TraverseGraphOptions, TraverseGraphResult } from "../graph/relationship-graph.ts";
 
 export type SearchRankOptions = {
   nowMs?: number;

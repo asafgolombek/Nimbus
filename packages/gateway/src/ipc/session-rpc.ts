@@ -64,7 +64,8 @@ export async function dispatchSessionRpc(options: {
       return { kind: "hit", value: { sessions: store.listSessions() } };
     }
     case "session.clear": {
-      const sid = rec !== undefined && typeof rec["sessionId"] === "string" ? rec["sessionId"].trim() : "";
+      const sid =
+        rec !== undefined && typeof rec["sessionId"] === "string" ? rec["sessionId"].trim() : "";
       if (sid === "") {
         for (const s of store.listSessions()) {
           store.deleteSession(s.sessionId);

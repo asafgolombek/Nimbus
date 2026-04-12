@@ -21,7 +21,10 @@ export async function runSession(args: string[]): Promise<void> {
     }
     if (sub === "clear") {
       const sid = args[1]?.trim();
-      const out = await client.call("session.clear", sid === undefined || sid === "" ? {} : { sessionId: sid });
+      const out = await client.call(
+        "session.clear",
+        sid === undefined || sid === "" ? {} : { sessionId: sid },
+      );
       console.log(JSON.stringify(out, undefined, 2));
       return;
     }
