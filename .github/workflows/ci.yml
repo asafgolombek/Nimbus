@@ -167,6 +167,7 @@ jobs:
           path: junit-reports/junit-*.xml
           reporter: java-junit
           fail-on-error: false
+          fail-on-empty: false
 
   # E2E Desktop (Playwright + Tauri WebDriver) — push to main only, full OS matrix
   e2e-desktop:
@@ -227,3 +228,4 @@ jobs:
           path: junit-reports/junit-*.xml
           reporter: java-junit
           fail-on-error: false
+          fail-on-empty: false

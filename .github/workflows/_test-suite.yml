@@ -123,3 +123,5 @@ jobs:
           path: junit-reports/junit-*.xml
           reporter: java-junit
           fail-on-error: false
+          # When earlier steps are skipped (e.g. path filters), no XML is produced — do not fail the job.
+          fail-on-empty: false

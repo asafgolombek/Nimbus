@@ -125,16 +125,19 @@ function tryEnqueueGraphNeighbor(
   frontier.push({ id: neighbor, d: nextDepth });
 }
 
-function expandGraphEdgesFromNode(
-  db: Database,
-  cur: { id: string; d: number },
-  maxDepth: number,
-  maxNodes: number,
-  typeFilter: string[] | null,
-  visitedEntityIds: Set<string>,
-  frontier: Array<{ id: string; d: number }>,
-  relationsOut: GraphRelationRow[],
-): void {
+type GraphBfsExpandContext = {
+  db: Database;
+  cur: { id: string; d: number };
+  maxDepth: number;
+  maxNodes: number;
+  typeFilter: string[] | null;
+  visitedEntityIds: Set<string>;
+  frontier: Array<{ id: string; d: number }>;
+  relationsOut: GraphRelationRow[];
+};
+
+function expandGraphEdgesFromNode(ctx: GraphBfsExpandContext): void {
+  const { db, cur, maxDepth, maxNodes, typeFilter, visitedEntityIds, frontier, relationsOut } = ctx;
   if (cur.d >= maxDepth) {
     return;
   }
@@ -169,7 +172,7 @@ function bfsCollectGraphRelations(
     if (cur === undefined) {
       break;
     }
-    expandGraphEdgesFromNode(
+    expandGraphEdgesFromNode({
       db,
       cur,
       maxDepth,
@@ -178,7 +181,7 @@ function bfsCollectGraphRelations(
       visitedEntityIds,
       frontier,
       relationsOut,
-    );
+    });
   }
 
   return { visitedEntityIds, relationsOut };
