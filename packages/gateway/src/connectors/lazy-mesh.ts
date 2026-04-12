@@ -48,6 +48,11 @@ function githubMcpScriptPath(): string {
   return join(here, "..", "..", "..", "mcp-connectors", "github", "src", "server.ts");
 }
 
+function githubActionsMcpScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "..", "mcp-connectors", "github-actions", "src", "server.ts");
+}
+
 function gitlabMcpScriptPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return join(here, "..", "..", "..", "mcp-connectors", "gitlab", "src", "server.ts");
@@ -106,7 +111,7 @@ async function listLazyMeshClientTools(client: MCPClient | undefined): Promise<L
 }
 
 /**
- * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence / Jenkins credential MCP when vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
+ * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub (includes GitHub Actions MCP child) / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence / Jenkins credential MCP when vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
@@ -689,6 +694,11 @@ export class LazyConnectorMesh {
         github: {
           command: "bun",
           args: [githubMcpScriptPath()],
+          env: { ...process.env, GITHUB_PAT: pat },
+        },
+        github_actions: {
+          command: "bun",
+          args: [githubActionsMcpScriptPath()],
           env: { ...process.env, GITHUB_PAT: pat },
         },
       },

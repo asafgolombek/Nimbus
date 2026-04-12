@@ -787,7 +787,7 @@ OAuth PKCE — set env vars before nimbus start, or run for setup steps:
 Env vars: NIMBUS_OAUTH_GOOGLE_CLIENT_ID, NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET (Web OAuth clients only), NIMBUS_OAUTH_MICROSOFT_CLIENT_ID, NIMBUS_OAUTH_SLACK_CLIENT_ID,
   NIMBUS_OAUTH_NOTION_CLIENT_ID, NIMBUS_OAUTH_NOTION_CLIENT_SECRET
 
-GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat).
+GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat). Also registers GitHub Actions sync (service id github_actions) with the same PAT.
 GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-base https://git.example.com/api/v4 (gitlab.api_base).
 Linear: use --token or env NIMBUS_LINEAR_API_KEY (linear.api_key).
 Jira: use --username (Atlassian email), --token (API token), --api-base https://your-domain.atlassian.net

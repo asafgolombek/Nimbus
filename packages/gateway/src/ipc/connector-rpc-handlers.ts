@@ -269,10 +269,17 @@ export async function handleConnectorRemove(
     microsoftOAuthBackup = await vault.get("microsoft.oauth");
   }
   if (syncScheduler !== undefined) {
+    if (id === "github") {
+      syncScheduler.unregister("github_actions");
+    }
     syncScheduler.unregister(id);
   }
   deleteUserMcpConnector(db, id);
-  const itemsDeleted = localIndex.removeConnectorIndexData(id);
+  let itemsDeleted = 0;
+  if (id === "github") {
+    itemsDeleted += localIndex.removeConnectorIndexData("github_actions");
+  }
+  itemsDeleted += localIndex.removeConnectorIndexData(id);
   let vaultKeys: string[] = [];
   try {
     vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
@@ -329,8 +336,11 @@ async function connectorAuthGithub(
     throw new ConnectorRpcError(-32602, "Missing personalAccessToken for github");
   }
   await vault.set("github.pat", token);
+  const now = Date.now();
   const interval = defaultSyncIntervalMsForService("github");
-  localIndex.ensureConnectorSchedulerRegistration("github", interval, Date.now());
+  localIndex.ensureConnectorSchedulerRegistration("github", interval, now);
+  const ghaInterval = defaultSyncIntervalMsForService("github_actions");
+  localIndex.ensureConnectorSchedulerRegistration("github_actions", ghaInterval, now);
   return authSuccess("github");
 }
 

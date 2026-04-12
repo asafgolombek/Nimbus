@@ -68,6 +68,8 @@ describe("HITL_REQUIRED", () => {
       "confluence.comment.add",
       "jenkins.build.trigger",
       "jenkins.build.abort",
+      "github_actions.run.trigger",
+      "github_actions.run.cancel",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -268,6 +270,21 @@ function hitlJenkinsRejectPayload(
   };
 }
 
+function hitlGithubActionsRejectPayload(
+  ghaAction: "github_actions.run.trigger" | "github_actions.run.cancel",
+): Record<string, unknown> {
+  if (ghaAction === "github_actions.run.trigger") {
+    return {
+      mcpToolId: "github_actions_gha_run_trigger",
+      input: { owner: "acme", repo: "app", workflowId: "ci.yml", ref: "main" },
+    };
+  }
+  return {
+    mcpToolId: "github_actions_gha_run_cancel",
+    input: { owner: "acme", repo: "app", runId: 99 },
+  };
+}
+
 function hitlConfluenceRejectPayload(
   confluenceAction: ConfluenceHitlRejectAction,
 ): Record<string, unknown> {
@@ -461,6 +478,21 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(jenkinsAction);
+    });
+  }
+
+  for (const ghaAction of ["github_actions.run.trigger", "github_actions.run.cancel"] as const) {
+    test(`rejected consent for ${ghaAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlGithubActionsRejectPayload(ghaAction);
+      const out = await exec.execute({ type: ghaAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(ghaAction);
     });
   }
 

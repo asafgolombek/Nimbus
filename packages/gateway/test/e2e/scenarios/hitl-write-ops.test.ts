@@ -11,6 +11,7 @@
  *   - Notion (notion.page.create, notion.page.update, notion.block.append, notion.comment.create)
  *   - Confluence (confluence.page.create, confluence.page.update, confluence.comment.add)
  *   - Jenkins (jenkins.build.trigger, jenkins.build.abort)
+ *   - GitHub Actions (github_actions.run.trigger, github_actions.run.cancel)
  *
  * No subprocess, no cloud.  Uses the real ToolExecutor with mock consent / audit / dispatcher.
  */
@@ -45,6 +46,8 @@ const Q2_WRITE_ACTIONS: ReadonlyArray<string> = [
   "confluence.comment.add",
   "jenkins.build.trigger",
   "jenkins.build.abort",
+  "github_actions.run.trigger",
+  "github_actions.run.cancel",
 ];
 
 /** Minimal representative payload for each write action type. */
@@ -138,6 +141,16 @@ function payloadFor(actionType: string): Record<string, unknown> {
       return {
         mcpToolId: "jenkins_jenkins_build_abort",
         input: { jobName: "my-folder/my-job", buildNumber: 7 },
+      };
+    case "github_actions.run.trigger":
+      return {
+        mcpToolId: "github_actions_gha_run_trigger",
+        input: { owner: "org", repo: "svc", workflowId: "build.yml", ref: "main" },
+      };
+    case "github_actions.run.cancel":
+      return {
+        mcpToolId: "github_actions_gha_run_cancel",
+        input: { owner: "org", repo: "svc", runId: 12345 },
       };
     default:
       return {};

@@ -10,6 +10,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "teams",
   "slack",
   "github",
+  "github_actions",
   "gitlab",
   "bitbucket",
   "linear",
@@ -58,6 +59,7 @@ export function defaultSyncIntervalMsForService(serviceId: ConnectorServiceId): 
     case "google_photos":
       return 6 * 60 * 60 * 1000;
     case "github":
+    case "github_actions":
     case "gitlab":
     case "bitbucket":
     case "linear":
@@ -155,6 +157,10 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "github":
       throw new Error(
         "oauthProfileForService: github uses a PAT (connector.auth personalAccessToken)",
+      );
+    case "github_actions":
+      throw new Error(
+        "oauthProfileForService: github_actions uses the same PAT as github (connector.auth github)",
       );
     case "gitlab":
       throw new Error(

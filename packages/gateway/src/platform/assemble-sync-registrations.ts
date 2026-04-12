@@ -1,6 +1,7 @@
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
 import { createConfluenceSyncable } from "../connectors/confluence-sync.ts";
 import { createDiscordSyncable } from "../connectors/discord-sync.ts";
+import { createGithubActionsSyncable } from "../connectors/github-actions-sync.ts";
 import { createGithubSyncable } from "../connectors/github-sync.ts";
 import { createGitlabSyncable } from "../connectors/gitlab-sync.ts";
 import { createGmailSyncable } from "../connectors/gmail-sync.ts";
@@ -49,6 +50,11 @@ export function registerConnectorMeshSyncables(
   );
   syncScheduler.register(
     createGithubSyncable({
+      ensureGithubMcpRunning: () => connectorMesh.ensureGithubRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createGithubActionsSyncable({
       ensureGithubMcpRunning: () => connectorMesh.ensureGithubRunning(),
     }),
   );

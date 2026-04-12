@@ -26,7 +26,7 @@
 | `nimbus extension install/list/enable/disable/remove` | **Done** | CLI `extension.ts`; IPC `extension.*`; local path install + `extensionsDir` copy |
 | `nimbus connector add --mcp "<cmd>"` (generic user MCP) | **Done** | `user_mcp_connector` schema v11; IPC `connector.addMcp`; lazy mesh spawn + noop sync |
 | Jenkins MCP connector + sync | **Done** | `packages/mcp-connectors/jenkins/`; `jenkins-sync.ts`; lazy mesh + `assemble-sync-registrations`; `connector.auth` jenkins; HITL `jenkins.build.*` |
-| GitHub Actions MCP connector + sync | Planned | |
+| GitHub Actions MCP connector + sync | **Done** | `packages/mcp-connectors/github-actions/` (spawn with GitHub MCP); `github-actions-sync.ts`; `github_actions` scheduler + companion registration; HITL `github_actions.run.*` |
 | CircleCI MCP connector + sync | Planned | |
 | GitLab CI MCP connector + sync (extends GitLab connector) | Planned | |
 | AWS MCP connector + sync | Planned | |

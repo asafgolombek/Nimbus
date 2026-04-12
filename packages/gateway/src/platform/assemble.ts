@@ -5,6 +5,7 @@ import { evaluateWatchersAfterSync } from "../automation/watcher-engine.ts";
 import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromConfigDir } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
+import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
@@ -87,6 +88,14 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     localIndex = new LocalIndex(db, localIndexOpts);
   } else {
     localIndex = new LocalIndex(db);
+  }
+  {
+    const pat = await vault.get("github.pat");
+    localIndex.ensureGithubActionsSchedulerCompanionIfNeeded({
+      githubPatPresent: pat !== null && pat !== "",
+      now: Date.now(),
+      intervalMs: defaultSyncIntervalMsForService("github_actions"),
+    });
   }
   const syncBase: SyncContext = { vault, db, logger: syncLogger, rateLimiter };
   let syncContext: SyncContext;

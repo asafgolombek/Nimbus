@@ -84,6 +84,9 @@ export type McpToolListingClient = {
  *
  * Jenkins (HITL): `jenkins.build.trigger` → `jenkins_jenkins_build_trigger`;
  * `jenkins.build.abort` → `jenkins_jenkins_build_abort`.
+ *
+ * GitHub Actions (HITL): `github_actions.run.trigger` → `github_actions_gha_run_trigger`;
+ * `github_actions.run.cancel` → `github_actions_gha_run_cancel`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

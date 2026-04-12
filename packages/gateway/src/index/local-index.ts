@@ -305,6 +305,27 @@ export class LocalIndex {
     upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, false);
   }
 
+  /**
+   * When GitHub is already registered and a PAT is present, ensure the companion `github_actions`
+   * scheduler row exists (backfill for installs that predated Phase 3 GHA sync).
+   */
+  ensureGithubActionsSchedulerCompanionIfNeeded(params: {
+    githubPatPresent: boolean;
+    now: number;
+    intervalMs: number;
+  }): void {
+    if (!params.githubPatPresent) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "github") === null) {
+      return;
+    }
+    if (loadSchedulerState(this.db, "github_actions") !== null) {
+      return;
+    }
+    upsertSchedulerRegistration(this.db, "github_actions", params.intervalMs, params.now, false);
+  }
+
   pauseConnectorSync(serviceId: string): void {
     if (loadSchedulerState(this.db, serviceId) === null) {
       throw new Error(`Unknown connector: ${serviceId}`);
