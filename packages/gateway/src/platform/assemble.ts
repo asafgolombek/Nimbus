@@ -131,6 +131,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     vault,
     version: "0.1.0",
     localIndex,
+    extensionsDir: paths.extensionsDir,
     openUrl: openUrlInDefaultBrowser,
     syncScheduler,
   };

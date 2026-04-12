@@ -215,6 +215,8 @@ export type CreateIpcServerOptions = {
   version: string;
   /** When set, `audit.list` reads from the local index; otherwise returns []. */
   localIndex?: LocalIndex;
+  /** Host path for `extension.install` copies; same as platform `extensionsDir`. */
+  extensionsDir?: string;
   /** Opens URLs for OAuth (`connector.auth`). */
   openUrl?: (url: string) => Promise<void>;
   /** Background sync; required for `connector.sync` force runs. */
@@ -469,6 +471,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
           method,
           params,
           db: options.localIndex.getDatabase(),
+          ...(options.extensionsDir !== undefined ? { extensionsDir: options.extensionsDir } : {}),
         });
         if (out.kind === "hit") {
           return out.value;

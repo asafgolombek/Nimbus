@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -347,6 +347,49 @@ describe("ipc server integration", () => {
       const line = await exchangeFirstNdjsonLine(listenPath, req);
       const res = JSON.parse(line) as { result?: { reply?: string } };
       expect(res.result?.reply).toBe("from-handler");
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("extension.install over IPC", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+
+    const tmp = mkdtempSync(join(tmpdir(), "nimbus-ipc-ext-"));
+    const extensionsDir = join(tmp, "extensions");
+    const src = join(tmp, "src");
+    mkdirSync(join(src, "dist"), { recursive: true });
+    writeFileSync(
+      join(src, "nimbus.extension.json"),
+      JSON.stringify({
+        id: "ipc.ext.demo",
+        version: "2.0.0",
+        entry: "dist/index.js",
+      }),
+      "utf8",
+    );
+    writeFileSync(join(src, "dist", "index.js"), "export const x = 1\n", "utf8");
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+      extensionsDir,
+    });
+    await server.start();
+    try {
+      const line = await rpcCall(listenPath, "extension.install", { sourcePath: src });
+      const res = JSON.parse(line) as {
+        result?: { id?: string; installPath?: string };
+        error?: { message?: string };
+      };
+      expect(res.error).toBeUndefined();
+      expect(res.result?.id).toBe("ipc.ext.demo");
+      expect(res.result?.installPath).toBe(join(extensionsDir, "ipc.ext.demo"));
     } finally {
       await server.stop();
     }

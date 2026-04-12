@@ -13,6 +13,7 @@ Usage:
   nimbus vault list [pfx]   List vault key names
   nimbus audit [--limit N]  Recent HITL audit rows
   nimbus connector …       Register connectors, OAuth, sync status (see: nimbus connector help)
+  nimbus extension …       Install/list/enable/disable/remove local extensions (needs gateway)
   nimbus people …          Cross-service people graph (list, search, get, items, link)
   nimbus session …         Session RAG memory (list, clear, recall — needs embeddings)
   nimbus workflow …        List/save/run/delete saved workflows (agent steps)

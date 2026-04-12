@@ -3,7 +3,7 @@
  *
  * Principles:
  * - MCP-native: extensions are MCP servers
- * - Manifest-gated: nimbus-extension.json validated at install time
+ * - Manifest-gated: nimbus.extension.json (or legacy nimbus-extension.json) validated at install time
  * - Process-isolated: extensions run as child processes
  * - Permission-scoped: credentials injected via env per declared service only
  * - Integrity-verified: SHA-256 of manifest stored at install, verified on startup

@@ -19,11 +19,11 @@
 | RAG conversational memory | **Done** | `session-memory-store.ts`, IPC `session.*`, CLI `nimbus session` / `--session` |
 | Local relationship graph (entity/relation tables, schema v7) | **Done** | `packages/gateway/src/graph/*`, `graph-v7-sql.ts`, `traverseGraph` tool |
 | Extension Registry v1 — `@nimbus-dev/sdk` public API stable | Partial | SDK exists; full registry UX still evolving |
-| Extension manifest schema v1 (`nimbus.extension.json`) | Partial | Scaffold emits `nimbus-extension.json`; align naming with §2.1 |
+| Extension manifest schema v1 (`nimbus.extension.json`) | **Done** | Scaffold emits `nimbus.extension.json`; gateway accepts legacy `nimbus-extension.json` |
 | Extension manifest hash verification on Gateway startup | **Done** | `packages/gateway/src/extensions/verify-extensions.ts` |
 | Extension sandbox (scoped child process, env injection) | Partial | Intended via extension spawn path; hardening per risk register |
 | `nimbus scaffold extension` CLI command | **Done** | `packages/cli/src/commands/scaffold.ts` |
-| `nimbus extension install/list/enable/disable/remove` | Planned | |
+| `nimbus extension install/list/enable/disable/remove` | **Done** | CLI `extension.ts`; IPC `extension.*`; local path install + `extensionsDir` copy |
 | `nimbus connector add --mcp "<cmd>"` (generic user MCP) | Planned | |
 | Jenkins MCP connector + sync | Planned | |
 | GitHub Actions MCP connector + sync | Planned | |

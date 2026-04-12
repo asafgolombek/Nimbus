@@ -10,17 +10,20 @@ import {
   touchExtensionVerifiedAt,
 } from "../automation/extension-store.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
-import { EXTENSION_MANIFEST_FILENAME, parseExtensionManifestJson } from "./manifest.ts";
+import { parseExtensionManifestJson, resolveExtensionManifestPath } from "./manifest.ts";
 
 function sha256HexOfBytes(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
 function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now: number): void {
-  const manifestPath = join(row.install_path, EXTENSION_MANIFEST_FILENAME);
+  const manifestPath = resolveExtensionManifestPath(row.install_path);
   try {
-    if (!existsSync(manifestPath)) {
-      logger.warn({ extensionId: row.id, manifestPath }, "extensions: manifest file missing");
+    if (manifestPath === undefined) {
+      logger.warn(
+        { extensionId: row.id, installPath: row.install_path },
+        "extensions: manifest file missing",
+      );
       touchExtensionVerifiedAt(db, row.id, now);
       return;
     }

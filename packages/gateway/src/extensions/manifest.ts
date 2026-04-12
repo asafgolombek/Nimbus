@@ -1,5 +1,28 @@
-/** Relative to extension install_path; canonical on disk. */
-export const EXTENSION_MANIFEST_FILENAME = "nimbus-extension.json";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+/** Spec name (Phase 3 §2.1); preferred when both exist. */
+export const EXTENSION_MANIFEST_FILENAME = "nimbus.extension.json";
+
+/** Legacy scaffold filename; still accepted for installs and verification. */
+export const EXTENSION_MANIFEST_FILENAME_LEGACY = "nimbus-extension.json";
+
+/** Order: canonical spec first, then legacy. */
+export const EXTENSION_MANIFEST_FILENAMES = [
+  EXTENSION_MANIFEST_FILENAME,
+  EXTENSION_MANIFEST_FILENAME_LEGACY,
+] as const;
+
+/** First manifest file present under `dir`, or undefined. */
+export function resolveExtensionManifestPath(dir: string): string | undefined {
+  for (const name of EXTENSION_MANIFEST_FILENAMES) {
+    const p = join(dir, name);
+    if (existsSync(p)) {
+      return p;
+    }
+  }
+  return undefined;
+}
 
 export type ExtensionManifest = {
   id: string;
