@@ -1,5 +1,9 @@
 import type { Database } from "bun:sqlite";
+import { EXTENSION_SESSION_V10_MIGRATION_SQL } from "../extension-session-v10-sql.ts";
 import { EMBEDDING_V6_MIGRATION_SQL } from "../embedding-v6-sql.ts";
+import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
+import { WATCHER_V8_MIGRATION_SQL } from "../watcher-v8-sql.ts";
+import { WORKFLOW_V9_MIGRATION_SQL } from "../workflow-v9-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
@@ -77,6 +81,18 @@ function backfillMigrationsLedger(db: Database): void {
     if (uv >= 6) {
       recordMigration(db, 6, "embedding_chunk + vec_items_384 (backfilled)", now);
     }
+    if (uv >= 7) {
+      recordMigration(db, 7, "graph_entity + graph_relation (backfilled)", now);
+    }
+    if (uv >= 8) {
+      recordMigration(db, 8, "watcher + watcher_event (backfilled)", now);
+    }
+    if (uv >= 9) {
+      recordMigration(db, 9, "workflow + workflow_run + workflow_run_step (backfilled)", now);
+    }
+    if (uv >= 10) {
+      recordMigration(db, 10, "extension + session_memory (backfilled)", now);
+    }
   })();
 }
 
@@ -151,6 +167,38 @@ export function runIndexedSchemaMigrations(db: Database, targetVersion: number):
       recordMigration(db, 6, "embedding_chunk + vec_items_384", now);
     })();
     ver = 6;
+  }
+  if (ver === 6 && targetVersion >= 7) {
+    db.transaction(() => {
+      db.exec(GRAPH_V7_MIGRATION_SQL);
+      db.exec("PRAGMA user_version = 7");
+      recordMigration(db, 7, "graph_entity + graph_relation", now);
+    })();
+    ver = 7;
+  }
+  if (ver === 7 && targetVersion >= 8) {
+    db.transaction(() => {
+      db.exec(WATCHER_V8_MIGRATION_SQL);
+      db.exec("PRAGMA user_version = 8");
+      recordMigration(db, 8, "watcher + watcher_event", now);
+    })();
+    ver = 8;
+  }
+  if (ver === 8 && targetVersion >= 9) {
+    db.transaction(() => {
+      db.exec(WORKFLOW_V9_MIGRATION_SQL);
+      db.exec("PRAGMA user_version = 9");
+      recordMigration(db, 9, "workflow tables", now);
+    })();
+    ver = 9;
+  }
+  if (ver === 9 && targetVersion >= 10) {
+    db.transaction(() => {
+      db.exec(EXTENSION_SESSION_V10_MIGRATION_SQL);
+      db.exec("PRAGMA user_version = 10");
+      recordMigration(db, 10, "extension + session_memory", now);
+    })();
+    ver = 10;
   }
 
   if (ver !== targetVersion) {

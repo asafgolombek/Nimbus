@@ -16,7 +16,12 @@ async function main(): Promise<void> {
   const platform = await createPlatformServices();
   const mcp = platform.connectorMesh;
   const dispatcher = createConnectorDispatcher(mcp as unknown as McpToolListingClient);
-  const engine = createNimbusEngineAgent({ localIndex: platform.localIndex });
+  const engine = createNimbusEngineAgent({
+    localIndex: platform.localIndex,
+    ...(platform.sessionMemoryStore !== undefined
+      ? { sessionMemoryStore: platform.sessionMemoryStore }
+      : {}),
+  });
 
   platform.ipc.setAgentInvokeHandler((ctx) =>
     runAsk({

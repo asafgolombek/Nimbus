@@ -13,6 +13,7 @@ import {
   runConnector,
   runPeople,
   runSearch,
+  runSession,
   runStart,
   runStatus,
   runStop,
@@ -62,6 +63,9 @@ async function main(): Promise<void> {
         break;
       case "search":
         await runSearch(args);
+        break;
+      case "session":
+        await runSession(args);
         break;
       default:
         console.error(`Unknown command: ${command}`);

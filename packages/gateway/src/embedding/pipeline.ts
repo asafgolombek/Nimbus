@@ -32,6 +32,14 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
     this.chunkOptions = options.chunkOptions;
   }
 
+  get embeddingModel(): string {
+    return this.embedder.model;
+  }
+
+  get embeddingDims(): number {
+    return this.embedder.dims;
+  }
+
   /** Embed arbitrary text (e.g. search query) using the same model as item chunks. */
   async embedTexts(texts: string[]): Promise<Float32Array[]> {
     return this.embedder.embed(texts);

@@ -3,12 +3,14 @@ import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
 import { asRecord } from "../connectors/unknown-record.ts";
+import { agentRequestContext } from "../engine/agent-request-context.ts";
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
+import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
-import type { AgentInvokeHandler } from "./agent-invoke.ts";
+import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
 import {
@@ -23,7 +25,9 @@ import {
   NdjsonLineReader,
   parseJsonRpcLine,
 } from "./jsonrpc.ts";
+import { dispatchAutomationRpc, AutomationRpcError } from "./automation-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
+import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
 import type { IPCServer } from "./types.ts";
 
 class RpcMethodError extends Error {
@@ -220,6 +224,8 @@ export type CreateIpcServerOptions = {
   startedAtMs?: number;
   /** Initial `agent.invoke` handler; may be replaced via {@link IPCServer.setAgentInvokeHandler}. */
   agentInvoke?: AgentInvokeHandler;
+  /** RAG session chunks (schema v10+); requires embedding runtime + sqlite-vec. */
+  sessionMemoryStore?: SessionMemoryStore;
   /**
    * Optional hook when a client connects (tests, diagnostics).
    * Not part of the JSON-RPC surface.
@@ -288,6 +294,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const rec = asRecord(params);
     const input = rec !== undefined && typeof rec["input"] === "string" ? rec["input"] : "";
     const stream = rec?.["stream"] === true;
+    const sessionIdRaw = rec?.["sessionId"];
+    const sessionId =
+      typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
+        ? sessionIdRaw.trim()
+        : undefined;
     const handler = agentInvokeHandler;
     if (handler === undefined) {
       return {
@@ -296,13 +307,21 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       };
     }
     try {
-      return await handler({
-        clientId,
-        input,
-        stream,
-        sendChunk: (text: string) => {
-          sendAgentChunkIfStreaming(session, stream, text);
-        },
+      const requestStore =
+        sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
+      return await agentRequestContext.run(requestStore, async () => {
+        const payload: AgentInvokeContext = {
+          clientId,
+          input,
+          stream,
+          sendChunk: (text: string) => {
+            sendAgentChunkIfStreaming(session, stream, text);
+          },
+        };
+        if (sessionId !== undefined) {
+          payload.sessionId = sessionId;
+        }
+        return handler(payload);
       });
     } catch (e) {
       if (e instanceof GatewayAgentUnavailableError) {
@@ -314,6 +333,58 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
   const connectorRpcSkipped = Symbol("connectorRpcSkipped");
   const peopleRpcSkipped = Symbol("peopleRpcSkipped");
+  const sessionRpcSkipped = Symbol("sessionRpcSkipped");
+  const automationRpcSkipped = Symbol("automationRpcSkipped");
+
+  async function tryDispatchSessionRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("session.")) {
+      return sessionRpcSkipped;
+    }
+    if (options.sessionMemoryStore === undefined) {
+      throw new RpcMethodError(-32603, "Session memory is not available on this gateway");
+    }
+    try {
+      const out = await dispatchSessionRpc({
+        method,
+        params,
+        store: options.sessionMemoryStore,
+      });
+      if (out.kind === "hit") {
+        return out.value;
+      }
+    } catch (e) {
+      if (e instanceof SessionRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+    throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
+
+  function tryDispatchAutomationRpc(method: string, params: unknown): unknown {
+    if (!method.startsWith("watcher.") && !method.startsWith("workflow.")) {
+      return automationRpcSkipped;
+    }
+    if (options.localIndex === undefined) {
+      throw new RpcMethodError(-32603, "Local index is not available");
+    }
+    try {
+      const out = dispatchAutomationRpc({
+        method,
+        params,
+        db: options.localIndex.getDatabase(),
+      });
+      if (out.kind === "hit") {
+        return out.value;
+      }
+    } catch (e) {
+      if (e instanceof AutomationRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+    throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
 
   function tryDispatchPeopleRpc(method: string, params: unknown): unknown {
     if (!method.startsWith("people.") || options.localIndex === undefined) {
@@ -446,6 +517,16 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   ): Promise<unknown> {
     const { method } = req;
     const params = req.params;
+
+    const sessionOutcome = await tryDispatchSessionRpc(method, params);
+    if (sessionOutcome !== sessionRpcSkipped) {
+      return sessionOutcome;
+    }
+
+    const automationOutcome = tryDispatchAutomationRpc(method, params);
+    if (automationOutcome !== automationRpcSkipped) {
+      return automationOutcome;
+    }
 
     const connectorOutcome = await tryDispatchConnectorRpc(method, params);
     if (connectorOutcome !== connectorRpcSkipped) {

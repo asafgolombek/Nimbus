@@ -7,6 +7,11 @@ import {
   recencyScore,
   servicePriorityScore,
 } from "../engine/search-ranking.ts";
+import {
+  traverseGraph as traverseGraphSubgraph,
+  type TraverseGraphOptions,
+  type TraverseGraphResult,
+} from "../graph/relationship-graph.ts";
 import { prunePeopleAfterServiceRemoval } from "../people/prune.ts";
 import { hybridSearch } from "../search/hybrid.ts";
 import type { HybridSearchOptions } from "../search/hybrid-types.ts";
@@ -34,6 +39,7 @@ import { ensureSqliteVecForConnection } from "./sqlite-vec-load.ts";
 
 export { RAW_META_MAX_BYTES } from "./constants.ts";
 export type { RankedIndexItem } from "./ranked-item.ts";
+export type { TraverseGraphOptions, TraverseGraphResult } from "../graph/relationship-graph.ts";
 
 export type SearchRankOptions = {
   nowMs?: number;
@@ -234,7 +240,7 @@ export type LocalIndexOptions = {
 };
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 6;
+  static readonly SCHEMA_VERSION = 10;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -348,6 +354,20 @@ export class LocalIndex {
       .query(`SELECT * FROM item WHERE author_id = ? ORDER BY modified_at DESC LIMIT ?`)
       .all(personId, lim) as ItemRow[];
     return rows.map(rowToItem);
+  }
+
+  /**
+   * Phase 3 — BFS traversal of the local relationship graph (schema v7+).
+   * `startRef` may be a `graph_entity.id` or an indexed item primary key (`item.id`).
+   */
+  traverseGraph(
+    startRef: string,
+    options?: TraverseGraphOptions,
+  ): TraverseGraphResult | { error: string } {
+    if (readIndexedUserVersion(this.db) < 7) {
+      return { error: "Relationship graph requires local index schema v7 or newer" };
+    }
+    return traverseGraphSubgraph(this.db, startRef, options);
   }
 
   upsert(item: NimbusItem): void {

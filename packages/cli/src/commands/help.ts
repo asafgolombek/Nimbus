@@ -14,9 +14,11 @@ Usage:
   nimbus audit [--limit N]  Recent HITL audit rows
   nimbus connector …       Register connectors, OAuth, sync status (see: nimbus connector help)
   nimbus people …          Cross-service people graph (list, search, get, items, link)
+  nimbus session …         Session RAG memory (list, clear, recall — needs embeddings)
   nimbus help               Show this message
 
 Environment (optional):
   NIMBUS_GATEWAY_EXECUTABLE   Path to nimbus-gateway binary (overrides auto-detection)
+  OPENAI_API_KEY              OpenAI embeddings when nimbus.toml [embedding] provider = "openai"
 `);
 }

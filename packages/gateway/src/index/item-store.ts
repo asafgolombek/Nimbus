@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
+import { deleteGraphEntitiesForItemKeys } from "../graph/relationship-graph.ts";
+import { syncGraphFromIndexedItem } from "../graph/graph-populator.ts";
 import type { SyncContext } from "../sync/types.ts";
 import { RAW_META_MAX_BYTES } from "./constants.ts";
 
@@ -100,6 +102,14 @@ export function upsertIndexedItem(
       row.pinned === true ? 1 : 0,
     ],
   );
+  syncGraphFromIndexedItem(db, {
+    id,
+    service: row.service,
+    type: row.type,
+    title: row.title,
+    authorId: row.authorId ?? null,
+    metadata: row.metadata ?? {},
+  });
 }
 
 /** Like {@link upsertIndexedItem}, plus optional {@link SyncContext.scheduleItemEmbedding}. */
@@ -149,6 +159,13 @@ export function upsertNimbusItemIntoItemTable(
 }
 
 export function deleteItemByPrimaryKey(db: Database, primaryKey: string): void {
+  const row = db.query("SELECT id FROM item WHERE id = ?").get(primaryKey) as
+    | { id: string }
+    | null
+    | undefined;
+  if (row?.id !== undefined) {
+    deleteGraphEntitiesForItemKeys(db, [row.id]);
+  }
   db.run("DELETE FROM item WHERE id = ?", [primaryKey]);
 }
 
@@ -157,9 +174,16 @@ export function deleteItemByServiceExternal(
   service: string,
   externalId: string,
 ): void {
-  db.run("DELETE FROM item WHERE service = ? AND external_id = ?", [service, externalId]);
+  deleteItemByPrimaryKey(db, itemPrimaryKey(service, externalId));
 }
 
 export function deleteAllItemsForService(db: Database, service: string): void {
+  const keys = db.query("SELECT id FROM item WHERE service = ?").all(service) as { id: string }[];
+  if (keys.length > 0) {
+    deleteGraphEntitiesForItemKeys(
+      db,
+      keys.map((k) => k.id),
+    );
+  }
   db.run("DELETE FROM item WHERE service = ?", [service]);
 }

@@ -6,9 +6,9 @@ import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { ensureSqliteVecForConnection } from "../index/sqlite-vec-load.ts";
 import type { EmbeddingRuntime } from "./embedding-runtime.ts";
-import { createLocalEmbedder } from "./model.ts";
+import { createLocalEmbedder, LOCAL_EMBEDDING_MODEL_ID } from "./model.ts";
 import { SqliteEmbeddingPipeline } from "./pipeline.ts";
-import type { IndexedItem } from "./types.ts";
+import type { Embedder, IndexedItem } from "./types.ts";
 
 /**
  * In-process lazy embedding (fallback when the Bun worker cannot start).
@@ -18,6 +18,7 @@ export function createLazyEmbeddingRuntime(
   dataDir: string,
   logger: Logger,
   toml: Pick<NimbusEmbeddingToml, "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize">,
+  preloadedEmbedder?: Embedder,
 ): EmbeddingRuntime {
   let pipeline: SqliteEmbeddingPipeline | null = null;
   let loading: Promise<SqliteEmbeddingPipeline | null> | null = null;
@@ -37,7 +38,8 @@ export function createLazyEmbeddingRuntime(
     }
     loading ??= (async (): Promise<SqliteEmbeddingPipeline | null> => {
       try {
-        const embedder = await createLocalEmbedder({ cacheDir: join(dataDir, "models") });
+        const embedder =
+          preloadedEmbedder ?? (await createLocalEmbedder({ cacheDir: join(dataDir, "models") }));
         return new SqliteEmbeddingPipeline({
           db,
           embedder,
@@ -88,6 +90,14 @@ export function createLazyEmbeddingRuntime(
       }
       const rows = await p.embedTexts([text]);
       return rows[0] ?? null;
+    },
+
+    getEmbeddingModel(): string {
+      return pipeline?.embeddingModel ?? preloadedEmbedder?.model ?? LOCAL_EMBEDDING_MODEL_ID;
+    },
+
+    getEmbeddingDims(): number {
+      return pipeline?.embeddingDims ?? preloadedEmbedder?.dims ?? 384;
     },
 
     getBackfillProgress(): { done: number; total: number } | null {

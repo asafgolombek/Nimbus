@@ -5,9 +5,22 @@ import { readGatewayState } from "../lib/gateway-process.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
 export async function runAsk(args: string[]): Promise<void> {
-  const query = args.join(" ").trim();
+  const rest: string[] = [];
+  let sessionId: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--session" && args[i + 1] !== undefined) {
+      sessionId = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (a !== undefined) {
+      rest.push(a);
+    }
+  }
+  const query = rest.join(" ").trim();
   if (query.length === 0) {
-    throw new Error('Usage: nimbus ask "<natural language query>"');
+    throw new Error('Usage: nimbus ask [--session <uuid>] "<natural language query>"');
   }
 
   const paths = getCliPlatformPaths();
@@ -41,12 +54,30 @@ export async function runAsk(args: string[]): Promise<void> {
   });
 
   try {
-    const result = await client.call<{ reply: string }>("agent.invoke", {
+    const invokeParams: Record<string, unknown> = {
       input: query,
       stream: true,
-    });
+    };
+    if (sessionId !== undefined) {
+      invokeParams["sessionId"] = sessionId;
+    }
+    const result = await client.call<{ reply: string }>("agent.invoke", invokeParams);
     if (typeof result.reply === "string" && result.reply.length > 0) {
       process.stdout.write(`\n${result.reply}\n`);
+    }
+    if (sessionId !== undefined) {
+      await client.call("session.append", {
+        sessionId,
+        chunkText: query,
+        role: "user",
+      });
+      if (typeof result.reply === "string" && result.reply.trim() !== "") {
+        await client.call("session.append", {
+          sessionId,
+          chunkText: result.reply.slice(0, 8000),
+          role: "assistant",
+        });
+      }
     }
   } finally {
     await client.disconnect();
