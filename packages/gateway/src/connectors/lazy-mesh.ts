@@ -522,7 +522,7 @@ export class LazyConnectorMesh {
   }
 
   private mcpServerKeyForUserConnector(serviceId: string): string {
-    return serviceId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return serviceId.replaceAll(/[^a-zA-Z0-9_-]/g, "_");
   }
 
   private async ensureUserMcpClient(row: UserMcpConnectorRow): Promise<void> {
@@ -788,6 +788,161 @@ export class LazyConnectorMesh {
     }
   }
 
+  private async phase3AddAwsMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const ak = (await this.vault.get("aws.access_key_id"))?.trim() ?? "";
+    const sk = (await this.vault.get("aws.secret_access_key"))?.trim() ?? "";
+    const reg = (await this.vault.get("aws.default_region"))?.trim() ?? "";
+    const prof = (await this.vault.get("aws.profile"))?.trim() ?? "";
+    const awsOk =
+      (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
+    if (!awsOk) {
+      return;
+    }
+    const extra: Record<string, string> = {};
+    if (ak !== "") {
+      extra["AWS_ACCESS_KEY_ID"] = ak;
+    }
+    if (sk !== "") {
+      extra["AWS_SECRET_ACCESS_KEY"] = sk;
+    }
+    if (reg !== "") {
+      extra["AWS_DEFAULT_REGION"] = reg;
+    }
+    if (prof !== "") {
+      extra["AWS_PROFILE"] = prof;
+    }
+    servers["aws"] = {
+      command: "bun",
+      args: [awsMcpScriptPath()],
+      env: compactProcessEnv(extra),
+    };
+  }
+
+  private async phase3AddAzureMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const azT = (await this.vault.get("azure.tenant_id"))?.trim() ?? "";
+    const azC = (await this.vault.get("azure.client_id"))?.trim() ?? "";
+    const azS = (await this.vault.get("azure.client_secret"))?.trim() ?? "";
+    if (azT === "" || azC === "" || azS === "") {
+      return;
+    }
+    servers["azure"] = {
+      command: "bun",
+      args: [azureMcpScriptPath()],
+      env: compactProcessEnv({
+        AZURE_TENANT_ID: azT,
+        AZURE_CLIENT_ID: azC,
+        AZURE_CLIENT_SECRET: azS,
+      }),
+    };
+  }
+
+  private async phase3AddGcpMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const gcpPath = (await this.vault.get("gcp.credentials_json_path"))?.trim() ?? "";
+    if (gcpPath === "") {
+      return;
+    }
+    servers["gcp"] = {
+      command: "bun",
+      args: [gcpMcpScriptPath()],
+      env: compactProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: gcpPath }),
+    };
+  }
+
+  private async phase3AddIacMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const iacEn = await this.vault.get("iac.enabled");
+    if (iacEn !== "1") {
+      return;
+    }
+    servers["iac"] = {
+      command: "bun",
+      args: [iacMcpScriptPath()],
+      env: compactProcessEnv({}),
+    };
+  }
+
+  private async phase3AddGrafanaMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const gfu = (await this.vault.get("grafana.url"))?.trim() ?? "";
+    const gtk = (await this.vault.get("grafana.api_token"))?.trim() ?? "";
+    if (gfu === "" || gtk === "") {
+      return;
+    }
+    servers["grafana"] = {
+      command: "bun",
+      args: [grafanaMcpScriptPath()],
+      env: compactProcessEnv({ GRAFANA_URL: gfu, GRAFANA_API_TOKEN: gtk }),
+    };
+  }
+
+  private async phase3AddSentryMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const sentTok = (await this.vault.get("sentry.auth_token"))?.trim() ?? "";
+    const sentOrg = (await this.vault.get("sentry.org_slug"))?.trim() ?? "";
+    if (sentTok === "" || sentOrg === "") {
+      return;
+    }
+    const extra: Record<string, string> = {
+      SENTRY_AUTH_TOKEN: sentTok,
+      SENTRY_ORG_SLUG: sentOrg,
+    };
+    const surl = (await this.vault.get("sentry.url"))?.trim() ?? "";
+    if (surl !== "") {
+      extra["SENTRY_URL"] = surl;
+    }
+    servers["sentry"] = {
+      command: "bun",
+      args: [sentryMcpScriptPath()],
+      env: compactProcessEnv(extra),
+    };
+  }
+
+  private async phase3AddNewrelicMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const nrKey = (await this.vault.get("newrelic.api_key"))?.trim() ?? "";
+    if (nrKey === "") {
+      return;
+    }
+    servers["newrelic"] = {
+      command: "bun",
+      args: [newrelicMcpScriptPath()],
+      env: compactProcessEnv({ NEW_RELIC_API_KEY: nrKey }),
+    };
+  }
+
+  private async phase3AddDatadogMcp(
+    servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
+  ): Promise<void> {
+    const ddKey = (await this.vault.get("datadog.api_key"))?.trim() ?? "";
+    const ddApp = (await this.vault.get("datadog.app_key"))?.trim() ?? "";
+    if (ddKey === "" || ddApp === "") {
+      return;
+    }
+    const extra: Record<string, string> = {
+      DD_API_KEY: ddKey,
+      DD_APP_KEY: ddApp,
+    };
+    const site = (await this.vault.get("datadog.site"))?.trim() ?? "";
+    if (site !== "") {
+      extra["DD_SITE"] = site;
+    }
+    servers["datadog"] = {
+      command: "bun",
+      args: [datadogMcpScriptPath()],
+      env: compactProcessEnv(extra),
+    };
+  }
+
   private async buildPhase3Servers(): Promise<
     Record<string, { command: string; args: string[]; env: Record<string, string> }>
   > {
@@ -795,122 +950,14 @@ export class LazyConnectorMesh {
       string,
       { command: string; args: string[]; env: Record<string, string> }
     > = {};
-
-    const ak = (await this.vault.get("aws.access_key_id"))?.trim() ?? "";
-    const sk = (await this.vault.get("aws.secret_access_key"))?.trim() ?? "";
-    const reg = (await this.vault.get("aws.default_region"))?.trim() ?? "";
-    const prof = (await this.vault.get("aws.profile"))?.trim() ?? "";
-    const awsOk =
-      (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
-    if (awsOk) {
-      const extra: Record<string, string> = {};
-      if (ak !== "") {
-        extra["AWS_ACCESS_KEY_ID"] = ak;
-      }
-      if (sk !== "") {
-        extra["AWS_SECRET_ACCESS_KEY"] = sk;
-      }
-      if (reg !== "") {
-        extra["AWS_DEFAULT_REGION"] = reg;
-      }
-      if (prof !== "") {
-        extra["AWS_PROFILE"] = prof;
-      }
-      servers["aws"] = {
-        command: "bun",
-        args: [awsMcpScriptPath()],
-        env: compactProcessEnv(extra),
-      };
-    }
-
-    const azT = (await this.vault.get("azure.tenant_id"))?.trim() ?? "";
-    const azC = (await this.vault.get("azure.client_id"))?.trim() ?? "";
-    const azS = (await this.vault.get("azure.client_secret"))?.trim() ?? "";
-    if (azT !== "" && azC !== "" && azS !== "") {
-      servers["azure"] = {
-        command: "bun",
-        args: [azureMcpScriptPath()],
-        env: compactProcessEnv({
-          AZURE_TENANT_ID: azT,
-          AZURE_CLIENT_ID: azC,
-          AZURE_CLIENT_SECRET: azS,
-        }),
-      };
-    }
-
-    const gcpPath = (await this.vault.get("gcp.credentials_json_path"))?.trim() ?? "";
-    if (gcpPath !== "") {
-      servers["gcp"] = {
-        command: "bun",
-        args: [gcpMcpScriptPath()],
-        env: compactProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: gcpPath }),
-      };
-    }
-
-    const iacEn = await this.vault.get("iac.enabled");
-    if (iacEn === "1") {
-      servers["iac"] = {
-        command: "bun",
-        args: [iacMcpScriptPath()],
-        env: compactProcessEnv({}),
-      };
-    }
-
-    const gfu = (await this.vault.get("grafana.url"))?.trim() ?? "";
-    const gtk = (await this.vault.get("grafana.api_token"))?.trim() ?? "";
-    if (gfu !== "" && gtk !== "") {
-      servers["grafana"] = {
-        command: "bun",
-        args: [grafanaMcpScriptPath()],
-        env: compactProcessEnv({ GRAFANA_URL: gfu, GRAFANA_API_TOKEN: gtk }),
-      };
-    }
-
-    const sentTok = (await this.vault.get("sentry.auth_token"))?.trim() ?? "";
-    const sentOrg = (await this.vault.get("sentry.org_slug"))?.trim() ?? "";
-    if (sentTok !== "" && sentOrg !== "") {
-      const extra: Record<string, string> = {
-        SENTRY_AUTH_TOKEN: sentTok,
-        SENTRY_ORG_SLUG: sentOrg,
-      };
-      const surl = (await this.vault.get("sentry.url"))?.trim() ?? "";
-      if (surl !== "") {
-        extra["SENTRY_URL"] = surl;
-      }
-      servers["sentry"] = {
-        command: "bun",
-        args: [sentryMcpScriptPath()],
-        env: compactProcessEnv(extra),
-      };
-    }
-
-    const nrKey = (await this.vault.get("newrelic.api_key"))?.trim() ?? "";
-    if (nrKey !== "") {
-      servers["newrelic"] = {
-        command: "bun",
-        args: [newrelicMcpScriptPath()],
-        env: compactProcessEnv({ NEW_RELIC_API_KEY: nrKey }),
-      };
-    }
-
-    const ddKey = (await this.vault.get("datadog.api_key"))?.trim() ?? "";
-    const ddApp = (await this.vault.get("datadog.app_key"))?.trim() ?? "";
-    if (ddKey !== "" && ddApp !== "") {
-      const extra: Record<string, string> = {
-        DD_API_KEY: ddKey,
-        DD_APP_KEY: ddApp,
-      };
-      const site = (await this.vault.get("datadog.site"))?.trim() ?? "";
-      if (site !== "") {
-        extra["DD_SITE"] = site;
-      }
-      servers["datadog"] = {
-        command: "bun",
-        args: [datadogMcpScriptPath()],
-        env: compactProcessEnv(extra),
-      };
-    }
-
+    await this.phase3AddAwsMcp(servers);
+    await this.phase3AddAzureMcp(servers);
+    await this.phase3AddGcpMcp(servers);
+    await this.phase3AddIacMcp(servers);
+    await this.phase3AddGrafanaMcp(servers);
+    await this.phase3AddSentryMcp(servers);
+    await this.phase3AddNewrelicMcp(servers);
+    await this.phase3AddDatadogMcp(servers);
     return servers;
   }
 

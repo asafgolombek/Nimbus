@@ -35,13 +35,13 @@ export class AnomalyDetectorStub {
       return 0;
     }
     const prev = this.series.get(key) ?? [];
+    const score = AnomalyDetectorStub.zScoreAgainstSamples(prev, value);
     const next = [...prev, value];
     while (next.length > this.windowSize) {
       next.shift();
     }
     this.series.set(key, next);
-    const score = this.deviationScore(key, value);
-    if (score >= 3 && next.length >= 4 && this.notify !== undefined) {
+    if (score >= 3 && prev.length >= 3 && this.notify !== undefined) {
       this.notify({ seriesId: key, value, score, atMs });
     }
     return score;
@@ -49,15 +49,18 @@ export class AnomalyDetectorStub {
 
   deviationScore(seriesId: string, value: number): number {
     const xs = this.series.get(seriesId) ?? [];
-    if (xs.length < 3) {
+    return AnomalyDetectorStub.zScoreAgainstSamples(xs, value);
+  }
+
+  /** z-score of `value` against prior samples only (used for anomaly notify). */
+  private static zScoreAgainstSamples(samples: readonly number[], value: number): number {
+    if (samples.length < 3) {
       return 0;
     }
-    const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
-    const variance = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length;
+    const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+    const variance = samples.reduce((a, b) => a + (b - mean) ** 2, 0) / samples.length;
     const sd = Math.sqrt(variance);
-    if (sd < 1e-9) {
-      return 0;
-    }
-    return Math.abs(value - mean) / sd;
+    const denom = sd < 1e-9 ? 1e-9 : sd;
+    return Math.abs(value - mean) / denom;
   }
 }

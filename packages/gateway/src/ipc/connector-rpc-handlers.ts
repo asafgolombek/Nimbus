@@ -471,6 +471,40 @@ async function connectorAuthCircleci(
   return authSuccess("circleci");
 }
 
+async function persistAwsAccessKeyPair(
+  vault: NimbusVault,
+  ak: string,
+  sk: string,
+  reg: string,
+  prof: string,
+): Promise<void> {
+  if (reg === "" && prof === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "AWS key pair requires a default region or profile (connector.auth aws --region … or --profile …)",
+    );
+  }
+  await vault.set("aws.access_key_id", ak);
+  await vault.set("aws.secret_access_key", sk);
+  if (reg === "") {
+    await vault.delete("aws.default_region");
+  } else {
+    await vault.set("aws.default_region", reg);
+  }
+  if (prof === "") {
+    await vault.delete("aws.profile");
+  } else {
+    await vault.set("aws.profile", prof);
+  }
+}
+
+async function persistAwsProfileOnly(vault: NimbusVault, prof: string): Promise<void> {
+  await vault.delete("aws.access_key_id");
+  await vault.delete("aws.secret_access_key");
+  await vault.delete("aws.default_region");
+  await vault.set("aws.profile", prof);
+}
+
 async function connectorAuthAws(
   rec: Record<string, unknown> | undefined,
   vault: NimbusVault,
@@ -485,35 +519,17 @@ async function connectorAuthAws(
   const reg = typeof regRaw === "string" ? regRaw.trim() : "";
   const prof = typeof profRaw === "string" ? profRaw.trim() : "";
 
-  if (ak !== "" && sk !== "") {
-    if (reg === "" && prof === "") {
+  const hasKeyPair = ak !== "" && sk !== "";
+  if (hasKeyPair) {
+    await persistAwsAccessKeyPair(vault, ak, sk, reg, prof);
+  } else {
+    if (prof === "") {
       throw new ConnectorRpcError(
         -32602,
-        "AWS key pair requires a default region or profile (connector.auth aws --region … or --profile …)",
+        "Missing AWS credentials: access key + secret + region/profile, or profile-only (connector.auth aws …)",
       );
     }
-    await vault.set("aws.access_key_id", ak);
-    await vault.set("aws.secret_access_key", sk);
-    if (reg === "") {
-      await vault.delete("aws.default_region");
-    } else {
-      await vault.set("aws.default_region", reg);
-    }
-    if (prof === "") {
-      await vault.delete("aws.profile");
-    } else {
-      await vault.set("aws.profile", prof);
-    }
-  } else if (prof !== "") {
-    await vault.delete("aws.access_key_id");
-    await vault.delete("aws.secret_access_key");
-    await vault.delete("aws.default_region");
-    await vault.set("aws.profile", prof);
-  } else {
-    throw new ConnectorRpcError(
-      -32602,
-      "Missing AWS credentials: access key + secret + region/profile, or profile-only (connector.auth aws …)",
-    );
+    await persistAwsProfileOnly(vault, prof);
   }
   const interval = defaultSyncIntervalMsForService("aws");
   localIndex.ensureConnectorSchedulerRegistration("aws", interval, Date.now());
@@ -561,10 +577,10 @@ async function connectorAuthGcp(
   await vault.set("gcp.credentials_json_path", path);
   const projRaw = rec?.["gcpProjectId"] ?? rec?.["projectId"];
   const proj = typeof projRaw === "string" && projRaw.trim() !== "" ? projRaw.trim() : "";
-  if (proj !== "") {
-    await vault.set("gcp.project_id", proj);
-  } else {
+  if (proj === "") {
     await vault.delete("gcp.project_id");
+  } else {
+    await vault.set("gcp.project_id", proj);
   }
   const interval = defaultSyncIntervalMsForService("gcp");
   localIndex.ensureConnectorSchedulerRegistration("gcp", interval, Date.now());
@@ -641,10 +657,10 @@ async function connectorAuthSentry(
   const urlRaw = rec?.["sentryUrl"] ?? rec?.["apiBaseUrl"];
   const surl =
     typeof urlRaw === "string" && urlRaw.trim() !== "" ? stripTrailingSlashes(urlRaw.trim()) : "";
-  if (surl !== "") {
-    await vault.set("sentry.url", surl);
-  } else {
+  if (surl === "") {
     await vault.delete("sentry.url");
+  } else {
+    await vault.set("sentry.url", surl);
   }
   const interval = defaultSyncIntervalMsForService("sentry");
   localIndex.ensureConnectorSchedulerRegistration("sentry", interval, Date.now());
@@ -667,10 +683,10 @@ async function connectorAuthNewrelic(
   await vault.set("newrelic.api_key", token);
   const acctRaw = rec?.["newrelicAccountId"] ?? rec?.["accountId"];
   const acct = typeof acctRaw === "string" && acctRaw.trim() !== "" ? acctRaw.trim() : "";
-  if (acct !== "") {
-    await vault.set("newrelic.account_id", acct);
-  } else {
+  if (acct === "") {
     await vault.delete("newrelic.account_id");
+  } else {
+    await vault.set("newrelic.account_id", acct);
   }
   const interval = defaultSyncIntervalMsForService("newrelic");
   localIndex.ensureConnectorSchedulerRegistration("newrelic", interval, Date.now());

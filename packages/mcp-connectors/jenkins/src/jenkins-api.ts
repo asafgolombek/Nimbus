@@ -80,7 +80,7 @@ export function jobApiRoot(base: string, fullName: string): string {
 export async function jenkinsFetchJson(
   url: string,
   init: RequestInit & { authHeader: string },
-): Promise<{ ok: boolean; status: number; text: string; json: unknown | null }> {
+): Promise<{ ok: boolean; status: number; text: string; json: unknown }> {
   const { authHeader, ...rest } = init;
   const res = await fetch(url, {
     ...rest,

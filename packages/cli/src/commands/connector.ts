@@ -602,7 +602,8 @@ function applyAwsConnectorAuth(
   const reg =
     flags.awsRegion?.trim() || firstEnvTrimmed(["NIMBUS_AWS_DEFAULT_REGION", "AWS_DEFAULT_REGION"]);
   const prof = flags.awsProfile?.trim() || firstEnvTrimmed(["NIMBUS_AWS_PROFILE", "AWS_PROFILE"]);
-  if (ak !== "" && sk !== "") {
+  const hasKeyPair = ak !== "" && sk !== "";
+  if (hasKeyPair) {
     if (reg === "" && prof === "") {
       throw new Error(
         "AWS key pair requires --aws-region <r> or --aws-profile <p> (or set NIMBUS_AWS_DEFAULT_REGION / NIMBUS_AWS_PROFILE)",
@@ -616,12 +617,13 @@ function applyAwsConnectorAuth(
     if (prof !== "") {
       p.awsProfile = prof;
     }
-  } else if (prof !== "") {
-    p.awsProfile = prof;
   } else {
-    throw new Error(
-      "AWS: use --aws-access-key + --aws-secret-key + region/profile, or --aws-profile only (or set env vars)",
-    );
+    if (prof === "") {
+      throw new Error(
+        "AWS: use --aws-access-key + --aws-secret-key + region/profile, or --aws-profile only (or set env vars)",
+      );
+    }
+    p.awsProfile = prof;
   }
 }
 

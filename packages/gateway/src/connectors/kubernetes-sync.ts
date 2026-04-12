@@ -43,9 +43,18 @@ async function syncKubernetesDeploymentsList(
     return syncPassCursorParseEmpty(t0, res.text.length, zeroRvCursor());
   }
   const rec = asRecord(root);
-  const listMeta = rec !== undefined ? asRecord(rec["metadata"]) : undefined;
-  const rv = listMeta !== undefined ? stringField(listMeta, "resourceVersion") : undefined;
-  const items = rec !== undefined && Array.isArray(rec["items"]) ? rec["items"] : [];
+  let rv: string | undefined;
+  let items: unknown[] = [];
+  if (rec !== undefined) {
+    const listMeta = asRecord(rec["metadata"]);
+    if (listMeta !== undefined) {
+      rv = stringField(listMeta, "resourceVersion");
+    }
+    const rawItems = rec["items"];
+    if (Array.isArray(rawItems)) {
+      items = rawItems;
+    }
+  }
   const now = Date.now();
   let upserted = 0;
   for (const item of items) {

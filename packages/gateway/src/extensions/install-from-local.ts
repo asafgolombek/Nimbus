@@ -4,7 +4,11 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "n
 import { join, relative, resolve, sep } from "node:path";
 
 import { insertExtensionRow } from "../automation/extension-store.ts";
-import { parseExtensionManifestJson, resolveExtensionManifestPath } from "./manifest.ts";
+import {
+  type ExtensionManifest,
+  parseExtensionManifestJson,
+  resolveExtensionManifestPath,
+} from "./manifest.ts";
 
 function sha256HexOfBytes(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
@@ -32,6 +36,60 @@ export function extensionInstallDirectory(extensionsDir: string, extensionId: st
   const normalized = extensionId.replaceAll("\\", "/");
   const parts = normalized.split("/").filter((p) => p !== "" && p !== ".");
   return join(extensionsDir, ...parts);
+}
+
+function completeExtensionInstallAfterCopy(options: {
+  db: Database;
+  dest: string;
+  manifest: ExtensionManifest;
+}): InstallExtensionFromLocalResult {
+  const destManifestPath = resolveExtensionManifestPath(options.dest);
+  if (destManifestPath === undefined) {
+    throw new Error("extension manifest missing after copy");
+  }
+  const destManifestBytes = readFileSync(destManifestPath);
+  const manifestHex = sha256HexOfBytes(destManifestBytes);
+  const destManifest = parseExtensionManifestJson(destManifestBytes.toString("utf8"));
+  if (
+    destManifest.id !== options.manifest.id ||
+    destManifest.version !== options.manifest.version
+  ) {
+    throw new Error("manifest id/version changed across copy");
+  }
+
+  const entryRelRaw =
+    destManifest.entry !== undefined && destManifest.entry !== ""
+      ? destManifest.entry
+      : "dist/index.js";
+  if (entryRelRaw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(entryRelRaw)) {
+    throw new Error("extension entry must be a relative path");
+  }
+  const entryPath = assertEntryInsideInstall(options.dest, entryRelRaw);
+  if (!existsSync(entryPath)) {
+    throw new Error(`extension entry file missing: ${entryRelRaw}`);
+  }
+  const entryBytes = readFileSync(entryPath);
+  const entryHex = sha256HexOfBytes(entryBytes);
+
+  const now = Date.now();
+  insertExtensionRow(options.db, {
+    id: options.manifest.id,
+    version: options.manifest.version,
+    install_path: options.dest,
+    manifest_hash: manifestHex,
+    entry_hash: entryHex,
+    enabled: 1,
+    installed_at: now,
+    last_verified_at: now,
+  });
+
+  return {
+    id: options.manifest.id,
+    version: options.manifest.version,
+    installPath: options.dest,
+    manifestHash: manifestHex,
+    entryHash: entryHex,
+  };
 }
 
 function assertEntryInsideInstall(installRoot: string, entryRel: string): string {
@@ -94,50 +152,7 @@ export function installExtensionFromLocalDirectory(options: {
   }
 
   try {
-    const destManifestPath = resolveExtensionManifestPath(dest);
-    if (destManifestPath === undefined) {
-      throw new Error("extension manifest missing after copy");
-    }
-    const destManifestBytes = readFileSync(destManifestPath);
-    const manifestHex = sha256HexOfBytes(destManifestBytes);
-    const destManifest = parseExtensionManifestJson(destManifestBytes.toString("utf8"));
-    if (destManifest.id !== manifest.id || destManifest.version !== manifest.version) {
-      throw new Error("manifest id/version changed across copy");
-    }
-
-    const entryRelRaw =
-      destManifest.entry !== undefined && destManifest.entry !== ""
-        ? destManifest.entry
-        : "dist/index.js";
-    if (entryRelRaw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(entryRelRaw)) {
-      throw new Error("extension entry must be a relative path");
-    }
-    const entryPath = assertEntryInsideInstall(dest, entryRelRaw);
-    if (!existsSync(entryPath)) {
-      throw new Error(`extension entry file missing: ${entryRelRaw}`);
-    }
-    const entryBytes = readFileSync(entryPath);
-    const entryHex = sha256HexOfBytes(entryBytes);
-
-    const now = Date.now();
-    insertExtensionRow(options.db, {
-      id: manifest.id,
-      version: manifest.version,
-      install_path: dest,
-      manifest_hash: manifestHex,
-      entry_hash: entryHex,
-      enabled: 1,
-      installed_at: now,
-      last_verified_at: now,
-    });
-
-    return {
-      id: manifest.id,
-      version: manifest.version,
-      installPath: dest,
-      manifestHash: manifestHex,
-      entryHash: entryHex,
-    };
+    return completeExtensionInstallAfterCopy({ db: options.db, dest, manifest });
   } catch (e) {
     try {
       rmSync(dest, { recursive: true, force: true });

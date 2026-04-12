@@ -174,16 +174,21 @@ function tryUpsertGithubActionsRun(
   return { upserted: 1, runId: id };
 }
 
+type GithubActionsRepoSyncArgs = {
+  ctx: SyncContext;
+  full: string;
+  owner: string;
+  repo: string;
+  headers: Record<string, string>;
+  lastSeen: number;
+  floorMs: number;
+  now: number;
+};
+
 async function syncGithubActionsForRepo(
-  ctx: SyncContext,
-  full: string,
-  owner: string,
-  repo: string,
-  headers: Record<string, string>,
-  lastSeen: number,
-  floorMs: number,
-  now: number,
+  args: GithubActionsRepoSyncArgs,
 ): Promise<{ upserted: number; bytes: number; maxId: number }> {
+  const { ctx, full, owner, repo, headers, lastSeen, floorMs, now } = args;
   await ctx.rateLimiter.acquire("github");
   const u = new URL(
     `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs`,
@@ -259,16 +264,16 @@ export function createGithubActionsSyncable(options: GithubActionsSyncableOption
           continue;
         }
         const lastSeen = nextRepos[full] ?? 0;
-        const r = await syncGithubActionsForRepo(
+        const r = await syncGithubActionsForRepo({
           ctx,
           full,
-          parts.owner,
-          parts.repo,
+          owner: parts.owner,
+          repo: parts.repo,
           headers,
           lastSeen,
           floorMs,
           now,
-        );
+        });
         bytes += r.bytes;
         upserted += r.upserted;
         nextRepos[full] = r.maxId;

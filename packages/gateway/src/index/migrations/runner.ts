@@ -7,6 +7,7 @@ import {
   EXTENSION_SESSION_V10_MIGRATION_SQL,
   EXTENSION_SESSION_V10_NO_VEC_MIGRATION_SQL,
 } from "../extension-session-v10-sql.ts";
+import { GRAPH_RELATION_TYPES_V12_SQL } from "../graph-relation-types-v12-sql.ts";
 import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
@@ -171,6 +172,14 @@ function migrateIndexedV10ToV11(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV11ToV12(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(GRAPH_RELATION_TYPES_V12_SQL);
+    db.exec("PRAGMA user_version = 12");
+    recordMigration(db, 12, "graph_relation_type filesystem edges", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -183,6 +192,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 8, toVersion: 9, apply: migrateIndexedV8ToV9 },
   { fromVersion: 9, toVersion: 10, apply: migrateIndexedV9ToV10 },
   { fromVersion: 10, toVersion: 11, apply: migrateIndexedV10ToV11 },
+  { fromVersion: 11, toVersion: 12, apply: migrateIndexedV11ToV12 },
 ];
 
 /**
@@ -234,6 +244,9 @@ function backfillMigrationsLedger(db: Database): void {
     }
     if (uv >= 11) {
       recordMigration(db, 11, "user_mcp_connector (backfilled)", now);
+    }
+    if (uv >= 12) {
+      recordMigration(db, 12, "graph_relation_type filesystem edges (backfilled)", now);
     }
   })();
 }

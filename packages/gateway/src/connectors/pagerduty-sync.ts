@@ -31,6 +31,81 @@ function decodeCursor(raw: string | null): PdCursorV1 | null {
   return { lastUpdated: lu };
 }
 
+function parsePagerdutyIncidents(text: string): unknown[] | null {
+  let root: unknown;
+  try {
+    root = JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+  const rec = asRecord(root);
+  if (rec === undefined) {
+    return null;
+  }
+  const raw = rec["incidents"];
+  return Array.isArray(raw) ? raw : null;
+}
+
+function syncPagerdutyIncidentItems(
+  ctx: SyncContext,
+  incidents: unknown[],
+  since: string,
+  now: number,
+): { upserted: number; maxUpdated: string } {
+  let upserted = 0;
+  let maxUpdated = since;
+  for (const item of incidents) {
+    const row = asRecord(item);
+    if (row === undefined) {
+      continue;
+    }
+    const id = stringField(row, "id");
+    if (id === undefined || id === "") {
+      continue;
+    }
+    const title = stringField(row, "title") ?? `Incident ${id}`;
+    const status = stringField(row, "status");
+    const htmlUrl = stringField(row, "html_url");
+    const updated = stringField(row, "updated_at") ?? stringField(row, "created_at");
+    if (updated !== undefined && updated > maxUpdated) {
+      maxUpdated = updated;
+    }
+    const modifiedAt = updated === undefined ? now : Date.parse(updated);
+    upsertIndexedItemForSync(ctx, {
+      service: SERVICE_ID,
+      type: "incident",
+      externalId: id,
+      title: title.length > 512 ? title.slice(0, 512) : title,
+      bodyPreview: status ?? "",
+      url: htmlUrl ?? null,
+      canonicalUrl: htmlUrl ?? null,
+      modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : now,
+      authorId: null,
+      metadata: { status: status ?? null, incidentId: id },
+      pinned: false,
+      syncedAt: now,
+    });
+    upserted += 1;
+  }
+  return { upserted, maxUpdated };
+}
+
+function pagerdutyListFailureResult(
+  cursor: string | null,
+  since: string,
+  textLen: number,
+  t0: number,
+): SyncResult {
+  return {
+    cursor: cursor ?? encodeCursor({ lastUpdated: since }),
+    itemsUpserted: 0,
+    itemsDeleted: 0,
+    hasMore: false,
+    durationMs: Math.round(performance.now() - t0),
+    bytesTransferred: textLen,
+  };
+}
+
 export type PagerdutySyncableOptions = {
   ensurePagerdutyMcpRunning: () => Promise<void>;
 };
@@ -70,19 +145,10 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
           { serviceId: SERVICE_ID, status: res.status },
           "pagerduty sync: list failed",
         );
-        return {
-          cursor: cursor ?? encodeCursor({ lastUpdated: since }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: text.length,
-        };
+        return pagerdutyListFailureResult(cursor, since, text.length, t0);
       }
-      let root: unknown;
-      try {
-        root = JSON.parse(text) as unknown;
-      } catch {
+      const incidents = parsePagerdutyIncidents(text);
+      if (incidents === null) {
         return {
           cursor: encodeCursor({ lastUpdated: since }),
           itemsUpserted: 0,
@@ -92,44 +158,7 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
           bytesTransferred: text.length,
         };
       }
-      const rec = asRecord(root);
-      const incidents =
-        rec !== undefined && Array.isArray(rec["incidents"]) ? rec["incidents"] : [];
-      let upserted = 0;
-      let maxUpdated = since;
-      for (const item of incidents) {
-        const row = asRecord(item);
-        if (row === undefined) {
-          continue;
-        }
-        const id = stringField(row, "id");
-        if (id === undefined || id === "") {
-          continue;
-        }
-        const title = stringField(row, "title") ?? `Incident ${id}`;
-        const status = stringField(row, "status");
-        const htmlUrl = stringField(row, "html_url");
-        const updated = stringField(row, "updated_at") ?? stringField(row, "created_at");
-        if (updated !== undefined && updated > maxUpdated) {
-          maxUpdated = updated;
-        }
-        const modifiedAt = updated !== undefined ? Date.parse(updated) : now;
-        upsertIndexedItemForSync(ctx, {
-          service: SERVICE_ID,
-          type: "incident",
-          externalId: id,
-          title: title.length > 512 ? title.slice(0, 512) : title,
-          bodyPreview: status ?? "",
-          url: htmlUrl ?? null,
-          canonicalUrl: htmlUrl ?? null,
-          modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : now,
-          authorId: null,
-          metadata: { status: status ?? null, incidentId: id },
-          pinned: false,
-          syncedAt: now,
-        });
-        upserted += 1;
-      }
+      const { upserted, maxUpdated } = syncPagerdutyIncidentItems(ctx, incidents, since, now);
 
       return {
         cursor: encodeCursor({ lastUpdated: maxUpdated }),
