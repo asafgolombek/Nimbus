@@ -48,7 +48,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -63,7 +63,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -78,7 +78,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -93,7 +93,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -108,7 +108,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -120,7 +120,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -132,7 +132,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -147,7 +147,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -162,7 +162,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -177,7 +177,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -192,7 +192,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -207,7 +207,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -222,7 +222,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -237,7 +237,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -252,7 +252,7 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
         "@nimbus-dev/sdk": "workspace:*",
-        "zod": "^3.25.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -1462,7 +1462,7 @@
 
     "yoctocolors": ["yoctocolors@2.1.2", "", {}, "sha512-CzhO+pFNo8ajLM2d2IW/R93ipy99LWjtwblvC1RsoSUMZgyLbYFr221TnSNT7GjGdYui6P459mw9JH/g/zW2ug=="],
 
-    "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+    "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "zod-from-json-schema": ["zod-from-json-schema@0.5.2", "", { "dependencies": { "zod": "^4.0.17" } }, "sha512-/dNaicfdhJTOuUd4RImbLUE2g5yrSzzDjI/S6C2vO2ecAGZzn9UcRVgtyLSnENSmAOBRiSpUdzDS6fDWX3Z35g=="],
 
@@ -1492,8 +1492,6 @@
 
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
-    "@modelcontextprotocol/sdk/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
-
     "@testing-library/dom/aria-query": ["aria-query@5.3.0", "", { "dependencies": { "dequal": "^2.0.3" } }, "sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A=="],
 
     "@testing-library/dom/dom-accessibility-api": ["dom-accessibility-api@0.5.16", "", {}, "sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg=="],
@@ -1504,7 +1502,7 @@
 
     "router/path-to-regexp": ["path-to-regexp@8.4.2", "", {}, "sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA=="],
 
-    "zod-from-json-schema/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+    "zod-from-json-schema-v3/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@a2a-js/sdk/express/accepts": ["accepts@1.3.8", "", { "dependencies": { "mime-types": "~2.1.34", "negotiator": "0.6.3" } }, "sha512-PYAthTa2m2VKxuvSD3DPC/Gy+U+sOA1LAuT8mkmRuvw+NACSaeXEQ+NHcVF7rONl6qcaxV3Uuemwawk+7+SJLw=="],
 
