@@ -9,3 +9,4 @@ export { type ConsentCoordinator, ConsentDisconnectedError } from "./consent.ts"
 export type { CreateIpcServerOptions } from "./server.ts";
 export { createIpcServer } from "./server.ts";
 export type { IPCServer } from "./types.ts";
+export type { WorkflowRunContext, WorkflowRunHandler } from "./workflow-invoke.ts";

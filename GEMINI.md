@@ -149,7 +149,7 @@ mcp-connectors/*  ← depend on @nimbus-dev/sdk only
 | Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | **Complete** |
 | Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | **Complete** |
 | Phase 3 | Intelligence — Embeddings, hybrid search, Extension Registry v1, CI/CD + cloud infra connectors, IaC write ops, workflow pipelines, watchers, relationship graph, filesystem v2, agent specialization | **Active** |
-| Phase 4 | Presence — Tauri 2.0 desktop, local LLM (Ollama), multi-agent orchestration, Rich TUI, voice, data portability, signed releases | Planned |
+| Phase 4 | Presence — Tauri 2.0 desktop, VS Code extension (+ forks), local LLM (Ollama), multi-agent orchestration, Rich TUI, voice, data portability, signed releases | Planned |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | Planned |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |
 | Phase 7 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop | Planned |

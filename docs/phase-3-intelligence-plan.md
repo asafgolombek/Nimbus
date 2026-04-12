@@ -9,20 +9,20 @@
 
 ## Implementation Status (living)
 
-*Updated as deliverables land on `main`. Last reviewed: **2026-04-11**.*
+*Updated as deliverables land on `main`. Last reviewed: **2026-04-12**.*
 
 | Deliverable | Status | Location / notes |
 |---|---|---|
-| sqlite-vec integration + schema migration (v6) | Planned | |
-| Embedding pipeline — chunk + embed at sync time | Planned | |
-| Hybrid search (BM25 + vector, RRF fusion) | Planned | |
-| RAG conversational memory | Planned | |
-| Local relationship graph (entity/relation tables, schema v7) | Planned | |
-| Extension Registry v1 — `@nimbus-dev/sdk` public API stable | Planned | |
-| Extension manifest schema v1 (`nimbus.extension.json`) | Planned | |
-| Extension manifest hash verification on Gateway startup | Planned | |
-| Extension sandbox (scoped child process, env injection) | Planned | |
-| `nimbus scaffold extension` CLI command | Planned | |
+| sqlite-vec integration + schema migration (v6) | **Done** | `packages/gateway/src/index/embedding-v6-sql.ts`, `sqlite-vec-load.ts`, migration runner v6 |
+| Embedding pipeline — chunk + embed at sync time | **Done** | `packages/gateway/src/embedding/*`, worker bridge, lazy scheduler |
+| Hybrid search (BM25 + vector, RRF fusion) | **Done** | `packages/gateway/src/search/hybrid.ts`, `vec-store.ts`, `LocalIndex.searchRankedAsync` |
+| RAG conversational memory | **Done** | `session-memory-store.ts`, IPC `session.*`, CLI `nimbus session` / `--session` |
+| Local relationship graph (entity/relation tables, schema v7) | **Done** | `packages/gateway/src/graph/*`, `graph-v7-sql.ts`, `traverseGraph` tool |
+| Extension Registry v1 — `@nimbus-dev/sdk` public API stable | Partial | SDK exists; full registry UX still evolving |
+| Extension manifest schema v1 (`nimbus.extension.json`) | Partial | Scaffold emits `nimbus-extension.json`; align naming with §2.1 |
+| Extension manifest hash verification on Gateway startup | **Done** | `packages/gateway/src/extensions/verify-extensions.ts` |
+| Extension sandbox (scoped child process, env injection) | Partial | Intended via extension spawn path; hardening per risk register |
+| `nimbus scaffold extension` CLI command | **Done** | `packages/cli/src/commands/scaffold.ts` |
 | `nimbus extension install/list/enable/disable/remove` | Planned | |
 | `nimbus connector add --mcp "<cmd>"` (generic user MCP) | Planned | |
 | Jenkins MCP connector + sync | Planned | |
@@ -40,15 +40,17 @@
 | Sentry MCP connector + sync | Planned | |
 | PagerDuty MCP connector + sync | Planned | |
 | New Relic MCP connector + sync | Planned | |
-| Workflow pipeline engine + `nimbus workflow` CLI | Planned | |
-| Watcher system + `nimbus watch` CLI | Planned | |
+| Workflow pipeline engine + `nimbus workflow` CLI | **Done** | `packages/gateway/src/automation/workflow-runner.ts`, `workflow-store.ts`, CLI `workflow` |
+| Watcher system + `nimbus watch` CLI | **Done** | `watcher-engine.ts`, `watcher-store.ts`, CLI `watch`; post-sync evaluation |
 | Proactive anomaly detection (baseline + alerting) | Planned | |
 | Filesystem connector v2 (git-aware, semantic code search, dependency graph) | Planned | |
-| Session CLI (`nimbus` with no args) | Planned | |
-| Script files (`nimbus run <path>`) | Planned | |
-| DevOps agent (domain-tuned, scoped tool set) | Planned | |
-| Research agent (document synthesis, long-context RAG) | Planned | |
-| Coverage gates — embedding ≥80%, watcher ≥80%, workflow ≥80% | Planned | |
+| Session CLI (`nimbus` with no args) | Partial | `nimbus repl` + `ask` / `run` with session id; not yet default TTY entry |
+| Script files (`nimbus run <path>`) | **Done** | CLI `run` + workflow parse |
+| DevOps agent (domain-tuned, scoped tool set) | Partial | `devops` agent in `engine/agent.ts` — prompt slice; connector tools land with Wave 3 |
+| Research agent (document synthesis, long-context RAG) | Partial | `research` agent shares core tools until document MCP tools are wired per §5.4 |
+| Hybrid search quality gate (MRR@10 vs BM25) | **Done** | `packages/gateway/test/benchmark/search-quality.test.ts` (synthetic vec, `bun test` discovery) |
+| Headless bundle includes local embedding model weights | Planned | `scripts/package-headless-bundle.ts` still binaries-only; see §1.1 installer note |
+| Coverage gates — embedding ≥80%, watcher ≥80%, workflow ≥80% | Partial | Embedding + workflow tests exist; dedicated CI thresholds TBD |
 
 ---
 
@@ -1269,7 +1271,7 @@ These gate Phase 3 completion. All must pass before Phase 3 is marked complete.
 
 - [ ] `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, GitHub PR, Jenkins build, CloudWatch error spike, and Slack incident thread — sourced entirely from the local index — in a single response
 - [ ] `nimbus search --semantic "function that refreshes OAuth tokens"` returns the relevant code symbol from the Filesystem v2 index without the word "refresh" appearing in the symbol name (semantic recall)
-- [ ] Hybrid search RRF results are measurably better than BM25-only on a held-out query set (≥10% improvement in MRR@10) — verified by `packages/gateway/test/benchmark/search-quality.bench.ts`
+- [ ] Hybrid search RRF results are measurably better than BM25-only on a held-out query set (≥10% improvement in MRR@10) — automated check: `packages/gateway/test/benchmark/search-quality.test.ts` (synthetic embeddings; run `bun test packages/gateway/test/benchmark/search-quality.test.ts`)
 - [ ] A community developer can publish a working Nimbus extension in under one working day using `nimbus scaffold extension` and `MockGateway` from the SDK — verified by a contributor walkthrough doc
 - [ ] A tampered extension (manifest hash mismatch on disk) is disabled before its process starts; a Gateway startup log entry at `ERROR` level identifies it by name
 - [ ] `nimbus extension install @community/nimbus-jenkins` (from a local tarball in CI) installs, loads, and starts syncing Jenkins jobs without requiring any Gateway source changes

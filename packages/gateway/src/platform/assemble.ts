@@ -1,17 +1,21 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
+import { evaluateWatchersAfterSync } from "../automation/watcher-engine.ts";
 import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
+import { loadNimbusSessionFromConfigDir } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
-import { LOCAL_EMBEDDING_MODEL_ID } from "../embedding/model.ts";
+import { verifyExtensionsBestEffort } from "../extensions/verify-extensions.ts";
 import {
   LocalIndex,
   type LocalIndexOptions,
   type SemanticSearchDeps,
 } from "../index/local-index.ts";
+import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { createIpcServer } from "../ipc/index.ts";
+import { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
 import type { SyncContext } from "../sync/types.ts";
@@ -49,12 +53,14 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const syncLogger = pino({ level: processEnvGet("NIMBUS_LOG_LEVEL") ?? "warn" });
   const rateLimiter = new ProviderRateLimiter();
   const tomlEmbedding = loadNimbusEmbeddingFromConfigDir(paths.configDir);
+  const sessionToml = loadNimbusSessionFromConfigDir(paths.configDir);
   const embeddingRuntime = await createEmbeddingRuntime(
     db,
     paths,
     syncLogger,
     tomlEmbedding,
     Config.embeddingsEnabled,
+    vault,
   );
   const rt = embeddingRuntime;
   let scheduleItemEmbedding: ((itemId: string) => void) | undefined;
@@ -62,7 +68,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   if (rt) {
     scheduleItemEmbedding = rt.scheduleItemEmbedding.bind(rt);
     semanticSearch = {
-      model: LOCAL_EMBEDDING_MODEL_ID,
+      model: rt.getEmbeddingModel(),
       embedQuery: (text: string) => rt.embedQuery(text),
     };
   }
@@ -87,9 +93,33 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   } else {
     syncContext = syncBase;
   }
+
+  let sessionMemoryStore: SessionMemoryStore | undefined;
+  if (rt != null && readIndexedUserVersion(db) >= 10) {
+    const embeddingRt = rt;
+    sessionMemoryStore = new SessionMemoryStore({
+      db,
+      dims: embeddingRt.getEmbeddingDims(),
+      embedText: (t) => embeddingRt.embedQuery(t),
+    });
+    const ttlMs = Math.max(1, sessionToml.memoryTtlHours) * 3_600_000;
+    setInterval(() => {
+      try {
+        sessionMemoryStore?.pruneExpired(ttlMs, Date.now());
+      } catch {
+        /* ignore */
+      }
+    }, 3_600_000);
+  }
+
+  verifyExtensionsBestEffort(db, syncLogger);
+
   const syncScheduler = new SyncScheduler(syncContext, undefined, {
     notify: async (title, body) => {
       await notifications.show(title, body);
+    },
+    onConnectorSyncSuccess: (serviceId) => {
+      evaluateWatchersAfterSync(db, serviceId, Date.now(), (t, b) => notifications.show(t, b));
     },
   });
   const connectorMesh = await createLazyConnectorMesh(paths, vault);
@@ -104,6 +134,9 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     openUrl: openUrlInDefaultBrowser,
     syncScheduler,
   };
+  if (sessionMemoryStore !== undefined) {
+    ipcOpts.sessionMemoryStore = sessionMemoryStore;
+  }
   if (rt) {
     ipcOpts.getEmbeddingStatus = () => ({
       embeddingBackfill: rt.getBackfillProgress(),
@@ -119,5 +152,6 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     autostart: createStubAutostart(),
     notifications,
     openUrl: openUrlInDefaultBrowser,
+    ...(sessionMemoryStore === undefined ? {} : { sessionMemoryStore }),
   };
 }

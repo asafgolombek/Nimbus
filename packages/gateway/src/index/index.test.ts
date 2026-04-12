@@ -26,7 +26,7 @@ describe("LocalIndex", () => {
     LocalIndex.ensureSchema(db);
 
     const ver = db.query("PRAGMA user_version").get() as { user_version: number };
-    expect(ver.user_version).toBe(6);
+    expect(ver.user_version).toBe(LocalIndex.SCHEMA_VERSION);
 
     const vecMeta = db.query("SELECT vec_version() AS v").get() as { v: string };
     expect(typeof vecMeta.v).toBe("string");

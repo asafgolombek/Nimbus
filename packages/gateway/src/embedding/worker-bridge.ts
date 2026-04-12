@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 
 import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
 import type { EmbeddingRuntime } from "./embedding-runtime.ts";
+import { LOCAL_EMBEDDING_MODEL_ID } from "./model.ts";
 
 type Pending = {
   resolve: (v: Float32Array | null) => void;
@@ -193,6 +194,14 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
       this.logger.warn({ err }, "embedQuery failed");
       return null;
     });
+  }
+
+  getEmbeddingModel(): string {
+    return LOCAL_EMBEDDING_MODEL_ID;
+  }
+
+  getEmbeddingDims(): number {
+    return 384;
   }
 
   getBackfillProgress(): { done: number; total: number } | null {

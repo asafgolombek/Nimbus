@@ -44,54 +44,55 @@ jobs:
       - name: Build all packages
         run: bun run build
 
+      # Bun writes JUnit XML here. Do not use `reports/` — it is gitignored and dorny/test-reporter's fast-glob skips ignored paths.
       - name: Prepare test report directory
         shell: bash
-        run: mkdir -p reports
+        run: mkdir -p junit-reports
 
       - name: Unit tests (with coverage)
         shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk --coverage --reporter=junit --reporter-outfile=reports/junit-unit.xml
+        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk --coverage --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml
         env:
           CI: "true"
 
       - name: Coverage gate — Engine (≥85%)
-        run: bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85 --reporter=junit --reporter-outfile=reports/junit-engine.xml
+        run: bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85 --reporter=junit --reporter-outfile=junit-reports/junit-engine.xml
         env:
           CI: "true"
 
       - name: Coverage gate — Vault (≥90%)
         shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90 --reporter=junit --reporter-outfile=reports/junit-vault.xml
+        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90 --reporter=junit --reporter-outfile=junit-reports/junit-vault.xml
         env:
           CI: "true"
 
       - name: Coverage gate — Sync scheduler (≥80%)
-        run: bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=reports/junit-scheduler.xml
+        run: bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=junit-reports/junit-scheduler.xml
         env:
           CI: "true"
 
       - name: Coverage gate — Rate limiter (≥85%)
-        run: bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85 --reporter=junit --reporter-outfile=reports/junit-rate-limiter.xml
+        run: bun test packages/gateway/src/sync/rate-limiter.test.ts --coverage --coverage-threshold-lines=85 --reporter=junit --reporter-outfile=junit-reports/junit-rate-limiter.xml
         env:
           CI: "true"
 
       - name: Coverage gate — People / linker (≥80%)
-        run: bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=reports/junit-people.xml
+        run: bun test packages/gateway/src/people --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=junit-reports/junit-people.xml
         env:
           CI: "true"
 
       - name: Integration tests
-        run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=reports/junit-integration.xml
+        run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=junit-reports/junit-integration.xml
         env:
           CI: "true"
 
       - name: E2E Gateway tests
-        run: bun test packages/gateway/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-gateway.xml
+        run: bun test packages/gateway/test/e2e/ --reporter=junit --reporter-outfile=junit-reports/junit-e2e-gateway.xml
         env:
           CI: "true"
 
       - name: E2E CLI tests
-        run: bun test packages/cli/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-cli.xml
+        run: bun test packages/cli/test/e2e/ --reporter=junit --reporter-outfile=junit-reports/junit-e2e-cli.xml
         env:
           CI: "true"
 
@@ -119,6 +120,8 @@ jobs:
         if: always()
         with:
           name: Tests (${{ inputs.runner }})
-          path: reports/junit-*.xml
+          path: junit-reports/junit-*.xml
           reporter: java-junit
           fail-on-error: false
+          # When earlier steps are skipped (e.g. path filters), no XML is produced — do not fail the job.
+          fail-on-empty: false

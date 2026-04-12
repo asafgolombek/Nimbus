@@ -154,8 +154,8 @@ jobs:
       - name: Run E2E desktop tests
         shell: bash
         run: |
-          mkdir -p reports
-          bun test packages/ui/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-desktop.xml
+          mkdir -p junit-reports
+          bun test packages/ui/test/e2e/ --reporter=junit --reporter-outfile=junit-reports/junit-e2e-desktop.xml
         env:
           CI: "true"
 
@@ -164,9 +164,10 @@ jobs:
         if: always()
         with:
           name: E2E desktop (PR)
-          path: reports/junit-*.xml
+          path: junit-reports/junit-*.xml
           reporter: java-junit
           fail-on-error: false
+          fail-on-empty: false
 
   # E2E Desktop (Playwright + Tauri WebDriver) — push to main only, full OS matrix
   e2e-desktop:
@@ -214,8 +215,8 @@ jobs:
       - name: Run E2E desktop tests
         shell: bash
         run: |
-          mkdir -p reports
-          bun test packages/ui/test/e2e/ --reporter=junit --reporter-outfile=reports/junit-e2e-desktop.xml
+          mkdir -p junit-reports
+          bun test packages/ui/test/e2e/ --reporter=junit --reporter-outfile=junit-reports/junit-e2e-desktop.xml
         env:
           CI: "true"
 
@@ -224,6 +225,7 @@ jobs:
         if: always()
         with:
           name: E2E desktop (${{ matrix.os }})
-          path: reports/junit-*.xml
+          path: junit-reports/junit-*.xml
           reporter: java-junit
           fail-on-error: false
+          fail-on-empty: false
