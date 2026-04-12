@@ -506,7 +506,7 @@ function hitlConfluenceRejectPayload(
   };
 }
 
-describe("ToolExecutor", () => {
+describe("ToolExecutor — HITL whitelist", () => {
   test("every HITL_REQUIRED action type triggers the consent channel", async () => {
     for (const actionType of HITL_REQUIRED) {
       const m = createMocks(true);
@@ -535,7 +535,9 @@ describe("ToolExecutor", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("file.delete");
   });
+});
 
+describe("ToolExecutor — rejected consent (email)", () => {
   for (const emailAction of ["email.send", "email.draft.send", "email.draft.create"] as const) {
     test(`rejected consent for ${emailAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -550,7 +552,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(emailAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (slack)", () => {
   test("rejected consent for slack.message.post does not call the connector; audit rejected", async () => {
     const m = createMocks(true);
     m.approveNext = false;
@@ -568,7 +572,9 @@ describe("ToolExecutor", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("slack.message.post");
   });
+});
 
+describe("ToolExecutor — rejected consent (teams)", () => {
   for (const teamsAction of ["teams.message.post", "teams.message.postChat"] as const) {
     test(`rejected consent for ${teamsAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -583,7 +589,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(teamsAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (linear)", () => {
   for (const linearAction of [
     "linear.issue.create",
     "linear.issue.update",
@@ -602,7 +610,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(linearAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (jira)", () => {
   for (const jiraAction of [
     "jira.issue.create",
     "jira.issue.update",
@@ -621,7 +631,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(jiraAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (notion)", () => {
   for (const notionAction of [
     "notion.page.create",
     "notion.page.update",
@@ -641,7 +653,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(notionAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (confluence)", () => {
   for (const confluenceAction of [
     "confluence.page.create",
     "confluence.page.update",
@@ -660,7 +674,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(confluenceAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (jenkins)", () => {
   for (const jenkinsAction of ["jenkins.build.trigger", "jenkins.build.abort"] as const) {
     test(`rejected consent for ${jenkinsAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -675,7 +691,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(jenkinsAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (github_actions)", () => {
   for (const ghaAction of ["github_actions.run.trigger", "github_actions.run.cancel"] as const) {
     test(`rejected consent for ${ghaAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -690,7 +708,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(ghaAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (circleci)", () => {
   for (const cciAction of ["circleci.pipeline.trigger", "circleci.job.cancel"] as const) {
     test(`rejected consent for ${cciAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -705,7 +725,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(cciAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (gitlab)", () => {
   for (const glAction of ["gitlab.pipeline.retry", "gitlab.pipeline.cancel"] as const) {
     test(`rejected consent for ${glAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -720,7 +742,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(glAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (pagerduty)", () => {
   for (const pdAction of [
     "pagerduty.incident.acknowledge",
     "pagerduty.incident.resolve",
@@ -739,7 +763,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(pdAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (kubernetes)", () => {
   for (const k8sAction of [
     "kubernetes.rollout.restart",
     "kubernetes.pod.delete",
@@ -758,7 +784,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(k8sAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (aws)", () => {
   for (const awsAction of [
     "aws.ecs.service.update",
     "aws.lambda.invoke",
@@ -778,7 +806,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(awsAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (azure)", () => {
   for (const azAction of ["azure.app_service.restart", "azure.aks.node_pool.scale"] as const) {
     test(`rejected consent for ${azAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -793,7 +823,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(azAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (gcp)", () => {
   for (const gcpAction of ["gcp.cloud_run.deploy", "gcp.gke.workload.restart"] as const) {
     test(`rejected consent for ${gcpAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -808,7 +840,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(gcpAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (iac)", () => {
   for (const iacAction of [
     "iac.terraform.apply",
     "iac.terraform.destroy",
@@ -828,7 +862,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(iacAction);
     });
   }
+});
 
+describe("ToolExecutor — rejected consent (filesystem writes)", () => {
   for (const fileAction of ["file.create", "file.move", "file.rename"] as const) {
     test(`rejected consent for ${fileAction} does not call the connector; audit rejected`, async () => {
       const m = createMocks(true);
@@ -843,7 +879,9 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls[0]?.actionType).toBe(fileAction);
     });
   }
+});
 
+describe("ToolExecutor — approval, ordering, and consent channel", () => {
   test("approved consent calls the connector; audit shows approved", async () => {
     const m = createMocks(true);
     const exec = new ToolExecutor(m.consent, m.audit, m.connectors);

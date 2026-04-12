@@ -1,5 +1,6 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
+import { clampSyncTitle } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
@@ -48,6 +49,16 @@ function decodeCursor(raw: string | null): JenkinsSyncCursorV1 | null {
   return { jobs };
 }
 
+function jenkinsJobNodeDisplayName(n: JobNode): string {
+  if (typeof n.fullName === "string" && n.fullName !== "") {
+    return n.fullName;
+  }
+  if (typeof n.name === "string") {
+    return n.name;
+  }
+  return "";
+}
+
 function flattenJobs(
   nodes: JobNode[] | undefined,
   out: { fullName: string; url?: string }[],
@@ -56,12 +67,7 @@ function flattenJobs(
     return;
   }
   for (const n of nodes) {
-    const fn =
-      typeof n.fullName === "string" && n.fullName !== ""
-        ? n.fullName
-        : typeof n.name === "string"
-          ? n.name
-          : "";
+    const fn = jenkinsJobNodeDisplayName(n);
     if (fn !== "") {
       if (typeof n.url === "string") {
         out.push({ fullName: fn, url: n.url });
@@ -97,18 +103,18 @@ function basicAuthHeader(user: string, token: string): string {
 async function jenkinsGetJson(
   url: string,
   auth: string,
-): Promise<{ ok: boolean; status: number; text: string; json: unknown | null }> {
+): Promise<{ ok: boolean; status: number; text: string; json: unknown }> {
   const res = await fetch(url, {
     headers: { Authorization: auth, Accept: "application/json" },
   });
   const text = await res.text();
-  let json: unknown | null = null;
+  let parsedBody: unknown = null;
   try {
-    json = JSON.parse(text) as unknown;
+    parsedBody = JSON.parse(text) as unknown;
   } catch {
-    json = null;
+    parsedBody = null;
   }
-  return { ok: res.ok, status: res.status, text, json };
+  return { ok: res.ok, status: res.status, text, json: parsedBody };
 }
 
 function buildTitle(
@@ -117,9 +123,64 @@ function buildTitle(
   result: string | undefined,
   building: boolean,
 ): string {
-  const suffix =
-    result !== undefined && result !== "" ? ` — ${result}` : building ? " (running)" : "";
+  let suffix = "";
+  if (result !== undefined && result !== "") {
+    suffix = ` — ${result}`;
+  } else if (building) {
+    suffix = " (running)";
+  }
   return `${jobFullName} #${String(num)}${suffix}`;
+}
+
+function upsertJenkinsBuildRowIfNew(
+  ctx: SyncContext,
+  job: { fullName: string; url?: string },
+  br: unknown,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+): { upserted: boolean; num: number } | null {
+  const b = asRecord(br);
+  if (b === undefined) {
+    return null;
+  }
+  const num = numberField(b, "number");
+  if (num === undefined || num <= lastSeen) {
+    return null;
+  }
+  const ts = numberField(b, "timestamp");
+  const modifiedAt = ts !== undefined && Number.isFinite(ts) ? Math.floor(ts) : now;
+  if (modifiedAt < floorMs) {
+    return null;
+  }
+  const result = stringField(b, "result");
+  const building = b["building"] === true;
+  const url = stringField(b, "url") ?? job.url ?? null;
+  const duration = numberField(b, "duration");
+  const titleRaw = buildTitle(job.fullName, num, result, building);
+  const externalId = `${job.fullName}#${String(num)}`;
+  const meta: Record<string, unknown> = {
+    jobName: job.fullName,
+    buildNumber: num,
+    result: result ?? null,
+    building,
+    duration_ms: duration ?? null,
+  };
+  upsertIndexedItemForSync(ctx, {
+    service: SERVICE_ID,
+    type: "ci_run",
+    externalId,
+    title: clampSyncTitle(titleRaw),
+    bodyPreview: "",
+    url,
+    canonicalUrl: url,
+    modifiedAt,
+    authorId: null,
+    metadata: meta,
+    pinned: false,
+    syncedAt: now,
+  });
+  return { upserted: true, num };
 }
 
 async function syncJenkinsJobBuilds(
@@ -145,49 +206,13 @@ async function syncJenkinsJobBuilds(
   let maxNum = lastSeen;
   let upserted = 0;
   for (const br of buildsRaw) {
-    const b = asRecord(br);
-    if (b === undefined) {
+    const r = upsertJenkinsBuildRowIfNew(ctx, job, br, lastSeen, floorMs, now);
+    if (r === null) {
       continue;
     }
-    const num = numberField(b, "number");
-    if (num === undefined || num <= lastSeen) {
-      continue;
-    }
-    const ts = numberField(b, "timestamp");
-    const modifiedAt = ts !== undefined && Number.isFinite(ts) ? Math.floor(ts) : now;
-    if (modifiedAt < floorMs) {
-      continue;
-    }
-    const result = stringField(b, "result");
-    const building = b["building"] === true;
-    const url = stringField(b, "url") ?? job.url ?? null;
-    const duration = numberField(b, "duration");
-    const titleRaw = buildTitle(job.fullName, num, result, building);
-    const externalId = `${job.fullName}#${String(num)}`;
-    const meta: Record<string, unknown> = {
-      jobName: job.fullName,
-      buildNumber: num,
-      result: result ?? null,
-      building,
-      duration_ms: duration ?? null,
-    };
-    upsertIndexedItemForSync(ctx, {
-      service: SERVICE_ID,
-      type: "ci_run",
-      externalId,
-      title: titleRaw.length > 512 ? titleRaw.slice(0, 512) : titleRaw,
-      bodyPreview: "",
-      url,
-      canonicalUrl: url,
-      modifiedAt,
-      authorId: null,
-      metadata: meta,
-      pinned: false,
-      syncedAt: now,
-    });
     upserted += 1;
-    if (num > maxNum) {
-      maxNum = num;
+    if (r.num > maxNum) {
+      maxNum = r.num;
     }
   }
   return { upserted, bytes, maxNum };

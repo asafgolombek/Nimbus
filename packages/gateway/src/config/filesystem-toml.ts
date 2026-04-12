@@ -63,6 +63,49 @@ function parseExcludeList(raw: string): string[] {
     .filter((s) => s !== "");
 }
 
+function pushExpandedRoot(cur: NimbusFilesystemRootToml, roots: NimbusFilesystemRootToml[]): void {
+  if (cur.path.trim() !== "") {
+    roots.push({
+      ...cur,
+      path: expandPath(cur.path),
+    });
+  }
+}
+
+function applyFilesystemRootKey(cur: NimbusFilesystemRootToml, key: string, valRaw: string): void {
+  switch (key) {
+    case "path":
+      cur.path = parseString(valRaw);
+      break;
+    case "git_aware": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) {
+        cur.gitAware = b;
+      }
+      break;
+    }
+    case "code_index": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) {
+        cur.codeIndex = b;
+      }
+      break;
+    }
+    case "dependency_graph": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) {
+        cur.dependencyGraph = b;
+      }
+      break;
+    }
+    case "exclude":
+      cur.exclude = parseExcludeList(valRaw);
+      break;
+    default:
+      break;
+  }
+}
+
 /**
  * Best-effort `[[filesystem.roots]]` tables from `nimbus.toml` (no full TOML parser).
  */
@@ -77,11 +120,8 @@ export function parseNimbusTomlFilesystemRoots(source: string): NimbusFilesystem
       continue;
     }
     if (trimmed === "[[filesystem.roots]]") {
-      if (cur !== undefined && cur.path.trim() !== "") {
-        roots.push({
-          ...cur,
-          path: expandPath(cur.path),
-        });
+      if (cur !== undefined) {
+        pushExpandedRoot(cur, roots);
       }
       cur = defaultRoot();
       continue;
@@ -95,43 +135,10 @@ export function parseNimbusTomlFilesystemRoots(source: string): NimbusFilesystem
     }
     const key = trimmed.slice(0, eq).trim();
     const valRaw = trimmed.slice(eq + 1).trim();
-    switch (key) {
-      case "path":
-        cur.path = parseString(valRaw);
-        break;
-      case "git_aware": {
-        const b = parseBool(valRaw);
-        if (b !== undefined) {
-          cur.gitAware = b;
-        }
-        break;
-      }
-      case "code_index": {
-        const b = parseBool(valRaw);
-        if (b !== undefined) {
-          cur.codeIndex = b;
-        }
-        break;
-      }
-      case "dependency_graph": {
-        const b = parseBool(valRaw);
-        if (b !== undefined) {
-          cur.dependencyGraph = b;
-        }
-        break;
-      }
-      case "exclude":
-        cur.exclude = parseExcludeList(valRaw);
-        break;
-      default:
-        break;
-    }
+    applyFilesystemRootKey(cur, key, valRaw);
   }
-  if (cur !== undefined && cur.path.trim() !== "") {
-    roots.push({
-      ...cur,
-      path: expandPath(cur.path),
-    });
+  if (cur !== undefined) {
+    pushExpandedRoot(cur, roots);
   }
   return roots;
 }

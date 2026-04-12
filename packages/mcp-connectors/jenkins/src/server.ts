@@ -34,6 +34,16 @@ type JobNode = {
   jobs?: JobNode[];
 };
 
+function jenkinsJobNodeDisplayName(n: JobNode): string {
+  if (typeof n.fullName === "string" && n.fullName !== "") {
+    return n.fullName;
+  }
+  if (typeof n.name === "string") {
+    return n.name;
+  }
+  return "";
+}
+
 function flattenJobs(
   nodes: JobNode[] | undefined,
   out: { fullName: string; url?: string }[],
@@ -42,12 +52,7 @@ function flattenJobs(
     return;
   }
   for (const n of nodes) {
-    const fn =
-      typeof n.fullName === "string" && n.fullName !== ""
-        ? n.fullName
-        : typeof n.name === "string"
-          ? n.name
-          : "";
+    const fn = jenkinsJobNodeDisplayName(n);
     if (fn !== "") {
       if (typeof n.url === "string") {
         out.push({ fullName: fn, url: n.url });

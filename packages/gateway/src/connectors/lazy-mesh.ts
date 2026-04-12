@@ -560,7 +560,7 @@ export class LazyConnectorMesh {
   private async ensureUserMcpConnectorsRunning(): Promise<void> {
     const rows = this.listUserMcpConnectors();
     const active = new Set(rows.map((r) => r.service_id));
-    for (const id of [...this.userMcpClients.keys()]) {
+    for (const id of this.userMcpClients.keys()) {
       if (!active.has(id)) {
         await this.stopUserMcpClient(id);
       }

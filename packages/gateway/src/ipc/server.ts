@@ -474,7 +474,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
           method,
           params,
           db: options.localIndex.getDatabase(),
-          ...(options.extensionsDir !== undefined ? { extensionsDir: options.extensionsDir } : {}),
+          ...(options.extensionsDir === undefined ? {} : { extensionsDir: options.extensionsDir }),
         });
         if (out.kind === "hit") {
           return out.value;
@@ -529,7 +529,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         localIndex: options.localIndex,
         openUrl: openUrl ?? (async () => {}),
         syncScheduler: options.syncScheduler,
-        ...(options.connectorMesh !== undefined ? { connectorMesh: options.connectorMesh } : {}),
+        ...(options.connectorMesh === undefined ? {} : { connectorMesh: options.connectorMesh }),
       });
       if (out.kind === "hit") {
         return out.value;

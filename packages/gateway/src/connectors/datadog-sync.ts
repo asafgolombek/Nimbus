@@ -27,6 +27,16 @@ function siteHost(site: string): string {
   return `api.${s}`;
 }
 
+function datadogMonitorExternalId(idVal: unknown): string {
+  if (typeof idVal === "number") {
+    return String(idVal);
+  }
+  if (typeof idVal === "string") {
+    return idVal;
+  }
+  return "";
+}
+
 function upsertDatadogMonitorRows(ctx: SyncContext, list: unknown[], now: number): number {
   let upserted = 0;
   for (const item of list) {
@@ -36,7 +46,7 @@ function upsertDatadogMonitorRows(ctx: SyncContext, list: unknown[], now: number
     }
     const idVal = row["id"];
     const nameVal = row["name"];
-    const id = typeof idVal === "number" ? String(idVal) : typeof idVal === "string" ? idVal : "";
+    const id = datadogMonitorExternalId(idVal);
     if (id === "") {
       continue;
     }

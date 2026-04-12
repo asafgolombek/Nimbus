@@ -91,13 +91,13 @@ export async function jenkinsFetchJson(
     },
   });
   const text = await res.text();
-  let json: unknown | null = null;
+  let parsedBody: unknown = null;
   try {
-    json = JSON.parse(text) as unknown;
+    parsedBody = JSON.parse(text) as unknown;
   } catch {
-    json = null;
+    parsedBody = null;
   }
-  return { ok: res.ok, status: res.status, text, json };
+  return { ok: res.ok, status: res.status, text, json: parsedBody };
 }
 
 export async function jenkinsPost(

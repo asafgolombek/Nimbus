@@ -1312,18 +1312,25 @@ OAuth PKCE — set env vars before nimbus start, or run for setup steps:
 
 Env vars: NIMBUS_OAUTH_GOOGLE_CLIENT_ID, NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET (Web OAuth clients only), NIMBUS_OAUTH_MICROSOFT_CLIENT_ID, NIMBUS_OAUTH_SLACK_CLIENT_ID,
   NIMBUS_OAUTH_NOTION_CLIENT_ID, NIMBUS_OAUTH_NOTION_CLIENT_SECRET
-
-GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat). Also registers GitHub Actions sync (service id github_actions) with the same PAT.
+`);
+  console.log(`GitHub: use --token or env NIMBUS_GITHUB_PAT (stored as vault key github.pat). Also registers GitHub Actions sync (service id github_actions) with the same PAT.
 GitLab: use --token or env NIMBUS_GITLAB_PAT (gitlab.pat). Self-hosted: --api-base https://git.example.com/api/v4 (gitlab.api_base).
 Linear: use --token or env NIMBUS_LINEAR_API_KEY (linear.api_key).
-Jira: use --username (Atlassian email), --token (API token), --api-base https://your-domain.atlassian.net
+`);
+  console.log(`Jira: use --username (Atlassian email), --token (API token), --api-base https://your-domain.atlassian.net
   or env NIMBUS_JIRA_EMAIL, NIMBUS_JIRA_API_TOKEN, NIMBUS_JIRA_BASE_URL (jira.email, jira.api_token, jira.base_url).
 Notion: OAuth in the browser (notion.oauth); see auth notion --help for env setup.
 Confluence: same flags/env pattern as Jira (NIMBUS_CONFLUENCE_* → confluence.email, confluence.api_token, confluence.base_url).
-Jenkins: --username, --token (API token), --api-base https://ci.example/  or env NIMBUS_JENKINS_USERNAME, NIMBUS_JENKINS_API_TOKEN, NIMBUS_JENKINS_BASE_URL (jenkins.username, jenkins.api_token, jenkins.base_url).
+`);
+  console.log(`Jenkins: --username, --token (API token), --api-base https://ci.example/  or env NIMBUS_JENKINS_USERNAME, NIMBUS_JENKINS_API_TOKEN, NIMBUS_JENKINS_BASE_URL (jenkins.username, jenkins.api_token, jenkins.base_url).
 CircleCI: --token (personal API token) or env NIMBUS_CIRCLECI_API_TOKEN / CIRCLECI_TOKEN (vault key circleci.api_token). Indexes pipelines for GitHub repos already in the local index (project slug gh/owner/repo).
-PagerDuty: --token (REST API token) or env NIMBUS_PAGERDUTY_API_TOKEN / PAGERDUTY_API_TOKEN (vault key pagerduty.api_token). Indexes open incidents for search.
-Kubernetes: --kubeconfig <path> [--context <name>] or env NIMBUS_KUBECONFIG / KUBECONFIG (vault keys kubernetes.kubeconfig, optional kubernetes.context). Indexes cluster deployments.
+`);
+  const pdEnv = "NIMBUS_PAGERDUTY_API_TOKEN";
+  const pdAlt = "PAGERDUTY_API_TOKEN";
+  console.log(
+    `PagerDuty: --token (REST API token) or env ${pdEnv} / ${pdAlt} (vault key pagerduty.api_token). Indexes open incidents for search.`,
+  );
+  console.log(`Kubernetes: --kubeconfig <path> [--context <name>] or env NIMBUS_KUBECONFIG / KUBECONFIG (vault keys kubernetes.kubeconfig, optional kubernetes.context). Indexes cluster deployments.
 
 Credentials are stored in the OS vault only (never printed here).
 `);

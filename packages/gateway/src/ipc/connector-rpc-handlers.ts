@@ -696,10 +696,10 @@ async function connectorAuthDatadog(
   await vault.set("datadog.app_key", app);
   const siteRaw = rec?.["datadogSite"] ?? rec?.["site"];
   const site = typeof siteRaw === "string" && siteRaw.trim() !== "" ? siteRaw.trim() : "";
-  if (site !== "") {
-    await vault.set("datadog.site", site);
-  } else {
+  if (site === "") {
     await vault.delete("datadog.site");
+  } else {
+    await vault.set("datadog.site", site);
   }
   const interval = defaultSyncIntervalMsForService("datadog");
   localIndex.ensureConnectorSchedulerRegistration("datadog", interval, Date.now());
