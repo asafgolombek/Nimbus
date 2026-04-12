@@ -81,6 +81,9 @@ export type McpToolListingClient = {
  * Confluence (HITL): `confluence.page.create` → `confluence_confluence_page_create`;
  * `confluence.page.update` → `confluence_confluence_page_update`;
  * `confluence.comment.add` → `confluence_confluence_comment_add`.
+ *
+ * Jenkins (HITL): `jenkins.build.trigger` → `jenkins_jenkins_build_trigger`;
+ * `jenkins.build.abort` → `jenkins_jenkins_build_abort`.
  */
 export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;

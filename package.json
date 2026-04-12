@@ -21,7 +21,8 @@
     "packages/mcp-connectors/jira",
     "packages/mcp-connectors/notion",
     "packages/mcp-connectors/confluence",
-    "packages/mcp-connectors/discord"
+    "packages/mcp-connectors/discord",
+    "packages/mcp-connectors/jenkins"
   ],
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",

@@ -25,7 +25,7 @@
 | `nimbus scaffold extension` CLI command | **Done** | `packages/cli/src/commands/scaffold.ts` |
 | `nimbus extension install/list/enable/disable/remove` | **Done** | CLI `extension.ts`; IPC `extension.*`; local path install + `extensionsDir` copy |
 | `nimbus connector add --mcp "<cmd>"` (generic user MCP) | **Done** | `user_mcp_connector` schema v11; IPC `connector.addMcp`; lazy mesh spawn + noop sync |
-| Jenkins MCP connector + sync | Planned | |
+| Jenkins MCP connector + sync | **Done** | `packages/mcp-connectors/jenkins/`; `jenkins-sync.ts`; lazy mesh + `assemble-sync-registrations`; `connector.auth` jenkins; HITL `jenkins.build.*` |
 | GitHub Actions MCP connector + sync | Planned | |
 | CircleCI MCP connector + sync | Planned | |
 | GitLab CI MCP connector + sync (extends GitLab connector) | Planned | |
@@ -673,9 +673,9 @@ export interface CIContext {
 
 ### 3.1 Jenkins
 
-**Vault keys:** `jenkins.url` (base URL), `jenkins.api_token` (Basic auth: `<user>:<token>`)  
-**Auth CLI:** `nimbus connector auth jenkins --url <url> --username <user> --token <token>` (env: `NIMBUS_JENKINS_URL`, `NIMBUS_JENKINS_USERNAME`, `NIMBUS_JENKINS_API_TOKEN`)  
-**Sync cursor:** `nimbus-jnk1:<jobName>:<lastBuildNumber>` — per-job cursor stored as a JSON map in `sync_state.cursor`  
+**Vault keys:** `jenkins.base_url`, `jenkins.username`, `jenkins.api_token` (HTTP Basic)  
+**Auth CLI:** `nimbus connector auth jenkins --api-base <url> --username <user> --token <api_token>` (env: `NIMBUS_JENKINS_BASE_URL`, `NIMBUS_JENKINS_USERNAME`, `NIMBUS_JENKINS_API_TOKEN`)  
+**Sync cursor:** `nimbus-jnk1:` JSON payload — map of job fullName → last indexed build number in `sync_state.cursor`  
 **Sync strategy:** Fetch all jobs via `/api/json`; for each job, poll builds newer than the cursor; index as `type = "ci_run"`.  
 **Item metadata fields:** `{ jobName, buildNumber, result, duration_ms, triggeredByCommit, branchName, artifactUrls }`  
 **HITL actions:** `jenkins.build.trigger`, `jenkins.build.abort`  

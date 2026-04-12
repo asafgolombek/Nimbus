@@ -14,7 +14,8 @@ export type Provider =
   | "jira"
   | "notion"
   | "confluence"
-  | "discord";
+  | "discord"
+  | "jenkins";
 
 export interface ProviderQuota {
   requestsPerMinute: number;
@@ -34,6 +35,7 @@ export const DEFAULT_QUOTAS: Record<Provider, ProviderQuota> = {
   notion: { requestsPerMinute: 30, burstSize: 5 },
   confluence: { requestsPerMinute: 60, burstSize: 10 },
   discord: { requestsPerMinute: 50, burstSize: 10 },
+  jenkins: { requestsPerMinute: 60, burstSize: 10 },
 };
 
 type BucketState = {

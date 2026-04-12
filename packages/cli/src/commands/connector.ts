@@ -366,6 +366,8 @@ type ConnectorAuthParams = {
   scopes?: string[];
   personalAccessToken?: string;
   bitbucketUsername?: string;
+  /** Jenkins user id (HTTP Basic); also used for Jira/Confluence via atlassianEmail. */
+  username?: string;
   atlassianEmail?: string;
   apiBaseUrl?: string;
   discordOptIn?: boolean;
@@ -462,6 +464,37 @@ function applyConfluenceConnectorAuth(
   applyAtlassianSiteConnectorAuth(p, token, username, apiBase, CONFLUENCE_CONNECTOR_SITE);
 }
 
+function applyJenkinsConnectorAuth(
+  p: ConnectorAuthParams,
+  token: string | undefined,
+  username: string | undefined,
+  apiBase: string | undefined,
+): void {
+  const user = username?.trim() || firstEnvTrimmed(["NIMBUS_JENKINS_USERNAME", "JENKINS_USERNAME"]);
+  if (user === "") {
+    throw new Error(
+      "Jenkins requires --username <user>: nimbus connector auth jenkins --username <user> --token <api_token> --api-base https://ci.example/  (or set NIMBUS_JENKINS_USERNAME)",
+    );
+  }
+  const apiTok =
+    token?.trim() || firstEnvTrimmed(["NIMBUS_JENKINS_API_TOKEN", "JENKINS_API_TOKEN"]);
+  if (apiTok === "") {
+    throw new Error(
+      "Jenkins requires an API token: nimbus connector auth jenkins ... --token <api_token>  (or set NIMBUS_JENKINS_API_TOKEN)",
+    );
+  }
+  const baseRaw =
+    apiBase?.trim() || firstEnvTrimmed(["NIMBUS_JENKINS_BASE_URL", "JENKINS_BASE_URL"]);
+  if (baseRaw === "") {
+    throw new Error(
+      "Jenkins requires --api-base <url>: nimbus connector auth jenkins ... --api-base https://ci.example/  (or set NIMBUS_JENKINS_BASE_URL)",
+    );
+  }
+  p.username = user;
+  p.personalAccessToken = apiTok;
+  p.apiBaseUrl = stripTrailingSlashes(baseRaw);
+}
+
 async function runConnectorAuth(tail: string[]): Promise<void> {
   const { rest, port, scopes, token, username, apiBase, enable, help } = parseFlags(tail);
   const service = rest[0];
@@ -511,6 +544,9 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     case "confluence":
       applyConfluenceConnectorAuth(params, token, username, apiBase);
       break;
+    case "jenkins":
+      applyJenkinsConnectorAuth(params, token, username, apiBase);
+      break;
     default:
       break;
   }
@@ -526,6 +562,7 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
     "jira",
     "confluence",
     "discord",
+    "jenkins",
   ]);
   if (vaultPatServices.has(res.serviceId)) {
     console.log("Credential: stored in the OS vault (no OAuth scopes).");
@@ -739,7 +776,7 @@ Usage:
   nimbus connector set-interval <service> <duration>
   nimbus connector remove <service>
 
-Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence
+Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence, jenkins
 
 OAuth PKCE — set env vars before nimbus start, or run for setup steps:
   nimbus connector auth google_drive --help    (gmail, google_photos)
@@ -757,6 +794,7 @@ Jira: use --username (Atlassian email), --token (API token), --api-base https://
   or env NIMBUS_JIRA_EMAIL, NIMBUS_JIRA_API_TOKEN, NIMBUS_JIRA_BASE_URL (jira.email, jira.api_token, jira.base_url).
 Notion: OAuth in the browser (notion.oauth); see auth notion --help for env setup.
 Confluence: same flags/env pattern as Jira (NIMBUS_CONFLUENCE_* → confluence.email, confluence.api_token, confluence.base_url).
+Jenkins: --username, --token (API token), --api-base https://ci.example/  or env NIMBUS_JENKINS_USERNAME, NIMBUS_JENKINS_API_TOKEN, NIMBUS_JENKINS_BASE_URL (jenkins.username, jenkins.api_token, jenkins.base_url).
 
 Credentials are stored in the OS vault only (never printed here).
 `);

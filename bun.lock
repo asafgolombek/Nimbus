@@ -154,6 +154,21 @@
         "@types/bun": "latest",
       },
     },
+    "packages/mcp-connectors/jenkins": {
+      "name": "nimbus-mcp-jenkins",
+      "version": "0.1.0",
+      "bin": {
+        "nimbus-mcp-jenkins": "./dist/server.js",
+      },
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@nimbus-dev/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/mcp-connectors/jira": {
       "name": "nimbus-mcp-jira",
       "version": "0.1.0",
@@ -1138,6 +1153,8 @@
     "nimbus-mcp-google-drive": ["nimbus-mcp-google-drive@workspace:packages/mcp-connectors/google-drive"],
 
     "nimbus-mcp-google-photos": ["nimbus-mcp-google-photos@workspace:packages/mcp-connectors/google-photos"],
+
+    "nimbus-mcp-jenkins": ["nimbus-mcp-jenkins@workspace:packages/mcp-connectors/jenkins"],
 
     "nimbus-mcp-jira": ["nimbus-mcp-jira@workspace:packages/mcp-connectors/jira"],
 

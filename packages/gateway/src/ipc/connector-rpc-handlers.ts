@@ -81,6 +81,11 @@ async function deleteConnectorPatAndTokenKeys(
       await vault.delete("discord.bot_token");
       await vault.delete("discord.enabled");
       return ["discord.bot_token", "discord.enabled"];
+    case "jenkins":
+      await vault.delete("jenkins.base_url");
+      await vault.delete("jenkins.username");
+      await vault.delete("jenkins.api_token");
+      return ["jenkins.base_url", "jenkins.username", "jenkins.api_token"];
     default:
       return [];
   }
@@ -394,6 +399,40 @@ async function connectorAuthDiscord(
   return authSuccess("discord");
 }
 
+async function connectorAuthJenkins(
+  rec: Record<string, unknown> | undefined,
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<ConnectorRpcHit> {
+  const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["baseUrl"];
+  const base =
+    typeof baseRaw === "string" && baseRaw.trim() !== ""
+      ? stripTrailingSlashes(baseRaw.trim())
+      : "";
+  if (base === "") {
+    throw new ConnectorRpcError(
+      -32602,
+      "Jenkins requires --api-base <url> (e.g. https://ci.example/)",
+    );
+  }
+  const userRaw = rec?.["username"];
+  const user = typeof userRaw === "string" && userRaw.trim() !== "" ? userRaw.trim() : "";
+  const tokenRaw = rec?.["personalAccessToken"] ?? rec?.["token"];
+  const token = typeof tokenRaw === "string" && tokenRaw.trim() !== "" ? tokenRaw.trim() : "";
+  if (user === "") {
+    throw new ConnectorRpcError(-32602, "Jenkins requires --username <jenkins_user>");
+  }
+  if (token === "") {
+    throw new ConnectorRpcError(-32602, "Jenkins requires --token <api_token>");
+  }
+  await vault.set("jenkins.base_url", base);
+  await vault.set("jenkins.username", user);
+  await vault.set("jenkins.api_token", token);
+  const interval = defaultSyncIntervalMsForService("jenkins");
+  localIndex.ensureConnectorSchedulerRegistration("jenkins", interval, Date.now());
+  return authSuccess("jenkins");
+}
+
 async function connectorAuthBitbucket(
   rec: Record<string, unknown> | undefined,
   vault: NimbusVault,
@@ -546,6 +585,9 @@ export async function handleConnectorAuth(
   }
   if (id === "discord") {
     return connectorAuthDiscord(rec, vault, localIndex);
+  }
+  if (id === "jenkins") {
+    return connectorAuthJenkins(rec, vault, localIndex);
   }
   return connectorAuthOAuthPkce(id, rec, vault, localIndex, openUrl);
 }

@@ -10,6 +10,7 @@
  *   - Jira (jira.issue.create, jira.issue.update, jira.comment.add)
  *   - Notion (notion.page.create, notion.page.update, notion.block.append, notion.comment.create)
  *   - Confluence (confluence.page.create, confluence.page.update, confluence.comment.add)
+ *   - Jenkins (jenkins.build.trigger, jenkins.build.abort)
  *
  * No subprocess, no cloud.  Uses the real ToolExecutor with mock consent / audit / dispatcher.
  */
@@ -42,6 +43,8 @@ const Q2_WRITE_ACTIONS: ReadonlyArray<string> = [
   "confluence.page.create",
   "confluence.page.update",
   "confluence.comment.add",
+  "jenkins.build.trigger",
+  "jenkins.build.abort",
 ];
 
 /** Minimal representative payload for each write action type. */
@@ -125,6 +128,16 @@ function payloadFor(actionType: string): Record<string, unknown> {
       return {
         mcpToolId: "confluence_confluence_comment_add",
         input: { pageId: "PG1", body: "Looks good." },
+      };
+    case "jenkins.build.trigger":
+      return {
+        mcpToolId: "jenkins_jenkins_build_trigger",
+        input: { jobName: "my-folder/my-job" },
+      };
+    case "jenkins.build.abort":
+      return {
+        mcpToolId: "jenkins_jenkins_build_abort",
+        input: { jobName: "my-folder/my-job", buildNumber: 7 },
       };
     default:
       return {};

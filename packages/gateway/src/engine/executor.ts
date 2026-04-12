@@ -58,6 +58,8 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "pipeline.trigger",
   "pipeline.cancel",
   "pipeline.rerun",
+  "jenkins.build.trigger",
+  "jenkins.build.abort",
   // Deployments & infrastructure
   "deployment.apply",
   "deployment.rollback",

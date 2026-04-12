@@ -66,6 +66,8 @@ describe("HITL_REQUIRED", () => {
       "confluence.page.create",
       "confluence.page.update",
       "confluence.comment.add",
+      "jenkins.build.trigger",
+      "jenkins.build.abort",
     ]) {
       expect(HITL_REQUIRED.has(t)).toBe(true);
     }
@@ -251,6 +253,21 @@ type ConfluenceHitlRejectAction =
   | "confluence.page.update"
   | "confluence.comment.add";
 
+function hitlJenkinsRejectPayload(
+  jenkinsAction: "jenkins.build.trigger" | "jenkins.build.abort",
+): Record<string, unknown> {
+  if (jenkinsAction === "jenkins.build.trigger") {
+    return {
+      mcpToolId: "jenkins_jenkins_build_trigger",
+      input: { jobName: "folder/job" },
+    };
+  }
+  return {
+    mcpToolId: "jenkins_jenkins_build_abort",
+    input: { jobName: "folder/job", buildNumber: 42 },
+  };
+}
+
 function hitlConfluenceRejectPayload(
   confluenceAction: ConfluenceHitlRejectAction,
 ): Record<string, unknown> {
@@ -429,6 +446,21 @@ describe("ToolExecutor", () => {
       expect(m.auditCalls.length).toBe(1);
       expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
       expect(m.auditCalls[0]?.actionType).toBe(confluenceAction);
+    });
+  }
+
+  for (const jenkinsAction of ["jenkins.build.trigger", "jenkins.build.abort"] as const) {
+    test(`rejected consent for ${jenkinsAction} does not call the connector; audit rejected`, async () => {
+      const m = createMocks(true);
+      m.approveNext = false;
+      const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+      const payload = hitlJenkinsRejectPayload(jenkinsAction);
+      const out = await exec.execute({ type: jenkinsAction, payload });
+      expect(out.status).toBe("rejected");
+      expect(m.dispatchCalls.length).toBe(0);
+      expect(m.auditCalls.length).toBe(1);
+      expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+      expect(m.auditCalls[0]?.actionType).toBe(jenkinsAction);
     });
   }
 
