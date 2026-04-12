@@ -173,6 +173,138 @@ function parsePackageJsonDeps(path: string): { name: string; version: string; ki
   return out;
 }
 
+async function syncFilesystemGitCommits(
+  ctx: SyncContext,
+  root: string,
+  rk: string,
+  now: number,
+  nextTips: Record<string, string>,
+): Promise<{ upserted: number; bytes: number }> {
+  if (!isGitRepo(root)) {
+    return { upserted: 0, bytes: 0 };
+  }
+  const commits = await gitLogRecords(root, 40);
+  let upserted = 0;
+  const bytes = commits.length * 80;
+  for (const c of commits) {
+    const externalId = `${c.sha}_${rk}`;
+    upsertIndexedItemForSync(ctx, {
+      service: SERVICE_ID,
+      type: "git_commit",
+      externalId,
+      title: c.subject.length > 200 ? c.subject.slice(0, 200) : c.subject,
+      bodyPreview: c.sha,
+      url: null,
+      canonicalUrl: null,
+      modifiedAt: c.ct,
+      authorId: null,
+      metadata: { repoRoot: root, sha: c.sha, subject: c.subject },
+      pinned: false,
+      syncedAt: now,
+    });
+    upserted += 1;
+  }
+  if (commits.length > 0 && commits[0] !== undefined) {
+    nextTips[`git:${root}`] = commits[0].sha;
+  }
+  return { upserted, bytes };
+}
+
+function syncFilesystemPackageDeps(
+  ctx: SyncContext,
+  root: string,
+  exclude: readonly string[],
+  rk: string,
+  now: number,
+): { upserted: number; bytes: number } {
+  let upserted = 0;
+  let bytes = 0;
+  const manifests = listPackageJsonFiles(root, exclude, 80);
+  for (const manifestPath of manifests) {
+    const deps = parsePackageJsonDeps(manifestPath);
+    bytes += deps.length * 40;
+    const rel = relative(root, manifestPath);
+    for (const d of deps) {
+      const extId = `dep:${rk}:${rel.replaceAll("\\", "/")}:${d.name}:${d.kind}`;
+      upsertIndexedItemForSync(ctx, {
+        service: SERVICE_ID,
+        type: "dependency",
+        externalId: extId,
+        title: `${d.name}@${d.version}`,
+        bodyPreview: d.kind,
+        url: null,
+        canonicalUrl: null,
+        modifiedAt: now,
+        authorId: null,
+        metadata: {
+          packageName: d.name,
+          version: d.version,
+          kind: d.kind,
+          manifestPath: rel,
+          repoRoot: root,
+        },
+        pinned: false,
+        syncedAt: now,
+      });
+      upserted += 1;
+    }
+  }
+  return { upserted, bytes };
+}
+
+function syncFilesystemCodeSymbolsForRoot(
+  ctx: SyncContext,
+  root: string,
+  exclude: readonly string[],
+  rk: string,
+  now: number,
+): { upserted: number; bytes: number } {
+  let upserted = 0;
+  let bytes = 0;
+  const files = listCodeFiles(root, exclude, 120);
+  for (const fp of files) {
+    let src: string;
+    try {
+      src = readFileSync(fp, "utf8");
+    } catch {
+      continue;
+    }
+    bytes += src.length;
+    const rel = relative(root, fp);
+    const symbols = extractExportedSymbols(src, fp);
+    let mtime = now;
+    try {
+      mtime = statSync(fp).mtimeMs;
+    } catch {
+      /* keep now */
+    }
+    for (const sym of symbols) {
+      const extId = `sym:${rk}:${rel.replaceAll("\\", "/")}:${sym.name}:${sym.kind}`;
+      upsertIndexedItemForSync(ctx, {
+        service: SERVICE_ID,
+        type: "code_symbol",
+        externalId: extId,
+        title: `${sym.name} (${sym.kind})`,
+        bodyPreview: rel.replaceAll("\\", "/"),
+        url: null,
+        canonicalUrl: null,
+        modifiedAt: mtime,
+        authorId: null,
+        metadata: {
+          name: sym.name,
+          kind: sym.kind,
+          file: rel.replaceAll("\\", "/"),
+          repoRoot: root,
+        },
+        pinned: false,
+        syncedAt: now,
+      });
+      upserted += 1;
+    }
+  }
+  return { upserted, bytes };
+}
+
 const CODE_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
 function listCodeFiles(root: string, exclude: readonly string[], maxFiles: number): string[] {
@@ -223,11 +355,11 @@ function extractExportedSymbols(
   const out: { name: string; kind: string }[] = [];
   const max = Math.min(source.length, 256_000);
   const slice = source.slice(0, max);
-  const exportFn = /export\s+async\s+function\s+([A-Za-z0-9_]+)/g;
-  const exportFn2 = /export\s+function\s+([A-Za-z0-9_]+)/g;
-  const exportConst = /export\s+const\s+([A-Za-z0-9_]+)/g;
-  const exportClass = /export\s+class\s+([A-Za-z0-9_]+)/g;
-  const exportType = /export\s+type\s+([A-Za-z0-9_]+)/g;
+  const exportFn = /export\s+async\s+function\s+(\w+)/g;
+  const exportFn2 = /export\s+function\s+(\w+)/g;
+  const exportConst = /export\s+const\s+(\w+)/g;
+  const exportClass = /export\s+class\s+(\w+)/g;
+  const exportType = /export\s+type\s+(\w+)/g;
   const add = (re: RegExp, kind: string): void => {
     re.lastIndex = 0;
     for (;;) {
@@ -282,107 +414,22 @@ export function createFilesystemV2Syncable(options: FilesystemV2SyncableOptions)
         }
         const rk = rootKey(root);
 
-        if (rootCfg.gitAware && isGitRepo(root)) {
-          const commits = await gitLogRecords(root, 40);
-          bytes += commits.length * 80;
-          for (const c of commits) {
-            const externalId = `${c.sha}_${rk}`;
-            upsertIndexedItemForSync(ctx, {
-              service: SERVICE_ID,
-              type: "git_commit",
-              externalId,
-              title: c.subject.length > 200 ? c.subject.slice(0, 200) : c.subject,
-              bodyPreview: c.sha,
-              url: null,
-              canonicalUrl: null,
-              modifiedAt: c.ct,
-              authorId: null,
-              metadata: { repoRoot: root, sha: c.sha, subject: c.subject },
-              pinned: false,
-              syncedAt: now,
-            });
-            upserted += 1;
-          }
-          if (commits.length > 0 && commits[0] !== undefined) {
-            nextTips[`git:${root}`] = commits[0].sha;
-          }
+        if (rootCfg.gitAware) {
+          const g = await syncFilesystemGitCommits(ctx, root, rk, now, nextTips);
+          upserted += g.upserted;
+          bytes += g.bytes;
         }
 
         if (rootCfg.dependencyGraph) {
-          const manifests = listPackageJsonFiles(root, rootCfg.exclude, 80);
-          for (const manifestPath of manifests) {
-            const deps = parsePackageJsonDeps(manifestPath);
-            bytes += deps.length * 40;
-            const rel = relative(root, manifestPath);
-            for (const d of deps) {
-              const extId = `dep:${rk}:${rel.replaceAll("\\", "/")}:${d.name}:${d.kind}`;
-              upsertIndexedItemForSync(ctx, {
-                service: SERVICE_ID,
-                type: "dependency",
-                externalId: extId,
-                title: `${d.name}@${d.version}`,
-                bodyPreview: d.kind,
-                url: null,
-                canonicalUrl: null,
-                modifiedAt: now,
-                authorId: null,
-                metadata: {
-                  packageName: d.name,
-                  version: d.version,
-                  kind: d.kind,
-                  manifestPath: rel,
-                  repoRoot: root,
-                },
-                pinned: false,
-                syncedAt: now,
-              });
-              upserted += 1;
-            }
-          }
+          const d = syncFilesystemPackageDeps(ctx, root, rootCfg.exclude, rk, now);
+          upserted += d.upserted;
+          bytes += d.bytes;
         }
 
         if (rootCfg.codeIndex) {
-          const files = listCodeFiles(root, rootCfg.exclude, 120);
-          for (const fp of files) {
-            let src: string;
-            try {
-              src = readFileSync(fp, "utf8");
-            } catch {
-              continue;
-            }
-            bytes += src.length;
-            const rel = relative(root, fp);
-            const symbols = extractExportedSymbols(src, fp);
-            let mtime = now;
-            try {
-              mtime = statSync(fp).mtimeMs;
-            } catch {
-              /* keep now */
-            }
-            for (const sym of symbols) {
-              const extId = `sym:${rk}:${rel.replaceAll("\\", "/")}:${sym.name}:${sym.kind}`;
-              upsertIndexedItemForSync(ctx, {
-                service: SERVICE_ID,
-                type: "code_symbol",
-                externalId: extId,
-                title: `${sym.name} (${sym.kind})`,
-                bodyPreview: rel.replaceAll("\\", "/"),
-                url: null,
-                canonicalUrl: null,
-                modifiedAt: mtime,
-                authorId: null,
-                metadata: {
-                  name: sym.name,
-                  kind: sym.kind,
-                  file: rel.replaceAll("\\", "/"),
-                  repoRoot: root,
-                },
-                pinned: false,
-                syncedAt: now,
-              });
-              upserted += 1;
-            }
-          }
+          const c = syncFilesystemCodeSymbolsForRoot(ctx, root, rootCfg.exclude, rk, now);
+          upserted += c.upserted;
+          bytes += c.bytes;
         }
       }
 

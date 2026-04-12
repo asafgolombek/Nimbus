@@ -22,7 +22,8 @@ async function pdFetch(
   path: string,
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; json: unknown; text: string }> {
-  const url = path.startsWith("http") ? path : `${API}${path.startsWith("/") ? path : `/${path}`}`;
+  const rel = path.startsWith("/") ? path : `/${path}`;
+  const url = path.startsWith("http") ? path : `${API}${rel}`;
   const res = await fetch(url, {
     ...init,
     headers: {

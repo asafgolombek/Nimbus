@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createMemoryIndexDb,
   createStubVault,
@@ -18,8 +21,9 @@ describeWithFetchRestore("gcp-sync", () => {
 
   test("no-op when project id missing", async () => {
     const sync = createGcpSyncable({ ensureGcpMcpRunning: async () => {} });
+    const credDir = mkdtempSync(join(tmpdir(), "nimbus-gcp-sync-test-"));
     const ctx = {
-      vault: createStubVault({ "gcp.credentials_json_path": "/tmp/x.json" }),
+      vault: createStubVault({ "gcp.credentials_json_path": join(credDir, "x.json") }),
       db: createMemoryIndexDb(),
       ...silentSyncContextExtras(),
     };

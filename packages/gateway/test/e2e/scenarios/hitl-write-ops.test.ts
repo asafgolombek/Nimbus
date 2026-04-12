@@ -76,208 +76,189 @@ const Q2_WRITE_ACTIONS: ReadonlyArray<string> = [
 ];
 
 /** Minimal representative payload for each write action type. */
+const HITL_WRITE_PAYLOADS: Record<string, Record<string, unknown>> = {
+  "file.create": { mcpToolId: "google_drive_gdrive_file_create", input: { name: "report.md" } },
+  "slack.message.post": {
+    mcpToolId: "slack_slack_message_post",
+    input: { channel: "C123", text: "hello" },
+  },
+  "teams.message.post": {
+    mcpToolId: "teams_teams_message_post",
+    input: { teamId: "T1", channelId: "C1", content: "hi" },
+  },
+  "teams.message.postChat": {
+    mcpToolId: "teams_teams_message_post_chat",
+    input: { chatId: "CH1", content: "hi" },
+  },
+  "linear.issue.create": {
+    mcpToolId: "linear_linear_issue_create",
+    input: { teamId: "TEAM", title: "Bug: crash on startup" },
+  },
+  "linear.issue.update": {
+    mcpToolId: "linear_linear_issue_update",
+    input: { issueId: "ISS-1", stateId: "done" },
+  },
+  "linear.comment.create": {
+    mcpToolId: "linear_linear_comment_create",
+    input: { issueId: "ISS-1", body: "Fixed." },
+  },
+  "jira.issue.create": {
+    mcpToolId: "jira_jira_issue_create",
+    input: { projectKey: "NIM", summary: "Login fails" },
+  },
+  "jira.issue.update": {
+    mcpToolId: "jira_jira_issue_update",
+    input: { issueKey: "NIM-42", status: "In Progress" },
+  },
+  "jira.comment.add": {
+    mcpToolId: "jira_jira_comment_add",
+    input: { issueKey: "NIM-42", body: "Investigating." },
+  },
+  "notion.page.create": {
+    mcpToolId: "notion_notion_page_create",
+    input: { parentPageId: "PAGE1", title: "Q2 Retro" },
+  },
+  "notion.page.update": {
+    mcpToolId: "notion_notion_page_update",
+    input: { pageId: "PAGE1", propertiesJson: "{}" },
+  },
+  "notion.block.append": {
+    mcpToolId: "notion_notion_block_append",
+    input: { parentBlockId: "BLK1", childrenJson: "[]" },
+  },
+  "notion.comment.create": {
+    mcpToolId: "notion_notion_comment_create",
+    input: { pageId: "PAGE1", text: "LGTM" },
+  },
+  "confluence.page.create": {
+    mcpToolId: "confluence_confluence_page_create",
+    input: { spaceKey: "ENG", title: "Architecture Decision" },
+  },
+  "confluence.page.update": {
+    mcpToolId: "confluence_confluence_page_update",
+    input: { pageId: "PG1", title: "Architecture Decision v2" },
+  },
+  "confluence.comment.add": {
+    mcpToolId: "confluence_confluence_comment_add",
+    input: { pageId: "PG1", body: "Looks good." },
+  },
+  "jenkins.build.trigger": {
+    mcpToolId: "jenkins_jenkins_build_trigger",
+    input: { jobName: "my-folder/my-job" },
+  },
+  "jenkins.build.abort": {
+    mcpToolId: "jenkins_jenkins_build_abort",
+    input: { jobName: "my-folder/my-job", buildNumber: 7 },
+  },
+  "github_actions.run.trigger": {
+    mcpToolId: "github_actions_gha_run_trigger",
+    input: { owner: "org", repo: "svc", workflowId: "build.yml", ref: "main" },
+  },
+  "github_actions.run.cancel": {
+    mcpToolId: "github_actions_gha_run_cancel",
+    input: { owner: "org", repo: "svc", runId: 12345 },
+  },
+  "circleci.pipeline.trigger": {
+    mcpToolId: "circleci_circleci_pipeline_trigger",
+    input: { projectSlug: "gh/org/svc", branch: "main" },
+  },
+  "circleci.job.cancel": {
+    mcpToolId: "circleci_circleci_job_cancel",
+    input: { projectSlug: "gh/org/svc", jobNumber: 101 },
+  },
+  "gitlab.pipeline.retry": {
+    mcpToolId: "gitlab_gitlab_pipeline_retry",
+    input: { projectPath: "org/svc", pipelineId: 55 },
+  },
+  "gitlab.pipeline.cancel": {
+    mcpToolId: "gitlab_gitlab_pipeline_cancel",
+    input: { projectPath: "org/svc", pipelineId: 56 },
+  },
+  "aws.ecs.service.update": {
+    mcpToolId: "aws_aws_ecs_service_update",
+    input: { cluster: "c1", service: "svc1", taskDefinition: "td:1" },
+  },
+  "aws.lambda.invoke": {
+    mcpToolId: "aws_aws_lambda_invoke",
+    input: { functionName: "fn1", payloadJson: "{}" },
+  },
+  "aws.ec2.instance.stop": {
+    mcpToolId: "aws_aws_ec2_instance_stop",
+    input: { instanceIds: "i-1" },
+  },
+  "aws.ec2.instance.start": {
+    mcpToolId: "aws_aws_ec2_instance_start",
+    input: { instanceIds: "i-1" },
+  },
+  "azure.app_service.restart": {
+    mcpToolId: "azure_azure_app_service_restart",
+    input: { subscriptionId: "sub", resourceGroup: "rg", name: "app" },
+  },
+  "azure.aks.node_pool.scale": {
+    mcpToolId: "azure_azure_aks_node_pool_scale",
+    input: {
+      subscriptionId: "sub",
+      resourceGroup: "rg",
+      clusterName: "aks",
+      poolName: "default",
+      nodeCount: 2,
+    },
+  },
+  "gcp.cloud_run.deploy": {
+    mcpToolId: "gcp_gcp_cloud_run_deploy",
+    input: { projectId: "p", region: "us-central1", service: "svc", image: "gcr.io/x/img:1" },
+  },
+  "gcp.gke.workload.restart": {
+    mcpToolId: "gcp_gcp_gke_workload_restart",
+    input: {
+      projectId: "p",
+      location: "zone",
+      cluster: "c",
+      namespace: "default",
+      deployment: "d",
+    },
+  },
+  "iac.terraform.apply": {
+    mcpToolId: "iac_iac_terraform_apply",
+    input: { workingDirectory: "/tmp/tf" },
+  },
+  "iac.terraform.destroy": {
+    mcpToolId: "iac_iac_terraform_destroy",
+    input: { workingDirectory: "/tmp/tf" },
+  },
+  "iac.cloudformation.deploy": {
+    mcpToolId: "iac_iac_cloudformation_deploy",
+    input: { stackName: "s", templateBody: "{}" },
+  },
+  "iac.pulumi.up": { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: "/tmp/pu" } },
+  "kubernetes.rollout.restart": {
+    mcpToolId: "kubernetes_k8s_rollout_restart",
+    input: { namespace: "default", resourceType: "deployment", name: "api" },
+  },
+  "kubernetes.pod.delete": {
+    mcpToolId: "kubernetes_k8s_pod_delete",
+    input: { namespace: "default", podName: "p1" },
+  },
+  "kubernetes.deployment.scale": {
+    mcpToolId: "kubernetes_k8s_deployment_scale",
+    input: { namespace: "default", deploymentName: "api", replicas: 2 },
+  },
+  "pagerduty.incident.acknowledge": {
+    mcpToolId: "pagerduty_pd_incident_acknowledge",
+    input: { incidentId: "Q123" },
+  },
+  "pagerduty.incident.resolve": {
+    mcpToolId: "pagerduty_pd_incident_resolve",
+    input: { incidentId: "Q123" },
+  },
+  "pagerduty.incident.escalate": {
+    mcpToolId: "pagerduty_pd_incident_escalate",
+    input: { incidentId: "Q123" },
+  },
+};
+
 function payloadFor(actionType: string): Record<string, unknown> {
-  switch (actionType) {
-    case "file.create":
-      return { mcpToolId: "google_drive_gdrive_file_create", input: { name: "report.md" } };
-    case "slack.message.post":
-      return { mcpToolId: "slack_slack_message_post", input: { channel: "C123", text: "hello" } };
-    case "teams.message.post":
-      return {
-        mcpToolId: "teams_teams_message_post",
-        input: { teamId: "T1", channelId: "C1", content: "hi" },
-      };
-    case "teams.message.postChat":
-      return {
-        mcpToolId: "teams_teams_message_post_chat",
-        input: { chatId: "CH1", content: "hi" },
-      };
-    case "linear.issue.create":
-      return {
-        mcpToolId: "linear_linear_issue_create",
-        input: { teamId: "TEAM", title: "Bug: crash on startup" },
-      };
-    case "linear.issue.update":
-      return {
-        mcpToolId: "linear_linear_issue_update",
-        input: { issueId: "ISS-1", stateId: "done" },
-      };
-    case "linear.comment.create":
-      return {
-        mcpToolId: "linear_linear_comment_create",
-        input: { issueId: "ISS-1", body: "Fixed." },
-      };
-    case "jira.issue.create":
-      return {
-        mcpToolId: "jira_jira_issue_create",
-        input: { projectKey: "NIM", summary: "Login fails" },
-      };
-    case "jira.issue.update":
-      return {
-        mcpToolId: "jira_jira_issue_update",
-        input: { issueKey: "NIM-42", status: "In Progress" },
-      };
-    case "jira.comment.add":
-      return {
-        mcpToolId: "jira_jira_comment_add",
-        input: { issueKey: "NIM-42", body: "Investigating." },
-      };
-    case "notion.page.create":
-      return {
-        mcpToolId: "notion_notion_page_create",
-        input: { parentPageId: "PAGE1", title: "Q2 Retro" },
-      };
-    case "notion.page.update":
-      return {
-        mcpToolId: "notion_notion_page_update",
-        input: { pageId: "PAGE1", propertiesJson: "{}" },
-      };
-    case "notion.block.append":
-      return {
-        mcpToolId: "notion_notion_block_append",
-        input: { parentBlockId: "BLK1", childrenJson: "[]" },
-      };
-    case "notion.comment.create":
-      return {
-        mcpToolId: "notion_notion_comment_create",
-        input: { pageId: "PAGE1", text: "LGTM" },
-      };
-    case "confluence.page.create":
-      return {
-        mcpToolId: "confluence_confluence_page_create",
-        input: { spaceKey: "ENG", title: "Architecture Decision" },
-      };
-    case "confluence.page.update":
-      return {
-        mcpToolId: "confluence_confluence_page_update",
-        input: { pageId: "PG1", title: "Architecture Decision v2" },
-      };
-    case "confluence.comment.add":
-      return {
-        mcpToolId: "confluence_confluence_comment_add",
-        input: { pageId: "PG1", body: "Looks good." },
-      };
-    case "jenkins.build.trigger":
-      return {
-        mcpToolId: "jenkins_jenkins_build_trigger",
-        input: { jobName: "my-folder/my-job" },
-      };
-    case "jenkins.build.abort":
-      return {
-        mcpToolId: "jenkins_jenkins_build_abort",
-        input: { jobName: "my-folder/my-job", buildNumber: 7 },
-      };
-    case "github_actions.run.trigger":
-      return {
-        mcpToolId: "github_actions_gha_run_trigger",
-        input: { owner: "org", repo: "svc", workflowId: "build.yml", ref: "main" },
-      };
-    case "github_actions.run.cancel":
-      return {
-        mcpToolId: "github_actions_gha_run_cancel",
-        input: { owner: "org", repo: "svc", runId: 12345 },
-      };
-    case "circleci.pipeline.trigger":
-      return {
-        mcpToolId: "circleci_circleci_pipeline_trigger",
-        input: { projectSlug: "gh/org/svc", branch: "main" },
-      };
-    case "circleci.job.cancel":
-      return {
-        mcpToolId: "circleci_circleci_job_cancel",
-        input: { projectSlug: "gh/org/svc", jobNumber: 101 },
-      };
-    case "gitlab.pipeline.retry":
-      return {
-        mcpToolId: "gitlab_gitlab_pipeline_retry",
-        input: { projectPath: "org/svc", pipelineId: 55 },
-      };
-    case "gitlab.pipeline.cancel":
-      return {
-        mcpToolId: "gitlab_gitlab_pipeline_cancel",
-        input: { projectPath: "org/svc", pipelineId: 56 },
-      };
-    case "aws.ecs.service.update":
-      return {
-        mcpToolId: "aws_aws_ecs_service_update",
-        input: { cluster: "c1", service: "svc1", taskDefinition: "td:1" },
-      };
-    case "aws.lambda.invoke":
-      return {
-        mcpToolId: "aws_aws_lambda_invoke",
-        input: { functionName: "fn1", payloadJson: "{}" },
-      };
-    case "aws.ec2.instance.stop":
-      return { mcpToolId: "aws_aws_ec2_instance_stop", input: { instanceIds: "i-1" } };
-    case "aws.ec2.instance.start":
-      return { mcpToolId: "aws_aws_ec2_instance_start", input: { instanceIds: "i-1" } };
-    case "azure.app_service.restart":
-      return {
-        mcpToolId: "azure_azure_app_service_restart",
-        input: { subscriptionId: "sub", resourceGroup: "rg", name: "app" },
-      };
-    case "azure.aks.node_pool.scale":
-      return {
-        mcpToolId: "azure_azure_aks_node_pool_scale",
-        input: {
-          subscriptionId: "sub",
-          resourceGroup: "rg",
-          clusterName: "aks",
-          poolName: "default",
-          nodeCount: 2,
-        },
-      };
-    case "gcp.cloud_run.deploy":
-      return {
-        mcpToolId: "gcp_gcp_cloud_run_deploy",
-        input: { projectId: "p", region: "us-central1", service: "svc", image: "gcr.io/x/img:1" },
-      };
-    case "gcp.gke.workload.restart":
-      return {
-        mcpToolId: "gcp_gcp_gke_workload_restart",
-        input: {
-          projectId: "p",
-          location: "zone",
-          cluster: "c",
-          namespace: "default",
-          deployment: "d",
-        },
-      };
-    case "iac.terraform.apply":
-      return { mcpToolId: "iac_iac_terraform_apply", input: { workingDirectory: "/tmp/tf" } };
-    case "iac.terraform.destroy":
-      return { mcpToolId: "iac_iac_terraform_destroy", input: { workingDirectory: "/tmp/tf" } };
-    case "iac.cloudformation.deploy":
-      return {
-        mcpToolId: "iac_iac_cloudformation_deploy",
-        input: { stackName: "s", templateBody: "{}" },
-      };
-    case "iac.pulumi.up":
-      return { mcpToolId: "iac_iac_pulumi_up", input: { workingDirectory: "/tmp/pu" } };
-    case "kubernetes.rollout.restart":
-      return {
-        mcpToolId: "kubernetes_k8s_rollout_restart",
-        input: { namespace: "default", resourceType: "deployment", name: "api" },
-      };
-    case "kubernetes.pod.delete":
-      return {
-        mcpToolId: "kubernetes_k8s_pod_delete",
-        input: { namespace: "default", podName: "p1" },
-      };
-    case "kubernetes.deployment.scale":
-      return {
-        mcpToolId: "kubernetes_k8s_deployment_scale",
-        input: { namespace: "default", deploymentName: "api", replicas: 2 },
-      };
-    case "pagerduty.incident.acknowledge":
-      return { mcpToolId: "pagerduty_pd_incident_acknowledge", input: { incidentId: "Q123" } };
-    case "pagerduty.incident.resolve":
-      return { mcpToolId: "pagerduty_pd_incident_resolve", input: { incidentId: "Q123" } };
-    case "pagerduty.incident.escalate":
-      return { mcpToolId: "pagerduty_pd_incident_escalate", input: { incidentId: "Q123" } };
-    default:
-      return {};
-  }
+  return HITL_WRITE_PAYLOADS[actionType] ?? {};
 }
 
 function buildMocks(approve: boolean): {

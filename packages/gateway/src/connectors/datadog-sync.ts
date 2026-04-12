@@ -17,6 +17,93 @@ function siteHost(site: string): string {
   return `api.${s}`;
 }
 
+function upsertDatadogMonitorRows(ctx: SyncContext, list: unknown[], now: number): number {
+  let upserted = 0;
+  for (const item of list) {
+    const row = asRecord(item);
+    if (row === undefined) {
+      continue;
+    }
+    const idVal = row["id"];
+    const nameVal = row["name"];
+    const id = typeof idVal === "number" ? String(idVal) : typeof idVal === "string" ? idVal : "";
+    if (id === "") {
+      continue;
+    }
+    const name = typeof nameVal === "string" && nameVal !== "" ? nameVal : `monitor ${id}`;
+    upsertIndexedItemForSync(ctx, {
+      service: SERVICE_ID,
+      type: "monitor",
+      externalId: id,
+      title: name.length > 512 ? name.slice(0, 512) : name,
+      bodyPreview: "",
+      url: null,
+      canonicalUrl: null,
+      modifiedAt: now,
+      authorId: null,
+      metadata: { monitorId: id },
+      pinned: false,
+      syncedAt: now,
+    });
+    upserted += 1;
+  }
+  return upserted;
+}
+
+async function fetchAndUpsertDatadogMonitors(
+  ctx: SyncContext,
+  apiKey: string,
+  appKey: string,
+  site: string,
+  cursor: string | null,
+  t0: number,
+): Promise<SyncResult> {
+  const u = `https://${siteHost(site)}/api/v1/monitor`;
+  const res = await fetch(u, {
+    headers: {
+      "DD-API-KEY": apiKey,
+      "DD-APPLICATION-KEY": appKey,
+      Accept: "application/json",
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    ctx.logger.warn({ serviceId: SERVICE_ID, status: res.status }, "datadog sync: monitors failed");
+    return {
+      cursor: cursor ?? encodeCursor({ pass: 1 }),
+      itemsUpserted: 0,
+      itemsDeleted: 0,
+      hasMore: false,
+      durationMs: Math.round(performance.now() - t0),
+      bytesTransferred: text.length,
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return {
+      cursor: encodeCursor({ pass: 1 }),
+      itemsUpserted: 0,
+      itemsDeleted: 0,
+      hasMore: false,
+      durationMs: Math.round(performance.now() - t0),
+      bytesTransferred: text.length,
+    };
+  }
+  const list = Array.isArray(parsed) ? parsed : [];
+  const now = Date.now();
+  const upserted = upsertDatadogMonitorRows(ctx, list, now);
+  return {
+    cursor: encodeCursor({ pass: 1 }),
+    itemsUpserted: upserted,
+    itemsDeleted: 0,
+    hasMore: false,
+    durationMs: Math.round(performance.now() - t0),
+    bytesTransferred: text.length,
+  };
+}
+
 export type DatadogSyncableOptions = {
   ensureDatadogMcpRunning: () => Promise<void>;
 };
@@ -39,83 +126,7 @@ export function createDatadogSyncable(options: DatadogSyncableOptions): Syncable
       const site = siteRaw !== null && siteRaw.trim() !== "" ? siteRaw.trim() : "datadoghq.com";
 
       await ctx.rateLimiter.acquire("datadog");
-      const u = `https://${siteHost(site)}/api/v1/monitor`;
-      const res = await fetch(u, {
-        headers: {
-          "DD-API-KEY": apiKey,
-          "DD-APPLICATION-KEY": appKey,
-          Accept: "application/json",
-        },
-      });
-      const text = await res.text();
-      if (!res.ok) {
-        ctx.logger.warn(
-          { serviceId: SERVICE_ID, status: res.status },
-          "datadog sync: monitors failed",
-        );
-        return {
-          cursor: cursor ?? encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: text.length,
-        };
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text) as unknown;
-      } catch {
-        return {
-          cursor: encodeCursor({ pass: 1 }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: text.length,
-        };
-      }
-      const list = Array.isArray(parsed) ? parsed : [];
-      const now = Date.now();
-      let upserted = 0;
-      for (const item of list) {
-        const row = asRecord(item);
-        if (row === undefined) {
-          continue;
-        }
-        const idVal = row["id"];
-        const nameVal = row["name"];
-        const id =
-          typeof idVal === "number" ? String(idVal) : typeof idVal === "string" ? idVal : "";
-        if (id === "") {
-          continue;
-        }
-        const name = typeof nameVal === "string" && nameVal !== "" ? nameVal : `monitor ${id}`;
-        upsertIndexedItemForSync(ctx, {
-          service: SERVICE_ID,
-          type: "monitor",
-          externalId: id,
-          title: name.length > 512 ? name.slice(0, 512) : name,
-          bodyPreview: "",
-          url: null,
-          canonicalUrl: null,
-          modifiedAt: now,
-          authorId: null,
-          metadata: { monitorId: id },
-          pinned: false,
-          syncedAt: now,
-        });
-        upserted += 1;
-      }
-
-      return {
-        cursor: encodeCursor({ pass: 1 }),
-        itemsUpserted: upserted,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred: text.length,
-      };
+      return fetchAndUpsertDatadogMonitors(ctx, apiKey, appKey, site, cursor, t0);
     },
   };
 }

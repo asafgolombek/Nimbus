@@ -13,6 +13,91 @@ function stripFlags(args: string[]): string[] {
   return args.filter((a) => a !== "--yes" && a !== "-y");
 }
 
+async function runExtensionList(client: IPCClient): Promise<void> {
+  const out = await client.call<{ extensions: unknown }>("extension.list", {});
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
+async function runExtensionInstall(
+  client: IPCClient,
+  args: string[],
+  rest: string[],
+): Promise<void> {
+  const sourceRaw = rest[0]?.trim() ?? "";
+  if (sourceRaw === "") {
+    throw new Error("Usage: nimbus extension install <path> [--yes]");
+  }
+  const accept = hasFlag(args, "--yes") || hasFlag(args, "-y");
+  if (!accept) {
+    if (process.stdout.isTTY !== true) {
+      throw new Error(
+        "Refusing to install without confirmation in non-TTY mode. Pass --yes to proceed.",
+      );
+    }
+    const ok = await confirm({
+      message:
+        "Install copies the extension into your Nimbus extensions directory. Only proceed if you trust this code.",
+    });
+    if (isCancel(ok) || ok !== true) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+  const sourcePath = resolve(process.cwd(), sourceRaw);
+  const out = await client.call<{
+    id: string;
+    version: string;
+    installPath: string;
+  }>("extension.install", { sourcePath });
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
+async function runExtensionEnable(client: IPCClient, rest: string[]): Promise<void> {
+  const id = rest[0]?.trim() ?? "";
+  if (id === "") {
+    throw new Error("Usage: nimbus extension enable <id>");
+  }
+  const out = await client.call<{ ok: boolean }>("extension.enable", { id });
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
+async function runExtensionDisable(client: IPCClient, rest: string[]): Promise<void> {
+  const id = rest[0]?.trim() ?? "";
+  if (id === "") {
+    throw new Error("Usage: nimbus extension disable <id>");
+  }
+  const out = await client.call<{ ok: boolean }>("extension.disable", { id });
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
+async function runExtensionRemove(
+  client: IPCClient,
+  args: string[],
+  rest: string[],
+): Promise<void> {
+  const id = rest[0]?.trim() ?? "";
+  if (id === "") {
+    throw new Error("Usage: nimbus extension remove <id> [--yes]");
+  }
+  const accept = hasFlag(args, "--yes") || hasFlag(args, "-y");
+  if (!accept) {
+    if (process.stdout.isTTY !== true) {
+      throw new Error(
+        "Refusing to remove without confirmation in non-TTY mode. Pass --yes to proceed.",
+      );
+    }
+    const ok = await confirm({
+      message: `Remove extension "${id}" from the registry and delete its files?`,
+    });
+    if (isCancel(ok) || ok !== true) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+  const out = await client.call<{ ok: boolean }>("extension.remove", { id });
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
 export async function runExtension(args: string[]): Promise<void> {
   const sub = args[0]?.trim() ?? "";
   const rest = stripFlags(args.slice(1));
@@ -26,84 +111,27 @@ export async function runExtension(args: string[]): Promise<void> {
   await client.connect();
   try {
     if (sub === "list" || sub === "") {
-      const out = await client.call<{ extensions: unknown }>("extension.list", {});
-      console.log(JSON.stringify(out, undefined, 2));
+      await runExtensionList(client);
       return;
     }
 
     if (sub === "install") {
-      const sourceRaw = rest[0]?.trim() ?? "";
-      if (sourceRaw === "") {
-        throw new Error("Usage: nimbus extension install <path> [--yes]");
-      }
-      const accept = hasFlag(args, "--yes") || hasFlag(args, "-y");
-      if (!accept) {
-        if (process.stdout.isTTY !== true) {
-          throw new Error(
-            "Refusing to install without confirmation in non-TTY mode. Pass --yes to proceed.",
-          );
-        }
-        const ok = await confirm({
-          message:
-            "Install copies the extension into your Nimbus extensions directory. Only proceed if you trust this code.",
-        });
-        if (isCancel(ok) || ok !== true) {
-          console.log("Cancelled.");
-          return;
-        }
-      }
-      const sourcePath = resolve(process.cwd(), sourceRaw);
-      const out = await client.call<{
-        id: string;
-        version: string;
-        installPath: string;
-      }>("extension.install", { sourcePath });
-      console.log(JSON.stringify(out, undefined, 2));
+      await runExtensionInstall(client, args, rest);
       return;
     }
 
     if (sub === "enable") {
-      const id = rest[0]?.trim() ?? "";
-      if (id === "") {
-        throw new Error("Usage: nimbus extension enable <id>");
-      }
-      const out = await client.call<{ ok: boolean }>("extension.enable", { id });
-      console.log(JSON.stringify(out, undefined, 2));
+      await runExtensionEnable(client, rest);
       return;
     }
 
     if (sub === "disable") {
-      const id = rest[0]?.trim() ?? "";
-      if (id === "") {
-        throw new Error("Usage: nimbus extension disable <id>");
-      }
-      const out = await client.call<{ ok: boolean }>("extension.disable", { id });
-      console.log(JSON.stringify(out, undefined, 2));
+      await runExtensionDisable(client, rest);
       return;
     }
 
     if (sub === "remove") {
-      const id = rest[0]?.trim() ?? "";
-      if (id === "") {
-        throw new Error("Usage: nimbus extension remove <id> [--yes]");
-      }
-      const accept = hasFlag(args, "--yes") || hasFlag(args, "-y");
-      if (!accept) {
-        if (process.stdout.isTTY !== true) {
-          throw new Error(
-            "Refusing to remove without confirmation in non-TTY mode. Pass --yes to proceed.",
-          );
-        }
-        const ok = await confirm({
-          message: `Remove extension "${id}" from the registry and delete its files?`,
-        });
-        if (isCancel(ok) || ok !== true) {
-          console.log("Cancelled.");
-          return;
-        }
-      }
-      const out = await client.call<{ ok: boolean }>("extension.remove", { id });
-      console.log(JSON.stringify(out, undefined, 2));
+      await runExtensionRemove(client, args, rest);
       return;
     }
 

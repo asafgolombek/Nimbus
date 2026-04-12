@@ -494,15 +494,15 @@ async function connectorAuthAws(
     }
     await vault.set("aws.access_key_id", ak);
     await vault.set("aws.secret_access_key", sk);
-    if (reg !== "") {
-      await vault.set("aws.default_region", reg);
-    } else {
+    if (reg === "") {
       await vault.delete("aws.default_region");
-    }
-    if (prof !== "") {
-      await vault.set("aws.profile", prof);
     } else {
+      await vault.set("aws.default_region", reg);
+    }
+    if (prof === "") {
       await vault.delete("aws.profile");
+    } else {
+      await vault.set("aws.profile", prof);
     }
   } else if (prof !== "") {
     await vault.delete("aws.access_key_id");

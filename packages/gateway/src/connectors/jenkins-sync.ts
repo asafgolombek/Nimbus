@@ -1,4 +1,5 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
@@ -110,6 +111,147 @@ async function jenkinsGetJson(
   return { ok: res.ok, status: res.status, text, json };
 }
 
+function buildTitle(
+  jobFullName: string,
+  num: number,
+  result: string | undefined,
+  building: boolean,
+): string {
+  const suffix =
+    result !== undefined && result !== "" ? ` — ${result}` : building ? " (running)" : "";
+  return `${jobFullName} #${String(num)}${suffix}`;
+}
+
+async function syncJenkinsJobBuilds(
+  ctx: SyncContext,
+  job: { fullName: string; url?: string },
+  base: string,
+  auth: string,
+  lastSeen: number,
+  floorMs: number,
+  now: number,
+): Promise<{ upserted: number; bytes: number; maxNum: number }> {
+  const tree = encodeURIComponent("builds[number,url,result,duration,timestamp,building]{0,25}");
+  const bUrl = `${jenkinsJobRoot(base, job.fullName)}/api/json?tree=${tree}`;
+  const bRes = await jenkinsGetJson(bUrl, auth);
+  const bytes = bRes.text.length;
+  if (!bRes.ok || bRes.json === null || typeof bRes.json !== "object") {
+    return { upserted: 0, bytes, maxNum: lastSeen };
+  }
+  const buildsRaw = (bRes.json as Record<string, unknown>)["builds"];
+  if (!Array.isArray(buildsRaw)) {
+    return { upserted: 0, bytes, maxNum: lastSeen };
+  }
+  let maxNum = lastSeen;
+  let upserted = 0;
+  for (const br of buildsRaw) {
+    const b = asRecord(br);
+    if (b === undefined) {
+      continue;
+    }
+    const num = numberField(b, "number");
+    if (num === undefined || num <= lastSeen) {
+      continue;
+    }
+    const ts = numberField(b, "timestamp");
+    const modifiedAt = ts !== undefined && Number.isFinite(ts) ? Math.floor(ts) : now;
+    if (modifiedAt < floorMs) {
+      continue;
+    }
+    const result = stringField(b, "result");
+    const building = b["building"] === true;
+    const url = stringField(b, "url") ?? job.url ?? null;
+    const duration = numberField(b, "duration");
+    const titleRaw = buildTitle(job.fullName, num, result, building);
+    const externalId = `${job.fullName}#${String(num)}`;
+    const meta: Record<string, unknown> = {
+      jobName: job.fullName,
+      buildNumber: num,
+      result: result ?? null,
+      building,
+      duration_ms: duration ?? null,
+    };
+    upsertIndexedItemForSync(ctx, {
+      service: SERVICE_ID,
+      type: "ci_run",
+      externalId,
+      title: titleRaw.length > 512 ? titleRaw.slice(0, 512) : titleRaw,
+      bodyPreview: "",
+      url,
+      canonicalUrl: url,
+      modifiedAt,
+      authorId: null,
+      metadata: meta,
+      pinned: false,
+      syncedAt: now,
+    });
+    upserted += 1;
+    if (num > maxNum) {
+      maxNum = num;
+    }
+  }
+  return { upserted, bytes, maxNum };
+}
+
+async function runJenkinsSyncAfterAuth(
+  ctx: SyncContext,
+  cursor: string | null,
+  base: string,
+  auth: string,
+  initialSyncDepthDays: number,
+  t0: number,
+): Promise<SyncResult> {
+  const prev = decodeCursor(cursor) ?? { jobs: {} };
+  const nextJobs: Record<string, number> = { ...prev.jobs };
+  let upserted = 0;
+  let bytes = 0;
+
+  await ctx.rateLimiter.acquire("jenkins");
+
+  const jobsUrl = `${base}/api/json?tree=${encodeURIComponent(JOBS_TREE)}`;
+  const jobsRes = await jenkinsGetJson(jobsUrl, auth);
+  bytes += jobsRes.text.length;
+  if (!jobsRes.ok || jobsRes.json === null || typeof jobsRes.json !== "object") {
+    ctx.logger.warn(
+      { serviceId: SERVICE_ID, status: jobsRes.status },
+      "jenkins sync: failed to list jobs",
+    );
+    return {
+      cursor: encodeCursor(prev),
+      itemsUpserted: 0,
+      itemsDeleted: 0,
+      hasMore: false,
+      durationMs: Math.round(performance.now() - t0),
+      bytesTransferred: bytes,
+    };
+  }
+
+  const jobsRoot = jobsRes.json as Record<string, unknown>;
+  const jobsArr = jobsRoot["jobs"];
+  const flat: { fullName: string; url?: string }[] = [];
+  flattenJobs(Array.isArray(jobsArr) ? (jobsArr as JobNode[]) : undefined, flat);
+
+  const now = Date.now();
+  const floorMs = now - initialSyncDepthDays * 86_400_000;
+
+  for (const job of flat) {
+    const lastSeen = nextJobs[job.fullName] ?? 0;
+    const r = await syncJenkinsJobBuilds(ctx, job, base, auth, lastSeen, floorMs, now);
+    bytes += r.bytes;
+    upserted += r.upserted;
+    nextJobs[job.fullName] = r.maxNum;
+  }
+
+  return {
+    cursor: encodeCursor({ jobs: nextJobs }),
+    itemsUpserted: upserted,
+    itemsDeleted: 0,
+    hasMore: false,
+    durationMs: Math.round(performance.now() - t0),
+    bytesTransferred: bytes,
+  };
+}
+
 export type JenkinsSyncableOptions = {
   ensureJenkinsMcpRunning: () => Promise<void>;
 };
@@ -137,115 +279,10 @@ export function createJenkinsSyncable(options: JenkinsSyncableOptions): Syncable
       ) {
         return syncNoopResult(cursor, t0);
       }
-      const base = baseRaw.replace(/\/+$/, "");
+      const base = stripTrailingSlashes(baseRaw);
       const auth = basicAuthHeader(user.trim(), token.trim());
 
-      const prev = decodeCursor(cursor) ?? { jobs: {} };
-      const nextJobs: Record<string, number> = { ...prev.jobs };
-      let upserted = 0;
-      let bytes = 0;
-
-      await ctx.rateLimiter.acquire("jenkins");
-
-      const jobsUrl = `${base}/api/json?tree=${encodeURIComponent(JOBS_TREE)}`;
-      const jobsRes = await jenkinsGetJson(jobsUrl, auth);
-      bytes += jobsRes.text.length;
-      if (!jobsRes.ok || jobsRes.json === null || typeof jobsRes.json !== "object") {
-        ctx.logger.warn(
-          { serviceId: SERVICE_ID, status: jobsRes.status },
-          "jenkins sync: failed to list jobs",
-        );
-        return {
-          cursor: encodeCursor(prev),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: bytes,
-        };
-      }
-
-      const jobsRoot = jobsRes.json as Record<string, unknown>;
-      const jobsArr = jobsRoot["jobs"];
-      const flat: { fullName: string; url?: string }[] = [];
-      flattenJobs(Array.isArray(jobsArr) ? (jobsArr as JobNode[]) : undefined, flat);
-
-      const now = Date.now();
-      const floorMs = now - initialSyncDepthDays * 86_400_000;
-
-      for (const job of flat) {
-        const lastSeen = nextJobs[job.fullName] ?? 0;
-        const tree = encodeURIComponent(
-          "builds[number,url,result,duration,timestamp,building]{0,25}",
-        );
-        const bUrl = `${jenkinsJobRoot(base, job.fullName)}/api/json?tree=${tree}`;
-        const bRes = await jenkinsGetJson(bUrl, auth);
-        bytes += bRes.text.length;
-        if (!bRes.ok || bRes.json === null || typeof bRes.json !== "object") {
-          continue;
-        }
-        const buildsRaw = (bRes.json as Record<string, unknown>)["builds"];
-        if (!Array.isArray(buildsRaw)) {
-          continue;
-        }
-        let maxNum = lastSeen;
-        for (const br of buildsRaw) {
-          const b = asRecord(br);
-          if (b === undefined) {
-            continue;
-          }
-          const num = numberField(b, "number");
-          if (num === undefined || num <= lastSeen) {
-            continue;
-          }
-          const ts = numberField(b, "timestamp");
-          const modifiedAt = ts !== undefined && Number.isFinite(ts) ? Math.floor(ts) : now;
-          if (modifiedAt < floorMs) {
-            continue;
-          }
-          const result = stringField(b, "result");
-          const building = b["building"] === true;
-          const url = stringField(b, "url") ?? job.url ?? null;
-          const duration = numberField(b, "duration");
-          const title = `${job.fullName} #${String(num)}${result !== undefined && result !== "" ? ` — ${result}` : building ? " (running)" : ""}`;
-          const externalId = `${job.fullName}#${String(num)}`;
-          const meta: Record<string, unknown> = {
-            jobName: job.fullName,
-            buildNumber: num,
-            result: result ?? null,
-            building,
-            duration_ms: duration ?? null,
-          };
-          upsertIndexedItemForSync(ctx, {
-            service: SERVICE_ID,
-            type: "ci_run",
-            externalId,
-            title: title.length > 512 ? title.slice(0, 512) : title,
-            bodyPreview: "",
-            url,
-            canonicalUrl: url,
-            modifiedAt,
-            authorId: null,
-            metadata: meta,
-            pinned: false,
-            syncedAt: now,
-          });
-          upserted += 1;
-          if (num > maxNum) {
-            maxNum = num;
-          }
-        }
-        nextJobs[job.fullName] = maxNum;
-      }
-
-      return {
-        cursor: encodeCursor({ jobs: nextJobs }),
-        itemsUpserted: upserted,
-        itemsDeleted: 0,
-        hasMore: false,
-        durationMs: Math.round(performance.now() - t0),
-        bytesTransferred: bytes,
-      };
+      return runJenkinsSyncAfterAuth(ctx, cursor, base, auth, initialSyncDepthDays, t0);
     },
   };
 }

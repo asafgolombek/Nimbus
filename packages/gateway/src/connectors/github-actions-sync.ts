@@ -180,8 +180,8 @@ export function createGithubActionsSyncable(options: GithubActionsSyncableOption
           const headSha = stringField(run, "head_sha");
           const runStarted = stringField(run, "run_started_at");
           const updatedAt = stringField(run, "updated_at");
-          const tEnd = updatedAt !== undefined ? Date.parse(updatedAt) : now;
-          const tStart = runStarted !== undefined ? Date.parse(runStarted) : tEnd;
+          const tEnd = updatedAt === undefined ? now : Date.parse(updatedAt);
+          const tStart = runStarted === undefined ? tEnd : Date.parse(runStarted);
           const durationMs =
             Number.isFinite(tEnd) && Number.isFinite(tStart) && tEnd >= tStart
               ? tEnd - tStart

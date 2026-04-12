@@ -29,7 +29,8 @@ function authHeaders(): Record<string, string> {
 }
 
 async function grafanaGet(path: string): Promise<unknown> {
-  const res = await fetch(`${baseUrl()}${path.startsWith("/") ? path : `/${path}`}`, {
+  const pathPart = path.startsWith("/") ? path : `/${path}`;
+  const res = await fetch(`${baseUrl()}${pathPart}`, {
     headers: authHeaders(),
   });
   const text = await res.text();
