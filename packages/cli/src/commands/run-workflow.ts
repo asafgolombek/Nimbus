@@ -63,17 +63,23 @@ export async function runWorkflowFromFile(args: string[]): Promise<void> {
   });
 
   try {
-    await client.call("workflow.save", {
+    const savePayload: Record<string, unknown> = {
       name: parsed.name,
       stepsJson: parsed.stepsJson,
-      ...(parsed.description !== null ? { description: parsed.description } : {}),
-    });
-    const out = await client.call("workflow.run", {
+    };
+    if (parsed.description !== null) {
+      savePayload["description"] = parsed.description;
+    }
+    await client.call("workflow.save", savePayload);
+    const runPayload: Record<string, unknown> = {
       name: parsed.name,
-      stream: !dryRun,
+      stream: dryRun === false,
       dryRun,
-      ...(agent !== undefined && agent !== "" ? { agent } : {}),
-    });
+    };
+    if (agent !== undefined && agent !== "") {
+      runPayload["agent"] = agent;
+    }
+    const out = await client.call("workflow.run", runPayload);
     console.log(`\n${JSON.stringify(out, undefined, 2)}`);
   } finally {
     await client.disconnect();

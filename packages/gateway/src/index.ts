@@ -21,9 +21,9 @@ async function main(): Promise<void> {
   const dispatcher = createConnectorDispatcher(mcp as unknown as McpToolListingClient);
   const engine = createNimbusEngineAgent({
     localIndex: platform.localIndex,
-    ...(platform.sessionMemoryStore !== undefined
-      ? { sessionMemoryStore: platform.sessionMemoryStore }
-      : {}),
+    ...(platform.sessionMemoryStore === undefined
+      ? {}
+      : { sessionMemoryStore: platform.sessionMemoryStore }),
   });
 
   function resolveEngineAgent(name: string | undefined): Agent {

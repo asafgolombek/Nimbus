@@ -20,9 +20,7 @@ export function isItemLinkedGraphType(t: string): t is ItemLinkedEntityType {
 
 /** Deterministic primary key for `graph_entity` (stable across process restarts). */
 export function deterministicGraphEntityId(type: string, externalId: string): string {
-  return createHash("sha256")
-    .update(`nimbus.graph.v1\0${type}\0${externalId}`)
-    .digest("hex");
+  return createHash("sha256").update(`nimbus.graph.v1\0${type}\0${externalId}`).digest("hex");
 }
 
 export type GraphEntityRow = {
@@ -52,9 +50,7 @@ export function upsertGraphEntity(
 ): string {
   const id = deterministicGraphEntityId(row.type, row.externalId);
   const meta =
-    row.metadata === undefined || row.metadata === null
-      ? null
-      : JSON.stringify(row.metadata);
+    row.metadata === undefined || row.metadata === null ? null : JSON.stringify(row.metadata);
   db.run(
     `INSERT INTO graph_entity (id, type, external_id, label, service, metadata)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -110,9 +106,7 @@ function resolveStartEntityId(db: Database, startRef: string): string | null {
     return byPk.id;
   }
   const byExt = db
-    .query(
-      `SELECT id FROM graph_entity WHERE external_id = ? ORDER BY type LIMIT 1`,
-    )
+    .query(`SELECT id FROM graph_entity WHERE external_id = ? ORDER BY type LIMIT 1`)
     .get(startRef) as { id: string } | null | undefined;
   return byExt?.id ?? null;
 }
@@ -137,8 +131,8 @@ export function traverseGraph(
   startRef: string,
   opts?: TraverseGraphOptions,
 ): TraverseGraphResult | { error: string } {
-  const maxDepth = opts?.depth !== undefined ? Math.min(8, Math.max(0, opts.depth)) : 2;
-  const maxNodes = opts?.maxNodes !== undefined ? Math.min(500, Math.max(1, opts.maxNodes)) : 200;
+  const maxDepth = opts?.depth === undefined ? 2 : Math.min(8, Math.max(0, opts.depth));
+  const maxNodes = opts?.maxNodes === undefined ? 200 : Math.min(500, Math.max(1, opts.maxNodes));
   const typeFilter = opts?.relationTypes?.filter((t) => t.trim() !== "") ?? null;
 
   const startId = resolveStartEntityId(db, startRef);
@@ -160,8 +154,7 @@ export function traverseGraph(
       continue;
     }
 
-    let relSql =
-      `SELECT type, from_id, to_id FROM graph_relation WHERE from_id = ? OR to_id = ?`;
+    let relSql = `SELECT type, from_id, to_id FROM graph_relation WHERE from_id = ? OR to_id = ?`;
     const relParams: Array<string | number> = [cur.id, cur.id];
     if (typeFilter !== null && typeFilter.length > 0) {
       const ph = typeFilter.map(() => "?").join(",");
@@ -189,7 +182,9 @@ export function traverseGraph(
   const idList = [...visitedEntityIds];
   const placeholders = idList.map(() => "?").join(",");
   const entities = db
-    .query(`SELECT id, type, external_id, label, service, metadata FROM graph_entity WHERE id IN (${placeholders})`)
+    .query(
+      `SELECT id, type, external_id, label, service, metadata FROM graph_entity WHERE id IN (${placeholders})`,
+    )
     .all(...idList) as GraphEntityRow[];
 
   return {

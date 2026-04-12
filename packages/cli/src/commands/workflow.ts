@@ -24,6 +24,87 @@ function hasFlag(args: string[], flag: string): boolean {
   return true;
 }
 
+function registerWorkflowAgentChunkStream(client: IPCClient): void {
+  client.onNotification("agent.chunk", (params) => {
+    const t = (params as { text?: string }).text;
+    if (typeof t === "string" && t.length > 0) {
+      process.stdout.write(t);
+    }
+  });
+}
+
+async function workflowCliList(client: IPCClient): Promise<void> {
+  const out = await client.call<{ workflows: unknown }>("workflow.list", {});
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
+async function workflowCliDelete(client: IPCClient, rest: string[]): Promise<void> {
+  const name = rest[0]?.trim() ?? "";
+  if (name === "") {
+    throw new Error("Usage: nimbus workflow delete <name>");
+  }
+  const out = await client.call<{ ok: boolean }>("workflow.delete", { name });
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
+async function workflowCliSave(client: IPCClient, rest: string[]): Promise<void> {
+  const name = rest[0]?.trim() ?? "";
+  const tail = rest.slice(1);
+  const file = shiftFlag(tail, "--file");
+  if (name === "" || file === undefined || file === "") {
+    throw new Error("Usage: nimbus workflow save <name> --file <path> [--description text]");
+  }
+  const description = shiftFlag(tail, "--description");
+  const content = readFileSync(file, "utf8");
+  const parsed = parseWorkflowFileContent(content, file);
+  if (parsed.name !== name) {
+    console.warn(
+      `Note: file declares name "${parsed.name}"; saving under CLI name "${name}" as requested.`,
+    );
+  }
+  let desc: string | null = null;
+  if (description !== undefined && description !== "") {
+    desc = description;
+  } else if (parsed.description !== null) {
+    desc = parsed.description;
+  }
+  const savePayload: Record<string, unknown> = { name, stepsJson: parsed.stepsJson };
+  if (desc !== null) {
+    savePayload["description"] = desc;
+  }
+  const out = await client.call("workflow.save", savePayload);
+  console.log(JSON.stringify(out, undefined, 2));
+}
+
+async function workflowCliRun(client: IPCClient, rest: string[]): Promise<void> {
+  const name = rest[0]?.trim() ?? "";
+  const tail = rest.slice(1);
+  if (name === "") {
+    throw new Error(
+      "Usage: nimbus workflow run <name> [--dry-run] [--agent nimbus|devops|research]",
+    );
+  }
+  const dryRun = hasFlag(tail, "--dry-run");
+  const agentArg = shiftFlag(tail, "--agent");
+  let agent: string | undefined;
+  if (agentArg !== undefined && agentArg !== "") {
+    agent = agentArg;
+  }
+
+  registerWorkflowAgentChunkStream(client);
+
+  const runPayload: Record<string, unknown> = {
+    name,
+    stream: dryRun === false,
+    dryRun,
+  };
+  if (agent !== undefined) {
+    runPayload["agent"] = agent;
+  }
+  const out = await client.call("workflow.run", runPayload);
+  console.log(`\n${JSON.stringify(out, undefined, 2)}`);
+}
+
 export async function runWorkflowCli(args: string[]): Promise<void> {
   const sub = args[0]?.trim() ?? "";
   const rest = args.slice(1);
@@ -37,77 +118,22 @@ export async function runWorkflowCli(args: string[]): Promise<void> {
   await client.connect();
   try {
     if (sub === "list" || sub === "") {
-      const out = await client.call<{ workflows: unknown }>("workflow.list", {});
-      console.log(JSON.stringify(out, undefined, 2));
+      await workflowCliList(client);
       return;
     }
 
     if (sub === "delete") {
-      const name = rest[0]?.trim() ?? "";
-      if (name === "") {
-        throw new Error("Usage: nimbus workflow delete <name>");
-      }
-      const out = await client.call<{ ok: boolean }>("workflow.delete", { name });
-      console.log(JSON.stringify(out, undefined, 2));
+      await workflowCliDelete(client, rest);
       return;
     }
 
     if (sub === "save") {
-      const name = rest[0]?.trim() ?? "";
-      const tail = rest.slice(1);
-      const file = shiftFlag(tail, "--file");
-      if (name === "" || file === undefined || file === "") {
-        throw new Error("Usage: nimbus workflow save <name> --file <path> [--description text]");
-      }
-      const description = shiftFlag(tail, "--description");
-      const content = readFileSync(file, "utf8");
-      const parsed = parseWorkflowFileContent(content, file);
-      if (parsed.name !== name) {
-        console.warn(
-          `Note: file declares name "${parsed.name}"; saving under CLI name "${name}" as requested.`,
-        );
-      }
-      const desc =
-        description !== undefined && description !== ""
-          ? description
-          : parsed.description !== null
-            ? parsed.description
-            : null;
-      const out = await client.call("workflow.save", {
-        name,
-        stepsJson: parsed.stepsJson,
-        ...(desc !== null ? { description: desc } : {}),
-      });
-      console.log(JSON.stringify(out, undefined, 2));
+      await workflowCliSave(client, rest);
       return;
     }
 
     if (sub === "run") {
-      const name = rest[0]?.trim() ?? "";
-      const tail = rest.slice(1);
-      if (name === "") {
-        throw new Error(
-          "Usage: nimbus workflow run <name> [--dry-run] [--agent nimbus|devops|research]",
-        );
-      }
-      const dryRun = hasFlag(tail, "--dry-run");
-      const agentArg = shiftFlag(tail, "--agent");
-      const agent = agentArg !== undefined && agentArg !== "" ? agentArg : undefined;
-
-      client.onNotification("agent.chunk", (params) => {
-        const t = (params as { text?: string }).text;
-        if (typeof t === "string" && t.length > 0) {
-          process.stdout.write(t);
-        }
-      });
-
-      const out = await client.call("workflow.run", {
-        name,
-        stream: !dryRun,
-        dryRun,
-        ...(agent !== undefined ? { agent } : {}),
-      });
-      console.log(`\n${JSON.stringify(out, undefined, 2)}`);
+      await workflowCliRun(client, rest);
       return;
     }
 

@@ -28,6 +28,7 @@ packages/mcp-connectors/*/src/nimbus-mcp-*.js.map
 
 # --- Coverage / CI test reports ---
 coverage/
+# JUnit XML for CI lives under junit-reports/ (not ignored — dorny/test-reporter uses fast-glob with gitignore).
 reports/
 .nyc_output/
 lcov.info

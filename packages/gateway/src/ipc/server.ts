@@ -29,7 +29,7 @@ import {
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
 import type { IPCServer } from "./types.ts";
-import type { WorkflowRunHandler } from "./workflow-invoke.ts";
+import type { WorkflowRunContext, WorkflowRunHandler } from "./workflow-invoke.ts";
 
 class RpcMethodError extends Error {
   readonly rpcCode: number;
@@ -381,6 +381,65 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
   }
 
+  async function dispatchWorkflowRunRpc(
+    clientId: string,
+    session: ClientSession,
+    params: unknown,
+  ): Promise<unknown> {
+    if (options.localIndex === undefined) {
+      throw new RpcMethodError(-32603, "Local index is not available");
+    }
+    const handler = workflowRunHandler;
+    if (handler === undefined) {
+      throw new RpcMethodError(-32603, "Workflow runner is not configured");
+    }
+    const rec = asRecord(params);
+    const workflowName = requireNonEmptyRpcString(rec, "name");
+    const triggeredBy =
+      rec !== undefined &&
+      typeof rec["triggeredBy"] === "string" &&
+      rec["triggeredBy"].trim() !== ""
+        ? rec["triggeredBy"].trim()
+        : clientId;
+    const dryRun = rec?.["dryRun"] === true;
+    const stream = rec?.["stream"] === true;
+    const sessionIdRaw = rec?.["sessionId"];
+    const sessionId =
+      typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
+        ? sessionIdRaw.trim()
+        : undefined;
+    const agentRaw = rec?.["agent"];
+    const agent =
+      typeof agentRaw === "string" && agentRaw.trim() !== "" ? agentRaw.trim() : undefined;
+
+    const ctx: WorkflowRunContext = {
+      clientId,
+      workflowName,
+      triggeredBy,
+      dryRun,
+      stream,
+      sendChunk: (text: string) => {
+        sendAgentChunkIfStreaming(session, stream, text);
+      },
+    };
+    if (sessionId !== undefined) {
+      ctx.sessionId = sessionId;
+    }
+    if (agent !== undefined) {
+      ctx.agent = agent;
+    }
+
+    try {
+      const requestStore = sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
+      return await agentRequestContext.run(requestStore, async () => handler(ctx));
+    } catch (e) {
+      if (e instanceof GatewayAgentUnavailableError) {
+        throw new RpcMethodError(-32000, e.message);
+      }
+      throw e;
+    }
+  }
+
   async function tryDispatchAutomationRpc(
     clientId: string,
     session: ClientSession,
@@ -388,81 +447,36 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     params: unknown,
   ): Promise<unknown> {
     if (method === "workflow.run") {
-      if (options.localIndex === undefined) {
-        throw new RpcMethodError(-32603, "Local index is not available");
-      }
-      const handler = workflowRunHandler;
-      if (handler === undefined) {
-        throw new RpcMethodError(-32603, "Workflow runner is not configured");
-      }
-      const rec = asRecord(params);
-      const workflowName = requireNonEmptyRpcString(rec, "name");
-      const triggeredBy =
-        rec !== undefined &&
-        typeof rec["triggeredBy"] === "string" &&
-        rec["triggeredBy"].trim() !== ""
-          ? rec["triggeredBy"].trim()
-          : clientId;
-      const dryRun = rec?.["dryRun"] === true;
-      const stream = rec?.["stream"] === true;
-      const sessionIdRaw = rec?.["sessionId"];
-      const sessionId =
-        typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
-          ? sessionIdRaw.trim()
-          : undefined;
-      const agentRaw = rec?.["agent"];
-      const agent =
-        typeof agentRaw === "string" && agentRaw.trim() !== "" ? agentRaw.trim() : undefined;
-      try {
-        const requestStore = sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
-        return await agentRequestContext.run(requestStore, async () =>
-          handler({
-            clientId,
-            workflowName,
-            triggeredBy,
-            dryRun,
-            stream,
-            sendChunk: (text: string) => {
-              sendAgentChunkIfStreaming(session, stream, text);
-            },
-            ...(sessionId !== undefined ? { sessionId } : {}),
-            ...(agent !== undefined ? { agent } : {}),
-          }),
-        );
-      } catch (e) {
-        if (e instanceof GatewayAgentUnavailableError) {
-          throw new RpcMethodError(-32000, e.message);
-        }
-        throw e;
-      }
+      return dispatchWorkflowRunRpc(clientId, session, params);
     }
 
     if (
-      !method.startsWith("watcher.") &&
-      !method.startsWith("workflow.") &&
-      !method.startsWith("extension.")
+      method.startsWith("watcher.") ||
+      method.startsWith("workflow.") ||
+      method.startsWith("extension.")
     ) {
-      return automationRpcSkipped;
-    }
-    if (options.localIndex === undefined) {
-      throw new RpcMethodError(-32603, "Local index is not available");
-    }
-    try {
-      const out = dispatchAutomationRpc({
-        method,
-        params,
-        db: options.localIndex.getDatabase(),
-      });
-      if (out.kind === "hit") {
-        return out.value;
+      if (options.localIndex === undefined) {
+        throw new RpcMethodError(-32603, "Local index is not available");
       }
-    } catch (e) {
-      if (e instanceof AutomationRpcError) {
-        throw new RpcMethodError(e.rpcCode, e.message);
+      try {
+        const out = dispatchAutomationRpc({
+          method,
+          params,
+          db: options.localIndex.getDatabase(),
+        });
+        if (out.kind === "hit") {
+          return out.value;
+        }
+      } catch (e) {
+        if (e instanceof AutomationRpcError) {
+          throw new RpcMethodError(e.rpcCode, e.message);
+        }
+        throw e;
       }
-      throw e;
+      throw new RpcMethodError(-32601, `Method not found: ${method}`);
     }
-    throw new RpcMethodError(-32601, `Method not found: ${method}`);
+
+    return automationRpcSkipped;
   }
 
   function tryDispatchPeopleRpc(method: string, params: unknown): unknown {

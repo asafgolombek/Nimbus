@@ -12,6 +12,44 @@ import { createLazyEmbeddingRuntime } from "./lazy-scheduler.ts";
 import { createOpenAIEmbedder } from "./openai-embedder.ts";
 import { tryCreateEmbeddingWorkerBridge } from "./worker-bridge.ts";
 
+async function tryCreateOpenAIEmbeddingRuntime(
+  db: Database,
+  paths: PlatformPaths,
+  logger: Logger,
+  slice: {
+    chunkTokens: number;
+    chunkOverlapTokens: number;
+    backfillBatchSize: number;
+  },
+  tomlEmbedding: NimbusEmbeddingToml,
+  vault: NimbusVault,
+): Promise<EmbeddingRuntime | null> {
+  let apiKey = processEnvGet("OPENAI_API_KEY")?.trim() ?? "";
+  if (apiKey === "") {
+    const v = await vault.get("openai.api_key");
+    apiKey = typeof v === "string" ? v.trim() : "";
+  }
+  if (apiKey === "") {
+    logger.warn("OpenAI embedding: set OPENAI_API_KEY or vault key openai.api_key");
+    return null;
+  }
+  let openaiModel = tomlEmbedding.model.trim();
+  if (
+    openaiModel === "" ||
+    openaiModel.includes("MiniLM") ||
+    openaiModel.toLowerCase().includes("xenova")
+  ) {
+    openaiModel = "text-embedding-3-small";
+  }
+  try {
+    const embedder = await createOpenAIEmbedder({ apiKey, model: openaiModel, dimensions: 384 });
+    return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice, embedder);
+  } catch (err) {
+    logger.warn({ err }, "OpenAI embedder init failed");
+    return null;
+  }
+}
+
 /**
  * Tries the Bun embedding worker first (local provider only), then falls back to in-process lazy loading.
  */
@@ -40,30 +78,7 @@ export async function createEmbeddingRuntime(
   };
 
   if (tomlEmbedding.provider === "openai") {
-    let apiKey = processEnvGet("OPENAI_API_KEY")?.trim() ?? "";
-    if (apiKey === "") {
-      const v = await vault.get("openai.api_key");
-      apiKey = typeof v === "string" ? v.trim() : "";
-    }
-    if (apiKey === "") {
-      logger.warn("OpenAI embedding: set OPENAI_API_KEY or vault key openai.api_key");
-      return null;
-    }
-    let openaiModel = tomlEmbedding.model.trim();
-    if (
-      openaiModel === "" ||
-      openaiModel.includes("MiniLM") ||
-      openaiModel.toLowerCase().includes("xenova")
-    ) {
-      openaiModel = "text-embedding-3-small";
-    }
-    try {
-      const embedder = await createOpenAIEmbedder({ apiKey, model: openaiModel, dimensions: 384 });
-      return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice, embedder);
-    } catch (err) {
-      logger.warn({ err }, "OpenAI embedder init failed");
-      return null;
-    }
+    return tryCreateOpenAIEmbeddingRuntime(db, paths, logger, slice, tomlEmbedding, vault);
   }
 
   const dbPath = join(paths.dataDir, "nimbus.db");

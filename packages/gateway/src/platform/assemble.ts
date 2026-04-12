@@ -102,14 +102,14 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       dims: embeddingRt.getEmbeddingDims(),
       embedText: (t) => embeddingRt.embedQuery(t),
     });
-    const ttlMs = Math.max(1, sessionToml.memoryTtlHours) * 3600_000;
+    const ttlMs = Math.max(1, sessionToml.memoryTtlHours) * 3_600_000;
     setInterval(() => {
       try {
         sessionMemoryStore?.pruneExpired(ttlMs, Date.now());
       } catch {
         /* ignore */
       }
-    }, 3600_000);
+    }, 3_600_000);
   }
 
   verifyExtensionsBestEffort(db, syncLogger);

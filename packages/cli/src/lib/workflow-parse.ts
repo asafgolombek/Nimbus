@@ -34,7 +34,7 @@ export function parseWorkflowFileContent(content: string, filePath: string): Par
   const base = basename(filePath);
   const ext = extname(filePath);
   const stem = ext !== "" ? base.slice(0, -ext.length) : base;
-  const name = nameRaw !== "" ? nameRaw : stem;
+  const name = nameRaw === "" ? stem : nameRaw;
   const description =
     typeof rec["description"] === "string" && rec["description"].trim() !== ""
       ? rec["description"].trim()

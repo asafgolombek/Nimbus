@@ -1,7 +1,11 @@
 import type { Database } from "bun:sqlite";
 
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
-import { isItemLinkedGraphType, upsertGraphEntity, upsertGraphRelation } from "./relationship-graph.ts";
+import {
+  isItemLinkedGraphType,
+  upsertGraphEntity,
+  upsertGraphRelation,
+} from "./relationship-graph.ts";
 
 export type IndexedItemGraphInput = {
   id: string;
@@ -30,10 +34,113 @@ function personDisplayName(db: Database, personId: string): string | null {
     | { display_name: string | null }
     | null
     | undefined;
-  if (row?.display_name !== undefined && row.display_name !== null && row.display_name.trim() !== "") {
-    return row.display_name.trim();
+  const trimmed = row?.display_name?.trim();
+  return trimmed !== undefined && trimmed !== "" ? trimmed : null;
+}
+
+function syncPrGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const repoFull = repoPathFromMetadata(row.metadata);
+  const prEntityId = upsertGraphEntity(db, {
+    type: "pr",
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+    metadata: { repo: repoFull },
+  });
+  clearRelationsTouchingEntity(db, prEntityId);
+
+  if (repoFull !== undefined) {
+    const repoExt = `${row.service}:${repoFull}`;
+    const repoId = upsertGraphEntity(db, {
+      type: "repo",
+      externalId: repoExt,
+      label: repoFull,
+      service: row.service,
+    });
+    upsertGraphRelation(db, prEntityId, repoId, "targets", now);
   }
-  return null;
+
+  if (row.authorId !== null && row.authorId !== "") {
+    const label =
+      personDisplayName(db, row.authorId) ?? stringField(row.metadata, "user") ?? row.authorId;
+    const personEntityId = upsertGraphEntity(db, {
+      type: "person",
+      externalId: row.authorId,
+      label,
+      service: row.service,
+    });
+    upsertGraphRelation(db, personEntityId, prEntityId, "authored", now);
+  }
+}
+
+function syncIssueGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const repoFull = repoPathFromMetadata(row.metadata);
+  const issueEntityId = upsertGraphEntity(db, {
+    type: "issue",
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+    metadata: { repo: repoFull },
+  });
+  clearRelationsTouchingEntity(db, issueEntityId);
+
+  if (repoFull !== undefined) {
+    const repoExt = `${row.service}:${repoFull}`;
+    const repoId = upsertGraphEntity(db, {
+      type: "repo",
+      externalId: repoExt,
+      label: repoFull,
+      service: row.service,
+    });
+    upsertGraphRelation(db, issueEntityId, repoId, "belongs_to", now);
+  }
+
+  if (row.authorId !== null && row.authorId !== "") {
+    const label =
+      personDisplayName(db, row.authorId) ?? stringField(row.metadata, "user") ?? row.authorId;
+    const personEntityId = upsertGraphEntity(db, {
+      type: "person",
+      externalId: row.authorId,
+      label,
+      service: row.service,
+    });
+    upsertGraphRelation(db, personEntityId, issueEntityId, "opened", now);
+  }
+}
+
+function syncMessageGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const msgEntityId = upsertGraphEntity(db, {
+    type: "message",
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+    metadata: {},
+  });
+  clearRelationsTouchingEntity(db, msgEntityId);
+
+  if (row.authorId !== null && row.authorId !== "") {
+    const label =
+      personDisplayName(db, row.authorId) ?? stringField(row.metadata, "user") ?? row.authorId;
+    const personEntityId = upsertGraphEntity(db, {
+      type: "person",
+      externalId: row.authorId,
+      label,
+      service: row.service,
+    });
+    upsertGraphRelation(db, personEntityId, msgEntityId, "posted", now);
+  }
+
+  const channel = stringField(row.metadata, "channel");
+  if (channel !== undefined) {
+    const chExt = `${row.service}:${channel}`;
+    const chId = upsertGraphEntity(db, {
+      type: "channel",
+      externalId: chExt,
+      label: channel,
+      service: row.service,
+    });
+    upsertGraphRelation(db, msgEntityId, chId, "belongs_to", now);
+  }
 }
 
 /**
@@ -50,106 +157,14 @@ export function syncGraphFromIndexedItem(db: Database, row: IndexedItemGraphInpu
   const now = Date.now();
 
   if (row.type === "pr") {
-    const repoFull = repoPathFromMetadata(row.metadata);
-    const prEntityId = upsertGraphEntity(db, {
-      type: "pr",
-      externalId: row.id,
-      label: row.title,
-      service: row.service,
-      metadata: { repo: repoFull },
-    });
-    clearRelationsTouchingEntity(db, prEntityId);
-
-    if (repoFull !== undefined) {
-      const repoExt = `${row.service}:${repoFull}`;
-      const repoId = upsertGraphEntity(db, {
-        type: "repo",
-        externalId: repoExt,
-        label: repoFull,
-        service: row.service,
-      });
-      upsertGraphRelation(db, prEntityId, repoId, "targets", now);
-    }
-
-    if (row.authorId !== null && row.authorId !== "") {
-      const label = personDisplayName(db, row.authorId) ?? stringField(row.metadata, "user") ?? row.authorId;
-      const personEntityId = upsertGraphEntity(db, {
-        type: "person",
-        externalId: row.authorId,
-        label,
-        service: row.service,
-      });
-      upsertGraphRelation(db, personEntityId, prEntityId, "authored", now);
-    }
+    syncPrGraph(db, row, now);
     return;
   }
-
   if (row.type === "issue") {
-    const repoFull = repoPathFromMetadata(row.metadata);
-    const issueEntityId = upsertGraphEntity(db, {
-      type: "issue",
-      externalId: row.id,
-      label: row.title,
-      service: row.service,
-      metadata: { repo: repoFull },
-    });
-    clearRelationsTouchingEntity(db, issueEntityId);
-
-    if (repoFull !== undefined) {
-      const repoExt = `${row.service}:${repoFull}`;
-      const repoId = upsertGraphEntity(db, {
-        type: "repo",
-        externalId: repoExt,
-        label: repoFull,
-        service: row.service,
-      });
-      upsertGraphRelation(db, issueEntityId, repoId, "belongs_to", now);
-    }
-
-    if (row.authorId !== null && row.authorId !== "") {
-      const label = personDisplayName(db, row.authorId) ?? stringField(row.metadata, "user") ?? row.authorId;
-      const personEntityId = upsertGraphEntity(db, {
-        type: "person",
-        externalId: row.authorId,
-        label,
-        service: row.service,
-      });
-      upsertGraphRelation(db, personEntityId, issueEntityId, "opened", now);
-    }
+    syncIssueGraph(db, row, now);
     return;
   }
-
   if (row.type === "message") {
-    const msgEntityId = upsertGraphEntity(db, {
-      type: "message",
-      externalId: row.id,
-      label: row.title,
-      service: row.service,
-      metadata: {},
-    });
-    clearRelationsTouchingEntity(db, msgEntityId);
-
-    if (row.authorId !== null && row.authorId !== "") {
-      const label = personDisplayName(db, row.authorId) ?? stringField(row.metadata, "user") ?? row.authorId;
-      const personEntityId = upsertGraphEntity(db, {
-        type: "person",
-        externalId: row.authorId,
-        label,
-        service: row.service,
-      });
-      upsertGraphRelation(db, personEntityId, msgEntityId, "posted", now);
-    }
-
-    const channel = stringField(row.metadata, "channel");
-    if (channel !== undefined) {
-      const chExt = `${row.service}:${channel}`;
-      const chId = upsertGraphEntity(db, {
-        type: "channel",
-        externalId: chExt,
-        label: channel,
-        service: row.service,
-      });
-      upsertGraphRelation(db, msgEntityId, chId, "belongs_to", now);
-    }
+    syncMessageGraph(db, row, now);
   }
 }

@@ -4,7 +4,7 @@ import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
-export async function runAsk(args: string[]): Promise<void> {
+function parseAskArgs(args: string[]): { rest: string[]; sessionId?: string; agent?: string } {
   const rest: string[] = [];
   let sessionId: string | undefined;
   let agent: string | undefined;
@@ -24,6 +24,18 @@ export async function runAsk(args: string[]): Promise<void> {
       rest.push(a);
     }
   }
+  const out: { rest: string[]; sessionId?: string; agent?: string } = { rest };
+  if (sessionId !== undefined) {
+    out.sessionId = sessionId;
+  }
+  if (agent !== undefined) {
+    out.agent = agent;
+  }
+  return out;
+}
+
+export async function runAsk(args: string[]): Promise<void> {
+  const { rest, sessionId, agent } = parseAskArgs(args);
   const query = rest.join(" ").trim();
   if (query.length === 0) {
     throw new Error('Usage: nimbus ask [--session <uuid>] "<natural language query>"');

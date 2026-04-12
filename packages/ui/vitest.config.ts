@@ -10,7 +10,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
     reporters: ci
-      ? ["default", ["junit", { outputFile: "../../reports/junit-vitest.xml" }]]
+      ? ["default", ["junit", { outputFile: "../../junit-reports/junit-vitest.xml" }]]
       : ["default"],
     /** `*.vitest.tsx` avoids Bun picking component tests as `bun:test` files at repo root. */
     include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)", "**/*.vitest.?(c|m)[jt]s?(x)"],

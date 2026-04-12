@@ -25,7 +25,7 @@ export function parseWorkflowStepsJson(stepsJson: string): WorkflowStep[] {
     throw new Error("workflow steps_json is not valid JSON");
   }
   if (!Array.isArray(parsed)) {
-    throw new Error("workflow steps must be a JSON array");
+    throw new TypeError("workflow steps must be a JSON array");
   }
   const out: WorkflowStep[] = [];
   for (const row of parsed) {

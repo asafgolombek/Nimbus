@@ -53,7 +53,7 @@ export class SessionMemoryStore {
       return;
     }
     const vec = await this.embedText(chunk.text);
-    if (vec === null || vec.length !== this.dims) {
+    if (vec?.length !== this.dims) {
       return;
     }
     const now = chunk.createdAt;
@@ -79,7 +79,7 @@ export class SessionMemoryStore {
       return [];
     }
     const qVec = await this.embedText(query);
-    if (qVec === null || qVec.length !== this.dims) {
+    if (qVec?.length !== this.dims) {
       return [];
     }
     const k = Math.min(32, Math.max(1, Math.floor(topK)));
