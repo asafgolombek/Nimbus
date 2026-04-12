@@ -2,23 +2,18 @@ import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { clampSyncTitle } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import {
+  flattenJenkinsApiJobs,
+  JENKINS_JOBS_API_TREE,
+  type JenkinsApiJobNode,
+} from "./jenkins-api-jobs.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "jenkins";
 const CURSOR_PREFIX = "nimbus-jnk1:";
 
-const JOBS_TREE =
-  "jobs[name,fullname,url,jobs[name,fullname,url,jobs[name,fullname,url,jobs[name,fullname,url]]]]";
-
 type JenkinsSyncCursorV1 = { jobs: Record<string, number> };
-
-type JobNode = {
-  name?: string;
-  fullName?: string;
-  url?: string;
-  jobs?: JobNode[];
-};
 
 function encodeCursor(c: JenkinsSyncCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
@@ -47,36 +42,6 @@ function decodeCursor(raw: string | null): JenkinsSyncCursorV1 | null {
     }
   }
   return { jobs };
-}
-
-function jenkinsJobNodeDisplayName(n: JobNode): string {
-  if (typeof n.fullName === "string" && n.fullName !== "") {
-    return n.fullName;
-  }
-  if (typeof n.name === "string") {
-    return n.name;
-  }
-  return "";
-}
-
-function flattenJobs(
-  nodes: JobNode[] | undefined,
-  out: { fullName: string; url?: string }[],
-): void {
-  if (nodes === undefined) {
-    return;
-  }
-  for (const n of nodes) {
-    const fn = jenkinsJobNodeDisplayName(n);
-    if (fn !== "") {
-      if (typeof n.url === "string") {
-        out.push({ fullName: fn, url: n.url });
-      } else {
-        out.push({ fullName: fn });
-      }
-    }
-    flattenJobs(n.jobs, out);
-  }
 }
 
 function jobPathFromFullName(fullName: string): string {
@@ -233,7 +198,7 @@ async function runJenkinsSyncAfterAuth(
 
   await ctx.rateLimiter.acquire("jenkins");
 
-  const jobsUrl = `${base}/api/json?tree=${encodeURIComponent(JOBS_TREE)}`;
+  const jobsUrl = `${base}/api/json?tree=${encodeURIComponent(JENKINS_JOBS_API_TREE)}`;
   const jobsRes = await jenkinsGetJson(jobsUrl, auth);
   bytes += jobsRes.text.length;
   if (!jobsRes.ok || jobsRes.json === null || typeof jobsRes.json !== "object") {
@@ -254,7 +219,10 @@ async function runJenkinsSyncAfterAuth(
   const jobsRoot = jobsRes.json as Record<string, unknown>;
   const jobsArr = jobsRoot["jobs"];
   const flat: { fullName: string; url?: string }[] = [];
-  flattenJobs(Array.isArray(jobsArr) ? (jobsArr as JobNode[]) : undefined, flat);
+  flattenJenkinsApiJobs(
+    Array.isArray(jobsArr) ? (jobsArr as JenkinsApiJobNode[]) : undefined,
+    flat,
+  );
 
   const now = Date.now();
   const floorMs = now - initialSyncDepthDays * 86_400_000;

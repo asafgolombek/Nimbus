@@ -43,6 +43,18 @@ async function pdFetch(
   return { ok: res.ok, status: res.status, json, text };
 }
 
+async function pdIncidentPutMutation(actionLabel: string, pathSuffix: string, incidentId: string) {
+  const token = requireProcessEnv("PAGERDUTY_API_TOKEN");
+  const res = await pdFetch(token, `/incidents/${encodeURIComponent(incidentId)}/${pathSuffix}`, {
+    method: "PUT",
+    body: JSON.stringify({ incident: { type: "incident_reference", id: incidentId } }),
+  });
+  if (!res.ok) {
+    throw new Error(`PagerDuty ${actionLabel} ${String(res.status)}: ${res.text.slice(0, 400)}`);
+  }
+  return jsonResult(res.json ?? { ok: true });
+}
+
 const mcp = new McpServer({ name: "nimbus-pagerduty", version: "0.1.0" });
 const reg = createZodToolRegistrar(createRegisterSimpleTool(mcp));
 
@@ -81,63 +93,21 @@ reg(
   "pd_incident_acknowledge",
   "Acknowledge an incident. Requires Gateway HITL.",
   z.object({ incidentId: z.string().min(1) }),
-  async (parsed) => {
-    const token = requireProcessEnv("PAGERDUTY_API_TOKEN");
-    const res = await pdFetch(
-      token,
-      `/incidents/${encodeURIComponent(parsed.incidentId)}/acknowledge`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ incident: { type: "incident_reference", id: parsed.incidentId } }),
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`PagerDuty acknowledge ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json ?? { ok: true });
-  },
+  async (parsed) => pdIncidentPutMutation("acknowledge", "acknowledge", parsed.incidentId),
 );
 
 reg(
   "pd_incident_resolve",
   "Resolve an incident. Requires Gateway HITL.",
   z.object({ incidentId: z.string().min(1) }),
-  async (parsed) => {
-    const token = requireProcessEnv("PAGERDUTY_API_TOKEN");
-    const res = await pdFetch(
-      token,
-      `/incidents/${encodeURIComponent(parsed.incidentId)}/resolve`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ incident: { type: "incident_reference", id: parsed.incidentId } }),
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`PagerDuty resolve ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json ?? { ok: true });
-  },
+  async (parsed) => pdIncidentPutMutation("resolve", "resolve", parsed.incidentId),
 );
 
 reg(
   "pd_incident_escalate",
   "Escalate an incident. Requires Gateway HITL.",
   z.object({ incidentId: z.string().min(1) }),
-  async (parsed) => {
-    const token = requireProcessEnv("PAGERDUTY_API_TOKEN");
-    const res = await pdFetch(
-      token,
-      `/incidents/${encodeURIComponent(parsed.incidentId)}/escalate`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ incident: { type: "incident_reference", id: parsed.incidentId } }),
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`PagerDuty escalate ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json ?? { ok: true });
-  },
+  async (parsed) => pdIncidentPutMutation("escalate", "escalate", parsed.incidentId),
 );
 
 const transport = new StdioServerTransport();

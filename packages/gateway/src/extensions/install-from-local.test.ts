@@ -12,6 +12,23 @@ import {
   installExtensionFromLocalDirectory,
 } from "./install-from-local.ts";
 
+function createExtensionInstallFixture(
+  tmpPrefix: string,
+  sourceBasename: string,
+): {
+  extensionsDir: string;
+  src: string;
+  db: Database;
+} {
+  const tmp = mkdtempSync(join(tmpdir(), tmpPrefix));
+  const extensionsDir = join(tmp, "extensions");
+  const src = join(tmp, sourceBasename);
+  mkdirSync(join(src, "dist"), { recursive: true });
+  const db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  return { extensionsDir, src, db };
+}
+
 describe("install-from-local", () => {
   test("assertSafeExtensionId rejects path traversal", () => {
     expect(() => assertSafeExtensionId("../evil")).toThrow();
@@ -25,10 +42,10 @@ describe("install-from-local", () => {
   });
 
   test("installExtensionFromLocalDirectory copies, hashes, and inserts row", () => {
-    const tmp = mkdtempSync(join(tmpdir(), "nimbus-install-ext-"));
-    const extensionsDir = join(tmp, "extensions");
-    const src = join(tmp, "src-ext");
-    mkdirSync(join(src, "dist"), { recursive: true });
+    const { extensionsDir, src, db } = createExtensionInstallFixture(
+      "nimbus-install-ext-",
+      "src-ext",
+    );
     writeFileSync(
       join(src, "nimbus.extension.json"),
       JSON.stringify({
@@ -39,9 +56,6 @@ describe("install-from-local", () => {
       "utf8",
     );
     writeFileSync(join(src, "dist", "index.js"), "export {}\n", "utf8");
-
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
 
     const r = installExtensionFromLocalDirectory({
       db,
@@ -63,19 +77,16 @@ describe("install-from-local", () => {
   });
 
   test("legacy nimbus-extension.json is accepted", () => {
-    const tmp = mkdtempSync(join(tmpdir(), "nimbus-install-legacy-"));
-    const extensionsDir = join(tmp, "extensions");
-    const src = join(tmp, "src");
-    mkdirSync(join(src, "dist"), { recursive: true });
+    const { extensionsDir, src, db } = createExtensionInstallFixture(
+      "nimbus-install-legacy-",
+      "src",
+    );
     writeFileSync(
       join(src, "nimbus-extension.json"),
       JSON.stringify({ id: "legacy.pkg", version: "0.1.0", entry: "dist/index.js" }),
       "utf8",
     );
     writeFileSync(join(src, "dist", "index.js"), "1\n", "utf8");
-
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
 
     installExtensionFromLocalDirectory({ db, extensionsDir, sourcePath: src });
     expect(listExtensions(db).length).toBe(1);

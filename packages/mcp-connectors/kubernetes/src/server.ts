@@ -42,40 +42,30 @@ async function kubectlJson(rest: string[]): Promise<unknown> {
   return r.data;
 }
 
+const optionalNamespaceSchema = z.object({ namespace: z.string().min(1).optional() });
+
+async function k8sListNamespacedResource(p: { namespace?: string | undefined }, resource: string) {
+  const ns = p.namespace ?? "default";
+  const data = await kubectlJson(["get", resource, "-n", ns]);
+  return jsonResult(data ?? {});
+}
+
 const mcp = new McpServer({ name: "nimbus-kubernetes", version: "0.1.0" });
 const reg = createZodToolRegistrar(createRegisterSimpleTool(mcp));
 
 reg(
   "k8s_pod_list",
   "List pods in a namespace (default namespace: default).",
-  z.object({ namespace: z.string().min(1).optional() }),
-  async (p) => {
-    const ns = p.namespace ?? "default";
-    const data = await kubectlJson(["get", "pods", "-n", ns]);
-    return jsonResult(data ?? {});
-  },
+  optionalNamespaceSchema,
+  (p) => k8sListNamespacedResource(p, "pods"),
 );
 
-reg(
-  "k8s_deployment_list",
-  "List deployments in a namespace.",
-  z.object({ namespace: z.string().min(1).optional() }),
-  async (p) => {
-    const ns = p.namespace ?? "default";
-    const data = await kubectlJson(["get", "deployments", "-n", ns]);
-    return jsonResult(data ?? {});
-  },
+reg("k8s_deployment_list", "List deployments in a namespace.", optionalNamespaceSchema, (p) =>
+  k8sListNamespacedResource(p, "deployments"),
 );
 
-reg(
-  "k8s_event_list",
-  "List events in a namespace.",
-  z.object({ namespace: z.string().min(1).optional() }),
-  async (p) => {
-    const ns = p.namespace ?? "default";
-    const data = await kubectlJson(["get", "events", "-n", ns]);
-    return jsonResult(data ?? {});
-  },
+reg("k8s_event_list", "List events in a namespace.", optionalNamespaceSchema, (p) =>
+  k8sListNamespacedResource(p, "events"),
 );
 
 reg(

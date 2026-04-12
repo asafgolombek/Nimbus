@@ -50,6 +50,12 @@ async function circleciFetch(
   return { ok: res.ok, status: res.status, json, text };
 }
 
+async function circleciAuthorizedJsonResult(path: string) {
+  const token = requireProcessEnv("CIRCLECI_API_TOKEN");
+  const res = await circleciFetch(token, path);
+  return mcpJsonResultIfOk("CircleCI", res);
+}
+
 const mcp = new McpServer({ name: "nimbus-circleci", version: "0.1.0" });
 const reg = createZodToolRegistrar(createRegisterSimpleTool(mcp));
 
@@ -67,14 +73,12 @@ reg(
     pageToken: z.string().min(1).optional(),
   }),
   async (parsed) => {
-    const token = requireProcessEnv("CIRCLECI_API_TOKEN");
     const base = `/project/${projectPathSegments(parsed.projectSlug)}/pipeline`;
     const u = new URL(`${CCI_API}${base}`);
     if (parsed.pageToken !== undefined) {
       u.searchParams.set("page-token", parsed.pageToken);
     }
-    const res = await circleciFetch(token, `${u.pathname}${u.search}`);
-    return mcpJsonResultIfOk("CircleCI", res);
+    return circleciAuthorizedJsonResult(`${u.pathname}${u.search}`);
   },
 );
 
@@ -83,10 +87,8 @@ reg(
   "Get a pipeline by UUID.",
   z.object({ pipelineId: z.string().uuid() }),
   async (parsed) => {
-    const token = requireProcessEnv("CIRCLECI_API_TOKEN");
     const path = `/pipeline/${encodeURIComponent(parsed.pipelineId)}`;
-    const res = await circleciFetch(token, path);
-    return mcpJsonResultIfOk("CircleCI", res);
+    return circleciAuthorizedJsonResult(path);
   },
 );
 
@@ -95,10 +97,8 @@ reg(
   "List workflows for a pipeline.",
   z.object({ pipelineId: z.string().uuid() }),
   async (parsed) => {
-    const token = requireProcessEnv("CIRCLECI_API_TOKEN");
     const path = `/pipeline/${encodeURIComponent(parsed.pipelineId)}/workflow`;
-    const res = await circleciFetch(token, path);
-    return mcpJsonResultIfOk("CircleCI", res);
+    return circleciAuthorizedJsonResult(path);
   },
 );
 
@@ -107,10 +107,8 @@ reg(
   "List jobs for a workflow.",
   z.object({ workflowId: z.string().uuid() }),
   async (parsed) => {
-    const token = requireProcessEnv("CIRCLECI_API_TOKEN");
     const path = `/workflow/${encodeURIComponent(parsed.workflowId)}/job`;
-    const res = await circleciFetch(token, path);
-    return mcpJsonResultIfOk("CircleCI", res);
+    return circleciAuthorizedJsonResult(path);
   },
 );
 
@@ -121,10 +119,8 @@ reg(
     jobNumber: z.number().int().min(1),
   }),
   async (parsed) => {
-    const token = requireProcessEnv("CIRCLECI_API_TOKEN");
     const path = `/project/${projectPathSegments(parsed.projectSlug)}/job/${String(parsed.jobNumber)}/artifacts`;
-    const res = await circleciFetch(token, path);
-    return mcpJsonResultIfOk("CircleCI", res);
+    return circleciAuthorizedJsonResult(path);
   },
 );
 

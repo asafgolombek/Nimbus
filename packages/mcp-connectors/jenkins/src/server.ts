@@ -24,6 +24,7 @@ import {
 const mcp = new McpServer({ name: "nimbus-jenkins", version: "0.1.0" });
 const reg = createZodToolRegistrar(createRegisterSimpleTool(mcp));
 
+/** Must match `JENKINS_JOBS_API_TREE` in `@nimbus/gateway` `jenkins-api-jobs.ts` (MCP cannot import gateway). */
 const JOBS_TREE =
   "jobs[name,fullname,url,jobs[name,fullname,url,jobs[name,fullname,url,jobs[name,fullname,url]]]]";
 
@@ -70,13 +71,8 @@ reg(
   z.object({}),
   async () => {
     const base = jenkinsBaseUrl();
-    const auth = jenkinsAuthHeader();
     const url = `${base}/api/json?tree=${encodeURIComponent(JOBS_TREE)}`;
-    const res = await jenkinsFetchJson(url, { method: "GET", authHeader: auth });
-    if (!res.ok) {
-      throw new Error(`Jenkins ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    const root = res.json;
+    const root = await jenkinsGetJsonExpectOk(url);
     if (root === null || typeof root !== "object" || Array.isArray(root)) {
       throw new Error("Jenkins: invalid jobs response");
     }
@@ -87,20 +83,24 @@ reg(
   },
 );
 
+async function jenkinsGetJsonExpectOk(url: string): Promise<unknown> {
+  const auth = jenkinsAuthHeader();
+  const res = await jenkinsFetchJson(url, { method: "GET", authHeader: auth });
+  if (!res.ok) {
+    throw new Error(`Jenkins ${String(res.status)}: ${res.text.slice(0, 400)}`);
+  }
+  return res.json;
+}
+
 const jobNameSchema = z.object({
   jobName: z.string().min(1).describe("Job full name (e.g. folder/sub/job)"),
 });
 
 reg("jenkins_job_get", "Get Jenkins job metadata by full name.", jobNameSchema, async (parsed) => {
   const base = jenkinsBaseUrl();
-  const auth = jenkinsAuthHeader();
   const root = jobApiRoot(base, parsed.jobName);
   const url = `${root}/api/json`;
-  const res = await jenkinsFetchJson(url, { method: "GET", authHeader: auth });
-  if (!res.ok) {
-    throw new Error(`Jenkins ${String(res.status)}: ${res.text.slice(0, 400)}`);
-  }
-  return jsonResult(res.json);
+  return jsonResult(await jenkinsGetJsonExpectOk(url));
 });
 
 reg(
@@ -112,17 +112,12 @@ reg(
   }),
   async (parsed) => {
     const base = jenkinsBaseUrl();
-    const auth = jenkinsAuthHeader();
     const lim = parsed.limit ?? 20;
     const tree = encodeURIComponent(
       `builds[number,url,result,duration,timestamp,building]{0,${String(lim)}}`,
     );
     const url = `${jobApiRoot(base, parsed.jobName)}/api/json?tree=${tree}`;
-    const res = await jenkinsFetchJson(url, { method: "GET", authHeader: auth });
-    if (!res.ok) {
-      throw new Error(`Jenkins ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
+    return jsonResult(await jenkinsGetJsonExpectOk(url));
   },
 );
 
@@ -135,13 +130,8 @@ reg(
   }),
   async (parsed) => {
     const base = jenkinsBaseUrl();
-    const auth = jenkinsAuthHeader();
     const url = `${jobApiRoot(base, parsed.jobName)}/${String(parsed.buildNumber)}/api/json`;
-    const res = await jenkinsFetchJson(url, { method: "GET", authHeader: auth });
-    if (!res.ok) {
-      throw new Error(`Jenkins ${String(res.status)}: ${res.text.slice(0, 400)}`);
-    }
-    return jsonResult(res.json);
+    return jsonResult(await jenkinsGetJsonExpectOk(url));
   },
 );
 

@@ -29,6 +29,13 @@ function parseBool(raw: string): boolean | undefined {
   return undefined;
 }
 
+function applyOptionalBool(valRaw: string, set: (b: boolean) => void): void {
+  const b = parseBool(valRaw);
+  if (b !== undefined) {
+    set(b);
+  }
+}
+
 function parseString(raw: string): string {
   const t = raw.trim();
   if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
@@ -78,24 +85,21 @@ function applyFilesystemRootKey(cur: NimbusFilesystemRootToml, key: string, valR
       cur.path = parseString(valRaw);
       break;
     case "git_aware": {
-      const b = parseBool(valRaw);
-      if (b !== undefined) {
+      applyOptionalBool(valRaw, (b) => {
         cur.gitAware = b;
-      }
+      });
       break;
     }
     case "code_index": {
-      const b = parseBool(valRaw);
-      if (b !== undefined) {
+      applyOptionalBool(valRaw, (b) => {
         cur.codeIndex = b;
-      }
+      });
       break;
     }
     case "dependency_graph": {
-      const b = parseBool(valRaw);
-      if (b !== undefined) {
+      applyOptionalBool(valRaw, (b) => {
         cur.dependencyGraph = b;
-      }
+      });
       break;
     }
     case "exclude":

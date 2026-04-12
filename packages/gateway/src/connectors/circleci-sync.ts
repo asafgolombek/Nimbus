@@ -1,6 +1,7 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { clampSyncTitle } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { listGithubReposFromIndex } from "./github-index-repos.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -36,26 +37,6 @@ function decodeCursor(raw: string | null): CircleciSyncCursorV1 | null {
     }
   }
   return { projects };
-}
-
-function listGithubReposFromIndex(db: import("bun:sqlite").Database): string[] {
-  const rows = db
-    .query(
-      `SELECT DISTINCT json_extract(metadata, '$.repo') AS repo
-       FROM item
-       WHERE service = 'github'
-         AND json_extract(metadata, '$.repo') IS NOT NULL
-         AND length(trim(json_extract(metadata, '$.repo'))) > 0`,
-    )
-    .all() as { repo: string | null }[];
-  const out: string[] = [];
-  for (const r of rows) {
-    const repo = typeof r.repo === "string" ? r.repo.trim() : "";
-    if (repo !== "" && !out.includes(repo)) {
-      out.push(repo);
-    }
-  }
-  return out;
 }
 
 function githubRepoToCircleProjectSlug(full: string): string | null {

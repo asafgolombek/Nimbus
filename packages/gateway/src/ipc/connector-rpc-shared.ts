@@ -46,7 +46,7 @@ export function requireRegisteredSchedulerServiceId(
   }
   const trimmed = raw.trim();
   const builtIn = normalizeConnectorServiceId(trimmed);
-  const id = builtIn === null ? trimmed.toLowerCase() : builtIn;
+  const id = builtIn ?? trimmed.toLowerCase();
   if (builtIn === null && !USER_MCP_SERVICE_ID_PATTERN.test(id)) {
     throw new ConnectorRpcError(-32602, "Invalid serviceId");
   }
