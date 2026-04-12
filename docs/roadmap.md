@@ -239,6 +239,16 @@ Every roadmap decision is evaluated against the project's non-negotiables:
   - Each sub-agent operates in an isolated tool scope
   - All write operations from sub-agents remain HITL-gated; the coordinator cannot approve on behalf of the user
 
+### VS Code Extension
+
+- [ ] **VS Code extension** — IPC client package (Node.js/TypeScript, separate from the Bun Gateway) that connects to the running Gateway over the domain socket / named pipe using the existing JSON-RPC 2.0 protocol; no new Gateway APIs required
+  - Commands palette: `Nimbus: Ask`, `Nimbus: Search`, `Nimbus: Run Workflow`
+  - Inline HITL consent UI — approval/rejection rendered as a VS Code notification with structured diff preview for file/code changes
+  - Status bar item showing Gateway health (running / stopped / syncing)
+  - Compatible with VS Code-fork hosts: Cursor, Windsurf, VSCodium, Gitpod (all share the VS Code extension API)
+  - Extension published to the Open VSX Registry (compatible with all forks) and the VS Code Marketplace
+  - `packages/vscode-extension` workspace package; depends on `@nimbus-dev/sdk` only; never imports Gateway source
+
 ### Terminal Power Users
 
 - [ ] **Rich TUI** (Ink-based) — builds on the Phase 3 Session CLI; full pane layout:

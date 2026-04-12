@@ -1,6 +1,12 @@
 import type { Database } from "bun:sqlite";
 
-import { deleteWatcher, insertWatcher, listWatchers } from "../automation/watcher-store.ts";
+import { listExtensions } from "../automation/extension-store.ts";
+import {
+  deleteWatcher,
+  insertWatcher,
+  listWatchers,
+  setWatcherEnabled,
+} from "../automation/watcher-store.ts";
 import {
   deleteWorkflowByName,
   listWorkflows,
@@ -65,6 +71,21 @@ export function dispatchAutomationRpc(options: {
       deleteWatcher(db, id);
       return { kind: "hit", value: { ok: true } };
     }
+
+    case "watcher.pause": {
+      const id = requireString(rec, "id");
+      const ok = setWatcherEnabled(db, id, false);
+      return { kind: "hit", value: { ok } };
+    }
+
+    case "watcher.resume": {
+      const id = requireString(rec, "id");
+      const ok = setWatcherEnabled(db, id, true);
+      return { kind: "hit", value: { ok } };
+    }
+
+    case "extension.list":
+      return { kind: "hit", value: { extensions: listExtensions(db) } };
 
     case "workflow.list":
       return { kind: "hit", value: { workflows: listWorkflows(db) } };

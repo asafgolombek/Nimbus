@@ -15,6 +15,11 @@ Usage:
   nimbus connector …       Register connectors, OAuth, sync status (see: nimbus connector help)
   nimbus people …          Cross-service people graph (list, search, get, items, link)
   nimbus session …         Session RAG memory (list, clear, recall — needs embeddings)
+  nimbus workflow …        List/save/run/delete saved workflows (agent steps)
+  nimbus watch …           List/pause/resume index watchers
+  nimbus repl [--session]  Interactive agent loop (TTY)
+  nimbus run <file>        Save + run workflow from JSON/YAML file
+  nimbus scaffold extension <id>  Minimal extension folder + manifest
   nimbus help               Show this message
 
 Environment (optional):

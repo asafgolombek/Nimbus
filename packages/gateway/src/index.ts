@@ -5,6 +5,9 @@
  * See architecture.md §Nimbus Gateway: Process Lifecycle.
  */
 
+import type { Agent } from "@mastra/core/agent";
+
+import { runWorkflowExecution } from "./automation/workflow-runner.ts";
 import { createConnectorDispatcher, type McpToolListingClient } from "./connectors/index.ts";
 import { createNimbusEngineAgent } from "./engine/agent.ts";
 import { runAsk } from "./engine/run-ask.ts";
@@ -23,6 +26,17 @@ async function main(): Promise<void> {
       : {}),
   });
 
+  function resolveEngineAgent(name: string | undefined): Agent {
+    const key = name?.toLowerCase().trim();
+    if (key === "devops") {
+      return engine.agentsByName.devops;
+    }
+    if (key === "research") {
+      return engine.agentsByName.research;
+    }
+    return engine.agentsByName.nimbus;
+  }
+
   platform.ipc.setAgentInvokeHandler((ctx) =>
     runAsk({
       ...ctx,
@@ -30,7 +44,19 @@ async function main(): Promise<void> {
       consentCoordinator: platform.ipc.consent,
       localIndex: platform.localIndex,
       dispatcher,
-      conversationalAgent: engine.agent,
+      conversationalAgent: resolveEngineAgent(ctx.agent),
+    }),
+  );
+
+  platform.ipc.setWorkflowRunHandler(async (ctx) =>
+    runWorkflowExecution({
+      db: platform.localIndex.getDatabase(),
+      agent: resolveEngineAgent(ctx.agent),
+      workflowName: ctx.workflowName,
+      triggeredBy: ctx.triggeredBy,
+      dryRun: ctx.dryRun,
+      stream: ctx.stream,
+      sendChunk: ctx.sendChunk,
     }),
   );
 

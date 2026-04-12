@@ -352,6 +352,47 @@ describe("ipc server integration", () => {
     }
   });
 
+  test("workflow.run uses registered handler", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+    const now = Date.now();
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, ?)`,
+      [randomUUID(), "demo", JSON.stringify([{ run: "a" }]), now, now],
+    );
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+    });
+    server.setWorkflowRunHandler(async (ctx) => ({
+      runId: "run-test",
+      dryRun: ctx.dryRun,
+      stepResults: [{ label: "step-1", status: "preview", output: ctx.workflowName }],
+    }));
+    await server.start();
+    try {
+      const line = await rpcCall(listenPath, "workflow.run", {
+        name: "demo",
+        dryRun: true,
+        stream: false,
+      });
+      const res = JSON.parse(line) as {
+        result?: { runId?: string; dryRun?: boolean; stepResults?: unknown[] };
+      };
+      expect(res.result?.dryRun).toBe(true);
+      expect(res.result?.runId).toBe("run-test");
+      expect(Array.isArray(res.result?.stepResults)).toBe(true);
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("pending consent rejects when client disconnects", async () => {
     const listenPath = testListenPath();
     const clientIds: string[] = [];

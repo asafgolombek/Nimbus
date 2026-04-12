@@ -66,6 +66,14 @@ export function deleteWatcher(db: Database, id: string): void {
   db.run(`DELETE FROM watcher WHERE id = ?`, [id]);
 }
 
+export function setWatcherEnabled(db: Database, id: string, enabled: boolean): boolean {
+  if (readIndexedUserVersion(db) < 8) {
+    return false;
+  }
+  const r = db.run(`UPDATE watcher SET enabled = ? WHERE id = ?`, [enabled ? 1 : 0, id]);
+  return r.changes > 0;
+}
+
 export function updateWatcherLastChecked(db: Database, id: string, ts: number): void {
   db.run(`UPDATE watcher SET last_checked_at = ? WHERE id = ?`, [ts, id]);
 }

@@ -11,6 +11,7 @@ import type { SyncScheduler } from "../sync/scheduler.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
+import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
 import {
@@ -25,10 +26,10 @@ import {
   NdjsonLineReader,
   parseJsonRpcLine,
 } from "./jsonrpc.ts";
-import { dispatchAutomationRpc, AutomationRpcError } from "./automation-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
 import type { IPCServer } from "./types.ts";
+import type { WorkflowRunHandler } from "./workflow-invoke.ts";
 
 class RpcMethodError extends Error {
   readonly rpcCode: number;
@@ -224,6 +225,8 @@ export type CreateIpcServerOptions = {
   startedAtMs?: number;
   /** Initial `agent.invoke` handler; may be replaced via {@link IPCServer.setAgentInvokeHandler}. */
   agentInvoke?: AgentInvokeHandler;
+  /** Handles `workflow.run` (sequential agent steps); set via {@link IPCServer.setWorkflowRunHandler}. */
+  workflowRun?: WorkflowRunHandler;
   /** RAG session chunks (schema v10+); requires embedding runtime + sqlite-vec. */
   sessionMemoryStore?: SessionMemoryStore;
   /**
@@ -233,9 +236,21 @@ export type CreateIpcServerOptions = {
   onClientConnected?: (clientId: string) => void;
 };
 
+function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key: string): string {
+  if (rec === undefined) {
+    throw new RpcMethodError(-32602, `Missing or invalid ${key}`);
+  }
+  const v = rec[key];
+  if (typeof v !== "string" || v.trim() === "") {
+    throw new RpcMethodError(-32602, `Missing or invalid ${key}`);
+  }
+  return v.trim();
+}
+
 export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   const startedAtMs = options.startedAtMs ?? Date.now();
   let agentInvokeHandler: AgentInvokeHandler | undefined = options.agentInvoke;
+  let workflowRunHandler: WorkflowRunHandler | undefined = options.workflowRun;
   const sessions = new Map<string, ClientSession>();
   const consentImpl = new ConsentCoordinatorImpl((clientId) => {
     const session = sessions.get(clientId);
@@ -299,6 +314,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
         ? sessionIdRaw.trim()
         : undefined;
+    const agentRaw = rec?.["agent"];
+    const agent =
+      typeof agentRaw === "string" && agentRaw.trim() !== "" ? agentRaw.trim() : undefined;
     const handler = agentInvokeHandler;
     if (handler === undefined) {
       return {
@@ -307,8 +325,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       };
     }
     try {
-      const requestStore =
-        sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
+      const requestStore = sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
       return await agentRequestContext.run(requestStore, async () => {
         const payload: AgentInvokeContext = {
           clientId,
@@ -320,6 +337,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         };
         if (sessionId !== undefined) {
           payload.sessionId = sessionId;
+        }
+        if (agent !== undefined) {
+          payload.agent = agent;
         }
         return handler(payload);
       });
@@ -361,8 +381,67 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
   }
 
-  function tryDispatchAutomationRpc(method: string, params: unknown): unknown {
-    if (!method.startsWith("watcher.") && !method.startsWith("workflow.")) {
+  async function tryDispatchAutomationRpc(
+    clientId: string,
+    session: ClientSession,
+    method: string,
+    params: unknown,
+  ): Promise<unknown> {
+    if (method === "workflow.run") {
+      if (options.localIndex === undefined) {
+        throw new RpcMethodError(-32603, "Local index is not available");
+      }
+      const handler = workflowRunHandler;
+      if (handler === undefined) {
+        throw new RpcMethodError(-32603, "Workflow runner is not configured");
+      }
+      const rec = asRecord(params);
+      const workflowName = requireNonEmptyRpcString(rec, "name");
+      const triggeredBy =
+        rec !== undefined &&
+        typeof rec["triggeredBy"] === "string" &&
+        rec["triggeredBy"].trim() !== ""
+          ? rec["triggeredBy"].trim()
+          : clientId;
+      const dryRun = rec?.["dryRun"] === true;
+      const stream = rec?.["stream"] === true;
+      const sessionIdRaw = rec?.["sessionId"];
+      const sessionId =
+        typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
+          ? sessionIdRaw.trim()
+          : undefined;
+      const agentRaw = rec?.["agent"];
+      const agent =
+        typeof agentRaw === "string" && agentRaw.trim() !== "" ? agentRaw.trim() : undefined;
+      try {
+        const requestStore = sessionId !== undefined ? ({ sessionId } as const) : ({} as const);
+        return await agentRequestContext.run(requestStore, async () =>
+          handler({
+            clientId,
+            workflowName,
+            triggeredBy,
+            dryRun,
+            stream,
+            sendChunk: (text: string) => {
+              sendAgentChunkIfStreaming(session, stream, text);
+            },
+            ...(sessionId !== undefined ? { sessionId } : {}),
+            ...(agent !== undefined ? { agent } : {}),
+          }),
+        );
+      } catch (e) {
+        if (e instanceof GatewayAgentUnavailableError) {
+          throw new RpcMethodError(-32000, e.message);
+        }
+        throw e;
+      }
+    }
+
+    if (
+      !method.startsWith("watcher.") &&
+      !method.startsWith("workflow.") &&
+      !method.startsWith("extension.")
+    ) {
       return automationRpcSkipped;
     }
     if (options.localIndex === undefined) {
@@ -523,7 +602,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return sessionOutcome;
     }
 
-    const automationOutcome = tryDispatchAutomationRpc(method, params);
+    const automationOutcome = await tryDispatchAutomationRpc(clientId, session, method, params);
     if (automationOutcome !== automationRpcSkipped) {
       return automationOutcome;
     }
@@ -634,6 +713,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     consent: consentImpl,
     setAgentInvokeHandler(handler: AgentInvokeHandler | undefined): void {
       agentInvokeHandler = handler;
+    },
+    setWorkflowRunHandler(handler: WorkflowRunHandler | undefined): void {
+      workflowRunHandler = handler;
     },
     async start(): Promise<void> {
       if (platform() === "win32") {

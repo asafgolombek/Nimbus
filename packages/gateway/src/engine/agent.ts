@@ -3,11 +3,7 @@ import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 
 import { Config } from "../config.ts";
-import type {
-  IndexSearchQuery,
-  LocalIndex,
-  TraverseGraphOptions,
-} from "../index/local-index.ts";
+import type { IndexSearchQuery, LocalIndex, TraverseGraphOptions } from "../index/local-index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { searchPersons } from "../people/person-store.ts";
 import { getAgentRequestSessionId } from "./agent-request-context.ts";
@@ -31,6 +27,7 @@ export type NimbusEngineAgentDeps = {
 export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   mastra: Mastra;
   agent: Agent;
+  agentsByName: { nimbus: Agent; devops: Agent; research: Agent };
 } {
   const model = deps.agentModel ?? Config.agentModel;
   const contextWindowItems = deps.contextWindowItems ?? Config.engineContextWindowItems;
@@ -230,7 +227,9 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
                 : getAgentRequestSessionId();
             const queryText = typeof q["query"] === "string" ? q["query"].trim() : "";
             if (sid === undefined || sid === "") {
-              return { error: "No sessionId — pass sessionId on agent.invoke or as a tool argument." };
+              return {
+                error: "No sessionId — pass sessionId on agent.invoke or as a tool argument.",
+              };
             }
             if (queryText === "") {
               return { error: "query must be a non-empty string" };
@@ -267,7 +266,9 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
             const text = typeof q["text"] === "string" ? q["text"].trim() : "";
             const roleRaw = typeof q["role"] === "string" ? q["role"].trim() : "";
             if (sid === undefined || sid === "") {
-              return { error: "No sessionId — pass sessionId on agent.invoke or as a tool argument." };
+              return {
+                error: "No sessionId — pass sessionId on agent.invoke or as a tool argument.",
+              };
             }
             if (text === "") {
               return { error: "text must be non-empty" };
@@ -295,29 +296,57 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
       " When the client passes sessionId on agent.invoke, use recallSessionMemory for cross-turn references and appendSessionMemory only for explicit durable notes.";
   }
 
-  const agent = new Agent({
+  const toolGuidance =
+    "Use searchLocalIndex for ranked index search; it returns a window of full items plus sourceSummary for the rest—call fetchMoreIndexResults(service, indexedType, offset, limit) when the user needs more rows from a bucket. Use traverseGraph(entityId, depth?, relationTypes?) when the user asks what is linked to a PR, issue, repo, channel, or person already identified in the index. Use resolvePerson to map names to person ids before reasoning about authors. Use listConnectors and getAuditLog as needed. Do not claim you moved or deleted files unless the user already did so outside this chat.";
+
+  const baseTools = {
+    searchLocalIndex,
+    fetchMoreIndexResults,
+    traverseGraph,
+    resolvePerson,
+    listConnectors,
+    getAuditLog,
+    ...(recallSessionMemory !== undefined && appendSessionMemory !== undefined
+      ? { recallSessionMemory, appendSessionMemory }
+      : {}),
+  };
+
+  const nimbusAgent = new Agent({
     id: "nimbus-q1",
     name: "Nimbus",
-    instructions:
-      `You are Nimbus, a local-first assistant. Use searchLocalIndex for ranked index search; it returns a window of full items plus sourceSummary for the rest—call fetchMoreIndexResults(service, indexedType, offset, limit) when the user needs more rows from a bucket. Use traverseGraph(entityId, depth?, relationTypes?) when the user asks what is linked to a PR, issue, repo, channel, or person already identified in the index. Use resolvePerson to map names to person ids before reasoning about authors. Use listConnectors and getAuditLog as needed. Do not claim you moved or deleted files unless the user already did so outside this chat.${sessionHint}`,
+    instructions: `You are Nimbus, a local-first assistant. ${toolGuidance}${sessionHint}`,
     model,
-    tools: {
-      searchLocalIndex,
-      fetchMoreIndexResults,
-      traverseGraph,
-      resolvePerson,
-      listConnectors,
-      getAuditLog,
-      ...(recallSessionMemory !== undefined && appendSessionMemory !== undefined
-        ? { recallSessionMemory, appendSessionMemory }
-        : {}),
-    },
+    tools: baseTools,
+  });
+
+  const devopsAgent = new Agent({
+    id: "nimbus-devops",
+    name: "Nimbus DevOps",
+    instructions: `You are Nimbus DevOps. Prioritize CI/CD, deployments, connector sync health, operational incidents, and anything indexed as pipelines or infrastructure. ${toolGuidance}${sessionHint}`,
+    model,
+    tools: baseTools,
+  });
+
+  const researchAgent = new Agent({
+    id: "nimbus-research",
+    name: "Nimbus Research",
+    instructions: `You are Nimbus Research. Prioritize thorough index search, graph traversal, and synthesizing evidence from multiple sources before answering. ${toolGuidance}${sessionHint}`,
+    model,
+    tools: baseTools,
   });
 
   const mastra = new Mastra({
-    agents: { nimbus: agent },
+    agents: { nimbus: nimbusAgent, devops: devopsAgent, research: researchAgent },
     logger: false,
   });
 
-  return { mastra, agent };
+  return {
+    mastra,
+    agent: nimbusAgent,
+    agentsByName: {
+      nimbus: nimbusAgent,
+      devops: devopsAgent,
+      research: researchAgent,
+    },
+  };
 }
