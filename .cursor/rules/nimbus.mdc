@@ -153,6 +153,27 @@ Vault tests must prove:
 
 ---
 
+## Git Workflow
+
+### Branch naming
+- Phase / feature work: `dev/<github-username>/<short-description>` (e.g. `dev/asafgolombek/phase_3_part_2`)
+- Hotfixes: `fix/<short-description>`
+- Names: lowercase, hyphens or underscores, no special characters
+
+### Commit messages
+- Imperative mood, present tense: "Add X", "Fix Y", "Refactor Z"
+- First line ≤72 characters
+- Reference roadmap items or phase numbers where it aids traceability
+
+### Before any PR
+1. `bun run typecheck` — zero errors
+2. `bun run lint` — zero Biome warnings/errors
+3. `bun test` — all unit tests pass
+4. Coverage gates pass for touched subsystems (see `nimbus-staged-verify`)
+5. CI must pass the Ubuntu `pr-quality` check; pushes run the full 3-OS matrix
+
+---
+
 ## What Nimbus Is Not
 - Not a SaaS product — no Nimbus cloud, no Nimbus account, no Nimbus server
 - Not a consumer app — built for technically literate users
