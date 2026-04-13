@@ -50,9 +50,10 @@ export async function dispatchSessionRpc(options: {
     case "session.recall": {
       const sessionId = requireString(rec, "sessionId");
       const query = requireString(rec, "query");
+      const topKRaw = rec?.["topK"];
       const topK =
-        rec !== undefined && typeof rec["topK"] === "number" && Number.isFinite(rec["topK"])
-          ? Math.min(32, Math.max(1, Math.floor(rec["topK"])))
+        typeof topKRaw === "number" && Number.isFinite(topKRaw)
+          ? Math.min(32, Math.max(1, Math.floor(topKRaw)))
           : 8;
       const chunks = await store.recall(sessionId, query, topK);
       return {

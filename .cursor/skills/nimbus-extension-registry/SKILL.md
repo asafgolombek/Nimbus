@@ -25,7 +25,8 @@ description: >-
 | File | Purpose |
 |---|---|
 | `packages/gateway/src/extensions/verify-extensions.ts` | SHA-256 manifest + entry hash verification at startup |
-| `packages/gateway/src/extensions/` | Extension registry subsystem — spawn, lifecycle, registry store |
+| `packages/gateway/src/extensions/spawn-env.ts` | `extensionProcessEnv` — child env from explicit map only (no parent `process.env` spread) |
+| `packages/gateway/src/extensions/` | Extension registry subsystem — manifest, verify, install-from-local |
 | `packages/cli/src/commands/scaffold.ts` | `nimbus scaffold extension` — emits manifest + entry template |
 | `packages/cli/src/commands/extension.ts` | `nimbus extension install/list/enable/disable/remove` |
 | `packages/sdk/src/index.ts` | Public SDK API extension authors depend on (MIT) |

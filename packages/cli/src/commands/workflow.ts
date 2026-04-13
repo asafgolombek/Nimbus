@@ -73,10 +73,11 @@ async function workflowCliRun(client: IPCClient, rest: string[]): Promise<void> 
   const tail = rest.slice(1);
   if (name === "") {
     throw new Error(
-      "Usage: nimbus workflow run <name> [--dry-run] [--agent nimbus|devops|research]",
+      "Usage: nimbus workflow run <name> [--dry-run] [--no-ttv] [--agent nimbus|devops|research]",
     );
   }
   const dryRun = hasFlag(tail, "--dry-run");
+  const noTtv = hasFlag(tail, "--no-ttv");
   const agentArg = shiftFlag(tail, "--agent");
   let agent: string | undefined;
   if (agentArg !== undefined && agentArg !== "") {
@@ -84,6 +85,22 @@ async function workflowCliRun(client: IPCClient, rest: string[]): Promise<void> 
   }
 
   registerAgentChunkStdout(client);
+
+  if (noTtv && !dryRun) {
+    const preview = await client.call("workflow.run", {
+      name,
+      stream: false,
+      dryRun: true,
+      ...(agent === undefined ? {} : { agent }),
+    });
+    const rec = preview as { stepResults?: Array<{ hitlActions?: readonly string[] }> };
+    const flagged = (rec.stepResults ?? []).filter((s) => (s.hitlActions?.length ?? 0) > 0);
+    if (flagged.length > 0) {
+      throw new Error(
+        "Workflow steps may require human approval (HITL). Omit --no-ttv to run, or use --dry-run to inspect hitlActions.",
+      );
+    }
+  }
 
   const runPayload: Record<string, unknown> = {
     name,

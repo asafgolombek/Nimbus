@@ -67,3 +67,37 @@ test("indexes exported symbol from a TypeScript file", async () => {
     .get() as { title: string } | null;
   expect(row?.title).toContain("helloWorld");
 });
+
+test("code_symbol body_preview captures docstring text for OAuth-style queries", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "nimbus-fsv2-oauth-"));
+  mkdirSync(join(dir, "lib"), { recursive: true });
+  writeFileSync(
+    join(dir, "lib", "tokens.ts"),
+    `/** Renews sessions via OAuth refresh_token grant when access expires. */
+export function renewCredentials() {
+  return {};
+}
+`,
+  );
+  const sync = createFilesystemV2Syncable({
+    roots: [
+      {
+        path: dir,
+        gitAware: false,
+        codeIndex: true,
+        dependencyGraph: false,
+        exclude: ["node_modules", ".git"],
+      },
+    ],
+  });
+  const db = createMemoryIndexDb();
+  const r = await sync.sync({ db, vault: EMPTY_NIMBUS_VAULT, ...silentSyncContextExtras() }, null);
+  expect(r.itemsUpserted).toBeGreaterThanOrEqual(1);
+  const row = db
+    .query(
+      `SELECT body_preview FROM item WHERE service = 'filesystem' AND type = 'code_symbol' AND title LIKE '%renewCredentials%'`,
+    )
+    .get() as { body_preview: string } | null;
+  expect(row?.body_preview?.toLowerCase().includes("oauth")).toBe(true);
+  expect(row?.body_preview?.toLowerCase().includes("refresh")).toBe(true);
+});

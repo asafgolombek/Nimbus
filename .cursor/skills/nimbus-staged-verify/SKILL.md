@@ -30,6 +30,12 @@ After the default block, run:
 
 - `bun run test:coverage:vault` (gate ≥90% line coverage)
 
+## If `packages/gateway/src/extensions/` or `packages/gateway/src/automation/extension-store.ts` changed
+
+After the default block, run:
+
+- `bun run test:coverage:extensions` (gate ≥85% line coverage)
+
 ## If integration-sensitive areas changed
 
 Use judgment: IPC contracts, SQLite migrations, subprocess/spawn behavior, connector wiring.

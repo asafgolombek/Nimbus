@@ -1,8 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Agent } from "@mastra/core/agent";
-import { runConversationalAgent } from "../engine/run-conversational-agent.ts";
+import {
+  type RunConversationalAgentParams,
+  runConversationalAgent,
+} from "../engine/run-conversational-agent.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+import { previewHitlActionsForStepText } from "./workflow-hitl-preview.ts";
 import {
   finishWorkflowRunRow,
   getWorkflowByName,
@@ -69,12 +73,21 @@ export type RunWorkflowExecutionParams = {
   dryRun: boolean;
   stream: boolean;
   sendChunk: (text: string) => void;
+  /** When set (tests), invoked instead of {@link runConversationalAgent}. Production IPC omits this. */
+  conversationalRunner?: (p: RunConversationalAgentParams) => Promise<{ reply: string }>;
 };
 
 export type RunWorkflowExecutionResult = {
   runId: string;
   dryRun: boolean;
-  stepResults: Array<{ label?: string; status: string; output?: string; error?: string }>;
+  stepResults: Array<{
+    label?: string;
+    status: string;
+    output?: string;
+    error?: string;
+    /** Dry-run only: heuristic HITL action ids for CLI preview. */
+    hitlActions?: readonly string[];
+  }>;
 };
 
 type StepExecOutcome =
@@ -109,7 +122,8 @@ async function executeWorkflowStep(
   }
 
   try {
-    const { reply } = await runConversationalAgent({
+    const runner = p.conversationalRunner ?? runConversationalAgent;
+    const { reply } = await runner({
       agent: p.agent,
       input: prompt,
       stream: p.stream,
@@ -158,6 +172,7 @@ export async function runWorkflowExecution(
         label: s.label ?? `step-${String(i + 1)}`,
         status: "preview",
         output: s.run,
+        hitlActions: previewHitlActionsForStepText(s.run),
       })),
     };
   }

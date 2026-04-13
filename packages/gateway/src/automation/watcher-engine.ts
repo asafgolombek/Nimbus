@@ -38,8 +38,31 @@ export function evaluateWatchersAfterSync(
     const fired = evaluateOneWatcher(db, w, syncedServiceId);
     updateWatcherLastChecked(db, w.id, nowMs);
     if (fired !== null) {
-      void notify("Nimbus watcher", `${w.name}: ${fired.summary}`);
       insertWatcherEvent(db, w.id, nowMs, fired.snapshot, JSON.stringify({ ok: true }));
+      void notify("Nimbus watcher", `${w.name}: ${fired.summary}`);
+      updateWatcherLastFired(db, w.id, nowMs);
+    }
+  }
+}
+
+/**
+ * One startup pass: evaluate enabled watchers without requiring a connector sync (catch-up).
+ * Uses the same alert query as post-sync evaluation; omits the per-sync service gate.
+ */
+export function evaluateWatchersStartupCatchUp(
+  db: Database,
+  nowMs: number,
+  notify: (title: string, body: string) => void | Promise<void>,
+): void {
+  if (readIndexedUserVersion(db) < 8) {
+    return;
+  }
+  for (const w of listEnabledWatchers(db)) {
+    const fired = evaluateOneWatcher(db, w, undefined);
+    updateWatcherLastChecked(db, w.id, nowMs);
+    if (fired !== null) {
+      insertWatcherEvent(db, w.id, nowMs, fired.snapshot, JSON.stringify({ ok: true }));
+      void notify("Nimbus watcher", `${w.name}: ${fired.summary}`);
       updateWatcherLastFired(db, w.id, nowMs);
     }
   }
@@ -48,7 +71,7 @@ export function evaluateWatchersAfterSync(
 function evaluateOneWatcher(
   db: Database,
   w: WatcherRow,
-  syncedServiceId: string,
+  syncedServiceId: string | undefined,
 ): { summary: string; snapshot: string } | null {
   if (w.condition_type !== "alert_fired") {
     return null;
@@ -63,7 +86,7 @@ function evaluateOneWatcher(
   }
   const f = filter as Record<string, unknown>;
   const service = typeof f["service"] === "string" ? f["service"] : undefined;
-  if (service !== undefined && service !== syncedServiceId) {
+  if (syncedServiceId !== undefined && service !== undefined && service !== syncedServiceId) {
     return null;
   }
 

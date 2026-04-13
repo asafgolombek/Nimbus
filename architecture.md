@@ -2,7 +2,7 @@
 
 **Version:** 0.5
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Active Design — reflects `main` as of Phase 3 (Intelligence, active)
+**Status:** Active Design — reflects `main` as of Phase 3 (Intelligence) complete; Phase 3.5 next
 
 ---
 
@@ -668,7 +668,7 @@ The Extension Registry is Nimbus's plugin system. Third-party developers publish
 | **Integrity-verified** | SHA-256 of the manifest is stored at install time and recomputed on every Gateway startup. Mismatch → extension disabled before it runs, user notified. |
 | **Marketplace-discoverable** | The Tauri UI ships an Extension Marketplace panel (Phase 4). |
 
-> **Current sandbox depth:** Extensions are currently isolated via process separation and scoped env injection. Full syscall-level and network-level isolation is planned for Phase 3 hardening. Treat third-party extensions from untrusted sources with the same caution as any npm package run with your user account.
+> **Current sandbox depth:** Extensions are currently isolated via process separation and scoped env injection. Full syscall-level and network-level isolation is planned for **Phase 5**. Treat third-party extensions from untrusted sources with the same caution as any npm package run with your user account.
 
 ### Extension Manifest
 
@@ -943,7 +943,7 @@ CREATE TABLE extensions (
 | Supply chain (extension) | Manifest SHA-256 stored at install; verified on every startup | Extension Registry |
 | Token leakage in logs | Pino `redact` config covers `*.token`, `*.secret`, `oauth.*` patterns | Logger middleware |
 | Index exfiltration | SQLite stores metadata only (not content); protected by OS file permissions | OS file ACL |
-| Extension sandbox escape | **Partial:** process isolation + scoped env today; full syscall isolation planned (Phase 3 hardening) | Extension Registry / risk register |
+| Extension sandbox escape | **Partial:** process isolation + scoped env today; full syscall isolation planned (Phase 5) | Extension Registry / risk register |
 
 ---
 

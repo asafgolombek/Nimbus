@@ -11,15 +11,14 @@ description: >-
 
 ## Read first
 
-1. **`docs/roadmap.md`** — phase themes, dependencies, acceptance criteria, and delivered sections for completed phases.
-2. **`docs/phase-3-intelligence-plan.md`** — detailed delivery plan for the active phase (Phase 3 — Intelligence): wave sequencing, TypeScript interfaces, schema migrations, connector specs, acceptance criteria, and risk register.
-3. **`architecture.md`** — subsystem boundaries, file locations, and contracts for the area being touched.
+1. **`docs/roadmap.md`** — phase themes, dependencies, acceptance criteria, and delivered sections (Phase 3 closure summary lives here; Phase 3.5+ for active work).
+2. **`architecture.md`** — subsystem boundaries, file locations, and contracts for the area being touched.
 
 ## Scope rules
 
-- Implement **only** the current phase’s theme unless the user explicitly authorizes a later-phase item.
+- Implement **only** the current phase’s theme unless the user explicitly authorizes a later-phase item (as of repo state, prefer **Phase 3.5** items unless the user names another phase).
 - Phases are thematic, not calendar-bound. A phase completes when its acceptance criteria pass, not at a date.
-- Do **not** add Phase N+1 features while doing Phase N work (e.g. skip extension marketplace v2 polish if the task is Phase 3 Extension Registry v1 work).
+- Do **not** add Phase N+1 features while doing Phase N work (e.g. skip Phase 4 desktop marketplace polish if the task is Phase 3.5 observability).
 - If a task implies engine or HITL changes, follow **`nimbus-engine-security-change`**. If it implies a new MCP connector, follow **`nimbus-mcp-connector`**.
 
 ## Task breakdown

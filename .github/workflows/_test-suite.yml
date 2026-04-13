@@ -110,6 +110,21 @@ jobs:
         env:
           CI: "true"
 
+      - name: Coverage gate — Workflow engine (≥80%)
+        run: bun test packages/gateway/src/automation/workflow-store.test.ts packages/gateway/src/automation/workflow-runner.test.ts packages/gateway/src/automation/workflow-runner-execution.test.ts --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=junit-reports/junit-workflow.xml
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Watcher (≥80%)
+        run: bun test packages/gateway/src/automation/watcher-store.test.ts packages/gateway/src/automation/watcher-engine.test.ts packages/gateway/src/watcher/anomaly-detector.test.ts --coverage --coverage-threshold-lines=80 --reporter=junit --reporter-outfile=junit-reports/junit-watcher.xml
+        env:
+          CI: "true"
+
+      - name: Coverage gate — Extensions (≥85%)
+        run: bun test packages/gateway/src/extensions/install-from-local.test.ts packages/gateway/src/extensions/manifest.test.ts packages/gateway/src/extensions/spawn-env.test.ts packages/gateway/src/extensions/verify-extensions.test.ts packages/gateway/src/automation/extension-store.test.ts --coverage --coverage-threshold-lines=85 --reporter=junit --reporter-outfile=junit-reports/junit-extensions.xml
+        env:
+          CI: "true"
+
       - name: Integration tests
         run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=junit-reports/junit-integration.xml
         env:
@@ -139,7 +154,7 @@ jobs:
           mkdir -p dist
           (cd packages/gateway && bun build src/index.ts --compile --outfile ../../dist/nimbus-gateway --target bun)
           (cd packages/cli && bun build src/index.ts --compile --outfile ../../dist/nimbus --target bun)
-          bun run package:headless
+          bun scripts/package-headless-bundle.ts --skip-embedding-model
           bun run package:installers:linux -- --version 0.0.0-ci
           test -f dist/installers/nimbus-headless_0.0.0-ci_amd64.deb
           test -f dist/installers/nimbus-headless-linux-amd64-v0.0.0-ci.tar.gz

@@ -7,6 +7,7 @@ import type { Logger } from "pino";
 import {
   type ExtensionRow,
   listExtensions,
+  setExtensionEnabled,
   touchExtensionVerifiedAt,
 } from "../automation/extension-store.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
@@ -30,10 +31,13 @@ function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now
     const manifestBytes = readFileSync(manifestPath);
     const manifestHex = sha256HexOfBytes(manifestBytes);
     if (manifestHex !== row.manifest_hash) {
-      logger.warn(
+      logger.error(
         { extensionId: row.id, expected: row.manifest_hash, actual: manifestHex },
-        "extensions: manifest hash mismatch",
+        "extensions: manifest hash mismatch — extension disabled",
       );
+      setExtensionEnabled(db, row.id, false);
+      touchExtensionVerifiedAt(db, row.id, now);
+      return;
     }
     const manifest = parseExtensionManifestJson(manifestBytes.toString("utf8"));
     if (manifest.id !== row.id || manifest.version !== row.version) {
@@ -53,10 +57,13 @@ function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now
     const entryBytes = readFileSync(entryPath);
     const entryHex = sha256HexOfBytes(entryBytes);
     if (entryHex !== row.entry_hash) {
-      logger.warn(
+      logger.error(
         { extensionId: row.id, expected: row.entry_hash, actual: entryHex },
-        "extensions: entry hash mismatch",
+        "extensions: entry hash mismatch — extension disabled",
       );
+      setExtensionEnabled(db, row.id, false);
+      touchExtensionVerifiedAt(db, row.id, now);
+      return;
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -67,7 +74,8 @@ function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now
 
 /**
  * Verifies enabled extensions: manifest + entry file SHA-256 vs registry columns.
- * Logs warnings on mismatch; updates `last_verified_at` when checks complete.
+ * Logs warnings on most issues; manifest or entry hash mismatch logs ERROR and disables the extension.
+ * Updates `last_verified_at` when checks complete.
  */
 export function verifyExtensionsBestEffort(db: Database, logger: Logger): void {
   if (readIndexedUserVersion(db) < 10) {

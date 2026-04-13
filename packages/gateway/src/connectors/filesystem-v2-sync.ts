@@ -280,12 +280,15 @@ function syncFilesystemCodeSymbolsForRoot(
     }
     for (const sym of symbols) {
       const extId = `sym:${rk}:${rel.replaceAll("\\", "/")}:${sym.name}:${sym.kind}`;
+      const relNorm = rel.replaceAll("\\", "/");
+      const excerpt = excerptAroundExportedSymbol(src, sym.name, 380);
+      const bodyPreview = excerpt === "" ? relNorm : `${relNorm}\n${excerpt}`;
       upsertIndexedItemForSync(ctx, {
         service: SERVICE_ID,
         type: "code_symbol",
         externalId: extId,
         title: `${sym.name} (${sym.kind})`,
-        bodyPreview: rel.replaceAll("\\", "/"),
+        bodyPreview,
         url: null,
         canonicalUrl: null,
         modifiedAt: mtime,
@@ -364,6 +367,28 @@ function listCodeFiles(root: string, exclude: readonly string[], maxFiles: numbe
   const found: string[] = [];
   walkCodeFilesRecursive(root, exclude, maxFiles, found, root, 0);
   return found;
+}
+
+/** Source window around the export line so FTS / embeddings can match docstrings and implementation text. */
+function excerptAroundExportedSymbol(source: string, symbolName: string, maxChars: number): string {
+  const lines = source.split(/\r?\n/);
+  let hit = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (!line.includes(symbolName) || !/\bexport\b/.test(line)) {
+      continue;
+    }
+    hit = i;
+    break;
+  }
+  if (hit < 0) {
+    const flat = source.replaceAll(/\s+/g, " ").trim();
+    return flat.length <= maxChars ? flat : flat.slice(0, maxChars);
+  }
+  const from = Math.max(0, hit - 6);
+  const to = Math.min(lines.length, hit + 10);
+  const text = lines.slice(from, to).join("\n").trim();
+  return text.length <= maxChars ? text : text.slice(0, maxChars);
 }
 
 function extractExportedSymbols(

@@ -50,6 +50,9 @@ describe.skipIf(!VEC_AVAILABLE)("SessionMemoryStore", () => {
     expect(hits.length).toBeGreaterThanOrEqual(1);
     expect(hits[0]?.chunkText).toContain("payment-service");
 
+    const other = await store.recall("sess-b", "payment rollout", 4);
+    expect(other.some((h) => h.chunkText.includes("payment-service"))).toBe(false);
+
     store.deleteSession(sid);
     const after = await store.recall(sid, "payment", 4);
     expect(after.length).toBe(0);

@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { listExtensions } from "../automation/extension-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
@@ -89,6 +90,33 @@ describe("install-from-local", () => {
     writeFileSync(join(src, "dist", "index.js"), "1\n", "utf8");
 
     installExtensionFromLocalDirectory({ db, extensionsDir, sourcePath: src });
+    expect(listExtensions(db).length).toBe(1);
+  });
+
+  test("installExtensionFromLocalDirectory accepts .tar.gz bundle", () => {
+    const { extensionsDir, src, db } = createExtensionInstallFixture(
+      "nimbus-install-tgz-",
+      "pkg-root",
+    );
+    writeFileSync(
+      join(src, "nimbus.extension.json"),
+      JSON.stringify({ id: "bundle.tar.ext", version: "1.0.0", entry: "dist/index.js" }),
+      "utf8",
+    );
+    writeFileSync(join(src, "dist", "index.js"), "export {}\n", "utf8");
+    const archive = join(dirname(src), "ext.tgz");
+    const tarBin = process.platform === "win32" ? "tar.exe" : "tar";
+    const pack = spawnSync(tarBin, ["-czf", archive, "-C", dirname(src), basename(src)], {
+      windowsHide: true,
+    });
+    expect(pack.status).toBe(0);
+
+    const r = installExtensionFromLocalDirectory({
+      db,
+      extensionsDir,
+      sourcePath: archive,
+    });
+    expect(r.id).toBe("bundle.tar.ext");
     expect(listExtensions(db).length).toBe(1);
   });
 });

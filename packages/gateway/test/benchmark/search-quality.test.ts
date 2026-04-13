@@ -15,14 +15,14 @@ import type { HybridSearchResult } from "../../src/search/hybrid-types.ts";
 const MODEL = "search-quality-bench";
 const K = 10;
 
-function vecAvailable(): boolean {
-  const db = new Database(":memory:");
-  tryLoadSqliteVec(db);
-  const ok = isVecLoaded(db);
-  db.close();
-  return ok;
+function sqliteVecExtensionAvailable(): boolean {
+  const probe = new Database(":memory:");
+  tryLoadSqliteVec(probe);
+  const loaded = isVecLoaded(probe);
+  probe.close();
+  return loaded;
 }
-const VEC_AVAILABLE = vecAvailable();
+const VEC_AVAILABLE = sqliteVecExtensionAvailable();
 
 function reciprocalRankAtK(relevantId: string, orderedIds: readonly string[], k: number): number {
   const cap = Math.min(k, orderedIds.length);
@@ -70,6 +70,20 @@ async function bm25ThenHybridWithEmbedding(
   return { bm25, hybrid };
 }
 
+async function computeCaseMRR(
+  db: Database,
+  targetId: string,
+  query: string,
+  queryEmbedding: Float32Array,
+): Promise<{ mrrBm25: number; mrrHybrid: number }> {
+  const { bm25, hybrid } = await bm25ThenHybridWithEmbedding(db, query, queryEmbedding);
+  const ids = (results: HybridSearchResult[]): string[] => results.map((r) => r.item.id);
+  return {
+    mrrBm25: reciprocalRankAtK(targetId, ids(bm25), K),
+    mrrHybrid: reciprocalRankAtK(targetId, ids(hybrid), K),
+  };
+}
+
 describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => {
   test("mean hybrid MRR@10 improves BM25 by ≥10% or rescues zero-recall queries", async () => {
     const db = new Database(":memory:");
@@ -107,16 +121,11 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     insertVec384AndEmbeddingChunk(db, 2, vRenewal, "bench:renewal", "renewal chunk", now);
 
     const queryA = "refresh OAuth tokens";
-    const { bm25: bm25A, hybrid: hybridA } = await bm25ThenHybridWithEmbedding(db, queryA, qOAuth);
-    const mrrBm25A = reciprocalRankAtK(
+    const { mrrBm25: mrrBm25A, mrrHybrid: mrrHybridA } = await computeCaseMRR(
+      db,
       "bench:renewal",
-      bm25A.map((r) => r.item.id),
-      K,
-    );
-    const mrrHybridA = reciprocalRankAtK(
-      "bench:renewal",
-      hybridA.map((r) => r.item.id),
-      K,
+      queryA,
+      qOAuth,
     );
     expect(mrrBm25A).toBe(0);
     expect(mrrHybridA).toBeGreaterThan(0);
@@ -150,16 +159,11 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     const qKw = new Float32Array(384);
     qKw[0] = 1;
     qKw[1] = 0.03;
-    const { bm25: bm25B, hybrid: hybridB } = await bm25ThenHybridWithEmbedding(db, queryB, qKw);
-    const mrrBm25B = reciprocalRankAtK(
+    const { mrrBm25: mrrBm25B, mrrHybrid: mrrHybridB } = await computeCaseMRR(
+      db,
       "bench:vec",
-      bm25B.map((r) => r.item.id),
-      K,
-    );
-    const mrrHybridB = reciprocalRankAtK(
-      "bench:vec",
-      hybridB.map((r) => r.item.id),
-      K,
+      queryB,
+      qKw,
     );
     expect(mrrBm25B).toBe(0);
     expect(mrrHybridB).toBeGreaterThan(0);
@@ -193,16 +197,11 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     const qZ = new Float32Array(384);
     qZ[5] = 1;
     qZ[6] = 0.35;
-    const { bm25: bm25C, hybrid: hybridC } = await bm25ThenHybridWithEmbedding(db, queryC, qZ);
-    const mrrBm25C = reciprocalRankAtK(
+    const { mrrBm25: mrrBm25C, mrrHybrid: mrrHybridC } = await computeCaseMRR(
+      db,
       "bench:target",
-      bm25C.map((r) => r.item.id),
-      K,
-    );
-    const mrrHybridC = reciprocalRankAtK(
-      "bench:target",
-      hybridC.map((r) => r.item.id),
-      K,
+      queryC,
+      qZ,
     );
     expect(mrrBm25C).toBeGreaterThan(0);
     expect(mrrHybridC).toBeGreaterThan(0);
@@ -211,5 +210,46 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     const meanBm25 = (mrrBm25A + mrrBm25B + mrrBm25C) / 3;
     const meanHybrid = (mrrHybridA + mrrHybridB + mrrHybridC) / 3;
     expect(meanHybrid).toBeGreaterThan(meanBm25 * 1.1 - 1e-9);
+  });
+});
+
+describe.skipIf(!VEC_AVAILABLE)("search quality (code_symbol body vs title)", () => {
+  test("hybrid surfaces semantic body match when title omits query wording", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const now = Date.now();
+
+    upsertIndexedItem(db, {
+      service: "bench",
+      type: "code_symbol",
+      externalId: "decoy-fn",
+      title: "parseDate",
+      bodyPreview: "legacy date parser",
+      modifiedAt: now,
+      syncedAt: now,
+    });
+    upsertIndexedItem(db, {
+      service: "bench",
+      type: "code_symbol",
+      externalId: "target-fn",
+      title: "normalizeUserInput",
+      bodyPreview: "validates and cleans incoming user-supplied data",
+      modifiedAt: now,
+      syncedAt: now,
+    });
+
+    const vDecoy = vecPrimarily(384, 20, 1);
+    const vTarget = vecPrimarily(384, 7, 0.99);
+    vTarget[8] = 0.12;
+    insertVec384AndEmbeddingChunk(db, 11, vDecoy, "bench:decoy-fn", "decoy chunk", now);
+    insertVec384AndEmbeddingChunk(db, 12, vTarget, "bench:target-fn", "target chunk", now);
+
+    const query = "refresh token handling";
+    const qEmbed = new Float32Array(384);
+    qEmbed[7] = 1;
+    qEmbed[8] = 0.1;
+    const { mrrBm25, mrrHybrid } = await computeCaseMRR(db, "bench:target-fn", query, qEmbed);
+    expect(mrrBm25).toBe(0);
+    expect(mrrHybrid).toBeGreaterThan(0);
   });
 });

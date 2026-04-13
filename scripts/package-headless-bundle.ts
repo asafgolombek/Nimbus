@@ -4,6 +4,11 @@
  * (sibling layout expected by the CLI spawn resolver). Run after compiling both
  * binaries into `dist/` (same paths as `.github/workflows/release.yml`).
  *
+ * By default, materializes `all-MiniLM-L6-v2` ONNX weights into `embedding-model/`
+ * via the gateway embedder (may download on first run). Override with
+ * `NIMBUS_EMBEDDING_MODEL_DIR` / `--embedding-model-dir`, or pass `--skip-embedding-model`
+ * for CI without network.
+ *
  * Usage:
  *   bun scripts/package-headless-bundle.ts
  *   bun scripts/package-headless-bundle.ts --out dist/headless-bundle
@@ -33,6 +38,7 @@ const cliSrc = resolve(repoRoot, parseArg("--cli") ?? defaultCli);
 /** Pre-downloaded Xenova ONNX weights dir; also read from env `NIMBUS_EMBEDDING_MODEL_DIR`. */
 const embeddingModelDir =
   parseArg("--embedding-model-dir") ?? process.env["NIMBUS_EMBEDDING_MODEL_DIR"];
+const skipEmbeddingModel = process.argv.includes("--skip-embedding-model");
 
 for (const [label, p] of [
   ["gateway", gatewaySrc],
@@ -57,24 +63,48 @@ const cliDest = join(outDir, `nimbus${ext}`);
 copyFileSync(gatewaySrc, gwDest);
 copyFileSync(cliSrc, cliDest);
 
-if (embeddingModelDir !== undefined && embeddingModelDir.trim() !== "") {
-  const src = resolve(embeddingModelDir.trim());
-  if (existsSync(src)) {
-    const dest = join(outDir, "embedding-model");
-    cpSync(src, dest, { recursive: true });
-    console.log(`Embedding weights copied to ${dest}`);
-    console.log(
-      "Set NIMBUS_EMBEDDING_MODEL_DIR to this directory on the target host (or pass the same path to --embedding-model-dir when packaging).",
+async function materializeEmbeddingModelDefault(dest: string): Promise<void> {
+  const modelMod = join(repoRoot, "packages/gateway/src/embedding/model.ts");
+  const { createLocalEmbedder } = await import(modelMod);
+  const embedder = await createLocalEmbedder({ cacheDir: dest });
+  await embedder.embed(["nimbus headless bundle embedding warmup"]);
+}
+
+try {
+  if (embeddingModelDir !== undefined && embeddingModelDir.trim() !== "") {
+    const src = resolve(embeddingModelDir.trim());
+    if (existsSync(src)) {
+      const dest = join(outDir, "embedding-model");
+      cpSync(src, dest, { recursive: true });
+      console.log(`Embedding weights copied to ${dest}`);
+      console.log(
+        "Set NIMBUS_EMBEDDING_MODEL_DIR to this directory on the target host (or pass the same path to --embedding-model-dir when packaging).",
+      );
+    } else {
+      console.warn(
+        `package-headless-bundle: NIMBUS_EMBEDDING_MODEL_DIR / --embedding-model-dir points to missing path: ${src}`,
+      );
+    }
+  } else if (skipEmbeddingModel) {
+    console.warn(
+      "package-headless-bundle: --skip-embedding-model set; bundle has no embedding-model/ (set NIMBUS_EMBEDDING_MODEL_DIR on the host or re-package with weights).",
     );
   } else {
-    console.warn(
-      `package-headless-bundle: NIMBUS_EMBEDDING_MODEL_DIR / --embedding-model-dir points to missing path: ${src}`,
+    const dest = join(outDir, "embedding-model");
+    mkdirSync(dest, { recursive: true });
+    console.log("Materializing local embedding model (all-MiniLM-L6-v2) — may download ONNX once…");
+    await materializeEmbeddingModelDefault(dest);
+    console.log(
+      `Embedding weights written to ${dest}. Target hosts: set NIMBUS_EMBEDDING_MODEL_DIR to this directory for offline embedding.`,
     );
   }
-} else {
-  console.log(
-    "Tip: pre-download MiniLM weights, then re-run with NIMBUS_EMBEDDING_MODEL_DIR=<dir> or --embedding-model-dir <dir> to embed them in the bundle.",
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(
+    `package-headless-bundle: failed to prepare embedding weights (${msg}). ` +
+      `Pre-download weights and pass --embedding-model-dir, or use --skip-embedding-model for a bundle without embeddings.`,
   );
+  process.exit(1);
 }
 
 console.log(`Headless bundle written to ${outDir}`);

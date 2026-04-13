@@ -225,6 +225,39 @@ describe("ipc server integration", () => {
     }
   });
 
+  test("gateway.ping with includeDrift returns drift.lines", async () => {
+    await withMemoryLocalIndexServer(async ({ listenPath, db }) => {
+      const line = await rpcCall(listenPath, "gateway.ping", { includeDrift: true });
+      const res = JSON.parse(line) as { result?: { drift?: { lines: string[] } } };
+      expect(Array.isArray(res.result?.drift?.lines)).toBe(true);
+      expect(res.result?.drift?.lines?.some((l) => l.includes("Lambda"))).toBe(true);
+
+      const t = Date.now();
+      db.run(
+        `INSERT INTO item (id, service, type, external_id, title, body_preview, url, canonical_url, modified_at, author_id, metadata, synced_at, pinned)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          "iac:drift_baseline",
+          "iac",
+          "sync_heartbeat",
+          "drift_baseline",
+          "hb",
+          "x",
+          null,
+          null,
+          t,
+          null,
+          JSON.stringify({ awsLambdaIndexedCount: 0, tick: 1 }),
+          t,
+          0,
+        ],
+      );
+      const line2 = await rpcCall(listenPath, "gateway.ping", { includeDrift: true });
+      const res2 = JSON.parse(line2) as { result?: { drift?: { lines: string[] } } };
+      expect(res2.result?.drift?.lines?.some((l) => l.includes("IaC heartbeat"))).toBe(true);
+    });
+  });
+
   test("consent.request and consent.respond for same client", async () => {
     const listenPath = testListenPath();
     const clientIds: string[] = [];
