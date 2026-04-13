@@ -1,7 +1,10 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
-import { evaluateWatchersAfterSync } from "../automation/watcher-engine.ts";
+import {
+  evaluateWatchersAfterSync,
+  evaluateWatchersStartupCatchUp,
+} from "../automation/watcher-engine.ts";
 import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
 import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromConfigDir } from "../config/session-toml.ts";
@@ -166,6 +169,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
   registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);
   syncScheduler.start();
+  evaluateWatchersStartupCatchUp(db, Date.now(), (t, b) => notifications.show(t, b));
   rt?.startBackgroundJobs();
   const ipcOpts: Parameters<typeof createIpcServer>[0] = {
     listenPath: paths.socketPath,

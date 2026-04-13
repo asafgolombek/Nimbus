@@ -45,8 +45,13 @@ export async function runConversationalAgent(
     /\b(connected to|related to|linked to|what caused|who is involved|knowledge graph)\b/i.test(
       trimmed,
     );
-  const prompt = relational
-    ? `The user may be asking about relationships between indexed items. If you have a concrete item id from searchLocalIndex, call traverseGraph before answering.\n\n${trimmed}`
+  const incidentOrGraph =
+    relational ||
+    /\b(incident|outage|sev-?1|sev-?2|sev1|sev2|on-?call|oncall|page(d|ing)?|pagerduty|firefight|rollback|post-?mortem|p0|p1)\b/i.test(
+      trimmed,
+    );
+  const prompt = incidentOrGraph
+    ? `The user may be asking about relationships between indexed items (including incidents). If you have a concrete item id from searchLocalIndex, call traverseGraph before answering.\n\n${trimmed}`
     : trimmed;
 
   try {

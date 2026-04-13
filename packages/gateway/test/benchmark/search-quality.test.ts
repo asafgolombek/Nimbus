@@ -213,3 +213,57 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     expect(meanHybrid).toBeGreaterThan(meanBm25 * 1.1 - 1e-9);
   });
 });
+
+describe.skipIf(!VEC_AVAILABLE)("search quality (code_symbol body vs title)", () => {
+  test("hybrid surfaces semantic body match when title omits query wording", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const now = Date.now();
+
+    upsertIndexedItem(db, {
+      service: "bench",
+      type: "code_symbol",
+      externalId: "decoy-fn",
+      title: "parseDate",
+      bodyPreview: "legacy date parser",
+      modifiedAt: now,
+      syncedAt: now,
+    });
+    upsertIndexedItem(db, {
+      service: "bench",
+      type: "code_symbol",
+      externalId: "target-fn",
+      title: "normalizeUserInput",
+      bodyPreview: "sanitizes credentials and refresh token handling",
+      modifiedAt: now,
+      syncedAt: now,
+    });
+
+    const vDecoy = vecPrimarily(384, 20, 1);
+    const vTarget = vecPrimarily(384, 7, 0.99);
+    vTarget[8] = 0.12;
+    insertVec384AndEmbeddingChunk(db, 11, vDecoy, "bench:decoy-fn", "decoy chunk", now);
+    insertVec384AndEmbeddingChunk(db, 12, vTarget, "bench:target-fn", "target chunk", now);
+
+    const query = "refresh token handling";
+    const qEmbed = new Float32Array(384);
+    qEmbed[7] = 1;
+    qEmbed[8] = 0.1;
+    const { bm25, hybrid } = await bm25ThenHybridWithEmbedding(db, query, qEmbed);
+
+    expect(
+      reciprocalRankAtK(
+        "bench:target-fn",
+        bm25.map((r) => r.item.id),
+        K,
+      ),
+    ).toBe(0);
+    expect(
+      reciprocalRankAtK(
+        "bench:target-fn",
+        hybrid.map((r) => r.item.id),
+        K,
+      ),
+    ).toBeGreaterThan(0);
+  });
+});

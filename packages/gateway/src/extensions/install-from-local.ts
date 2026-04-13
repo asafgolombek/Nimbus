@@ -1,6 +1,17 @@
 import type { Database } from "bun:sqlite";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 
 import { insertExtensionRow } from "../automation/extension-store.ts";
@@ -92,6 +103,35 @@ function completeExtensionInstallAfterCopy(options: {
   };
 }
 
+function extractTarGzToDirectory(archivePath: string, destDir: string): void {
+  const cmd = process.platform === "win32" ? "tar.exe" : "tar";
+  const r = spawnSync(cmd, ["-xzf", archivePath, "-C", destDir], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (r.status !== 0) {
+    const detail = `${r.stderr ?? ""}${r.stdout ?? ""}`.trim();
+    throw new Error(`failed to extract archive: ${detail || `exit ${String(r.status)}`}`);
+  }
+}
+
+function findExtensionSourceRootInTree(extractedRoot: string): string {
+  if (resolveExtensionManifestPath(extractedRoot) !== undefined) {
+    return extractedRoot;
+  }
+  for (const ent of readdirSync(extractedRoot, { withFileTypes: true })) {
+    if (ent.isDirectory()) {
+      const sub = join(extractedRoot, ent.name);
+      if (resolveExtensionManifestPath(sub) !== undefined) {
+        return sub;
+      }
+    }
+  }
+  throw new Error(
+    "archive does not contain nimbus.extension.json (at root or one subdirectory deep)",
+  );
+}
+
 function assertEntryInsideInstall(installRoot: string, entryRel: string): string {
   const absRoot = resolve(installRoot);
   const absEntry = resolve(join(installRoot, entryRel));
@@ -111,8 +151,8 @@ export type InstallExtensionFromLocalResult = {
 };
 
 /**
- * Copies a local extension directory into `extensionsDir`, computes manifest/entry hashes, inserts DB row.
- * Rolls back the copy if the DB insert fails.
+ * Copies a local extension directory (or extracts `.tar.gz` / `.tgz`) into `extensionsDir`,
+ * computes manifest/entry hashes, inserts DB row. Rolls back the copy if the DB insert fails.
  */
 export function installExtensionFromLocalDirectory(options: {
   db: Database;
@@ -123,8 +163,30 @@ export function installExtensionFromLocalDirectory(options: {
   if (!existsSync(sourceResolved)) {
     throw new Error("extension source path does not exist");
   }
-  if (!statSync(sourceResolved).isDirectory()) {
-    throw new Error("extension source path must be a directory");
+  const st = statSync(sourceResolved);
+  if (st.isFile()) {
+    const lower = sourceResolved.toLowerCase();
+    if (!lower.endsWith(".tar.gz") && !lower.endsWith(".tgz")) {
+      throw new Error("extension source file must be a .tar.gz or .tgz archive");
+    }
+    const tmp = mkdtempSync(join(tmpdir(), "nimbus-ext-tgz-"));
+    try {
+      extractTarGzToDirectory(sourceResolved, tmp);
+      const root = findExtensionSourceRootInTree(tmp);
+      return installExtensionFromLocalDirectory({
+        ...options,
+        sourcePath: root,
+      });
+    } finally {
+      try {
+        rmSync(tmp, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+  if (!st.isDirectory()) {
+    throw new Error("extension source path must be a directory or .tar.gz archive");
   }
 
   const srcManifestPath = resolveExtensionManifestPath(sourceResolved);

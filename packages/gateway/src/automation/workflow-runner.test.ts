@@ -101,10 +101,35 @@ describe("runWorkflowExecution (dry run and validation)", () => {
     });
     expect(r.dryRun).toBe(true);
     expect(r.stepResults).toEqual([
-      { label: "L1", status: "preview", output: "do thing" },
-      { label: "step-2", status: "preview", output: "second" },
+      { label: "L1", status: "preview", output: "do thing", hitlActions: [] },
+      { label: "step-2", status: "preview", output: "second", hitlActions: [] },
     ]);
     const runCount = db.query(`SELECT COUNT(*) as c FROM workflow_run`).get() as { c: number };
     expect(runCount.c).toBe(0);
+  });
+
+  test("dry run includes heuristic hitlActions for HITL-like step text", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const now = Date.now();
+    upsertWorkflowByName(
+      db,
+      "hitl-demo",
+      null,
+      JSON.stringify([{ run: "Run terraform apply in production" }]),
+      now,
+    );
+    const r = await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "hitl-demo",
+      triggeredBy: "t",
+      dryRun: true,
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+    });
+    expect(r.stepResults[0]?.hitlActions).toContain("iac.terraform.apply");
   });
 });

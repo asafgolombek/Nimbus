@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
-import { evaluateWatchersAfterSync } from "./watcher-engine.ts";
+import { evaluateWatchersAfterSync, evaluateWatchersStartupCatchUp } from "./watcher-engine.ts";
 import { insertWatcher, listWatchers } from "./watcher-store.ts";
 
 describe("watcher-engine", () => {
@@ -112,6 +112,10 @@ describe("watcher-engine", () => {
     const bodies: string[] = [];
     const evalAt = t0 + 9000;
     evaluateWatchersAfterSync(db, "pagerduty", evalAt, async (_title, body) => {
+      const evDuring = db
+        .query(`SELECT COUNT(*) as c FROM watcher_event WHERE watcher_id = ?`)
+        .get(wid) as { c: number };
+      expect(evDuring.c).toBe(1);
       bodies.push(body);
     });
     expect(bodies.length).toBe(1);
@@ -157,6 +161,36 @@ describe("watcher-engine", () => {
       bodies.push(b);
     });
     expect(bodies.length).toBe(1);
+    await Promise.resolve();
+  });
+
+  test("startup catch-up evaluates without a prior sync event", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const t0 = 3_800_000_000_000;
+    insertWatcher(db, {
+      name: "catch-up",
+      enabled: 1,
+      condition_type: "alert_fired",
+      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
+      action_type: "notify",
+      action_json: "{}",
+      created_at: t0,
+    });
+    upsertIndexedItem(db, {
+      service: "sentry",
+      type: "alert",
+      externalId: "su-1",
+      title: "Regression detected",
+      modifiedAt: t0 + 4000,
+      syncedAt: t0 + 4000,
+    });
+    const bodies: string[] = [];
+    evaluateWatchersStartupCatchUp(db, t0 + 5000, async (_t, b) => {
+      bodies.push(b);
+    });
+    expect(bodies.length).toBe(1);
+    expect(bodies[0]).toContain("Regression");
     await Promise.resolve();
   });
 });

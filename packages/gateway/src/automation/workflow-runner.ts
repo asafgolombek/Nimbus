@@ -6,6 +6,7 @@ import {
   runConversationalAgent,
 } from "../engine/run-conversational-agent.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+import { previewHitlActionsForStepText } from "./workflow-hitl-preview.ts";
 import {
   finishWorkflowRunRow,
   getWorkflowByName,
@@ -79,7 +80,14 @@ export type RunWorkflowExecutionParams = {
 export type RunWorkflowExecutionResult = {
   runId: string;
   dryRun: boolean;
-  stepResults: Array<{ label?: string; status: string; output?: string; error?: string }>;
+  stepResults: Array<{
+    label?: string;
+    status: string;
+    output?: string;
+    error?: string;
+    /** Dry-run only: heuristic HITL action ids for CLI preview. */
+    hitlActions?: readonly string[];
+  }>;
 };
 
 type StepExecOutcome =
@@ -164,6 +172,7 @@ export async function runWorkflowExecution(
         label: s.label ?? `step-${String(i + 1)}`,
         status: "preview",
         output: s.run,
+        hitlActions: previewHitlActionsForStepText(s.run),
       })),
     };
   }
