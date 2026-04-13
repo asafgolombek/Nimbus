@@ -9,7 +9,7 @@
 
 ## Implementation Status (living)
 
-*Updated as deliverables land on `main`. Last reviewed: **2026-04-12**.*
+*Updated as deliverables land on `main`. Last reviewed: **2026-04-13**.*
 
 | Deliverable | Status | Location / notes |
 |---|---|---|
