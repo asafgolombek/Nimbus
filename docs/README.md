@@ -2,9 +2,9 @@
 
 # ☁️ Nimbus
 
-### The Local-First Digital Lieutenant.
+### Local-First AI Orchestration Across Your Entire Stack.
 
-*Autonomous AI orchestration across your cloud services, repositories, pipelines, and infrastructure — on your terms, from your machine.*
+*One agent. Every service. Your machine stays the source of truth.*
 
 [![Built with Bun](https://img.shields.io/badge/runtime-Bun_1.2+-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript_6.x-3178C6?logo=typescript)](https://typescriptlang.org)
@@ -17,21 +17,51 @@
 
 ---
 
-Nimbus is an open-source, local-first AI agent framework that bridges the gap between your machine and the services you connect. A headless **Nimbus Gateway** runs as a background process, maintaining a private local index of metadata across **shipped** first-party connectors — Google Drive, Gmail, Google Photos, OneDrive, Outlook, Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in), Jenkins, GitHub Actions, CircleCI, GitLab CI, PagerDuty, Kubernetes, AWS, Azure, GCP, IaC (Terraform/Pulumi/CloudFormation CLIs), Grafana, Sentry, New Relic, Datadog, configurable `[[filesystem.roots]]` intelligence, and the local filesystem MCP — with deeper parity (e.g. IaC drift, full filesystem v2 vision) still on the **[roadmap](./roadmap.md)**. The Nimbus agent — powered by [Mastra](https://mastra.ai) and a configurable model provider — reasons over this index and executes multi-step workflows on your behalf. Every destructive or outgoing action is gated by an explicit Human-in-the-Loop consent step.
+Nimbus is an open-source, local-first AI agent framework. A headless **Nimbus Gateway** runs on your machine, maintains a private SQLite index of metadata across your connected services, and executes multi-step tasks on your behalf. Every destructive or outgoing action requires your explicit approval before it runs.
 
-Your data never passes through a Nimbus server. There is no Nimbus server.
+**Your credentials never leave your machine. There is no Nimbus server.**
 
 ---
 
-## Why Nimbus?
+## What It Does
 
-### 🔒 Security by Architecture, Not Policy
+```bash
+# Search across every connected service — answered from the local index
+nimbus ask "Find all PDFs I received by email last month that I haven't opened"
 
-Credentials are stored in your OS's native keystore — Windows DPAPI, macOS Keychain, Linux Secret Service. The code has no path to write them anywhere else. The Human-in-the-Loop consent gate is implemented in the executor, not in the prompt — a model cannot reason around a function call that does not exist. Third-party extensions run in sandboxed child processes and cannot access the Vault or other connectors' credentials.
+# Cross-service developer queries
+nimbus ask "Which of my open PRs mention payment-service and have failing CI?"
+nimbus ask "What caused the payment-service alert — what deployed recently?"
 
-### ⚡ Fast Enough to Be Useful
+# Run a multi-step script — with a full preview before anything executes
+nimbus run ./weekly-cleanup.yml
+```
 
-Most queries never touch the network. Nimbus maintains a local SQLite metadata index, so searching across 50,000 indexed items across five services takes under 100ms. The runtime is [Bun](https://bun.sh) — native TypeScript, sub-100ms Gateway startup, built-in SQLite.
+**Example session:**
+
+```
+$ nimbus ask "The payment-service alert just fired — what changed?"
+
+🔍 PagerDuty: P1 — Error rate 4.2% — fired 8 minutes ago
+🔍 Last deploy: payment-service v2.14.1 — 23 minutes ago
+🔍 GitHub diff v2.14.0 → v2.14.1: 3 files — src/billing/retry.ts most significant
+   PR #312 "Increase retry backoff" — merged by @elena 41 minutes ago
+
+⚠  CONSENT REQUIRED — Post incident summary to #incidents?
+   Post? [y/n]: y  ✅ Posted.
+
+Suggested next step: rollback to v2.14.0?
+⚠  CONSENT REQUIRED — Trigger Jenkins rollback job.
+   Rollback? [y/n]: n  Aborted. No changes made.
+```
+
+---
+
+## Why Nimbus
+
+### Fast — Most Queries Never Hit the Network
+
+Nimbus maintains a local SQLite metadata index. Searching across 50,000 indexed items across five services takes under 100ms.
 
 | Operation | Nimbus (local index) | Typical SaaS |
 |---|---|---|
@@ -40,48 +70,32 @@ Most queries never touch the network. Nimbus maintains a local SQLite metadata i
 | Semantic recall (embeddings) | ~50–200ms | Remote embed + search |
 | Gateway cold start | ~80ms | Always-on cloud |
 
-### 🌍 True Cross-Platform
+*Measured on a mid-range laptop; 50k item index across 5 connected services.*
 
-Windows, macOS, and Linux are equally supported — not "also works on." Every pull request runs a fast **PR quality** job on Ubuntu (typecheck, Biome, build, tests, Vitest, Rust fmt/clippy for Tauri); pushes to `main`/`develop` run the **full three-platform matrix** in parallel. Platform-specific code (IPC transport, secrets, autostart, notifications) is isolated behind a typed abstraction layer. A feature that works on macOS and "probably works" on Windows is a bug.
+### Secure by Architecture
 
-### 🧩 Extensible by Design
+- **Credentials** are stored in your OS-native keystore (Windows DPAPI, macOS Keychain, Linux Secret Service). There is no code path that writes them to disk, logs, or IPC responses.
+- **The HITL consent gate** is implemented in the executor, not the prompt. A model that generates a plan to skip confirmation produces a plan that simply does not execute.
+- **Extensions** run in sandboxed child processes. They receive only credentials for their declared service and cannot enumerate Vault keys or access other connectors.
+- **Prompt injection** is mitigated by injecting file content and API responses as typed `<tool_output>` data blocks, never as instructions.
 
-A first-class extension system lets third-party developers publish new connectors as npm packages. Install one command, and the agent gains a new capability. The local Extension Marketplace in the Tauri app makes community connectors discoverable without leaving the UI.
+### True Cross-Platform
 
-### 🧠 Agent-Grade Reasoning
+Windows, macOS, and Linux are equally supported. Every PR runs a full gate on Ubuntu (typecheck, lint, build, tests). Pushes to `main` run the full three-platform matrix in parallel. Platform-specific code (IPC, secrets, autostart, notifications) lives behind a typed `PlatformServices` abstraction — business logic never knows which OS it's on.
 
-Nimbus understands intent, decomposes multi-step tasks, executes them across services, and streams structured results. Ask it in plain English — it plans, confirms where necessary, and acts.
+### Extensible
 
-### 🔧 DevOps Intelligence — Not Another Dashboard
-
-Pull requests, issues, pipelines, cloud resources, and observability metadata can land in the local index from the shipped CI/CD, infrastructure, and monitoring connectors (see **[roadmap](./roadmap.md)** for depth and remaining gaps). Write operations — merging a PR, triggering a build, applying IaC, scaling a pool, acknowledging an incident — go through the same consent-gated executor as every other Nimbus action: the agent proposes; you approve.
+Third-party connectors ship as npm packages. Install in one command; the agent gains a new capability immediately. A local Extension Marketplace in the Tauri app makes community connectors discoverable without leaving the UI.
 
 ---
 
-## 2026 Tech Stack
+## Connectors
 
-| Layer | Technology | Rationale |
-|---|---|---|
-| **Runtime** | [Bun v1.2+](https://bun.sh) | Native TypeScript, fast startup, built-in SQLite, FFI for native bindings |
-| **Language** | TypeScript 6.x strict mode | Type safety, IDE tooling, Mastra-native |
-| **Agent Framework** | [Mastra](https://mastra.ai) | Structured agents, tool registration, workflow orchestration, observability |
-| **Integration Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) | Vendor-neutral connector standard; first-class Mastra support |
-| **Local Database** | `bun:sqlite` + [sqlite-vec](https://github.com/asg017/sqlite-vec) | Zero-dependency metadata index + vector search |
-| **Secrets — Windows** | Windows DPAPI (`CryptProtectData`) | Key derived from user account; fails on other accounts/machines |
-| **Secrets — macOS** | Keychain Services | Locked on screen lock; requires app entitlement |
-| **Secrets — Linux** | Secret Service API via `libsecret` | GNOME Keyring / KWallet integration |
-| **IPC Protocol** | JSON-RPC 2.0 over Domain Socket / Named Pipe | Language-agnostic, local-only, no TCP surface |
-| **CLI** | Bun + [@clack/prompts](https://github.com/natemoo-re/clack) | Interactive terminal UX; consent channel for HITL |
-| **Desktop UI** | [Tauri 2.0](https://tauri.app) + React 19 | ~5MB native shell; WebView2 (Win) / WKWebView (mac) / WebKitGTK (Linux) |
-| **LLM** | Anthropic Claude (default) / configurable | Pluggable via Mastra model abstraction |
-| **Embeddings** | `@xenova/transformers` (local) / OpenAI (opt-in) | Local-first; no API key required for basic RAG |
-| **Extension SDK** | `@nimbus-dev/sdk` (first-party npm package) | Typed scaffolding, `MockGateway` for testing, manifest validation. Licensed MIT so extension authors aren't burdened by AGPL. |
-| **Testing — Gateway/CLI** | `bun test` | In-toolchain, zero config, fastest feedback loop |
-| **Testing — UI** | Vitest + `@testing-library/react` | Integrates with Vite/Tauri transform pipeline; jsdom support |
-| **Testing — E2E Desktop** | Playwright + Tauri WebDriver | Only tool with cross-platform native app automation |
-| **Security Scanning** | `bun audit` + `trivy` + CodeQL | Dependency and static analysis on PRs; Dependabot for updates |
-| **CI** | GitHub Actions | **PR:** Ubuntu-only `pr-quality` (build + tests + Vitest + Rust checks). **Push:** full matrix on `ubuntu-22.04`, `macos-14`, `windows-2022` |
-| **Release** | `bun build --compile` + code signing | Single binary per platform; signed + notarized on macOS |
+**Phase 1–2 (shipped):** Local Filesystem, Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in)
+
+**Phase 3 (active):** Jenkins, GitHub Actions, CircleCI, GitLab CI, AWS, Azure, GCP, Kubernetes, Terraform/Pulumi/CloudFormation, Datadog, Grafana, Sentry, PagerDuty, New Relic
+
+See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
 ---
 
@@ -89,129 +103,73 @@ Pull requests, issues, pipelines, cloud resources, and observability metadata ca
 
 ### Prerequisites
 
-- **From source:** [Bun v1.2+](https://bun.sh/docs/installation) on your machine.
-- **Pre-built binaries:** No Bun install required — releases are self-contained executables produced with `bun build --compile`.
-- **Connectors (when enabled):** Google Cloud project with Drive, Gmail, Photos APIs; Azure app registration with Microsoft Graph (OneDrive / Outlook).
+- **From source:** [Bun v1.2+](https://bun.sh/docs/installation)
+- **Pre-built binaries:** No Bun required — releases are self-contained executables
 
----
+### Option A — Pre-built Binaries
 
-### Where to run commands
+Download from [GitHub Releases](https://github.com/your-org/nimbus/releases):
 
-| What you are doing | Working directory |
+| Asset | Purpose |
 |---|---|
-| **Clone + install + build** (from source) | Repository **root** — the folder that contains the root `package.json` (the `nimbus` directory after `git clone`). |
-| **`nimbus` CLI** | Any directory, once the CLI binary is on your `PATH` (or you invoke it with a full path). |
+| `nimbus-gateway-{os}-x64` | Headless Gateway process |
+| `nimbus-cli-{os}-x64` | `nimbus` terminal command |
 
----
+Linux/macOS: `chmod +x nimbus-gateway-* nimbus-cli-*`. Optionally rename the CLI to `nimbus` and add to `PATH`.
 
-### Option A — Pre-built binaries (no Git checkout)
-
-1. Open **[GitHub Releases](https://github.com/your-org/nimbus/releases)** for this repository (replace `your-org` with the real org or fork).
-2. Download the files for your OS from the latest **v**`*.*.*` release:
-
-   | Asset | Purpose |
-   |---|---|
-   | `nimbus-gateway-linux-x64`, `nimbus-gateway-macos-x64`, `nimbus-gateway-windows-x64.exe` | Headless Gateway process |
-   | `nimbus-cli-linux-x64`, `nimbus-cli-macos-x64`, `nimbus-cli-windows-x64.exe` | `nimbus` terminal command |
-
-3. **Linux / macOS:** `chmod +x nimbus-gateway-* nimbus-cli-*` (or only the files you use).
-4. Optionally rename the CLI binary to `nimbus` and add its directory to your `PATH`.
-5. Binaries embed a Bun runtime — you do **not** need to install Bun separately to **run** them.
-
----
-
-### Option B — Build from source (contributors & local dev)
-
-From a terminal, use the **repository root** only:
+### Option B — Build from Source
 
 ```bash
 git clone https://github.com/your-org/nimbus.git
 cd nimbus
-```
-
-Install dependencies with **`bun install`** (Bun’s built-in command). Do **not** run `bun run install` — that looks for a `"install"` script in `package.json`, which this repo does not define, and will fail with `Script not found "install"`.
-
-```bash
-bun install
+bun install          # NOT "bun run install" — that looks for a script and fails
 bun run build
 ```
 
-After a successful build:
+Built CLI location:
 
-| OS | CLI (Gateway is built to repo `dist/` as well) |
+| OS | Path |
 |---|---|
-| Windows | `packages\cli\dist\nimbus.exe` (or `nimbus` if Bun emitted the name without `.exe`) |
+| Windows | `packages\cli\dist\nimbus.exe` |
 | macOS / Linux | `./packages/cli/dist/nimbus` |
 
-You can add `packages/cli/dist` to your `PATH`, symlink the binary as `nimbus`, or call it with a full path. The workspace does not currently register the CLI into root `node_modules/.bin` unless you depend on `@nimbus/cli` from another package, so **`nimbus` alone may not resolve** until you put the built binary on `PATH`.
-
----
+Add `packages/cli/dist` to your `PATH` or call with a full path.
 
 ### Start the Gateway
 
-Examples below use `nimbus` as if the CLI is on your `PATH`; substitute `./packages/cli/dist/nimbus` (or the downloaded `nimbus-cli-*` binary) if needed.
-
 ```bash
-nimbus start          # Start the Gateway as a background process
-nimbus status         # Verify it's running and list connector health
+nimbus start     # Start Gateway as a background process
+nimbus status    # Verify it's running; check connector health
 ```
 
----
-
-### Publishing releases (maintainers)
-
-Releases are automated from **annotated version tags**; assets are uploaded to **GitHub Releases** (no separate download server required).
-
-1. Merge work to the branch you release from (e.g. `main`).
-2. Create and push a tag matching `vMAJOR.MINOR.PATCH` (optionally with a prerelease suffix, e.g. `v0.1.0-rc.1`):
-
-   ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-3. The **[Release workflow](../.github/workflows/release.yml)** runs on that tag: it compiles the **Gateway** and **CLI** for Linux, macOS (x64), and Windows, then **creates a GitHub Release** and attaches the binaries. Anyone can download them from the Releases page without cloning the repo.
-4. **Code signing** (optional, recommended for production): configure the repository secrets referenced in the workflow (macOS certificate + notarization, Windows certificate) and complete the TODO `codesign` / `signtool` steps when ready.
-
-Future milestones may add classic installers (`.msi`, `.dmg`, `.deb`, AppImage) and a hosted update feed; today’s pipeline ships **single-file executables** per platform.
-
----
-
-### Authenticate a Service
+### Authenticate Services
 
 ```bash
-nimbus connector auth google      # Opens browser for OAuth PKCE flow
+# Cloud storage & communication
+nimbus connector auth google       # OAuth PKCE — opens browser
 nimbus connector auth microsoft
-nimbus connector list             # Shows all connectors + sync status
+
+# Developer services
+nimbus connector auth github       # PAT — stored in OS keystore
+nimbus connector auth gitlab
+nimbus connector auth linear
+nimbus connector auth jira
+nimbus connector auth slack
+
+nimbus connector list              # All connectors + sync status
 ```
 
 ### Query
 
 ```bash
-# Document and communication queries
 nimbus ask "Find all PDFs I received by email last month that I haven't opened"
-nimbus search --service google_drive --type pdf --since 30d
-nimbus sync all
-
-# Developer queries (indexed services only — CI/cloud depth is Q3+ on the roadmap)
 nimbus ask "Which of my open PRs mention payment-service?"
 nimbus ask "What Linear issues am I assigned this week?"
-nimbus ask "Summarize recent threads in #engineering from Slack"
+nimbus search --service google_drive --type pdf --since 30d
+nimbus sync all
 ```
 
-### Authenticate developer & collaboration services
-
-```bash
-nimbus connector auth github         # GitHub PAT — stored in OS keystore
-nimbus connector auth gitlab         # GitLab PAT
-nimbus connector auth linear         # Linear API key
-nimbus connector auth jira           # Jira API token + site URL
-nimbus connector auth notion         # Notion OAuth
-nimbus connector auth confluence     # Confluence API token + site URL
-nimbus connector list                # Shows all connectors + sync status
-```
-
-### Run a Script File
+### Run a Script
 
 ```bash
 nimbus run ./weekly-cleanup.yml
@@ -227,23 +185,17 @@ steps:
   - Send me an email with the summary
 ```
 
+Before executing, Nimbus shows a full plan preview identifying every step that will require consent:
+
 ```
 Script: weekly-cleanup (4 steps)
 
   Step 1  Find PDFs not opened in 90 days       READ — no approval needed
   Step 2  Summarize by project folder            READ — no approval needed
-  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL — calls gdrive_file_move (restricted: gdrive.file.move)
-  Step 4  Send summary email                     ⚠ REQUIRES APPROVAL — calls gmail_send (restricted: gmail.message.send)
+  Step 3  Move 12 files to /Archive/2025         ⚠ REQUIRES APPROVAL
+  Step 4  Send summary email                     ⚠ REQUIRES APPROVAL
 
-Proceed? [y/n]: y
-
-▶ Step 1...
-▶ Step 2...
-⚠  CONSENT REQUIRED — Move 12 files to /Archive/2025. Proceed? [y/n]: y
-▶ Step 3...
-⚠  CONSENT REQUIRED — Send email to you@company.com. Proceed? [y/n]: y
-▶ Step 4...
-✅  Done.
+Proceed? [y/n]:
 ```
 
 ### Install a Community Extension
@@ -253,57 +205,31 @@ nimbus extension install @community/nimbus-notion
 nimbus extension list
 ```
 
-### Example Agent Sessions
+---
 
-```
-$ nimbus ask "Summarize the Zurich project emails this week and draft a status update for my manager"
+## Tech Stack
 
-🔍 Searching Gmail: "Zurich project" (last 7 days)...
-   Found 12 emails across 3 threads.
-
-📝 Summary:
-   · Kickoff confirmed: Thursday 14:00 CET
-   · Design assets requested by Mira Hoffmann — pending
-   · Budget approval from procurement — outstanding
-
-📧 Draft ready.
-   To: manager@company.com
-   Subject: Zurich Project — Week 23 Status
-
-⚠️  CONSENT REQUIRED — This action will send an email.
-   Review draft? [y/n]: y
-   [draft displayed]
-   Send? [y/n]: y
-
-✅  Sent.
-```
-
-```
-$ nimbus ask "The payment-service alert just fired — what deployed recently and what changed?"
-
-🔍 Querying PagerDuty: active alerts for payment-service...
-   Alert: P1 — Error rate 4.2% (threshold: 1%) — fired 8 minutes ago.
-
-🔍 Querying deployment history (last 2 hours)...
-   Last deploy: payment-service v2.14.1 — 23 minutes ago
-   Triggered by: Jenkins job #4821 → commit a3f9c12 (branch: main)
-
-🔍 Querying GitHub: diff between v2.14.0 and v2.14.1...
-   3 files changed — src/billing/retry.ts most significant.
-   PR #312 "Increase retry backoff" — merged by @elena 41 minutes ago.
-
-📝 Incident summary ready.
-
-⚠️  CONSENT REQUIRED — This action will post to #incidents Slack channel.
-   Post? [y/n]: y
-
-✅  Posted. Suggested next step: rollback to v2.14.0?
-
-⚠️  CONSENT REQUIRED — This action will trigger a Jenkins rollback job.
-   Rollback payment-service to v2.14.0? [y/n]: n
-
-   Aborted. No changes made.
-```
+| Layer | Technology |
+|---|---|
+| **Runtime** | [Bun v1.2+](https://bun.sh) — native TypeScript, fast startup, built-in SQLite |
+| **Language** | TypeScript 6.x strict mode |
+| **Agent Framework** | [Mastra](https://mastra.ai) — structured agents, tool registration, workflow orchestration |
+| **Integration Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) — all connectors speak MCP; Engine never calls cloud APIs directly |
+| **Local Database** | `bun:sqlite` + [sqlite-vec](https://github.com/asg017/sqlite-vec) — metadata index + vector search |
+| **Secrets — Windows** | Windows DPAPI |
+| **Secrets — macOS** | Keychain Services |
+| **Secrets — Linux** | Secret Service API via `libsecret` |
+| **IPC** | JSON-RPC 2.0 over Domain Socket / Named Pipe — local-only, no TCP surface |
+| **CLI** | Bun + [@clack/prompts](https://github.com/natemoo-re/clack) |
+| **Desktop UI** | [Tauri 2.0](https://tauri.app) + React 19 (~5MB native shell) |
+| **LLM** | Anthropic Claude (default) / configurable via Mastra model abstraction |
+| **Embeddings** | `@xenova/transformers` (local, no API key) / OpenAI (opt-in) |
+| **Extension SDK** | `@nimbus-dev/sdk` (MIT-licensed npm package) |
+| **Testing — Gateway/CLI** | `bun test` |
+| **Testing — UI** | Vitest + `@testing-library/react` |
+| **Testing — E2E Desktop** | Playwright + Tauri WebDriver |
+| **CI** | GitHub Actions — PR: Ubuntu `pr-quality`; Push: full 3-platform matrix |
+| **Release** | `bun build --compile` — single signed binary per platform |
 
 ---
 
@@ -320,225 +246,48 @@ $ nimbus ask "The payment-service alert just fired — what deployed recently an
 | **CI runner** | `windows-2022` | `macos-14` | `ubuntu-22.04` |
 | **Release** | `.exe` (signed) | `.dmg` (notarized) | `.deb` + AppImage |
 
-Every PR must pass the full test suite on Ubuntu before merge; after merge, pushes run the same suite on all three CI runners. Platform-specific code is isolated behind the `PlatformServices` interface — business logic is never aware of which OS it runs on. See [`.github/BRANCH_PROTECTION.md`](../.github/BRANCH_PROTECTION.md) for required checks.
-
 ---
 
 ## Security
 
-Nimbus's security model is structural, not promissory.
+- **No plaintext credentials** — OAuth tokens live in the OS keystore. There is no code path that writes them elsewhere.
+- **Structural HITL gate** — every delete, send, and move is blocked at the executor by a compile-time constant set. The agent cannot reason around a function that doesn't exist.
+- **Extension isolation** — third-party extensions run as child processes, receive only their declared service's credentials, and cannot reach the Vault or other connectors. Manifest SHA-256 is verified on every Gateway startup.
+- **Full audit log** — every action, including every HITL decision, is recorded in a local SQLite table before the action executes.
 
-**Credentials.** OAuth tokens are stored in the OS-native keystore. There is no code path that writes them to disk in plaintext, logs them, or includes them in IPC responses. The structured logger's `redact` config automatically censors any value matching token or secret patterns.
-
-**Consent gate.** Every delete, send, or move action is blocked at the executor by a frozen whitelist. The agent cannot reason around it, configure around it, or inherit an extension that bypasses it. Approved and rejected decisions are written to the audit log before any action is taken.
-
-**Extensions.** Third-party extensions run as child processes. They receive only the credentials for their declared service, via environment variable injection. They cannot enumerate Vault keys, connect to the IPC socket, or read other connectors' tokens. Their manifest hash is verified on every Gateway startup — a tampered extension is disabled before it can run.
-
-**Prompt injection.** File content, email bodies, and API responses are injected into the agent's context as typed `<tool_output>` data blocks. They are treated as untrusted data, not as instructions.
-
-**Audit log.** Every action the agent takes — including every HITL decision — is recorded in a local SQLite table. You can always reconstruct exactly what Nimbus did on your behalf.
-
-**Shared responsibility.** Nimbus's guarantees hold at the process boundary. What sits below it — OS login strength, screen locking, disk encryption, and endpoint protection — is the user's responsibility. The local-first model returns full control to the user; that control carries the corresponding accountability. See [The Security Compact](./mission.md#the-security-compact) for the full boundary definition.
+> **Note:** Nimbus's guarantees hold at the process boundary. OS login strength, screen locking, and disk encryption are your responsibility. See [SECURITY.md](./SECURITY.md) for the full boundary definition.
 
 ---
 
 ## Extensions
 
-The Nimbus extension system is designed so that writing a new connector takes an afternoon, not a sprint.
-
-**For users:** Install any community extension in one command. The Tauri desktop app includes a local Extension Marketplace where you can browse, install, enable, disable, and update extensions without leaving the UI.
-
-**For developers:** The `@nimbus-dev/sdk` package gives you typed scaffolding, a `MockGateway` for unit testing, and a scaffold command that generates a working MCP server in seconds. The hard infrastructure — OAuth, credential storage, sync scheduling, HITL enforcement — is handled by the Gateway. You write the service integration.
+Writing a new connector takes an afternoon, not a sprint. The `@nimbus-dev/sdk` handles scaffolding; the Gateway handles OAuth, credential storage, sync scheduling, and HITL enforcement. You write the service API integration.
 
 ```bash
-# Build a new extension
-nimbus scaffold extension --name notion --output ./nimbus-notion
-cd nimbus-notion && bun install && bun run build
+nimbus scaffold extension --name my-connector --output ./nimbus-my-connector
+cd nimbus-my-connector && bun install && bun run build
 
-# Test it locally
-nimbus extension install .
-nimbus ask "search notion for quarterly review"
+nimbus extension install .          # Test locally
+nimbus ask "search my-connector for quarterly review"
 
-# Publish
-npm publish --access public
+npm publish --access public         # Publish to the community
 ```
 
-Extensions declare their permissions in `nimbus.extension.json`. Permissions are validated at install time. Write and delete tools require `hitlRequired` declaration — the Gateway enforces HITL automatically for those tool calls, regardless of how the extension implements them.
+Extensions declare permissions in `nimbus.extension.json`. Write and delete tools must declare `hitlRequired` — the Gateway enforces HITL automatically for those tool calls regardless of how the extension implements them.
 
 ---
 
 ## Testing
 
-Nimbus uses a five-layer pyramid designed for the Bun/Tauri hybrid stack:
-
-**Layer 1 — Unit (`bun test`):** Engine logic, Vault contracts, HITL invariants, manifest validation, platform path resolution. Co-located with source files. Runs in milliseconds.
-
-**Layer 2 — Integration (`bun test` + real SQLite):** Connector sync handlers, index queries, extension loading and process isolation. Each test gets a fresh temp directory and fresh database — fully parallel-safe.
-
-**Layer 3 — E2E CLI (`bun test` + Gateway subprocess):** Full `nimbus ask`, `nimbus search`, `nimbus connector`, and `nimbus extension` command flows against a real Gateway backed by mock MCP servers. Mock servers implement the wire protocol without making real cloud calls.
-
-**Layer 4 — UI Components (Vitest + Testing Library):** React components in the Tauri WebView — consent dialogs, marketplace cards, connector status panels. Vitest is used here because it integrates with Vite's transform pipeline, which Tauri already uses. `bun test` does not support jsdom.
-
-**Layer 5 — E2E Desktop (Playwright + Tauri WebDriver):** Full desktop app flows on all three platforms. Runs on push to `main` and on release tags — not on every PR, due to native runner requirements.
-
-**Security scans:** `bun audit`, `trivy`, and CodeQL on PRs and scheduled runs; Dependabot opens update PRs. HIGH/CRITICAL issues from configured tools block merges when checks are required.
-
----
-
-## Roadmap
-
-> See [`roadmap.md`](./roadmap.md) for the full roadmap — acceptance criteria, inter-phase dependencies, and the reasoning behind sequencing decisions.
-
-Nimbus uses **phases**, not calendar quarters. A phase completes when its acceptance criteria pass, not at a date boundary. Phases may overlap when deliverables are independent.
-
-### Phase 1 — Foundation ✅
-
-**Goal:** Make the Gateway real and the security model provable.
-
-- Bun workspace monorepo + CI (`pr-quality` on PRs; 3-platform matrix on push)
-- Nimbus Gateway process with JSON-RPC 2.0 IPC
-- Platform Abstraction Layer — `PlatformServices` interface + all three implementations
-- Secure Vault — DPAPI, Keychain, libsecret
-- Local Filesystem MCP connector + SQLite metadata schema
-- HITL executor — frozen whitelist, structural enforcement, audit log
-- `nimbus` CLI: `start`, `stop`, `status`, `ask`, `search`, `vault`
-- Full unit + integration test suite gated in CI; `bun audit` + `trivy` security scanning
-
-**Milestone:** `nimbus ask "find all markdown files modified this week"` executes end-to-end on all three platforms, with HITL firing correctly for any destructive follow-up.
-
----
-
-### Phase 2 — The Bridge ✅
-
-**Goal:** Connect every surface a developer works across and unify them in the local index.
-
-**15 first-party MCP connectors** — Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in)
-
-**Infrastructure** — delta sync scheduler, unified `item`/`person` schema (v5), cross-service people graph, context ranker, `nimbus connector` CLI, E2E test suite, Linux headless installers
-
-**Milestone:** `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results in under 200ms. Cross-service identity resolves without a network call.
-
----
-
-### Phase 3 — Intelligence
-
-**Goal:** Make Nimbus semantically aware and proactively useful. Extend into CI/CD, cloud infrastructure, and agentic automation.
-
-**Status:** Active.
-
-**Semantic layer** — embedding pipeline (`sqlite-vec`, `@xenova/transformers`), hybrid BM25 + vector search, RAG conversational memory
-
-**Extension ecosystem** — Extension Registry v1, `@nimbus-dev/sdk`, `nimbus scaffold extension`, extension sandbox
-
-**CI/CD & infrastructure connectors** — Jenkins, GitHub Actions, CircleCI, GitLab CI, AWS, Azure, GCP, IaC (Terraform/CloudFormation/Pulumi), Kubernetes, Datadog, Grafana, Sentry, PagerDuty, New Relic
-
-**Workflow automation** — workflow pipelines (YAML, HITL-gated), watcher system (event-driven + scheduled), proactive anomaly detection
-
-**Knowledge graph** — local relationship graph, Filesystem connector v2 (git-aware, semantic code search, dependency graph)
-
-**Interaction** — Session CLI (`nimbus` with no args), script files (`nimbus run`), DevOps agent, Research agent
-
-**Milestone:** `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, GitHub PR, Jenkins run, CloudWatch spike, and Slack thread — from the local index — in a single response.
-
----
-
-### Phase 4 — Presence
-
-**Goal:** Give Nimbus a face, a local AI backbone requiring no cloud API key, and the foundations for a public `v0.1.0` release.
-
-**Desktop application** — Tauri 2.0 (Windows/macOS/Linux): system tray, dashboard, HITL consent dialogs, Extension Marketplace panel, watcher UI, pipeline editor, settings
-
-**Local LLM & multi-agent** — Ollama / llama.cpp, per-task model routing, fully air-gapped operation, coordinator + parallel sub-agent orchestration (all HITL-gated)
-
-**Terminal & voice** — Rich TUI (Ink, SSH-safe), local STT (Whisper.cpp), local TTS, wake word (opt-in)
-
-**Data sovereignty** — `nimbus data export/import`, GDPR deletion, BLAKE3-chained tamper-evident audit log
-
-**Release** — signed/notarized binaries (Gatekeeper, Authenticode, GPG), auto-update via self-hosted server, Plugin API v1
-
-**Milestone:** `v0.1.0` — signed installers for all platforms. Fully local Ollama query in under 30 seconds. Five community extensions in the Marketplace.
-
----
-
-### Phase 5 — The Extended Surface
-
-**Goal:** Fill every connector gap so wherever a knowledge worker or developer spends time, their data is in the index.
-
-**Browser & reading** — Pocket, Readwise, Raindrop, browser history (local extension, no cloud relay), web clipper
-
-**Email via IMAP/SMTP** — generic IMAP connector (Fastmail, ProtonMail, self-hosted), Fastmail JMAP native, ProtonMail Bridge
-
-**Finance & expenses** — Expensify, Ramp, Mercury, Stripe
-
-**CRM & sales** — HubSpot, Salesforce, Pipedrive
-
-**HR & recruiting** — Greenhouse, Lever, Workday
-
-**Design & creative** — Figma (files, comments, FigJam), Miro, Canva
-
-**Extension Marketplace v2** — ratings, verified publisher badges, paid extensions with revenue sharing, auto-update, dependency resolution
-
----
-
-### Phase 6 — Team
-
-**Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty.
-
-**Shared infrastructure** — Nimbus-to-Nimbus federation (E2EE, no relay), Team Vault (shared credentials, RBAC), shared index namespaces, LAN peer discovery
-
-**Identity & access** — SSO/OIDC/SAML, SCIM provisioning, role-based access control, multi-user HITL (approval delegation)
-
-**Shared workflows & policy** — team-owned workflow pipelines, org-level `nimbus.policy.toml` (connector allowlists, retention, HITL overrides)
-
-**Admin & observability** — local admin console, team audit log (merged view), org-level GDPR purge
-
----
-
-### Phase 7 — The Autonomous Agent
-
-**Goal:** Transform Nimbus from a reactive tool into a proactive collaborator that watches, learns, and acts — always within the bounds of what you have authorised.
-
-**Standing approvals** — pre-authorise recurring write patterns; approval learning; `nimbus approve` CLI; full audit trail per standing rule
-
-**Schedule-driven tasks** — unattended scheduled workflows, morning briefing, deadline tracking
-
-**Incident correlation engine** — automatic incident assembly on alert fire, incident timeline, HITL-gated remediation proposals
-
-**Agent memory & personalization** — long-term episodic memory, personalization layer, decision pattern recognition, standing rule suggestions
-
-**Local fine-tuning** — LoRA adapter training on user's own data (writing style, code patterns); runs on local NPU/GPU; no data leaves the machine
-
-**Infrastructure-as-Agent** — autonomous drift detection, remediation proposals, cost anomaly alerts, runbook automation
-
----
-
-### Phase 8 — Sovereign Mesh
-
-**Goal:** Extend Nimbus across the user's own devices, between trusted people, and into the physical world — with no relay server or trusted third party.
-
-**Cross-device sync** — P2P encrypted index sync, vector-clock conflict resolution, selective sync per device, conflict resolution UI
-
-**Mobile companion** — iOS + Android apps; E2EE LAN/WireGuard; read queries, HITL approval queue, watcher notifications; cryptographically signed mobile HITL
-
-**Physical sovereignty** — YubiKey/Ledger hardware vault, air-gapped secret management, Decentralized Identifiers (DIDs)
-
-**Digital Executor** — dead man's switch; Shamir's Secret Sharing across named recipients; tamper-evident handover audit trail
-
----
-
-### Phase 9 — Enterprise
-
-**Goal:** Institutional-grade deployment for security-conscious organisations. Tied to the commercial license tier.
-
-**Deployment** — official Docker image, Helm chart, air-gapped bundle, HA Gateway clustering, managed update channel
-
-**Policy & compliance** — policy-as-code (`nimbus.policy.toml`), audit log shipping (SIEM/S3/GCS), `nimbus compliance check` JSON report, data residency controls, formal security audit + bug bounty
-
-**Identity & governance** — enterprise SSO (SAML 2.0 + OIDC), SCIM 2.0, privileged access management
-
-**Admin console** — org-wide dashboard, policy editor, credential rotation assistant
-
-**SLA & support** — priority support tier, deployment runbooks, DPA and legal templates
+Five-layer pyramid:
+
+1. **Unit (`bun test`)** — Engine logic, Vault contracts, HITL invariants, manifest validation. Co-located with source. Runs in milliseconds.
+2. **Integration (`bun test` + real SQLite)** — connector sync, index queries, extension loading and isolation. Each test gets a fresh temp dir + fresh DB.
+3. **E2E CLI (`bun test` + Gateway subprocess)** — full CLI command flows against a real Gateway backed by mock MCP servers.
+4. **UI Components (Vitest + Testing Library)** — React components in the Tauri WebView. Vitest is used here because `bun test` does not support jsdom.
+5. **E2E Desktop (Playwright + Tauri WebDriver)** — full desktop flows on all three platforms. Runs on push to `main` and release tags.
+
+Security scans: `bun audit`, `trivy`, CodeQL on every PR; Dependabot for dependency updates. HIGH/CRITICAL findings block merges.
 
 ---
 
@@ -549,100 +298,102 @@ nimbus/
 ├── packages/
 │   ├── gateway/              # Core headless Gateway (Bun)
 │   │   └── src/
-│   │       ├── platform/     # PAL: win32, darwin, linux
+│   │       ├── platform/     # PAL: win32, darwin, linux implementations
 │   │       ├── engine/       # Mastra agent, router, planner, HITL executor
 │   │       ├── vault/        # DPAPI, Keychain, libsecret
 │   │       ├── index/        # SQLite schema + migrations
 │   │       ├── connectors/   # Connector registry + sync scheduler
 │   │       ├── extensions/   # Extension Registry, manifest validator
 │   │       └── ipc/          # JSON-RPC 2.0 server
-│   │
 │   ├── cli/                  # nimbus CLI
-│   ├── ui/                   # Tauri 2.0 desktop app (Q4)
+│   ├── ui/                   # Tauri 2.0 desktop app
 │   │   └── src/
-│   │       ├── components/   # ConsentDialog, ExtensionMarketplace, ...
+│   │       ├── components/   # ConsentDialog, ExtensionMarketplace, …
 │   │       └── pages/        # Dashboard, Search, Marketplace, Settings
-│   │
-│   ├── mcp-connectors/       # First-party MCP servers (workspace packages)
+│   ├── mcp-connectors/       # First-party MCP servers
 │   │   ├── google-drive/
 │   │   ├── gmail/
-│   │   ├── google-photos/
-│   │   ├── onedrive/
-│   │   ├── outlook/
 │   │   ├── github/
-│   │   ├── gitlab/
-│   │   ├── bitbucket/
-│   │   ├── slack/
-│   │   ├── teams/
-│   │   ├── linear/
-│   │   ├── jira/
-│   │   ├── notion/
-│   │   └── confluence/
-│   │
-│   └── sdk/                  # @nimbus-dev/sdk (published to npm)
-│
-├── architecture.md           # subsystem design (repo root)
+│   │   └── …                 # (all 15+ shipped connectors)
+│   └── sdk/                  # @nimbus-dev/sdk (published to npm, MIT)
 ├── docs/
-│   ├── README.md             # this file (repo overview on GitHub)
-│   ├── mission.md
-│   ├── SECURITY.md
-│   ├── roadmap.md
-│   └── sonar-local.md
-│
+│   ├── README.md             # this file
+│   ├── architecture.md       # subsystem design
+│   ├── mission.md            # design philosophy and principles
+│   ├── SECURITY.md           # security model + vulnerability reporting
+│   └── roadmap.md            # acceptance-criteria-driven roadmap
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml            # pr-quality (PR) + 3-platform matrix (push)
-│   │   ├── security.yml      # bun audit + trivy (PR + nightly)
-│   │   ├── codeql.yml        # CodeQL JS/TS
-│   │   └── release.yml       # tagged releases → GitHub Releases (Gateway + CLI binaries)
-│   ├── dependabot.yml
-│   └── BRANCH_PROTECTION.md  # how to require checks in GitHub settings
-│
-├── scripts/                  # Bun entrypoints + lib/; OS wrappers in linux/*.sh, windows/*.ps1
+│   │   ├── ci.yml            # pr-quality + 3-platform matrix
+│   │   ├── security.yml      # bun audit + trivy
+│   │   ├── codeql.yml
+│   │   └── release.yml       # signed binaries → GitHub Releases
+│   └── BRANCH_PROTECTION.md
 ├── bunfig.toml
 └── package.json              # Bun workspace root
 ```
 
 ---
 
+## Roadmap
+
+Nimbus uses phases, not calendar dates. A phase completes when its acceptance criteria pass.
+
+| Phase | Theme | Status |
+|---|---|---|
+| 1 | Foundation | ✅ Complete |
+| 2 | The Bridge (15 connectors) | ✅ Complete |
+| 3 | Intelligence (semantic search, CI/CD, cloud) | 🔵 Active |
+| 4 | Presence (Tauri UI, local LLM, v0.1.0 release) | Planned |
+| 5–9 | Extended Surface → Enterprise | Planned |
+
+See [`roadmap.md`](./roadmap.md) for full acceptance criteria and sequencing.
+
+---
+
+## Publishing Releases
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+# → release.yml compiles Gateway + CLI for Linux, macOS, Windows
+# → creates GitHub Release with signed binaries attached
+```
+
+---
+
 ## Contributing
 
-Nimbus is in active early development. Architecture is stabilizing; not all interfaces are frozen.
-
-Before submitting a PR:
+Architecture is stabilizing; not all interfaces are frozen.
 
 1. Read [`architecture.md`](../architecture.md) — understand the four subsystems and their contracts.
-2. Read [`mission.md`](./mission.md) — understand what Nimbus is and what it is not.
-3. Check issues tagged `good-first-issue`.
+2. Read [`mission.md`](./mission.md) — understand the non-negotiables.
+3. Check issues tagged `good first issue`.
 4. Open a discussion before large PRs.
 
-**The non-negotiables.** Any contribution that violates these will not be merged:
+**Non-negotiables** — PRs violating these will not be merged:
 
 - Local-first: no credentials or user data leaving the machine without explicit user action
-- HITL is structural: consent gate lives in the executor, not the prompt
+- HITL is structural: consent gate in the executor, not the prompt
 - No plaintext credentials: Vault only
 - Platform equality: all three platforms, always
-- MCP as the connector standard: no direct API calls from the Engine
-- License integrity: contributions to core packages must be compatible with AGPL-3.0
+- MCP as connector standard: Engine never calls cloud APIs directly
+- License integrity: contributions to core packages must be AGPL-3.0 compatible
 
 ---
 
 ## License
 
-**AGPL-3.0** — see [LICENSE](../LICENSE).
+**Core (Gateway, CLI, connectors):** AGPL-3.0 — see [LICENSE](../LICENSE). Anyone running Nimbus as a network service must publish their modifications under the same terms.
 
-The license choice is deliberate and consistent with the project's mission. MIT would allow any vendor to take the Gateway, close it up, strip the privacy guarantees, and ship a hosted "Nimbus Cloud" service — extracting value from a project that exists precisely to resist that pattern.
+**Extension SDK (`@nimbus-dev/sdk`):** MIT — extension authors are not burdened by copyleft obligations.
 
-AGPL-3.0 closes the network service loophole: anyone who runs Nimbus as a service must publish their modifications under the same terms. This applies to the Gateway and all first-party packages. The `@nimbus-dev/sdk` extension SDK is licensed separately under MIT so that extension authors are not burdened by copyleft obligations.
-
-If you want to embed Nimbus in a commercial product without AGPL obligations, a commercial license is available — contact the maintainers.
+Commercial license available for embedding Nimbus in a product without AGPL obligations — contact the maintainers.
 
 ---
 
 <div align="center">
 
-*Built for the person who wants to own their digital life, not rent it.*
-
-**[Mission](./mission.md) · [Architecture](../architecture.md) · [Roadmap](./roadmap.md) · [Changelog](../CHANGELOG.md)**
+**[Mission](./mission.md) · [Architecture](../architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
 
 </div>
