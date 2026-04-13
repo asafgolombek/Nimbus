@@ -47,7 +47,7 @@ export async function runConversationalAgent(
     );
   const incidentOrGraph =
     relational ||
-    /\b(incident|outage|sev-?[12]|on-?call|page(d|ing)?|pagerduty|firefight|rollback|post-?mortem|p[01])\b/i.test(
+    /\b(incident|outage|sev-?[12]|on-?call|page(d|ing)?|pagerduty|firefight|rollback|post-?mortem)\b/i.test(
       trimmed,
     );
   const prompt = incidentOrGraph

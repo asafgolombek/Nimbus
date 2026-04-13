@@ -70,6 +70,20 @@ async function bm25ThenHybridWithEmbedding(
   return { bm25, hybrid };
 }
 
+async function computeCaseMRR(
+  db: Database,
+  targetId: string,
+  query: string,
+  queryEmbedding: Float32Array,
+): Promise<{ mrrBm25: number; mrrHybrid: number }> {
+  const { bm25, hybrid } = await bm25ThenHybridWithEmbedding(db, query, queryEmbedding);
+  const ids = (results: HybridSearchResult[]): string[] => results.map((r) => r.item.id);
+  return {
+    mrrBm25: reciprocalRankAtK(targetId, ids(bm25), K),
+    mrrHybrid: reciprocalRankAtK(targetId, ids(hybrid), K),
+  };
+}
+
 describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => {
   test("mean hybrid MRR@10 improves BM25 by ≥10% or rescues zero-recall queries", async () => {
     const db = new Database(":memory:");
@@ -107,16 +121,11 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     insertVec384AndEmbeddingChunk(db, 2, vRenewal, "bench:renewal", "renewal chunk", now);
 
     const queryA = "refresh OAuth tokens";
-    const { bm25: bm25A, hybrid: hybridA } = await bm25ThenHybridWithEmbedding(db, queryA, qOAuth);
-    const mrrBm25A = reciprocalRankAtK(
+    const { mrrBm25: mrrBm25A, mrrHybrid: mrrHybridA } = await computeCaseMRR(
+      db,
       "bench:renewal",
-      bm25A.map((r) => r.item.id),
-      K,
-    );
-    const mrrHybridA = reciprocalRankAtK(
-      "bench:renewal",
-      hybridA.map((r) => r.item.id),
-      K,
+      queryA,
+      qOAuth,
     );
     expect(mrrBm25A).toBe(0);
     expect(mrrHybridA).toBeGreaterThan(0);
@@ -150,16 +159,11 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     const qKw = new Float32Array(384);
     qKw[0] = 1;
     qKw[1] = 0.03;
-    const { bm25: bm25B, hybrid: hybridB } = await bm25ThenHybridWithEmbedding(db, queryB, qKw);
-    const mrrBm25B = reciprocalRankAtK(
+    const { mrrBm25: mrrBm25B, mrrHybrid: mrrHybridB } = await computeCaseMRR(
+      db,
       "bench:vec",
-      bm25B.map((r) => r.item.id),
-      K,
-    );
-    const mrrHybridB = reciprocalRankAtK(
-      "bench:vec",
-      hybridB.map((r) => r.item.id),
-      K,
+      queryB,
+      qKw,
     );
     expect(mrrBm25B).toBe(0);
     expect(mrrHybridB).toBeGreaterThan(0);
@@ -193,16 +197,11 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (hybrid vs BM25 MRR@10)", () => 
     const qZ = new Float32Array(384);
     qZ[5] = 1;
     qZ[6] = 0.35;
-    const { bm25: bm25C, hybrid: hybridC } = await bm25ThenHybridWithEmbedding(db, queryC, qZ);
-    const mrrBm25C = reciprocalRankAtK(
+    const { mrrBm25: mrrBm25C, mrrHybrid: mrrHybridC } = await computeCaseMRR(
+      db,
       "bench:target",
-      bm25C.map((r) => r.item.id),
-      K,
-    );
-    const mrrHybridC = reciprocalRankAtK(
-      "bench:target",
-      hybridC.map((r) => r.item.id),
-      K,
+      queryC,
+      qZ,
     );
     expect(mrrBm25C).toBeGreaterThan(0);
     expect(mrrHybridC).toBeGreaterThan(0);
@@ -249,21 +248,8 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (code_symbol body vs title)", ()
     const qEmbed = new Float32Array(384);
     qEmbed[7] = 1;
     qEmbed[8] = 0.1;
-    const { bm25, hybrid } = await bm25ThenHybridWithEmbedding(db, query, qEmbed);
-
-    expect(
-      reciprocalRankAtK(
-        "bench:target-fn",
-        bm25.map((r) => r.item.id),
-        K,
-      ),
-    ).toBe(0);
-    expect(
-      reciprocalRankAtK(
-        "bench:target-fn",
-        hybrid.map((r) => r.item.id),
-        K,
-      ),
-    ).toBeGreaterThan(0);
+    const { mrrBm25, mrrHybrid } = await computeCaseMRR(db, "bench:target-fn", query, qEmbed);
+    expect(mrrBm25).toBe(0);
+    expect(mrrHybrid).toBeGreaterThan(0);
   });
 });

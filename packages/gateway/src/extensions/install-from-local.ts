@@ -110,8 +110,9 @@ function extractTarGzToDirectory(archivePath: string, destDir: string): void {
     windowsHide: true,
   });
   if (r.status !== 0) {
-    const detail = `${r.stderr ?? ""}${r.stdout ?? ""}`.trim();
-    throw new Error(`failed to extract archive: ${detail || `exit ${String(r.status)}`}`);
+    const output = `${r.stderr ?? ""}${r.stdout ?? ""}`.trim();
+    const detail = output || `exit ${String(r.status)}`;
+    throw new Error(`failed to extract archive: ${detail}`);
   }
 }
 
