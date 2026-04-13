@@ -2,12 +2,12 @@
 
 ## Supported Versions
 
-Nimbus is currently in **active development (Phase 3 — Intelligence)**. Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
+Nimbus is in active development (Phase 3 — Intelligence). Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
 
 | Branch / Tag | Supported |
 |---|---|
-| `main` (HEAD) | Yes |
-| Older commits | No |
+| `main` (HEAD) | ✅ Yes |
+| Older commits | ❌ No |
 
 Once versioned releases begin (target: Phase 4 — `v0.1.0`), this table will be updated with a supported version range.
 
@@ -17,36 +17,51 @@ Once versioned releases begin (target: Phase 4 — `v0.1.0`), this table will be
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Report vulnerabilities privately via one of these channels:
+Report privately via one of these channels:
 
-1. **GitHub private vulnerability reporting** — use the "Report a vulnerability" button on the [Security tab](../../../security/advisories/new) of this repository (preferred)
-2. **Email** — contact the maintainers directly at the address listed in the repository profile
+1. **GitHub private vulnerability reporting** — use "Report a vulnerability" on the [Security tab](../../../security/advisories/new) (preferred)
+2. **Email** — contact the maintainers at the address listed in the repository profile
 
-Include as much of the following as possible:
+Include:
 
 - A clear description of the vulnerability and its impact
-- The affected component(s) — e.g., Vault, HITL executor, IPC server, extension sandbox
-- Steps to reproduce or a proof-of-concept (even partial)
-- Your assessment of severity (CVSS score if available)
+- The affected component (Vault, HITL executor, IPC server, extension sandbox, etc.)
+- Steps to reproduce or a partial proof-of-concept
+- Your severity assessment (CVSS score if available)
 - Whether you believe it is platform-specific
 
-You will receive an acknowledgement within **72 hours** and a status update within **7 days**.
+You will receive acknowledgement within **72 hours** and a status update within **7 days**.
 
 ---
 
 ## Security Model
 
-Nimbus's security is structural — the guarantees below are enforced by the code, not by policy or configuration.
+Nimbus's security guarantees are structural — enforced by code, not by policy or configuration. This section describes what Nimbus protects, what it does not, and why.
+
+---
 
 ### Security Boundary
 
-Nimbus owns and enforces security within its process boundary. What sits below that boundary — the operating system, the disk, the physical machine — is the user's responsibility.
+Nimbus owns and enforces security **within its process boundary**. What sits below that boundary — the operating system, the disk, the physical machine — is outside Nimbus's control.
 
-**Nimbus's side:** credential storage, HITL enforcement, extension sandboxing, IPC access control, prompt injection defence, audit logging.
+**Nimbus's side of the boundary:**
+- Credential storage (OS-native keystore only, zero plaintext)
+- HITL enforcement (structural, executor-level)
+- Extension sandboxing (child process isolation, manifest integrity)
+- IPC access control (owner-only socket/pipe)
+- Prompt injection defence (typed data blocks, never instructions)
+- Audit logging (every action and HITL decision, before execution)
 
-**User's side:** strong OS login or biometric authentication, screen locking when unattended, physical machine security, disk encryption (BitLocker / FileVault / LUKS), active endpoint protection, and timely OS security updates. The OS-native keystores (DPAPI, Keychain, libsecret) protect against offline attacks such as a stolen disk. They do not protect against malware running live on the machine with user-level privileges.
+**Your side of the boundary:**
+- Strong OS login or biometric authentication
+- Screen locking when unattended
+- Disk encryption — BitLocker (Windows), FileVault (macOS), LUKS (Linux)
+- Active endpoint protection — the OS-native keystores protect against stolen-disk attacks; they do not protect against malware running with user-level privileges on a live machine
+- Timely OS security updates
 
-This boundary is why certain issue classes are listed as out of scope below — they describe vulnerabilities in the user's half of the model, not in Nimbus's.
+This boundary is the reason certain issue classes are listed as out of scope below — they describe vulnerabilities in your half of the model, not in Nimbus's.
+
+---
 
 ### Credentials
 
@@ -54,43 +69,66 @@ OAuth tokens and all secrets are stored exclusively in the OS-native keystore:
 
 | Platform | Backend |
 |---|---|
-| Windows | DPAPI (`CryptProtectData`) |
-| macOS | Keychain Services |
-| Linux | Secret Service API via `libsecret` |
+| Windows | DPAPI (`CryptProtectData`) — key derived from user account; fails on other accounts and machines |
+| macOS | Keychain Services — locked on screen lock; requires app entitlement |
+| Linux | Secret Service API via `libsecret` — GNOME Keyring / KWallet integration |
 
-There is no code path that writes credentials to disk in plaintext, includes them in log output, or returns them in IPC responses. The structured logger's `redact` configuration automatically censors any field matching token or secret patterns.
+There is no code path that writes credentials to disk in plaintext, includes them in log output, or returns them in IPC responses. The structured logger's `redact` configuration automatically censors any field matching `*.token`, `*.secret`, or `oauth.*` patterns.
+
+---
 
 ### Human-in-the-Loop (HITL) Consent Gate
 
-Every destructive, outgoing, or irreversible action — delete, send, move — is blocked at the executor by a **frozen whitelist** (`HITL_REQUIRED` set in `packages/gateway/src/engine/executor.ts`). The agent cannot reason around it, configure around it, or inherit an extension that bypasses it. HITL is not a prompt instruction; it is a function call gate.
+Every destructive, outgoing, or irreversible action — delete, send, move, merge, deploy, apply — is blocked at the executor by a **compile-time constant set** (`HITL_REQUIRED` in `packages/gateway/src/engine/executor.ts`). Key properties:
 
-Approved and rejected decisions are written to the local audit log before any action is taken.
+- **Not a prompt instruction.** The gate is a function call in the executor. A model that generates a plan to "skip confirmation" produces a plan that does not execute — there is no code path to bypass.
+- **Not runtime-configurable.** The set is declared as a module-level constant and is not writable via configuration files, IPC calls, or extension APIs.
+- **No timeout.** The executor awaits the consent channel unconditionally. There is no timer that auto-approves.
+- **Audit-first.** The HITL decision (approved, rejected, or not required) is written to the audit log **before** the connector is called.
 
-When a user approves a proposed action, responsibility for the outcome transfers to the user. Nimbus's obligation is to describe every proposed action accurately and completely before requesting consent. A user approving an action based on a misleading description is a Nimbus defect; a user approving an action they understood and intended is their own decision.
+Every action Nimbus takes under a HITL approval is recorded with the action type, payload, decision, and timestamp. The audit log is append-only and locally stored in SQLite.
+
+> **Current state of the HITL whitelist:** The set covers cloud storage, email, calendar, source control (merge, push, branch delete), CI/CD (trigger, cancel), infrastructure (apply, destroy, scale), Kubernetes, and monitoring/incident actions. See the constant in `executor.ts` for the full list. Extensions that declare `hitlRequired` in their manifest have their write tools added to the gate automatically.
+
+---
 
 ### Extension Sandbox
 
 Third-party extensions run as child processes. They:
 
-- Receive only the credentials for their declared service, via environment variable injection
+- Receive only the credentials for their declared service, via environment variable injection at spawn time
 - Cannot enumerate Vault keys
-- Cannot connect to the IPC socket
+- Cannot connect to the Gateway's IPC socket
 - Cannot read other connectors' credentials
-- Have their manifest SHA-256 hash verified on every Gateway startup — a tampered extension is disabled before it can run
+- Have their manifest SHA-256 hash verified on every Gateway startup — a tampered manifest causes the extension to be disabled before it runs
+
+> **Current sandbox depth:** The current isolation mechanism is scoped environment injection and process separation. Full syscall-level and network-level isolation (beyond env scoping) is planned for Phase 3 hardening and is tracked in the risk register. Users who install third-party extensions from untrusted sources should treat them with the same caution as any arbitrary npm package.
+
+---
 
 ### IPC Surface
 
-The Gateway listens only on a local domain socket (Unix) or named pipe (Windows). There is no TCP listener. The IPC socket is created with permissions that restrict access to the current user.
+The Gateway listens only on a local domain socket (Unix) or named pipe (Windows), created with owner-only permissions (`chmod 0600` on Unix; DACL owner-only on Windows). There is no TCP listener. No Nimbus Gateway port is opened on any network interface.
+
+---
 
 ### Prompt Injection
 
-File content, email bodies, and external API responses are injected into the agent's context as typed `<tool_output>` data blocks and treated as untrusted data — not as instructions.
+File content, email bodies, and external API responses are injected into the agent's context as typed `<tool_output>` data blocks. They are treated as untrusted data — not as instructions. The Engine's prompt builder enforces this structurally; it is not a prompt-level instruction to "ignore injected content."
+
+---
+
+### Audit Log
+
+Every action the agent takes — including every HITL decision — is recorded in a local SQLite `action_log` table before the action executes. You can reconstruct exactly what Nimbus did on your behalf at any time via `nimbus audit` or the desktop audit log viewer.
+
+Phase 4 will add a BLAKE3-chained tamper-evident audit log with `nimbus audit verify`.
 
 ---
 
 ## Scope
 
-The following are in scope for vulnerability reports:
+**In scope:**
 
 - Vault / credential exposure through any interface
 - HITL gate bypass — any path by which a destructive action executes without user consent
@@ -99,21 +137,21 @@ The following are in scope for vulnerability reports:
 - Prompt injection leading to unintended actions
 - Dependency vulnerabilities with direct exploitability in the Nimbus runtime
 
-The following are **out of scope**:
+**Out of scope:**
 
-- Vulnerabilities in the user's OS keystore implementation (DPAPI, Keychain, libsecret) — these are the user's platform responsibility, not Nimbus's
-- Issues requiring physical access to an unlocked or unencrypted machine — physical and OS security are the user's side of the shared responsibility boundary
-- Theoretical attacks with no practical exploit path
-- Rate limiting or DoS on the local IPC socket (the socket is already local-only)
+- Vulnerabilities in the OS keystore implementation (DPAPI, Keychain, libsecret) — these are platform-level, not Nimbus's
+- Attacks requiring physical access to an unlocked or unencrypted machine — physical and OS security are your side of the boundary
+- Theoretical attacks with no practical exploit path against a correctly configured machine
+- Rate limiting or DoS on the local IPC socket (already local-only and owner-gated)
 
 ---
 
 ## Dependency Scanning
 
-Nimbus runs automated dependency vulnerability scans on every PR and on a nightly schedule:
+Automated vulnerability scans run on every PR and nightly:
 
-- `bun audit` — checks npm dependencies against the advisory database
-- `trivy` — container and filesystem vulnerability scanning
-- `CodeQL` — static analysis for JS/TS
+- **`bun audit`** — npm dependency advisory checks
+- **`trivy`** — filesystem and container vulnerability scanning
+- **`CodeQL`** — static analysis for JS/TS
 
-HIGH and CRITICAL findings from these tools block merges when branch protection checks are required. Dependabot opens update PRs automatically for outdated dependencies.
+HIGH and CRITICAL findings block merges when branch protection checks are required. Dependabot opens update PRs automatically for outdated dependencies.
