@@ -34,3 +34,7 @@ The tool copies into the configured extensions directory, records SHA-256 manife
 ## 5. Test locally
 
 Use a scratch config dir and `nimbus start` so you do not touch your primary index. After changing code, bump `version` or reinstall so hashes stay consistent with the registry row.
+
+## See also
+
+- [Filesystem code search smoke](./filesystem-code-search-smoke.md) — manual `nimbus search` checks for indexed symbols under `[[filesystem.roots]]`.
