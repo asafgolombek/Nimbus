@@ -6,6 +6,29 @@ import { LocalIndex } from "../index/local-index.ts";
 import { evaluateWatchersAfterSync, evaluateWatchersStartupCatchUp } from "./watcher-engine.ts";
 import { insertWatcher, listWatchers } from "./watcher-store.ts";
 
+function makeDb(): Database {
+  const db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  return db;
+}
+
+function insertAlertFiredWatcher(
+  db: Database,
+  name: string,
+  conditionJson: string,
+  createdAt: number,
+): string {
+  return insertWatcher(db, {
+    name,
+    enabled: 1,
+    condition_type: "alert_fired",
+    condition_json: conditionJson,
+    action_type: "notify",
+    action_json: "{}",
+    created_at: createdAt,
+  });
+}
+
 describe("watcher-engine", () => {
   test("evaluateWatchersAfterSync no-op when schema below v8", async () => {
     const db = new Database(":memory:");
@@ -18,8 +41,7 @@ describe("watcher-engine", () => {
   });
 
   test("non-alert_fired condition does not notify", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = makeDb();
     const t0 = 1_700_000_000_000;
     insertWatcher(db, {
       name: "other",
@@ -39,18 +61,9 @@ describe("watcher-engine", () => {
   });
 
   test("invalid condition_json does not notify", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = makeDb();
     const t0 = 1_700_000_000_000;
-    insertWatcher(db, {
-      name: "bad-json",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: "not-json",
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-    });
+    insertAlertFiredWatcher(db, "bad-json", "not-json", t0);
     let calls = 0;
     evaluateWatchersAfterSync(db, "pagerduty", t0 + 1, () => {
       calls += 1;
@@ -60,18 +73,14 @@ describe("watcher-engine", () => {
   });
 
   test("service filter mismatch does not notify", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = makeDb();
     const t0 = 1_700_000_000_000;
-    insertWatcher(db, {
-      name: "pd-only",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: { service: "pagerduty" } }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-    });
+    insertAlertFiredWatcher(
+      db,
+      "pd-only",
+      JSON.stringify({ filter: { service: "pagerduty" } }),
+      t0,
+    );
     upsertIndexedItem(db, {
       service: "pagerduty",
       type: "alert",
@@ -89,18 +98,14 @@ describe("watcher-engine", () => {
   });
 
   test("fires on new alert for synced service and updates watcher timestamps", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = makeDb();
     const t0 = 1_700_000_000_000;
-    const wid = insertWatcher(db, {
-      name: "pd-alerts",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: { service: "pagerduty" } }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-    });
+    const wid = insertAlertFiredWatcher(
+      db,
+      "pd-alerts",
+      JSON.stringify({ filter: { service: "pagerduty" } }),
+      t0,
+    );
     upsertIndexedItem(db, {
       service: "pagerduty",
       type: "alert",
@@ -136,18 +141,9 @@ describe("watcher-engine", () => {
   });
 
   test("omitted filter service matches any synced service", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = makeDb();
     const t0 = 2_700_000_000_000;
-    insertWatcher(db, {
-      name: "any-svc",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: {} }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-    });
+    insertAlertFiredWatcher(db, "any-svc", JSON.stringify({ filter: {} }), t0);
     upsertIndexedItem(db, {
       service: "sentry",
       type: "alert",
@@ -165,18 +161,9 @@ describe("watcher-engine", () => {
   });
 
   test("startup catch-up evaluates without a prior sync event", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = makeDb();
     const t0 = 3_800_000_000_000;
-    insertWatcher(db, {
-      name: "catch-up",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-    });
+    insertAlertFiredWatcher(db, "catch-up", JSON.stringify({ filter: { service: "sentry" } }), t0);
     upsertIndexedItem(db, {
       service: "sentry",
       type: "alert",

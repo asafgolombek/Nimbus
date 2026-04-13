@@ -154,6 +154,6 @@ describe("runWorkflowExecution (agent path)", () => {
 
     expect(chunks.some((c) => c.includes("Step 1"))).toBe(true);
     expect(chunks.some((c) => c.includes("Only"))).toBe(true);
-    expect(chunks.some((c) => c === "body")).toBe(true);
+    expect(chunks.includes("body")).toBe(true);
   });
 });

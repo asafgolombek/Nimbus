@@ -24,6 +24,21 @@ function memoryLogger(): { logger: Logger; warns: unknown[]; errors: unknown[] }
   return { logger, warns, errors };
 }
 
+function makeExtensionDir(
+  prefix: string,
+  id: string,
+  entryContent: string,
+): { dir: string; manifestHex: string; entryPath: string } {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const manifestPath = join(dir, "nimbus.extension.json");
+  writeFileSync(manifestPath, JSON.stringify({ id, version: "1.0.0", name: id }), "utf8");
+  mkdirSync(join(dir, "dist"), { recursive: true });
+  const entryPath = join(dir, "dist/index.js");
+  writeFileSync(entryPath, entryContent, "utf8");
+  const manifestHex = createHash("sha256").update(readFileSync(manifestPath)).digest("hex");
+  return { dir, manifestHex, entryPath };
+}
+
 describe("verifyExtensionsBestEffort", () => {
   test("no-op below schema v10", () => {
     const db = new Database(":memory:");
@@ -35,13 +50,7 @@ describe("verifyExtensionsBestEffort", () => {
   test("manifest hash mismatch logs error and disables extension", () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
-    const dir = mkdtempSync(join(tmpdir(), "nimbus-ext-vfy-"));
-    const manifestPath = join(dir, "nimbus.extension.json");
-    const manifestBody = JSON.stringify({ id: "bad", version: "1.0.0", name: "Bad" });
-    writeFileSync(manifestPath, manifestBody, "utf8");
-    const entryPath = join(dir, "dist/index.js");
-    mkdirSync(join(dir, "dist"), { recursive: true });
-    writeFileSync(entryPath, "console.log(1)\n", "utf8");
+    const { dir } = makeExtensionDir("nimbus-ext-vfy-", "bad", "console.log(1)\n");
 
     const t = Date.now();
     insertExtensionRow(db, {
@@ -67,15 +76,7 @@ describe("verifyExtensionsBestEffort", () => {
   test("entry hash mismatch logs error and disables extension", () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
-    const dir = mkdtempSync(join(tmpdir(), "nimbus-ext-vfy-entry-"));
-    const manifestPath = join(dir, "nimbus.extension.json");
-    const manifestBody = JSON.stringify({ id: "ent", version: "1.0.0", name: "Ent" });
-    writeFileSync(manifestPath, manifestBody, "utf8");
-    const entryPath = join(dir, "dist/index.js");
-    mkdirSync(join(dir, "dist"), { recursive: true });
-    writeFileSync(entryPath, "export {}\n", "utf8");
-    const manifestBytes = readFileSync(manifestPath);
-    const manifestHex = createHash("sha256").update(manifestBytes).digest("hex");
+    const { dir, manifestHex } = makeExtensionDir("nimbus-ext-vfy-entry-", "ent", "export {}\n");
 
     const t = Date.now();
     insertExtensionRow(db, {

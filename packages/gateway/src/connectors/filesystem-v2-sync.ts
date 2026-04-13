@@ -382,7 +382,7 @@ function excerptAroundExportedSymbol(source: string, symbolName: string, maxChar
     break;
   }
   if (hit < 0) {
-    const flat = source.replace(/\s+/g, " ").trim();
+    const flat = source.replaceAll(/\s+/g, " ").trim();
     return flat.length <= maxChars ? flat : flat.slice(0, maxChars);
   }
   const from = Math.max(0, hit - 6);

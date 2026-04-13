@@ -115,6 +115,29 @@ function extractTarGzToDirectory(archivePath: string, destDir: string): void {
   }
 }
 
+function installExtensionFromArchive(options: {
+  db: Database;
+  extensionsDir: string;
+  archivePath: string;
+}): InstallExtensionFromLocalResult {
+  const tmp = mkdtempSync(join(tmpdir(), "nimbus-ext-tgz-"));
+  try {
+    extractTarGzToDirectory(options.archivePath, tmp);
+    const root = findExtensionSourceRootInTree(tmp);
+    return installExtensionFromLocalDirectory({
+      db: options.db,
+      extensionsDir: options.extensionsDir,
+      sourcePath: root,
+    });
+  } finally {
+    try {
+      rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 function findExtensionSourceRootInTree(extractedRoot: string): string {
   if (resolveExtensionManifestPath(extractedRoot) !== undefined) {
     return extractedRoot;
@@ -169,21 +192,11 @@ export function installExtensionFromLocalDirectory(options: {
     if (!lower.endsWith(".tar.gz") && !lower.endsWith(".tgz")) {
       throw new Error("extension source file must be a .tar.gz or .tgz archive");
     }
-    const tmp = mkdtempSync(join(tmpdir(), "nimbus-ext-tgz-"));
-    try {
-      extractTarGzToDirectory(sourceResolved, tmp);
-      const root = findExtensionSourceRootInTree(tmp);
-      return installExtensionFromLocalDirectory({
-        ...options,
-        sourcePath: root,
-      });
-    } finally {
-      try {
-        rmSync(tmp, { recursive: true, force: true });
-      } catch {
-        /* best-effort */
-      }
-    }
+    return installExtensionFromArchive({
+      db: options.db,
+      extensionsDir: options.extensionsDir,
+      archivePath: sourceResolved,
+    });
   }
   if (!st.isDirectory()) {
     throw new Error("extension source path must be a directory or .tar.gz archive");
