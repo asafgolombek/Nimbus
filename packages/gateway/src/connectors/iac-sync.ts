@@ -1,3 +1,4 @@
+import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -15,7 +16,8 @@ export type IacSyncableOptions = {
 };
 
 /**
- * Registers the connector for scheduler + MCP tools; state/drift indexing is a follow-up slice.
+ * Registers the connector for scheduler + MCP tools. When enabled, upserts a heartbeat item
+ * with indexed AWS Lambda counts for `nimbus status --drift` / ping drift hints.
  */
 export function createIacSyncable(options: IacSyncableOptions): Syncable {
   const initialSyncDepthDays = 1;
@@ -31,9 +33,28 @@ export function createIacSyncable(options: IacSyncableOptions): Syncable {
         return syncNoopResult(cursor, t0);
       }
       await ctx.rateLimiter.acquire("iac");
+      const now = Date.now();
+      const lambdaRow = ctx.db
+        .query(`SELECT COUNT(*) as c FROM item WHERE service = 'aws' AND type = 'lambda_function'`)
+        .get() as { c: number } | undefined;
+      const lambdaCount = lambdaRow?.c ?? 0;
+      upsertIndexedItemForSync(ctx, {
+        service: SERVICE_ID,
+        type: "sync_heartbeat",
+        externalId: "drift_baseline",
+        title: "IaC connector index snapshot",
+        bodyPreview: `AWS Lambda (indexed): ${String(lambdaCount)}`,
+        url: null,
+        canonicalUrl: null,
+        modifiedAt: now,
+        authorId: null,
+        metadata: { awsLambdaIndexedCount: lambdaCount, tick: now },
+        pinned: false,
+        syncedAt: now,
+      });
       return {
-        cursor: encodeCursor({ tick: Date.now() }),
-        itemsUpserted: 0,
+        cursor: encodeCursor({ tick: now }),
+        itemsUpserted: 1,
         itemsDeleted: 0,
         hasMore: false,
         durationMs: Math.round(performance.now() - t0),

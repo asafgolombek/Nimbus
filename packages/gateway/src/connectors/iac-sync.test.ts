@@ -18,13 +18,19 @@ describeWithFetchRestore("iac-sync", () => {
 
   test("heartbeat when enabled", async () => {
     const sync = createIacSyncable({ ensureIacMcpRunning: async () => {} });
+    const db = createMemoryIndexDb();
     const ctx = {
       vault: createStubVault({ "iac.enabled": "1" }),
-      db: createMemoryIndexDb(),
+      db,
       ...silentSyncContextExtras(),
     };
     const r = await sync.sync(ctx, null);
-    expect(r.itemsUpserted).toBe(0);
+    expect(r.itemsUpserted).toBe(1);
     expect(r.bytesTransferred).toBe(0);
+    const row = db
+      .query(`SELECT id, type FROM item WHERE service = 'iac' AND external_id = 'drift_baseline'`)
+      .get() as { id: string; type: string } | undefined;
+    expect(row?.type).toBe("sync_heartbeat");
+    expect(row?.id).toBe("iac:drift_baseline");
   });
 });

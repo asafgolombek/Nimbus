@@ -73,6 +73,9 @@ bun run test:coverage
 bun run test:coverage:engine   # ≥85% threshold (engine)
 bun run test:coverage:vault    # ≥90% threshold (vault)
 bun run test:coverage:embedding # ≥80% threshold (embedding)
+bun run test:coverage:workflow  # ≥80% threshold (workflow runner + store)
+bun run test:coverage:watcher   # ≥80% threshold (watcher engine + store + anomaly stub)
+bun run test:coverage:extensions # ≥85% threshold (extension registry + manifest + verify)
 
 # Integration tests
 bun run test:integration

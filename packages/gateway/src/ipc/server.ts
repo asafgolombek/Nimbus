@@ -6,6 +6,7 @@ import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
 import { type AgentRequestContext, agentRequestContext } from "../engine/agent-request-context.ts";
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
+import { driftHintsFromIndex } from "../index/drift-hints.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -543,13 +544,22 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return connectorRpcSkipped;
   }
 
-  function rpcGatewayPing(): unknown {
+  function rpcGatewayPing(params: unknown): unknown {
     const extra = options.getEmbeddingStatus?.() ?? {};
-    return {
+    const base: Record<string, unknown> = {
       version: options.version,
       uptime: Date.now() - startedAtMs,
       ...extra,
     };
+    const rec = asRecord(params);
+    if (rec === undefined || rec["includeDrift"] !== true) {
+      return base;
+    }
+    if (options.localIndex === undefined) {
+      return { ...base, drift: { lines: ["Local index is not available."] as const } };
+    }
+    const lines = driftHintsFromIndex(options.localIndex.getDatabase());
+    return { ...base, drift: { lines } };
   }
 
   async function rpcIndexSearchRanked(params: unknown): Promise<unknown> {
@@ -646,7 +656,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
     switch (method) {
       case "gateway.ping":
-        return rpcGatewayPing();
+        return rpcGatewayPing(params);
 
       case "index.searchRanked":
         return await rpcIndexSearchRanked(params);

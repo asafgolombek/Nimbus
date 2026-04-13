@@ -185,6 +185,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         "outlook",
         "teams",
         "github",
+        "github_actions",
         "gitlab",
         "bitbucket",
         "slack",
@@ -193,6 +194,18 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         "notion",
         "confluence",
         "discord",
+        "jenkins",
+        "circleci",
+        "pagerduty",
+        "kubernetes",
+        "aws",
+        "azure",
+        "gcp",
+        "iac",
+        "grafana",
+        "sentry",
+        "newrelic",
+        "datadog",
       ] as const,
     }),
   });
@@ -326,7 +339,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   const devopsAgent = new Agent({
     id: "nimbus-devops",
     name: "Nimbus DevOps",
-    instructions: `You are Nimbus DevOps. Prioritize CI/CD, deployments, connector sync health, operational incidents, and anything indexed as pipelines or infrastructure. ${toolGuidance}${sessionHint}`,
+    instructions: `You are Nimbus DevOps. Prioritize CI/CD, deployments, connector sync health, operational incidents, and infrastructure indexed in SQLite. Use searchLocalIndex with itemType hints when helpful: e.g. ci_run, lambda_function, alert, deployment-related types; enable semantic search for vague descriptions. Start from the local index before assuming external state. ${toolGuidance}${sessionHint}`,
     model,
     tools: baseTools,
   });
@@ -334,7 +347,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   const researchAgent = new Agent({
     id: "nimbus-research",
     name: "Nimbus Research",
-    instructions: `You are Nimbus Research. Prioritize thorough index search, graph traversal, and synthesizing evidence from multiple sources before answering. ${toolGuidance}${sessionHint}`,
+    instructions: `You are Nimbus Research. Prioritize thorough index search (semantic on by default), graph traversal for linked documents and threads, and citing item ids from the index. Favor item types such as file, message, page, document, thread when narrowing searches. ${toolGuidance}${sessionHint}`,
     model,
     tools: baseTools,
   });

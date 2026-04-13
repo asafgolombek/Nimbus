@@ -70,7 +70,9 @@ export class SyncScheduler {
 
   private readonly forceWaiters = new Map<string, Array<(err?: unknown) => void>>();
 
-  private readonly onConnectorSyncSuccess: ((serviceId: string) => void) | undefined;
+  private readonly onConnectorSyncSuccess:
+    | ((serviceId: string, result: SyncResult, durationMs: number) => void)
+    | undefined;
 
   constructor(
     syncContext: SyncContext,
@@ -78,7 +80,7 @@ export class SyncScheduler {
     options?: {
       notify?: (title: string, body: string) => Promise<void>;
       random?: () => number;
-      onConnectorSyncSuccess?: (serviceId: string) => void;
+      onConnectorSyncSuccess?: (serviceId: string, result: SyncResult, durationMs: number) => void;
     },
   ) {
     this.db = syncContext.db;
@@ -407,7 +409,7 @@ export class SyncScheduler {
     }
 
     this.resolveForceWaiters(job.serviceId);
-    this.onConnectorSyncSuccess?.(job.serviceId);
+    this.onConnectorSyncSuccess?.(job.serviceId, result, durationMs);
   }
 
   private async runJob(job: Job): Promise<void> {

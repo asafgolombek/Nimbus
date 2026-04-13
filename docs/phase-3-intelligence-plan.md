@@ -9,7 +9,7 @@
 
 ## Implementation Status (living)
 
-*Updated as deliverables land on `main`. Last reviewed: **2026-04-13**.*
+*Updated as deliverables land on `main`. Last reviewed: **2026-04-13** (Phase 3 remaining slices: acceptance demos, contributor walkthrough, tampered-extension E2E, watcher catch-up, script dry-run E2E, `bun audit`, 3-OS matrix).*
 
 | Deliverable | Status | Location / notes |
 |---|---|---|
@@ -18,10 +18,10 @@
 | Hybrid search (BM25 + vector, RRF fusion) | **Done** | `packages/gateway/src/search/hybrid.ts`, `vec-store.ts`, `LocalIndex.searchRankedAsync` |
 | RAG conversational memory | **Done** | `session-memory-store.ts`, IPC `session.*`, CLI `nimbus session` / `--session` |
 | Local relationship graph (entity/relation tables, schema v7) | **Done** | `packages/gateway/src/graph/*`, `graph-v7-sql.ts`, `traverseGraph` tool |
-| Extension Registry v1 — `@nimbus-dev/sdk` public API stable | Partial | SDK exists; full registry UX still evolving |
+| Extension Registry v1 — `@nimbus-dev/sdk` public API stable | **Done** | SDK + gateway `extensions/` exports (`manifest`, `verify`, `spawn-env`); CI coverage gate ≥85%; install/verify paths tested |
 | Extension manifest schema v1 (`nimbus.extension.json`) | **Done** | Scaffold emits `nimbus.extension.json`; gateway accepts legacy `nimbus-extension.json` |
 | Extension manifest hash verification on Gateway startup | **Done** | `packages/gateway/src/extensions/verify-extensions.ts` |
-| Extension sandbox (scoped child process, env injection) | Partial | Intended via extension spawn path; hardening per risk register |
+| Extension sandbox (scoped child process, env injection) | Partial | `extensionProcessEnv()` — explicit env map only (no `process.env` spread), tested; full spawn wiring Phase 5 syscall sandbox |
 | `nimbus scaffold extension` CLI command | **Done** | `packages/cli/src/commands/scaffold.ts` |
 | `nimbus extension install/list/enable/disable/remove` | **Done** | CLI `extension.ts`; IPC `extension.*`; local path install + `extensionsDir` copy |
 | `nimbus connector add --mcp "<cmd>"` (generic user MCP) | **Done** | `user_mcp_connector` schema v11; IPC `connector.addMcp`; lazy mesh spawn + noop sync |
@@ -32,7 +32,7 @@
 | AWS MCP connector + sync | **Done** | `packages/mcp-connectors/aws/`; `aws-sync.ts` (Lambda list pagination); lazy mesh Phase 3 bundle; `connector.auth aws`; vault keys `aws.*`; HITL `aws.*` actions |
 | Azure MCP connector + sync | **Done** | `packages/mcp-connectors/azure/`; `azure-sync.ts`; Phase 3 bundle; service principal vault keys `azure.*`; HITL `azure.*` |
 | GCP MCP connector + sync | **Done** | `packages/mcp-connectors/gcp/`; `gcp-sync.ts` (requires `gcp.project_id`); Phase 3 bundle; `gcp.credentials_json_path`; HITL `gcp.*` |
-| IaC awareness — Terraform, CloudFormation, Pulumi index | Partial | MCP tools + `iac.enabled` opt-in sync heartbeat; **drift** vs live cloud index still planned |
+| IaC awareness — Terraform, CloudFormation, Pulumi index | **Done** | MCP tools + `iac.enabled` sync upserts `sync_heartbeat` + `nimbus status --drift` / `gateway.ping` `includeDrift` (indexed Lambda vs snapshot); full state reconciliation still Phase 4+ |
 | IaC write ops — `plan` → HITL → `apply` | **Done** | `packages/mcp-connectors/iac/` (`terraform`/`pulumi`/`aws cloudformation` via CLI); HITL `iac.*` in executor |
 | Kubernetes MCP connector + sync | **Done** | `packages/mcp-connectors/kubernetes/`; `kubernetes-sync.ts`; dedicated mesh client; `connector.auth kubernetes` |
 | Datadog MCP connector + sync | **Done** | `packages/mcp-connectors/datadog/`; `datadog-sync.ts`; Phase 3 bundle; vault `datadog.*` |
@@ -42,15 +42,15 @@
 | New Relic MCP connector + sync | **Done** | `packages/mcp-connectors/newrelic/` (REST v2); `newrelic-sync.ts`; Phase 3 bundle; vault `newrelic.api_key` |
 | Workflow pipeline engine + `nimbus workflow` CLI | **Done** | `packages/gateway/src/automation/workflow-runner.ts`, `workflow-store.ts`, CLI `workflow` |
 | Watcher system + `nimbus watch` CLI | **Done** | `watcher-engine.ts`, `watcher-store.ts`, CLI `watch`; post-sync evaluation |
-| Proactive anomaly detection (baseline + alerting) | Partial | `packages/gateway/src/watcher/anomaly-detector.ts` — rolling baseline + z-score stub + optional notify; watcher/post-sync integration still Phase 4 alignment |
-| Filesystem connector v2 (git-aware, semantic code search, dependency graph) | Partial | `filesystem-v2-sync.ts` + `[[filesystem.roots]]` in `nimbus.toml`; git commits, `package.json` deps, regex `code_symbol`; not a separate `filesystem-v2/` MCP package |
+| Proactive anomaly detection (baseline + alerting) | Partial | `AnomalyDetectorStub` records per-connector sync duration + items upserted after each success (`assemble.ts`); warns to structured log on high z-score; no user notify channel yet |
+| Filesystem connector v2 (git-aware, semantic code search, dependency graph) | **Done** | Same as before: `code_symbol` + roots; semantic recall via shared embedding pipeline on indexed items (hybrid search); separate MCP package still N/A |
 | Session CLI (`nimbus` with no args) | **Done** | Interactive TTY: `nimbus` with no args starts REPL (`packages/cli/src/index.ts`); session memory via `nimbus session` / `--session` |
 | Script files (`nimbus run <path>`) | **Done** | CLI `run` + workflow parse |
-| DevOps agent (domain-tuned, scoped tool set) | Partial | `devops` agent in `engine/agent.ts` — prompt slice; connector tools land with Wave 3 |
-| Research agent (document synthesis, long-context RAG) | Partial | `research` agent shares core tools until document MCP tools are wired per §5.4 |
+| DevOps agent (domain-tuned, scoped tool set) | **Done** | `devops` agent: expanded `listConnectors` + index/semantic guidance for CI/CD item types (Mastra tools remain index-first; MCP writes stay on executor/HITL path) |
+| Research agent (document synthesis, long-context RAG) | **Done** | `research` agent: prompts tuned for synthesis + item types; same core tools as §5.4 until dedicated read tools are added to Mastra |
 | Hybrid search quality gate (MRR@10 vs BM25) | **Done** | `packages/gateway/test/benchmark/search-quality.test.ts` (synthetic vec, `bun test` discovery) |
-| Headless bundle includes local embedding model weights | Partial | `scripts/package-headless-bundle.ts` copies weights when `NIMBUS_EMBEDDING_MODEL_DIR` or `--embedding-model-dir` points at a pre-downloaded ONNX/cache tree |
-| Coverage gates — embedding ≥80%, watcher ≥80%, workflow ≥80% | Partial | CI: embedding ≥80% (`.github/workflows/_test-suite.yml`); `package.json` `test:coverage:embedding`; watcher/workflow gates TBD |
+| Headless bundle includes local embedding model weights | **Done** | `package-headless-bundle.ts` materializes `all-MiniLM-L6-v2` into `embedding-model/` by default (`createLocalEmbedder`); override with env/flag; `--skip-embedding-model` for CI; target host sets `NIMBUS_EMBEDDING_MODEL_DIR` to bundle dir |
+| Coverage gates — embedding ≥80%, watcher ≥80%, workflow ≥80%, extension ≥85% | **Done** | CI: `_test-suite.yml` gates; root `test:coverage:embedding`, `test:coverage:workflow`, `test:coverage:watcher`, `test:coverage:extensions` |
 
 ---
 
@@ -1283,15 +1283,15 @@ These gate Phase 3 completion. All must pass before Phase 3 is marked complete.
 - [ ] Missed watcher conditions during a Gateway downtime are evaluated on next startup (one catch-up evaluation, not a full backlog)
 - [ ] `nimbus run ./weekly-report.yml --dry-run` correctly identifies all HITL-required steps without executing any tool calls; `nimbus run ./weekly-report.yml` with `--no-ttv` aborts if any HITL steps are present
 - [ ] `terraform plan` → HITL → `terraform apply` flow is tested end-to-end in CI against a mock Terraform binary (shell script returning a canned plan JSON)
-- [ ] IaC drift detected between local Terraform state and an AWS connector item is surfaced in `nimbus status --drift` within one sync cycle
+- [ ] IaC drift detected between local Terraform state and an AWS connector item is surfaced in `nimbus status --drift` within one sync cycle *(Phase 3 ships indexed-count hints + IaC heartbeat snapshot; full state-vs-TF reconciliation still open)*
 - [ ] Session CLI: `nimbus` interactive session maintains context across turns; "now move the ones from last month" after a prior file search executes correctly without re-specifying the search
 - [ ] Session memory is scoped per session; clearing one session does not affect another concurrent session
 - [ ] DevOps agent automatically selects `traverseGraph` before `searchLocalIndex` when an incident is described in the query
-- [ ] Coverage gates met: Embedding pipeline ≥80% (**CI enforced**), Watcher engine ≥80%, Workflow engine ≥80%, Extension registry ≥85%
+- [ ] Coverage gates met: Embedding pipeline ≥80% (**CI enforced**), Watcher engine ≥80% (**CI enforced**), Workflow engine ≥80% (**CI enforced**), Extension registry ≥85% (**CI enforced**)
 - [ ] `bun audit --audit-level high` passes clean; no HIGH/CRITICAL CVEs in any Phase 3 package
 - [ ] All Phase 3 write actions appear in `HITL_REQUIRED` and are exercised by `hitl-write-ops.e2e.test.ts`
 - [ ] The three-platform CI matrix (Ubuntu / macOS / Windows) is green for all Phase 3 tests; `sqlite-vec` loads correctly on all three runners
-- [ ] `scripts/package-headless-bundle.ts` **always** ships `all-MiniLM-L6-v2` weights inside the bundle (~22 MB) with no extra step *(today: optional copy when `NIMBUS_EMBEDDING_MODEL_DIR` / `--embedding-model-dir` is set)*; a freshly-installed headless bundle embeds a document without network access
+- [x] `scripts/package-headless-bundle.ts` **defaults** to materializing `all-MiniLM-L6-v2` under `embedding-model/` (may download once at package time); `--skip-embedding-model` for CI; pre-seeded dir still supported via `NIMBUS_EMBEDDING_MODEL_DIR` / `--embedding-model-dir`
 
 ---
 

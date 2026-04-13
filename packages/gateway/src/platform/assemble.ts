@@ -24,6 +24,7 @@ import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
 import type { SyncContext } from "../sync/types.ts";
 import { createNimbusVault } from "../vault/factory.ts";
+import { AnomalyDetectorStub } from "../watcher/anomaly-detector.ts";
 import { registerConnectorMeshSyncables } from "./assemble-sync-registrations.ts";
 import { openUrlInDefaultBrowser } from "./browser.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
@@ -133,12 +134,25 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
 
   verifyExtensionsBestEffort(db, syncLogger);
 
+  const syncAnomaly = new AnomalyDetectorStub({
+    windowSize: 64,
+    onNotify: (e) => {
+      syncLogger.warn(
+        { seriesId: e.seriesId, value: e.value, score: e.score, atMs: e.atMs },
+        "sync telemetry anomaly (stub — no automated remediation)",
+      );
+    },
+  });
+
   const syncScheduler = new SyncScheduler(syncContext, undefined, {
     notify: async (title, body) => {
       await notifications.show(title, body);
     },
-    onConnectorSyncSuccess: (serviceId) => {
-      evaluateWatchersAfterSync(db, serviceId, Date.now(), (t, b) => notifications.show(t, b));
+    onConnectorSyncSuccess: (serviceId, result, durationMs) => {
+      const at = Date.now();
+      syncAnomaly.recordSample(`sync:duration_ms:${serviceId}`, durationMs, at);
+      syncAnomaly.recordSample(`sync:items_upserted:${serviceId}`, result.itemsUpserted, at);
+      evaluateWatchersAfterSync(db, serviceId, at, (t, b) => notifications.show(t, b));
     },
   });
   const fsV2Roots = loadNimbusFilesystemRootsFromConfigDir(paths.configDir);

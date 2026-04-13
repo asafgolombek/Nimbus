@@ -12,5 +12,11 @@
  * See architecture.md §Subsystem 4: The Extension Registry
  */
 
-// Roadmap Q3: export ExtensionRegistry, ManifestValidator, ExtensionProcessManager
-export const EXTENSION_REGISTRY_ROADMAP_PHASE = "Q3" as const;
+export {
+  EXTENSION_MANIFEST_FILENAME,
+  EXTENSION_MANIFEST_FILENAME_LEGACY,
+  parseExtensionManifestJson,
+  resolveExtensionManifestPath,
+} from "./manifest.ts";
+export { extensionProcessEnv } from "./spawn-env.ts";
+export { verifyExtensionsBestEffort } from "./verify-extensions.ts";
