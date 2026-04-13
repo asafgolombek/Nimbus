@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3 — Intelligence (active)
+**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** is the next roadmap focus
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -46,7 +46,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
-| `docs/phase-3-intelligence-plan.md` | Phase 3 execution plan + living implementation status |
+| `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
 
 ---
 
@@ -164,8 +164,8 @@ A system that orchestrates real actions against real data cannot rely on develop
 |---|---|---|
 | Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | ✅ Complete |
 | Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | ✅ Complete |
-| Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | 🔵 Active (~14/21 items complete) |
-| Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | Planned |
+| Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | ✅ Complete |
+| Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | 🔵 Current focus |
 | Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | Planned |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | Planned |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |

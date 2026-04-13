@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** reflects `main` as of Phase 3 (active). Update the Phase 3 progress note as waves land on `main`.
+> **Last updated:** reflects `main` as of Phase 3 complete; **Phase 3.5** is the active planning focus for `v0.1.0` readiness.
 
 ---
 
@@ -27,8 +27,8 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 |---|---|---|
 | Phase 1 | Foundation | ✅ Complete |
 | Phase 2 | The Bridge | ✅ Complete |
-| Phase 3 | Intelligence | 🔵 Active |
-| Phase 3.5 | Observability & Developer Experience | Planned |
+| Phase 3 | Intelligence | ✅ Complete |
+| Phase 3.5 | Observability & Developer Experience | 🔵 Current focus |
 | Phase 4 | Presence | Planned |
 | Phase 5 | The Extended Surface | Planned |
 | Phase 6 | Team | Planned |
@@ -124,79 +124,72 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 ---
 
-## Phase 3 — Intelligence
+## Phase 3 — Intelligence ✅
 
-**Goal:** Make Nimbus semantically aware and proactively useful. Extend into CI/CD, cloud infrastructure, and agentic automation.
+**Goal:** Make Nimbus semantically aware and proactively useful. Extend into CI/CD, cloud infrastructure, observability MCPs, workflows, watchers, extensions, and specialized agents.
 
-**Status:** Active — Phase 2 complete; Wave 1–3b deliverables (semantic layer, extensions core, CI/CD + cloud + observability MCPs, workflows, watchers, partial filesystem v2) are on `main`. Remaining work: IaC drift indexing, full proactive anomaly loop, deeper AWS/Azure/GCP surface area, full filesystem v2 vision, DevOps and Research agents. **Progress: ~14 of 21 items complete** — update this note as items land on `main`.
+**Status:** **Complete** on `main` (closed 2026-04). This section is the authoritative post-closure summary (the long-form Phase 3 plan doc was retired when the phase closed). **Phase 3.5** owns observability, conversational E2E harnesses, and remaining polish.
 
-### Dependencies
+### Dependencies (met)
 
-- Phase 2 unified metadata index (embedding pipeline needs populated items)
-- Extension SDK scaffold stable before Registry v1 ships
-- IaC write operations depend on IaC read/index from Phase 3 foundation items
+- Phase 2 unified metadata index
+- Extension SDK + Registry v1 for safe third-party MCP / `nimbus connector add --mcp`
 
-### Semantic Layer
+### Delivered
 
-- [x] **Embedding pipeline** — chunk items at sync time → local embed via `@xenova/transformers` (no API key); store vectors in `sqlite-vec`; model: `all-MiniLM-L6-v2` (default) / OpenAI opt-in
-- [x] **Hybrid search** — BM25 full-text (FTS5) + vector cosine similarity; RRF fusion reranking; exposed as `nimbus search --semantic`
-- [x] **RAG conversational memory** — session context stored as embedded chunks; recalled at query time; scoped per-project
+#### Semantic layer
 
-### Extension Ecosystem
+- [x] **Embedding pipeline** — Bun worker; `@xenova/transformers` local default; `sqlite-vec` (`vec_items_384`); OpenAI opt-in; provider/model switch + resumable backfill; `MINIMUM_MODEL_VERSION` in `embedding/model.ts`
+- [x] **Hybrid search** — BM25 + vector RRF; chunk dedupe / parent chunk context where implemented; `nimbus search --semantic`; quality gate: `packages/gateway/test/benchmark/search-quality.test.ts`
+- [x] **RAG session memory** — per-session embedded chunks; IPC `session.*`; hourly prune; isolation tests in `session-memory-store.test.ts`
 
-- [x] **Extension Registry v1** (core) — `@nimbus-dev/sdk` public API; manifest schema v1 (`nimbus.extension.json`); `nimbus scaffold extension`; install/list/enable/disable/remove; manifest hash verification on startup
-- [ ] **Extension sandbox hardening** — full syscall/network isolation beyond scoped env injection (risk register)
-- [ ] **Extension Marketplace** — browse/discover/update UX (Phase 4 desktop)
+#### Extension ecosystem
 
-### CI/CD & Infrastructure Connectors
+- [x] **Extension Registry v1** — `nimbus.extension.json`; manifest **and** entry-point SHA-256 on startup; scaffold + install/list/enable/disable/remove; tarball / URL / local path; see `docs/contributors/extension-author-walkthrough.md`
+- [ ] **Extension sandbox hardening** — full syscall/network isolation → **Phase 5** (process + scoped env today)
+- [ ] **Extension Marketplace** — **Phase 4** (Tauri)
 
-- [x] **Jenkins MCP connector** — jobs, builds, stages, artefacts, failure logs
-- [x] **GitHub Actions MCP connector** — workflow runs, job steps, artefact metadata
-- [x] **CircleCI MCP connector** — pipelines, workflows, jobs
-- [x] **GitLab CI MCP connector** — pipelines, jobs, artefacts (extends GitLab connector)
-- [x] **AWS MCP connector** — AWS CLI–backed tools; sync indexes Lambda (paginated); ECS/CloudWatch/S3/Cost Explorer breadth expandable behind same `aws` service id
-- [x] **Azure MCP connector** — App Service + AKS pool scale via `az` CLI; sync indexes current subscription snapshot
-- [x] **GCP MCP connector** — Cloud Run + GKE workload restart via `gcloud`/kubectl; sync requires `gcp.project_id` in vault
-- [ ] **IaC awareness (full)** — index Terraform state / Pulumi stack metadata into `iac_resource`; drift compare vs indexed live cloud (depends on fresh cloud sync)
-- [x] **IaC write operations** (MCP) — Terraform plan/apply/destroy, CloudFormation deploy, Pulumi preview/up; HITL on destructive applies; audit before execution
-- [x] **Kubernetes connector** — workloads via `kubectl`; kubeconfig path in vault; read tools + HITL mutations (`rollout restart`, `pod delete`, `deployment scale`)
-- [x] **Datadog MCP connector** — monitors/incidents API; sync indexes monitors
-- [x] **Grafana MCP connector** — HTTP API read tools; sync indexes dashboards (search API)
-- [x] **Sentry MCP connector** — project/issue-oriented read tools; sync indexes projects
-- [x] **PagerDuty MCP connector** — incidents, alerts, escalation policies, on-call schedules; acknowledge/resolve behind HITL
-- [x] **New Relic MCP connector** — REST v2 applications + alert violations; sync indexes APM applications
+#### CI/CD and infrastructure MCP connectors
 
-### Workflow Automation
+- [x] Jenkins, GitHub Actions, CircleCI, GitLab CI (pipelines/jobs + HITL)
+- [x] AWS, Azure, GCP (CLI-backed tools + sync + HITL mutations)
+- [x] **IaC** — Terraform / CloudFormation / Pulumi via MCP; sync heartbeat + **drift hints** (`nimbus status --drift`, `gateway.ping` `includeDrift`) — not full Terraform-state vs live reconciliation (later phase)
+- [x] Kubernetes, Datadog, Grafana, Sentry, PagerDuty, New Relic
 
-- [x] **Workflow pipelines** — named, saved multi-step workflows; YAML format shared with script files; HITL per write step; `nimbus workflow` CLI
-- [x] **Watcher system** — SQLite-backed definitions; post-sync evaluation; `nimbus watch` CLI
-  - Condition types: `email_match`, `file_changed`, `file_not_changed`, `deploy_failed`, `alert_fired`, `pr_merged`, `schedule`
-  - Actions: `notify`, `run_workflow`, `ask_agent`
-- [ ] **Proactive anomaly detection (full)** — baseline learning wired through watcher post-sync; stub exists (`watcher/anomaly-detector.ts`)
+#### Automation and graph
 
-### Knowledge Graph & Filesystem Intelligence
+- [x] **Workflows** — `workflow-runner` / store; `nimbus workflow`; script files `nimbus run`; dry-run / `--no-ttv` HITL safety
+- [x] **Watchers** — post-sync evaluation; rate limiting + cycle detection; cron gating; startup catch-up; unit coverage in `watcher-engine.test.ts` / `watcher-store.test.ts`
+- [x] **Relationship graph** — `graph_entity` / `graph_relation`; `traverseGraph`; indexed incident correlation substrate: `packages/gateway/test/e2e/scenarios/incident-correlation-indexed.e2e.test.ts`
+- [x] **Filesystem intelligence (v2 scope shipped)** — `[[filesystem.roots]]`, `code_symbol`, git/deps metadata; semantic recall via shared embedding + hybrid search. Deeper vision (blame UX, multi-manifest parsers, etc.) → later phases
 
-- [x] **Local relationship graph** — entity/relation tables; populated on sync; graph tools in Gateway
-- [ ] **Filesystem connector v2** (complete vision):
-  - [x] Partial: git commit + `package.json` dependency + regex `code_symbol` indexing for configured `[[filesystem.roots]]` (`filesystem-v2-sync.ts`)
-  - [ ] Full: blame/branch UX, deep semantic code index, PR cross-links, multi-manifest parsers (`go.mod`, `Cargo.toml`, …), vulnerability flagging
+#### Agents and CLI
 
-### Interaction Layer
+- [x] **DevOps** and **Research** agents — domain-tuned prompts and tool scoping in Gateway engine
+- [x] **Session CLI** — TTY REPL (`nimbus` no args); headless bundle defaults to bundled MiniLM (`scripts/package-headless-bundle.ts`)
 
-- [x] **Session CLI** — `nimbus` with no arguments launches the interactive REPL when stdin/stdout are TTYs; session memory via `nimbus session` / `--session`; Gateway holds context while running
-- [x] **Script files** — `nimbus run <path>` executes a YAML script as a single session; mandatory preview phase; no-TTY safety; convergence with workflow pipelines
+#### Security and quality
 
-### Agent Specialization
+- [x] **Phase 3 HITL action ids** in `packages/gateway/src/engine/executor.ts` — exercised by `packages/gateway/test/e2e/scenarios/hitl-write-ops.test.ts`
+- [x] **Coverage gates** — embedding ≥80%, workflow ≥80%, watcher ≥80%, extensions ≥85% (see root `package.json` + `.github/workflows/_test-suite.yml`)
+- [x] **Three-platform CI** — push matrix in `.github/workflows/ci.yml`
 
-- [ ] **DevOps agent** — domain-tuned system prompt; pre-registered tool set scoped to CI/CD, infrastructure, and incident connectors; dedicated memory scope (deployment history, alert patterns)
-- [ ] **Research agent** — optimized for document synthesis and cross-service knowledge retrieval; pre-registered tool set scoped to Drive, Notion, Confluence, email; long-context RAG recall
+### Intentionally incomplete (follow-ups)
 
-### Acceptance Criteria
+| Topic | Where it lands |
+|---|---|
+| Full IaC drift (Terraform state vs live resource diff) | Later phase; hints only in Phase 3 |
+| Proactive anomaly **user** notify (beyond log stub) | Phase 3.5+ |
+| Deterministic TTY E2E for `nimbus ask` / anaphoric session turns | Phase 3.5 |
+| Extension syscall sandbox | Phase 5 |
 
-- `nimbus ask "what caused the payment-service incident last night?"` correlates the PagerDuty alert, GitHub PR, Jenkins build, CloudWatch error spike, and Slack incident thread — sourced entirely from the local index — in a single response
-- A community developer can publish a working Nimbus extension in under one working day using `nimbus scaffold extension` and `MockGateway` from the SDK
-- Watcher fires within one sync cycle of its condition becoming true; missed conditions during Gateway downtime are evaluated on next restart
-- `terraform plan` → HITL → `apply` flow is tested end-to-end in CI against a mock Terraform binary
+### Acceptance criteria (all met for Phase 3 closure)
+
+- **Indexed** cross-service incident correlation (PagerDuty, GitHub PR, Jenkins, Slack, AWS-style alert) via search + graph — `incident-correlation-indexed.e2e.test.ts`; conversational `nimbus ask` on same data = manual smoke
+- Contributor path documented — `docs/contributors/extension-author-walkthrough.md`
+- Watcher fires within a sync cycle; downtime catch-up on restart — covered by watcher engine/store tests and gateway E2E where applicable
+- `terraform plan` → HITL → `apply` — mock Terraform in `packages/mcp-connectors/iac/terraform-mock.integration.test.ts`
+- `bun audit --audit-level high` clean for Phase 3 packages; `sqlite-vec` on all CI OS runners
 
 ---
 
@@ -368,6 +361,14 @@ The docs site is a Phase 3.5 release prerequisite — a new user installing `v0.
 - [ ] **GDPR deletion** — `nimbus data delete --service <name>`: removes all index rows and Vault entries for a service; writes a signed deletion record to the audit log
 - [ ] **Tamper-evident audit log** — each audit log row is BLAKE3-chained to the previous; log export includes the chain; `nimbus audit verify` checks integrity
 
+### Automation & Graph Enhancements
+
+These items resolve deferred decisions from Phase 3.
+
+- [ ] **Graph-aware watcher conditions** — extend the watcher condition evaluator with `graph.*` condition types (`graph.has_relation`, `graph.path_exists`, `graph.neighbor_count`); uses `traverseGraph` from the Phase 3 relationship graph substrate; enables patterns like "alert when a PR author has no prior reviews" without per-watcher custom traversal code; new condition types are additive and backwards-compatible with existing Phase 3 watcher definitions
+- [ ] **Workflow branching and conditionals** — extend the workflow DSL with `if` / `else` / `switch` step types; condition expressions can reference step outputs and index query results; independent branches execute in parallel where possible; DSL remains backwards-compatible with Phase 3 linear pipelines; dry-run and HITL safety apply to all branch variants
+- [ ] **Per-connector OAuth vault keys** — migrate shared family keys (`google.oauth`, `microsoft.oauth`) to per-connector scoped keys (`google.drive.oauth`, `google.gmail.oauth`, etc.); `nimbus connector auth` migrates existing tokens transparently on re-auth; eliminates scope-collision UX edge cases; key migration recorded in the audit log
+
 ### Release Infrastructure
 
 - [ ] Signed + notarized release binaries: macOS (Gatekeeper notarized), Windows (Authenticode signed), Linux (GPG-signed `.deb` + AppImage)
@@ -443,6 +444,13 @@ The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data 
 - [ ] **Post-deploy annotation** — GitHub Actions action that writes a deployment event into the Nimbus index so the agent can correlate future alerts against this specific deploy; no extra credentials required beyond the HTTP API
 - [ ] **Pre-commit hook template** — `nimbus-dev/hooks` package providing a pre-commit hook that checks whether files being committed have related open Jira/Linear tickets, active incidents, or a failing pipeline on the current branch; reports findings without blocking (configurable to block)
 - [ ] **`nimbus query` in CI** — documented pattern for using `nimbus query --json` inside CI pipelines (GitHub Actions, Jenkins, GitLab CI) to gate deployments, generate release notes from indexed PRs, or surface incident context in PR comments; requires Gateway running on a self-hosted runner or accessible over LAN
+
+### Semantic Layer Enhancements
+
+These items resolve deferred decisions from Phase 3.
+
+- [ ] **Multi-model embedding** — add `vec_items_1536` virtual table for OpenAI `text-embedding-3-small` (and compatible) embeddings alongside the existing `vec_items_384` (`all-MiniLM-L6-v2`); `embedding_chunk.dims` and `embedding_chunk.model` are already recorded — schema is pre-positioned (Phase 3); per-item-type model routing: code symbols use local MiniLM by default; prose items use the configured model; `nimbus index reembed --model <id>` triggers selective backfill; multiple models can be active simultaneously with queries fan-out across matching vec tables and RRF-merged
+- [ ] **Extension sandbox hardening** — enforce full syscall/network isolation for extension child processes: seccomp BPF filter on Linux, App Sandbox entitlements on macOS, AppContainer token on Windows; network access must be declared in `nimbus.extension.json` under a `permissions.network` key and enforced at the kernel level; replaces the Phase 3 honour-system env restriction; extensions without `permissions.network` run fully offline; contract tests in `@nimbus-dev/sdk` verify sandbox enforcement on all three platforms
 
 ### Extension Marketplace v2
 
@@ -635,6 +643,7 @@ The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data 
 - [ ] **Air-gapped bundle** — single tarball with all binaries, local LLM model weights, and dependency assets; no outbound internet access required
 - [ ] **High availability** — active/passive Gateway clustering; leader election via SQLite WAL + advisory lock; failover in under 30 seconds
 - [ ] **Managed update channel** — enterprise updates on a dedicated channel with 2-week delay vs. main; allows internal QA before rollout
+- [ ] **Remote vector store adapters** — pluggable `VectorStore` interface with Qdrant, Weaviate, and Pinecone backends; `sqlite-vec` remains the default (local-first principle); remote backend enabled only via explicit `[index.vector_store]` config block — never on by default; suitable for enterprise deployments with centralised vector infrastructure or index sizes exceeding local storage thresholds; resolves the Phase 3 deferral (remote stores were incompatible with local-first for individual users; self-hosted enterprise deployments clear the privacy boundary)
 
 ### Centralized Policy & Compliance
 

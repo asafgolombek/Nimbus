@@ -93,7 +93,7 @@ Third-party connectors ship as npm packages. Install in one command; the agent g
 
 **Phase 1–2 (shipped):** Local Filesystem, Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in)
 
-**Phase 3 (active):** Jenkins, GitHub Actions, CircleCI, GitLab CI, AWS, Azure, GCP, Kubernetes, Terraform/Pulumi/CloudFormation, Datadog, Grafana, Sentry, PagerDuty, New Relic
+**Phase 3 (shipped):** Jenkins, GitHub Actions, CircleCI, GitLab CI, AWS, Azure, GCP, Kubernetes, Terraform/Pulumi/CloudFormation, Datadog, Grafana, Sentry, PagerDuty, New Relic
 
 See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 

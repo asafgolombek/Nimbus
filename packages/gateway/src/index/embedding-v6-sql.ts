@@ -1,7 +1,7 @@
 /**
  * Phase 3 Migration 6 — embedding store (`vec_items_384` + `embedding_chunk`).
  * Requires the sqlite-vec extension to be loaded before this SQL runs.
- * See docs/phase-3-intelligence-plan.md §Migration 6.
+ * See docs/roadmap.md (Phase 3 — Intelligence, semantic layer) for context.
  */
 export const EMBEDDING_V6_MIGRATION_SQL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_items_384
