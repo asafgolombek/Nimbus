@@ -43,9 +43,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # setup-trivy's install.sh resolves tags via unauthenticated github.com/.../releases/<tag> JSON, which often
+      # fails under rate limits or GitHub instability (misreported as "unable to find 'v0.69.3'"). Use the REST API
+      # with GITHUB_TOKEN instead. See https://github.com/aquasecurity/trivy/discussions/10152
+      - name: Install Trivy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIVY_TAG: v0.69.3
+        run: |
+          set -euo pipefail
+          DEST="${HOME}/.local/bin/trivy-bin"
+          mkdir -p "${DEST}"
+          release_json=$(curl -fsSL --retry 5 --retry-delay 8 --retry-all-errors \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/aquasecurity/trivy/releases/tags/${TRIVY_TAG}")
+          ver="${TRIVY_TAG#v}"
+          asset_name="trivy_${ver}_Linux-64bit.tar.gz"
+          asset_url=$(echo "${release_json}" | jq -r --arg n "${asset_name}" '.assets[] | select(.name == $n) | .browser_download_url')
+          if [ -z "${asset_url}" ] || [ "${asset_url}" = "null" ]; then
+            echo "Missing asset ${asset_name} in ${TRIVY_TAG}" >&2
+            exit 1
+          fi
+          curl -fsSL --retry 5 --retry-delay 8 --retry-all-errors -o /tmp/trivy.tgz "${asset_url}"
+          tar -xzf /tmp/trivy.tgz -C /tmp
+          install -m 0755 /tmp/trivy "${DEST}/trivy"
+          rm -f /tmp/trivy.tgz /tmp/trivy
+          echo "${DEST}" >> "${GITHUB_PATH}"
+
       - name: Run Trivy (filesystem scan)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
+          skip-setup-trivy: true
           scan-type: "fs"
           scan-ref: "."
           severity: "HIGH,CRITICAL"
