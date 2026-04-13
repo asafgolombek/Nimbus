@@ -91,7 +91,7 @@ async function workflowCliRun(client: IPCClient, rest: string[]): Promise<void> 
       name,
       stream: false,
       dryRun: true,
-      ...(agent !== undefined ? { agent } : {}),
+      ...(agent === undefined ? {} : { agent }),
     });
     const rec = preview as { stepResults?: Array<{ hitlActions?: readonly string[] }> };
     const flagged = (rec.stepResults ?? []).filter((s) => (s.hitlActions?.length ?? 0) > 0);

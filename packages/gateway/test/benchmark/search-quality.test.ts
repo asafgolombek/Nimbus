@@ -15,14 +15,14 @@ import type { HybridSearchResult } from "../../src/search/hybrid-types.ts";
 const MODEL = "search-quality-bench";
 const K = 10;
 
-function vecAvailable(): boolean {
-  const db = new Database(":memory:");
-  tryLoadSqliteVec(db);
-  const ok = isVecLoaded(db);
-  db.close();
-  return ok;
+function sqliteVecExtensionAvailable(): boolean {
+  const probe = new Database(":memory:");
+  tryLoadSqliteVec(probe);
+  const loaded = isVecLoaded(probe);
+  probe.close();
+  return loaded;
 }
-const VEC_AVAILABLE = vecAvailable();
+const VEC_AVAILABLE = sqliteVecExtensionAvailable();
 
 function reciprocalRankAtK(relevantId: string, orderedIds: readonly string[], k: number): number {
   const cap = Math.min(k, orderedIds.length);
@@ -233,7 +233,7 @@ describe.skipIf(!VEC_AVAILABLE)("search quality (code_symbol body vs title)", ()
       type: "code_symbol",
       externalId: "target-fn",
       title: "normalizeUserInput",
-      bodyPreview: "sanitizes credentials and refresh token handling",
+      bodyPreview: "validates and cleans incoming user-supplied data",
       modifiedAt: now,
       syncedAt: now,
     });

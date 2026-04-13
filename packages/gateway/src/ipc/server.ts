@@ -552,7 +552,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       ...extra,
     };
     const rec = asRecord(params);
-    if (rec === undefined || rec["includeDrift"] !== true) {
+    if (rec?.["includeDrift"] !== true) {
       return base;
     }
     if (options.localIndex === undefined) {
