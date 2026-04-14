@@ -99,7 +99,7 @@ describe("runIndexedSchemaMigrations — rollback on failure", () => {
   test("throws MigrationRollbackError when a step throws, schema version unchanged", () => {
     const tempDir = makeTempDir();
     const dbPath = join(tempDir, "nimbus.db");
-    const backupDir = join(tempDir, "backups");
+    const _backupDir = join(tempDir, "backups");
 
     // Create a DB already at version 11 so only one more step runs
     const db = new Database(dbPath);

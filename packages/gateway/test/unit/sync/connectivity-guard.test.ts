@@ -9,7 +9,7 @@
  * that a real DNS resolution to a known-good host returns true.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { DEFAULT_CONNECTIVITY_PROBE_HOST, isOnline } from "../../../src/sync/connectivity.ts";
 
 describe("isOnline", () => {

@@ -60,7 +60,7 @@ describe("transitionHealth — basic transitions", () => {
 
     expect(snap.state).toBe("rate_limited");
     expect(snap.retryAfter).toBeDefined();
-    expect(snap.retryAfter!.getTime()).toBeCloseTo(retryAfter.getTime(), -2);
+    expect(snap.retryAfter?.getTime()).toBeCloseTo(retryAfter.getTime(), -2);
   });
 
   test("unauthenticated sets state and records error", () => {
@@ -166,8 +166,8 @@ describe("history", () => {
     transitionHealth(db, "github", { type: "sync_success" });
 
     const history = getConnectorHealthHistory(db, "github");
-    expect(history[0]!.toState).toBe("healthy");
-    expect(history[1]!.toState).toBe("degraded");
+    expect(history[0]?.toState).toBe("healthy");
+    expect(history[1]?.toState).toBe("degraded");
   });
 
   test("limits rows by limit param", () => {
@@ -214,7 +214,7 @@ describe("last_error truncation", () => {
       type: "persistent_error",
       error: longError,
     });
-    expect(snap.lastError!.length).toBeLessThanOrEqual(512);
-    expect(snap.lastError!.endsWith("...")).toBe(true);
+    expect(snap.lastError?.length).toBeLessThanOrEqual(512);
+    expect(snap.lastError?.endsWith("...")).toBe(true);
   });
 });
