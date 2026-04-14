@@ -240,7 +240,7 @@ export type LocalIndexOptions = {
 };
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 12;
+  static readonly SCHEMA_VERSION = 13;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.

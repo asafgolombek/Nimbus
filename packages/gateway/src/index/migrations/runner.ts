@@ -1,4 +1,7 @@
 import type { Database } from "bun:sqlite";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
 import {
   EMBEDDING_V6_MIGRATION_SQL,
   EMBEDDING_V6_NO_VEC_MIGRATION_SQL,
@@ -180,6 +183,14 @@ function migrateIndexedV11ToV12(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV12ToV13(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(CONNECTOR_HEALTH_V13_SQL);
+    db.exec("PRAGMA user_version = 13");
+    recordMigration(db, 13, "connector health state + history", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -193,6 +204,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 9, toVersion: 10, apply: migrateIndexedV9ToV10 },
   { fromVersion: 10, toVersion: 11, apply: migrateIndexedV10ToV11 },
   { fromVersion: 11, toVersion: 12, apply: migrateIndexedV11ToV12 },
+  { fromVersion: 12, toVersion: 13, apply: migrateIndexedV12ToV13 },
 ];
 
 /**
@@ -248,14 +260,127 @@ function backfillMigrationsLedger(db: Database): void {
     if (uv >= 12) {
       recordMigration(db, 12, "graph_relation_type filesystem edges (backfilled)", now);
     }
+    if (uv >= 13) {
+      recordMigration(db, 13, "connector health state + history (backfilled)", now);
+    }
   })();
 }
+
+// ─── Pre-migration backup ────────────────────────────────────────────────────
+
+export type MigrationBackupOptions = {
+  /** Directory where backups are written, e.g. `<dataDir>/backups`. */
+  backupDir: string;
+  /** Absolute path to the live DB file (must not be `:memory:`). */
+  dbPath: string;
+};
+
+/**
+ * Thrown when a migration fails mid-run. The pre-migration backup path is
+ * included in the message so the Gateway startup handler can print a clear,
+ * actionable recovery message before exiting.
+ */
+export class MigrationRollbackError extends Error {
+  readonly migrationVersion: number;
+  readonly backupPath: string | null;
+  override readonly cause: unknown;
+
+  constructor(version: number, backupPath: string | null, cause: unknown) {
+    const hint =
+      backupPath !== null
+        ? ` A pre-migration backup was saved to: ${backupPath}`
+        : " No backup was available (in-memory or missing DB path).";
+    super(`Migration v${String(version)} failed and was rolled back.${hint}`);
+    this.name = "MigrationRollbackError";
+    this.migrationVersion = version;
+    this.backupPath = backupPath;
+    this.cause = cause;
+  }
+}
+
+/**
+ * Create a gzip-compressed backup of `dbPath` before running migration `version`.
+ * Uses `VACUUM INTO` (SQLite 3.27+) so the backup is always clean regardless of
+ * WAL state — no need to close the database first.
+ *
+ * Returns the path of the written `.db.gz` file.
+ * Throws if the backup cannot be written (caller aborts the migration).
+ */
+function writePreMigrationBackup(
+  db: Database,
+  version: number,
+  opts: MigrationBackupOptions,
+): string {
+  mkdirSync(opts.backupDir, { recursive: true });
+
+  const timestamp = Date.now();
+  const tmpPath = join(opts.backupDir, `pre-migration-${String(version)}-${String(timestamp)}.db`);
+  const gzPath = `${tmpPath}.gz`;
+
+  // VACUUM INTO creates a defragmented, WAL-checkpointed copy without locking
+  // the source for longer than a read transaction.
+  db.run(`VACUUM INTO ?`, [tmpPath]);
+
+  // readFileSync / Bun.gzipSync / writeFileSync are all synchronous —
+  // safe to call from the migration runner without async plumbing.
+  const raw = readFileSync(tmpPath);
+  const compressed = Bun.gzipSync(raw);
+  writeFileSync(gzPath, compressed);
+
+  // Remove the uncompressed temp copy
+  try {
+    rmSync(tmpPath);
+  } catch {
+    /* non-fatal */
+  }
+
+  return gzPath;
+}
+
+/**
+ * Remove backup files older than `maxAgeDays` from `backupDir`.
+ * Called at the end of a fully successful migration run.
+ */
+function pruneOldBackups(backupDir: string, maxAgeDays: number): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(backupDir);
+  } catch {
+    return; // directory doesn't exist yet — nothing to prune
+  }
+  const cutoffMs = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  for (const name of entries) {
+    if (!name.endsWith(".db.gz")) {
+      continue;
+    }
+    const fullPath = join(backupDir, name);
+    try {
+      const st = statSync(fullPath);
+      if (st.mtimeMs < cutoffMs) {
+        rmSync(fullPath);
+      }
+    } catch {
+      /* ignore stat/rm failures — best-effort pruning */
+    }
+  }
+}
+
+// ─── Public runner ────────────────────────────────────────────────────────────
 
 /**
  * Formal migration runner (Q2 §1.5). `PRAGMA user_version` remains the source of truth for stepping;
  * `_schema_migrations` is an append-only audit log.
+ *
+ * When `backupOptions` is provided, a gzip-compressed backup of the DB is
+ * written before each migration step. On failure the migration transaction is
+ * rolled back automatically by SQLite; the backup is available for manual
+ * recovery and its path is included in the thrown `MigrationRollbackError`.
  */
-export function runIndexedSchemaMigrations(db: Database, targetVersion: number): void {
+export function runIndexedSchemaMigrations(
+  db: Database,
+  targetVersion: number,
+  backupOptions?: MigrationBackupOptions,
+): void {
   db.exec(MIGRATIONS_LEDGER_SQL);
   backfillMigrationsLedger(db);
 
@@ -265,11 +390,27 @@ export function runIndexedSchemaMigrations(db: Database, targetVersion: number):
   }
 
   const now = Date.now();
+  let anyStepRan = false;
 
   for (const step of INDEXED_SCHEMA_STEPS) {
     if (ver === step.fromVersion && targetVersion >= step.toVersion) {
-      step.apply(db, now);
+      let backupPath: string | null = null;
+
+      if (backupOptions !== undefined) {
+        // Abort the entire run if the backup cannot be written.
+        backupPath = writePreMigrationBackup(db, step.toVersion, backupOptions);
+      }
+
+      try {
+        step.apply(db, now);
+      } catch (err) {
+        // Each migration runs inside its own transaction — SQLite has already
+        // rolled it back. Wrap and re-throw with recovery information.
+        throw new MigrationRollbackError(step.toVersion, backupPath, err);
+      }
+
       ver = step.toVersion;
+      anyStepRan = true;
     }
   }
 
@@ -277,5 +418,14 @@ export function runIndexedSchemaMigrations(db: Database, targetVersion: number):
     throw new Error(
       `Unsupported local index schema version: ${String(ver)} (expected 0–${String(targetVersion)})`,
     );
+  }
+
+  // Prune old backups after a fully successful run (best-effort).
+  if (anyStepRan && backupOptions !== undefined) {
+    try {
+      pruneOldBackups(backupOptions.backupDir, 30);
+    } catch {
+      /* pruning failure must not prevent successful startup */
+    }
   }
 }
