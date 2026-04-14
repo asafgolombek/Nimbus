@@ -138,7 +138,7 @@ jobs:
           run-checks: "false"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5 (Node 24 runtime)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5 (Node 24 runtime)
         with:
           path: .playwright-browsers
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
@@ -160,7 +160,7 @@ jobs:
           CI: "true"
 
       - name: JUnit test report (E2E desktop)
-        uses: dorny/test-reporter@df6247429542221bc30d46a036ee47af1102c451 # v2
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: always()
         with:
           name: E2E desktop (PR)
@@ -199,7 +199,7 @@ jobs:
           run-checks: "false"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5 (Node 24 runtime)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5 (Node 24 runtime)
         with:
           path: .playwright-browsers
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
@@ -221,7 +221,7 @@ jobs:
           CI: "true"
 
       - name: JUnit test report (E2E desktop)
-        uses: dorny/test-reporter@df6247429542221bc30d46a036ee47af1102c451 # v2
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: always()
         with:
           name: E2E desktop (${{ matrix.os }})
