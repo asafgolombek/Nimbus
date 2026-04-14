@@ -1,8 +1,8 @@
 # Nimbus Architecture
 
-**Version:** 0.5
+**Version:** 0.6
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Active Design — reflects `main` as of Phase 3 (Intelligence) complete; Phase 3.5 next
+**Status:** Active Design — reflects `main` as of Phase 3 (Intelligence) complete; **Phase 3.5 (Observability) active**
 
 ---
 
@@ -16,6 +16,7 @@ Nimbus is composed of four primary subsystems, all hosted inside a single headle
 | **MCP Connector Mesh** | Integration surface: unified interface to all cloud and local services |
 | **Secure Vault** | Secrets layer: OS-native credential storage, zero plaintext exposure |
 | **Extension Registry** | Plugin layer: sandboxed third-party MCP connectors + local marketplace |
+| **Observability Layer** *(Phase 3.5)* | Health model, index metrics, query latency ring buffer, Prometheus endpoint, HTTP read API |
 
 ---
 
@@ -773,7 +774,10 @@ The Tauri desktop application ships an Extension Marketplace panel. It is not a 
     ✗ Unsupported platform → fatal: Gateway exits with error
 
 2.  Open bun:sqlite database → run pending migrations
+    → Before each migration: write compressed pre-migration backup to <dataDir>/backups/
+    → On migration failure: restore from backup, mark migration 'failed', exit with actionable error
     ✗ DB locked or corrupt → fatal: Gateway exits; user notified via stderr
+    ✗ Backup write fails → migration aborted (never proceed without backup)
 
 3.  Verify extension integrity → SHA-256 check all installed manifests
     ✗ Manifest mismatch → degraded: affected extension disabled, others continue
@@ -879,12 +883,48 @@ CREATE TABLE action_log (
     outcome     TEXT NOT NULL       -- "success" | "error"
 );
 
--- Sync state per connector
+-- Sync state per connector (Phase 3.5: extended health model)
 CREATE TABLE sync_state (
     connector_id    TEXT PRIMARY KEY,
     last_sync_at    INTEGER,
     next_sync_token TEXT,
-    status          TEXT            -- "healthy" | "error" | "paused" | "unauthenticated"
+    -- Phase 3.5 health columns
+    health_state    TEXT NOT NULL DEFAULT 'healthy'
+                    CHECK(health_state IN
+                      ('healthy','degraded','error','rate_limited','unauthenticated','paused')),
+    retry_after     INTEGER,        -- unix ms; non-null when health_state = 'rate_limited'
+    backoff_until   INTEGER,        -- unix ms; non-null when in exponential backoff
+    backoff_attempt INTEGER NOT NULL DEFAULT 0,
+    last_error      TEXT            -- last error message, truncated to 512 chars
+);
+
+-- Connector health transition history (Phase 3.5) — last 7 days retained
+CREATE TABLE connector_health_history (
+    id           INTEGER PRIMARY KEY,
+    connector_id TEXT NOT NULL,
+    from_state   TEXT,
+    to_state     TEXT NOT NULL,
+    reason       TEXT,
+    occurred_at  INTEGER NOT NULL   -- unix ms
+);
+CREATE INDEX idx_chh_connector_occurred
+    ON connector_health_history(connector_id, occurred_at DESC);
+
+-- Query latency log (Phase 3.5) — batch-written from in-memory ring buffer
+CREATE TABLE query_latency_log (
+    id          INTEGER PRIMARY KEY,
+    latency_ms  REAL NOT NULL,
+    query_type  TEXT NOT NULL,   -- 'fts' | 'vector' | 'hybrid' | 'sql'
+    recorded_at INTEGER NOT NULL
+);
+
+-- Slow query log (Phase 3.5) — queries exceeding [db.slow_query_threshold_ms] (default 500ms)
+CREATE TABLE slow_query_log (
+    id          INTEGER PRIMARY KEY,
+    query_text  TEXT,
+    latency_ms  REAL NOT NULL,
+    query_type  TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL
 );
 
 -- Extension registry (mirrors the extensions SQLite schema in Subsystem 4)
@@ -917,7 +957,24 @@ CREATE TABLE extensions (
 | **UI Components** | Vitest + `@testing-library/react` | React components in the Tauri WebView. Vitest integrates with Vite's transform pipeline. `bun test` does not support jsdom and is not used here. |
 | **E2E Desktop** | Playwright + Tauri WebDriver | Full desktop flows on all three platforms. Runs on push to `main` after the matrix CI succeeds; optional on PRs via `ci:e2e-desktop` label. |
 
-**Coverage gates:** Engine ≥85% line coverage, Vault ≥90%. PRs that drop below threshold are blocked when checks are required.
+**Coverage gates:**
+
+| Scope | Threshold |
+|---|---|
+| Engine | ≥85% |
+| Vault | ≥90% |
+| Embedding pipeline | ≥80% |
+| Workflow runner + store | ≥80% |
+| Watcher engine + store | ≥80% |
+| Extension registry | ≥85% |
+| DB layer (`db/`) *(Phase 3.5)* | ≥85% |
+| Connector health model *(Phase 3.5)* | ≥85% |
+| Config + profiles *(Phase 3.5)* | ≥80% |
+| `@nimbus-dev/client` *(Phase 3.5)* | ≥80% |
+| Telemetry collector *(Phase 3.5)* | ≥85% |
+| `nimbus doctor` *(Phase 3.5)* | ≥80% |
+
+PRs that drop below threshold are blocked when checks are required.
 
 **CI breakdown:**
 
@@ -957,15 +1014,33 @@ nimbus/
 │   │       ├── platform/       ← PAL: win32.ts, darwin.ts, linux.ts
 │   │       ├── engine/         ← Mastra agent, router, planner, HITL gate, script runner
 │   │       ├── vault/          ← DPAPI, Keychain, libsecret implementations
-│   │       ├── index/          ← SQLite schema, migrations, query layer
-│   │       ├── connectors/     ← Connector registry, lazy mesh, sync scheduler
+│   │       ├── db/             ← verify, repair, snapshot, health, metrics, latency-ring-buffer, write
+│   │       ├── connectors/     ← Connector registry, lazy mesh, health model (health.ts)
+│   │       ├── sync/           ← Delta sync scheduler, connectivity probe (connectivity.ts)
+│   │       ├── config/         ← Config loader, schema versioning, profiles, env-var overrides
+│   │       ├── telemetry/      ← Opt-in aggregate telemetry collector (no content, configurable endpoint)
 │   │       ├── extensions/     ← Extension Registry, manifest validator, child process manager
-│   │       └── ipc/            ← JSON-RPC 2.0 server, consent channel
+│   │       └── ipc/            ← JSON-RPC 2.0 server, consent channel,
+│   │                              http-server.ts (read-only HTTP API, SQLITE_OPEN_READONLY),
+│   │                              metrics-server.ts (Prometheus endpoint, localhost only)
 │   │
 │   ├── cli/
 │   │   └── src/
-│   │       ├── commands/       ← ask, search, vault, connector, extension, workflow, status
+│   │       ├── commands/       ← ask, search, query, config, profile, diag, doctor,
+│   │       │                      db, telemetry, connector, extension, workflow, status, serve, docs
 │   │       └── ipc-client/     ← JSON-RPC client + consent channel (terminal)
+│   │                              (IPC transport extracted to packages/client/src/ipc-transport.ts)
+│   │
+│   ├── client/                 ← @nimbus-dev/client (npm, MIT-licensed)
+│   │   └── src/
+│   │       ├── index.ts        ← NimbusClient public API
+│   │       ├── ipc-transport.ts← JSON-RPC 2.0 over domain socket / named pipe
+│   │       ├── http-transport.ts← JSON-RPC over local HTTP API
+│   │       ├── mock-client.ts  ← MockClient for testing without a running Gateway
+│   │       └── types.ts        ← NimbusItem, NimbusPerson, ConnectorStatus, AuditEntry
+│   │
+│   ├── docs/                   ← Astro Starlight documentation site (Phase 3.5)
+│   │   └── src/content/docs/  ← getting-started, connectors, cli, sdk, client, architecture, faq
 │   │
 │   ├── ui/                     ← Tauri 2.0 desktop app (Phase 4)
 │   │   ├── src-tauri/          ← Rust shell
@@ -1002,7 +1077,9 @@ nimbus/
 │   │   ├── ci.yml              ← pr-quality (PR, Ubuntu) + matrix on push
 │   │   ├── security.yml        ← bun audit + trivy (PRs + nightly)
 │   │   ├── codeql.yml          ← CodeQL JavaScript/TypeScript
-│   │   └── release.yml         ← bun build --compile → signed binaries → GitHub Releases
+│   │   ├── release.yml         ← bun build --compile → signed binaries → GitHub Releases
+│   │   ├── publish-client.yml  ← (Phase 3.5) publish @nimbus-dev/client on client-v* tag
+│   │   └── deploy-docs.yml     ← (Phase 3.5) build + deploy Astro Starlight site to Cloudflare Pages
 │   ├── dependabot.yml
 │   └── BRANCH_PROTECTION.md   ← required check configuration (manual GitHub settings)
 │
@@ -1011,7 +1088,8 @@ nimbus/
 │   ├── architecture.md         ← this file
 │   ├── mission.md
 │   ├── SECURITY.md
-│   └── roadmap.md
+│   ├── roadmap.md
+│   └── phase-3.5-plan.md      ← detailed Phase 3.5 implementation plan
 │
 ├── bunfig.toml
 └── package.json                ← Bun workspace root

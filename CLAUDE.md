@@ -40,10 +40,30 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/gateway/src/platform/linux.ts` | Linux platform implementation |
 | `packages/gateway/src/vault/index.ts` | `NimbusVault` interface |
 | `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh.ts` — Phase 3 bundle spawns AWS/Azure/GCP/IaC/observability MCPs when vault keys exist) |
+| `packages/gateway/src/connectors/health.ts` | Connector health state machine — `transitionHealth()`, `ConnectorHealthSnapshot` |
+| `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
+| `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
+| `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
+| `packages/gateway/src/db/health.ts` | Disk space monitoring — polling + reactive `SQLITE_FULL` path; `DiskFullError` |
+| `packages/gateway/src/db/snapshot.ts` | Manual and scheduled snapshot management |
+| `packages/gateway/src/db/metrics.ts` | `IndexMetrics` — item counts, embedding coverage, query latency percentiles |
+| `packages/gateway/src/db/latency-ring-buffer.ts` | In-memory ring buffer for query latency samples; async batch flush to `query_latency_log` |
+| `packages/gateway/src/db/write.ts` | Central DB write wrapper — catches `SQLITE_FULL`, re-throws `DiskFullError` |
+| `packages/gateway/src/telemetry/collector.ts` | Opt-in telemetry — aggregate counters only, no content, configurable endpoint |
+| `packages/gateway/src/config/profiles.ts` | Named configuration profiles (`work`, `personal`); Vault key prefixing |
+| `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY` connection) |
+| `packages/gateway/src/ipc/metrics-server.ts` | Prometheus-compatible metrics endpoint (`localhost` only, off by default) |
 | `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
+| `packages/cli/src/commands/query.ts` | `nimbus query` — structured index query with `--sql` guard |
+| `packages/cli/src/commands/config.ts` | `nimbus config get/set/list/validate/edit` |
+| `packages/cli/src/commands/profile.ts` | `nimbus profile create/list/switch/delete` |
+| `packages/cli/src/commands/diag.ts` | `nimbus diag` — full diagnostic snapshot; `slow-queries` subcommand |
+| `packages/cli/src/commands/doctor.ts` | `nimbus doctor` — environment health checks, actionable remediation output |
+| `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
+| `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
 | `architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
@@ -70,12 +90,19 @@ bun test
 bun run test:coverage
 
 # Coverage gates (enforced in CI)
-bun run test:coverage:engine   # ≥85% threshold (engine)
-bun run test:coverage:vault    # ≥90% threshold (vault)
-bun run test:coverage:embedding # ≥80% threshold (embedding)
-bun run test:coverage:workflow  # ≥80% threshold (workflow runner + store)
-bun run test:coverage:watcher   # ≥80% threshold (watcher engine + store + anomaly stub)
-bun run test:coverage:extensions # ≥85% threshold (extension registry + manifest + verify)
+bun run test:coverage:engine       # ≥85% threshold (engine)
+bun run test:coverage:vault        # ≥90% threshold (vault)
+bun run test:coverage:embedding    # ≥80% threshold (embedding)
+bun run test:coverage:workflow     # ≥80% threshold (workflow runner + store)
+bun run test:coverage:watcher      # ≥80% threshold (watcher engine + store + anomaly stub)
+bun run test:coverage:extensions   # ≥85% threshold (extension registry + manifest + verify)
+# Phase 3.5 coverage gates
+bun run test:coverage:db           # ≥85% threshold (verify, repair, snapshot, health, metrics, latency buffer)
+bun run test:coverage:health       # ≥85% threshold (connectors/health.ts)
+bun run test:coverage:config       # ≥80% threshold (config loader, profiles, env overrides)
+bun run test:coverage:client       # ≥80% threshold (@nimbus-dev/client)
+bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — payload safety gate)
+bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
 
 # Integration tests
 bun run test:integration
@@ -99,6 +126,33 @@ bun audit --audit-level high
 # Optional: set NIMBUS_EMBEDDING_MODEL_DIR to pre-downloaded MiniLM weights (or pass --embedding-model-dir) to embed them in the bundle output
 bun run package:headless
 bun run package:installers:linux -- --version 0.1.0
+
+# Phase 3.5 CLI commands (reference — not bun scripts)
+# nimbus query --service github --type pr --since 7d --json
+# nimbus query --sql "SELECT title FROM items WHERE pinned = 1" --pretty
+# nimbus config get <key> / set <key> <value> / list / validate / edit
+# nimbus profile create <name> / list / switch <name> / delete <name>
+# nimbus diag [--json]
+# nimbus diag slow-queries [--limit N] [--since <duration>]
+# nimbus doctor
+# nimbus db verify
+# nimbus db repair [--yes]
+# nimbus db snapshot
+# nimbus db restore <snapshot>
+# nimbus db snapshots list / backups list
+# nimbus db prune [--yes]
+# nimbus telemetry show
+# nimbus telemetry disable
+# nimbus serve [--port 7474]
+# nimbus docs [topic]
+# nimbus connector history <name>
+
+# Docs site (packages/docs)
+cd packages/docs && bunx astro build   # build static docs site
+cd packages/docs && bunx astro dev     # local dev server
+
+# Publish @nimbus-dev/client (triggered by git tag client-v*)
+# git tag client-v0.1.0 && git push origin client-v0.1.0
 ```
 
 ---
@@ -165,7 +219,7 @@ A system that orchestrates real actions against real data cannot rely on develop
 | Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | ✅ Complete |
 | Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | ✅ Complete |
 | Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | ✅ Complete |
-| Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | 🔵 Current focus |
+| Phase 3.5 | Observability — Connector health model, `nimbus query` / `diag` / `doctor` / `db`, config profiles, `@nimbus-dev/client`, telemetry, docs site | 🔵 Current focus |
 | Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | Planned |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | Planned |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |

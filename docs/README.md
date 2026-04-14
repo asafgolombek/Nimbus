@@ -225,6 +225,7 @@ nimbus extension list
 | **LLM** | Anthropic Claude (default) / configurable via Mastra model abstraction |
 | **Embeddings** | `@xenova/transformers` (local, no API key) / OpenAI (opt-in) |
 | **Extension SDK** | `@nimbus-dev/sdk` (MIT-licensed npm package) |
+| **Client Library** | `@nimbus-dev/client` (MIT-licensed npm package) — typed IPC wrapper; `MockClient` for scripts and extensions |
 | **Testing — Gateway/CLI** | `bun test` |
 | **Testing — UI** | Vitest + `@testing-library/react` |
 | **Testing — E2E Desktop** | Playwright + Tauri WebDriver |
@@ -301,15 +302,22 @@ nimbus/
 │   │       ├── platform/     # PAL: win32, darwin, linux implementations
 │   │       ├── engine/       # Mastra agent, router, planner, HITL executor
 │   │       ├── vault/        # DPAPI, Keychain, libsecret
-│   │       ├── index/        # SQLite schema + migrations
-│   │       ├── connectors/   # Connector registry + sync scheduler
+│   │       ├── db/           # verify, repair, snapshot, health, metrics, latency ring buffer
+│   │       ├── connectors/   # Connector registry, lazy mesh, health model
+│   │       ├── sync/         # Delta sync scheduler, connectivity probe
 │   │       ├── extensions/   # Extension Registry, manifest validator
-│   │       └── ipc/          # JSON-RPC 2.0 server
+│   │       ├── telemetry/    # Opt-in aggregate telemetry collector
+│   │       ├── config/       # Config loader, profiles, env-var overrides
+│   │       └── ipc/          # JSON-RPC 2.0 server, HTTP API, Prometheus endpoint
 │   ├── cli/                  # nimbus CLI
-│   ├── ui/                   # Tauri 2.0 desktop app
+│   │   └── src/commands/     # ask, search, query, config, profile, diag, doctor,
+│   │                         # db, telemetry, connector, extension, workflow, status
+│   ├── client/               # @nimbus-dev/client (published to npm, MIT)
+│   ├── ui/                   # Tauri 2.0 desktop app (Phase 4)
 │   │   └── src/
 │   │       ├── components/   # ConsentDialog, ExtensionMarketplace, …
 │   │       └── pages/        # Dashboard, Search, Marketplace, Settings
+│   ├── docs/                 # Astro Starlight documentation site
 │   ├── mcp-connectors/       # First-party MCP servers
 │   │   ├── google-drive/
 │   │   ├── gmail/
@@ -321,7 +329,8 @@ nimbus/
 │   ├── architecture.md       # subsystem design
 │   ├── mission.md            # design philosophy and principles
 │   ├── SECURITY.md           # security model + vulnerability reporting
-│   └── roadmap.md            # acceptance-criteria-driven roadmap
+│   ├── roadmap.md            # acceptance-criteria-driven roadmap
+│   └── phase-3.5-plan.md    # detailed Phase 3.5 implementation plan
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml            # pr-quality + 3-platform matrix
@@ -343,7 +352,8 @@ Nimbus uses phases, not calendar dates. A phase completes when its acceptance cr
 |---|---|---|
 | 1 | Foundation | ✅ Complete |
 | 2 | The Bridge (15 connectors) | ✅ Complete |
-| 3 | Intelligence (semantic search, CI/CD, cloud) | 🔵 Active |
+| 3 | Intelligence (semantic search, CI/CD, cloud) | ✅ Complete |
+| 3.5 | Observability (health model, query API, recovery, telemetry, docs) | 🔵 Active |
 | 4 | Presence (Tauri UI, local LLM, v0.1.0 release) | Planned |
 | 5–9 | Extended Surface → Enterprise | Planned |
 
