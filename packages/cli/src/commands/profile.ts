@@ -32,7 +32,7 @@ function listProfileFiles(configDir: string): string[] {
       out.push(n.slice(PROFILE_PREFIX.length, -PROFILE_SUFFIX.length));
     }
   }
-  out.sort();
+  out.sort((a, b) => a.localeCompare(b));
   return out;
 }
 

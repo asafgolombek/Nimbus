@@ -14,6 +14,14 @@
 
 import type { Database } from "bun:sqlite";
 
+/** Uniform jitter in [0, maxExclusive) for backoff spacing (CSPRNG). */
+function jitterBelowMs(maxExclusive: number): number {
+  const word = new Uint32Array(1);
+  crypto.getRandomValues(word);
+  const u = word[0];
+  return ((u === undefined ? 0 : u) / 2 ** 32) * maxExclusive;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ConnectorHealthState =
@@ -212,7 +220,7 @@ export function transitionHealth(
       // Compute exponential backoff window.
       const baseMs = 5_000;
       const maxBackoffMs = 3_600_000;
-      const jitter = Math.random() * 500;
+      const jitter = jitterBelowMs(500);
       const delay = Math.min(baseMs * 2 ** Math.max(0, event.attempt - 1), maxBackoffMs) + jitter;
       backoffUntilMs = now + delay;
       break;

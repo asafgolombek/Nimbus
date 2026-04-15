@@ -29,11 +29,13 @@ export class LatencyRingBuffer {
   private count = 0;
   private dirty = false;
 
-  push(sample: LatencySample): void {
-    this.buf[this.head] = sample;
-    this.head = (this.head + 1) % RING_SIZE;
-    this.count = Math.min(this.count + 1, RING_SIZE);
-    this.dirty = true;
+  push(...samples: LatencySample[]): void {
+    for (const sample of samples) {
+      this.buf[this.head] = sample;
+      this.head = (this.head + 1) % RING_SIZE;
+      this.count = Math.min(this.count + 1, RING_SIZE);
+      this.dirty = true;
+    }
   }
 
   /** Ordered oldest → newest; empties the ring and clears the dirty flag. */
@@ -90,7 +92,7 @@ function percentile(sorted: readonly number[], p: number): number {
   const loV = sorted[lo];
   const hiV = sorted[hi];
   if (loV === undefined || hiV === undefined) {
-    return sorted[sorted.length - 1] ?? 0;
+    return sorted.at(-1) ?? 0;
   }
   if (lo === hi) {
     return loV;

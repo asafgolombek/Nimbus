@@ -242,8 +242,14 @@ export function formatRepairReport(report: RepairReport): string {
     return "Nothing to repair — index is clean.";
   }
   const lines = report.outcomes.map((o) => {
-    const tag =
-      o.status === "applied" ? "[applied]" : o.status === "skipped" ? "[skipped]" : "[ error ]";
+    let tag: string;
+    if (o.status === "applied") {
+      tag = "[applied]";
+    } else if (o.status === "skipped") {
+      tag = "[skipped]";
+    } else {
+      tag = "[ error ]";
+    }
     const detail = o.detail !== undefined ? `: ${o.detail}` : "";
     return `${tag} ${o.action}${detail}`;
   });

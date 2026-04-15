@@ -45,7 +45,8 @@ describe("isOnline", () => {
   test("returns true when DNS lookup resolves", async () => {
     const original = Bun.dns.lookup;
     // @ts-expect-error -- patching for test
-    Bun.dns.lookup = async () => [{ address: "1.1.1.1", family: 4 }];
+    // Return shape only; `isOnline` treats any successful resolution as online.
+    Bun.dns.lookup = async () => [{ address: "dns-mock-success", family: 4 }];
 
     const result = await isOnline();
     expect(result).toBe(true);

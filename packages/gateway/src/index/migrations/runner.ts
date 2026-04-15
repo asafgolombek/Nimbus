@@ -300,9 +300,9 @@ export class MigrationRollbackError extends Error {
 
   constructor(version: number, backupPath: string | null, cause: unknown) {
     const hint =
-      backupPath !== null
-        ? ` A pre-migration backup was saved to: ${backupPath}`
-        : " No backup was available (in-memory or missing DB path).";
+      backupPath === null
+        ? " No backup was available (in-memory or missing DB path)."
+        : ` A pre-migration backup was saved to: ${backupPath}`;
     super(`Migration v${String(version)} failed and was rolled back.${hint}`);
     this.name = "MigrationRollbackError";
     this.migrationVersion = version;
@@ -378,6 +378,35 @@ function pruneOldBackups(backupDir: string, maxAgeDays: number): void {
   }
 }
 
+function applyIndexedSchemaStep(
+  db: Database,
+  step: IndexedSchemaStep,
+  currentVersion: number,
+  targetVersion: number,
+  backupOptions: MigrationBackupOptions | undefined,
+  now: number,
+): number | null {
+  if (currentVersion !== step.fromVersion || targetVersion < step.toVersion) {
+    return null;
+  }
+  let backupPath: string | null = null;
+
+  if (backupOptions !== undefined) {
+    // Abort the entire run if the backup cannot be written.
+    backupPath = writePreMigrationBackup(db, step.toVersion, backupOptions);
+  }
+
+  try {
+    step.apply(db, now);
+  } catch (err) {
+    // Each migration runs inside its own transaction — SQLite has already
+    // rolled it back. Wrap and re-throw with recovery information.
+    throw new MigrationRollbackError(step.toVersion, backupPath, err);
+  }
+
+  return step.toVersion;
+}
+
 // ─── Public runner ────────────────────────────────────────────────────────────
 
 /**
@@ -406,23 +435,9 @@ export function runIndexedSchemaMigrations(
   let anyStepRan = false;
 
   for (const step of INDEXED_SCHEMA_STEPS) {
-    if (ver === step.fromVersion && targetVersion >= step.toVersion) {
-      let backupPath: string | null = null;
-
-      if (backupOptions !== undefined) {
-        // Abort the entire run if the backup cannot be written.
-        backupPath = writePreMigrationBackup(db, step.toVersion, backupOptions);
-      }
-
-      try {
-        step.apply(db, now);
-      } catch (err) {
-        // Each migration runs inside its own transaction — SQLite has already
-        // rolled it back. Wrap and re-throw with recovery information.
-        throw new MigrationRollbackError(step.toVersion, backupPath, err);
-      }
-
-      ver = step.toVersion;
+    const nextVer = applyIndexedSchemaStep(db, step, ver, targetVersion, backupOptions, now);
+    if (nextVer !== null) {
+      ver = nextVer;
       anyStepRan = true;
     }
   }

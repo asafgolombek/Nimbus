@@ -268,11 +268,11 @@ export class SyncScheduler {
         }
       }
       this.scheduleConnectivityRecheck(CONNECTIVITY_RECHECK_MS);
-    } else {
-      // Back online — resume normal tick cycle.
-      if (this.started && !this.stopped) {
-        this.tick();
-      }
+      return;
+    }
+    // Back online — resume normal tick cycle.
+    if (this.started && !this.stopped) {
+      this.tick();
     }
   }
 
@@ -305,6 +305,22 @@ export class SyncScheduler {
     };
   }
 
+  /** True when this connector should be skipped for the current tick (health gate). */
+  private connectorSkippedForHealth(connectorId: string, now: number): boolean {
+    const health = getConnectorHealth(this.db, connectorId);
+    if (!SKIP_HEALTH_STATES.has(health.state)) {
+      return false;
+    }
+    if (health.state === "rate_limited") {
+      if (health.retryAfter !== undefined && now < health.retryAfter.getTime()) {
+        this.ctx.logger.debug({ msg: "skipped_rate_limited", connectorId });
+        return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
   private tick(): void {
     if (this.stopped) {
       return;
@@ -320,19 +336,8 @@ export class SyncScheduler {
       if (row === null || row.paused === 1 || row.status === "error") {
         continue;
       }
-      // Health-state skip: rate_limited / unauthenticated / paused (via health)
-      const health = getConnectorHealth(this.db, id);
-      if (SKIP_HEALTH_STATES.has(health.state)) {
-        if (health.state === "rate_limited") {
-          // Only skip if still within the retry window.
-          if (health.retryAfter !== undefined && now < health.retryAfter.getTime()) {
-            this.ctx.logger.debug({ msg: "skipped_rate_limited", connectorId: id });
-            continue;
-          }
-          // Window has passed — fall through to normal scheduling.
-        } else {
-          continue;
-        }
+      if (this.connectorSkippedForHealth(id, now)) {
+        continue;
       }
       if (this.inFlight.has(id)) {
         continue;

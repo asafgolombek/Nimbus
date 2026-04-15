@@ -23,8 +23,10 @@ describe("LatencyRingBuffer", () => {
 
   test("drain returns ordered samples and clears dirty flag", () => {
     const buf: LatencyRingBuffer = new LatencyRingBufferClass();
-    buf.push({ latencyMs: 10, queryType: "sql", recordedAt: 1 });
-    buf.push({ latencyMs: 20, queryType: "hybrid", recordedAt: 2 });
+    buf.push(
+      { latencyMs: 10, queryType: "sql", recordedAt: 1 },
+      { latencyMs: 20, queryType: "hybrid", recordedAt: 2 },
+    );
     expect(buf.isDirty()).toBe(true);
     const d = buf.drainOrdered();
     expect(d.map((s) => s.latencyMs)).toEqual([10, 20]);

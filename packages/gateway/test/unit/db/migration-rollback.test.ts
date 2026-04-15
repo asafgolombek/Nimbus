@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { mkdirSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import {
 } from "../../../src/index/migrations/runner.ts";
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `nimbus-test-${String(Date.now())}-${String(Math.random()).slice(2)}`);
+  const dir = join(tmpdir(), `nimbus-test-${String(Date.now())}-${randomBytes(8).toString("hex")}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
