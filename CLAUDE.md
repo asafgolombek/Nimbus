@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** is the next roadmap focus
+**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** — Observability & DX 🔵 in progress on `main` (see `docs/roadmap.md` + `docs/phase-3.5-plan.md`)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -151,6 +151,9 @@ bun run package:installers:linux -- --version 0.1.0
 bun run docs:build                     # from repo root (workspace filter)
 cd packages/docs && bunx astro build   # build static docs site
 cd packages/docs && bunx astro dev     # local dev server
+
+# Extension author CI template (copy into extension repo `.github/workflows/`)
+# docs/templates/nimbus-extension-ci.yml
 
 # Publish @nimbus-dev/client (triggered by git tag client-v*)
 # git tag client-v0.1.0 && git push origin client-v0.1.0

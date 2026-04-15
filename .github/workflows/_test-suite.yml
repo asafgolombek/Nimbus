@@ -154,6 +154,11 @@ jobs:
         env:
           CI: "true"
 
+      - name: Coverage gate — DB layer (≥85%)
+        run: bun run test:coverage:db --reporter=junit --reporter-outfile=junit-reports/junit-db.xml
+        env:
+          CI: "true"
+
       - name: Integration tests
         run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=junit-reports/junit-integration.xml
         env:

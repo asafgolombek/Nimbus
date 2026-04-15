@@ -9,13 +9,13 @@ Usage:
   nimbus diag [--json] | diag slow-queries [--limit N] [--since 7d]
   nimbus query --service <id> [--type <t>] [--since 7d] [--sql "SELECT …"] [--json | --pretty]
   nimbus telemetry show | disable
-  nimbus doctor             Environment checks (Linux vault dependency + Gateway reachability)
+  nimbus doctor             Bun version, data dir, Linux vault (secret-tool), gateway state + IPC
   nimbus config validate | list | edit
   nimbus profile create|list|switch|delete
   nimbus serve [--port 7474]   Start gateway with NIMBUS_HTTP_PORT (read-only HTTP sidecar)
   nimbus test [dir]         Extension manifest contract + bun test when package.json has a test script
   nimbus search <q> …       Ranked index search (FTS + optional semantic)
-  nimbus ask <query>        Natural language (requires LLM API keys on gateway host)
+  nimbus ask <query>        Natural language (exits early if no connectors registered; needs LLM keys on gateway)
   nimbus vault set <k> <v>  Store a secret
   nimbus vault get <k>      Read a secret (prompts first)
   nimbus vault delete <k>    Remove a secret

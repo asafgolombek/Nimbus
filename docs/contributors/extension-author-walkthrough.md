@@ -35,6 +35,12 @@ The tool copies into the configured extensions directory, records SHA-256 manife
 
 Use a scratch config dir and `nimbus start` so you do not touch your primary index. After changing code, bump `version` or reinstall so hashes stay consistent with the registry row.
 
+Run **`nimbus test .`** from the extension package root: it validates the manifest contract (`runContractTests` from `@nimbus-dev/sdk`) and, when `package.json` defines a `test` script, runs `bun test`.
+
+## 6. CI for your extension repo
+
+Copy [`docs/templates/nimbus-extension-ci.yml`](../templates/nimbus-extension-ci.yml) into your extension repository as `.github/workflows/ci.yml`. Install the `nimbus` CLI on the runner (release binary or build from source) before the `nimbus test` step if it is not already on `PATH`.
+
 ## See also
 
 - [Filesystem code search smoke](./filesystem-code-search-smoke.md) — manual `nimbus search` checks for indexed symbols under `[[filesystem.roots]]`.

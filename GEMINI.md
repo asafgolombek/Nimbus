@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** is the next roadmap focus
+**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** — Observability & DX 🔵 in progress on `main` (see `docs/roadmap.md` + `docs/phase-3.5-plan.md`)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -75,6 +75,7 @@ bun run test:coverage:extensions # ≥85% threshold (extension registry + manife
 bun run test:coverage:config       # ≥80% threshold (config loader, profiles, env overrides)
 bun run test:coverage:client       # ≥80% threshold (@nimbus-dev/client)
 bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — payload safety gate)
+bun run test:coverage:db           # ≥85% threshold (verify, repair, migrations, metrics, latency buffer)
 
 # Integration tests
 bun run test:integration
@@ -90,6 +91,9 @@ bun run build
 
 # Docs site (Starlight — static output under packages/docs/dist)
 bun run docs:build
+
+# Extension author CI template (copy into extension repo `.github/workflows/`)
+# docs/templates/nimbus-extension-ci.yml
 
 # Clean all build outputs
 bun run clean
@@ -160,7 +164,7 @@ mcp-connectors/*  ← depend on @nimbus-dev/sdk only
 | Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | ✅ Complete |
 | Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | ✅ Complete |
 | Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | ✅ Complete |
-| Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | 🔵 Current focus |
+| Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | 🔵 In progress (see `docs/roadmap.md`) |
 | Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | Planned |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | Planned |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |

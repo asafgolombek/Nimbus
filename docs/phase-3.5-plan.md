@@ -5,6 +5,8 @@
 > **Constraint:** Solo developer — all workstreams are sequential unless explicitly noted as parallelisable.  
 > **Release gate:** Phase 4 does not begin until every acceptance criterion in this document passes on all three platforms.
 
+**Living status (2026-04-15):** Implementation detail in this file remains the engineering spec. **What is already on `main`** is summarized with checkboxes in [`docs/roadmap.md`](./roadmap.md) (Phase 3.5 — *Delivered on `main`* vs *Still open*). Use the **consolidated acceptance list** at the end of *this* file for per-OS release sign-off; update those checkboxes when you have verified behaviour, not merely when code exists.
+
 ---
 
 ## Docs Site Stack Decision: Astro Starlight
@@ -1420,21 +1422,22 @@ flush_interval_seconds = 3600
 
 ## Phase 3.5 Acceptance Criteria (consolidated)
 
-All of the following must pass on **Windows, macOS, and Linux** before Phase 4 begins:
+All of the following must pass on **Windows, macOS, and Linux** before Phase 4 begins.  
+Legend: **[x] code on `main` — [ ] not yet signed off** (verify on each OS before ticking).
 
-- [ ] `nimbus status --verbose` reports per-connector health state, index item counts, and p95 query latency
-- [ ] A 429 response transitions a connector to `rate_limited`; `nimbus connector list` shows retry-after time; scheduler respects the window
-- [ ] `nimbus query --service github --type pr --since 7d --json` returns valid JSON in under 100ms on a 50k-item dataset
-- [ ] `GET /v1/items` on the local HTTP API returns data matching `nimbus query` for equivalent filters
-- [ ] `nimbus db verify` detects a manually introduced FTS5 rowid mismatch and exits non-zero
-- [ ] `nimbus db repair` resolves the mismatch; `verify` exits `0` afterward
-- [ ] A failed migration restores from pre-migration backup; Gateway exits with an actionable error; no partial schema remains
-- [ ] `nimbus telemetry show` displays a payload with no content or credential fields; payload safety test passes
-- [ ] Setting `telemetry.endpoint` to a custom URL causes the collector to POST there
-- [ ] Docs site link checker reports zero broken internal links; getting-started guide completable in <10 min on all 3 platforms
-- [ ] A scaffolded extension passes `nimbus test` and contract tests before any custom logic is added
-- [ ] `nimbus doctor` detects a missing Linux headless keystore and prints the remediation step
-- [ ] `@nimbus-dev/client` publishes to npm on tag push; importable as ESM and CJS; `MockClient` works without a Gateway process
-- [ ] All new coverage gates pass (see cross-cutting table above)
+- [x] `nimbus status --verbose` reports per-connector health state, index item counts, and p95 query latency *[ ] sign off three-platform*
+- [x] A 429 response transitions a connector to `rate_limited`; `nimbus connector list` shows retry-after time; scheduler respects the window *[ ] sign off three-platform*
+- [x] `nimbus query --service github --type pr --since 7d --json` returns valid JSON *[ ] < 100ms @ 50k items — benchmark / sign off*
+- [x] `GET /v1/items` on the local HTTP API returns data matching `nimbus query` for equivalent filters *(shared `buildItemListSql`)* *[ ] sign off three-platform*
+- [x] `nimbus db verify` detects a manually introduced FTS5 rowid mismatch and exits non-zero *[ ] sign off three-platform*
+- [x] `nimbus db repair` resolves the mismatch; `verify` exits `0` afterward *[ ] sign off three-platform*
+- [x] A failed migration restores from pre-migration backup; Gateway exits with an actionable error; no partial schema remains *[ ] sign off three-platform*
+- [x] `nimbus telemetry show` displays a payload with no content or credential fields; payload safety test passes *[ ] sign off three-platform*
+- [x] Setting `telemetry.endpoint` to a custom URL causes the collector to POST there *[ ] sign off three-platform*
+- [x] Docs site link checker reports zero broken internal links *(Starlight production build)* *[ ] getting-started <10 min — editorial / sign off all OS*
+- [x] A scaffolded extension passes `nimbus test` and contract tests before any custom logic is added *[ ] sign off from clean scaffold once per release train*
+- [x] `nimbus doctor` detects a missing Linux headless keystore and prints the remediation step *[ ] sign off Linux CI + headless smoke*
+- [x] `@nimbus-dev/client` publish workflow on tag `client-v*`; `MockClient` works without a Gateway process; dual **ESM + CJS** `dist/` build *[ ] first npm publish done (manual)*
+- [x] Telemetry coverage gate in CI (`bun run test:coverage:telemetry`) *[ ] full cross-cutting coverage table vs `_test-suite.yml` — reconcile intentionally*
 - [ ] `bun audit --audit-level high` clean across all Phase 3.5 packages
 

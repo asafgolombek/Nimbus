@@ -97,6 +97,13 @@ Third-party connectors ship as npm packages. Install in one command; the agent g
 
 See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
+### Phase 3.5 pointers
+
+- **Roadmap status (what shipped vs open):** [`docs/roadmap.md`](./roadmap.md) — Phase 3.5 section.
+- **Engineering checklist / release gate:** [`docs/phase-3.5-plan.md`](./phase-3.5-plan.md) (consolidated acceptance at end of file).
+- **Starlight docs site (workspace package):** `packages/docs/` — from repo root: `bun run docs:build`.
+- **Publish `@nimbus-dev/client`:** push tag `client-v*` (see `.github/workflows/publish-client.yml`); requires `NPM_TOKEN` in GitHub Actions secrets.
+
 ---
 
 ## Quick Start
@@ -330,7 +337,9 @@ nimbus/
 │   ├── mission.md            # design philosophy and principles
 │   ├── SECURITY.md           # security model + vulnerability reporting
 │   ├── roadmap.md            # acceptance-criteria-driven roadmap
-│   └── phase-3.5-plan.md    # detailed Phase 3.5 implementation plan
+│   ├── phase-3.5-plan.md     # detailed Phase 3.5 implementation plan
+│   ├── templates/            # copy-paste CI (e.g. extension authors)
+│   └── contributors/         # author walkthroughs
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml            # pr-quality + 3-platform matrix

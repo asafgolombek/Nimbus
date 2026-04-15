@@ -1,0 +1,28 @@
+---
+title: Telemetry
+description: Opt-in aggregate telemetry — no content, no credentials
+---
+
+Telemetry is **off by default**. When enabled, the Gateway sends **aggregate** JSON (query latency percentiles, version, etc.) to a configurable HTTPS endpoint on a fixed interval.
+
+### Configure
+
+In `nimbus.toml`:
+
+```toml
+[telemetry]
+enabled = false
+endpoint = "https://telemetry.nimbus.dev/v1/ingest"
+flush_interval_seconds = 3600
+```
+
+Environment overrides use the `NIMBUS_TELEMETRY_*` prefix (see `packages/gateway/src/config/telemetry-toml.ts`).
+
+### Inspect and disable
+
+```bash
+nimbus telemetry show    # requires Gateway — prints the sanitized preview payload
+nimbus telemetry disable # stops flushing; respects .nimbus-telemetry-disabled in the data dir
+```
+
+Payloads are validated before send; unexpected keys or credential-shaped strings cause a hard failure in development tests.

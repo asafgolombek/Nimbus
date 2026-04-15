@@ -1,0 +1,24 @@
+---
+title: Query & HTTP API
+description: Structured reads over the local index — CLI and localhost HTTP
+---
+
+### `nimbus query`
+
+Structured reads over the local SQLite index via Gateway IPC:
+
+```bash
+nimbus query --service github --type pr --since 7d --limit 50 --json
+nimbus query --sql "SELECT id, title FROM item WHERE pinned = 1 LIMIT 10" --pretty
+```
+
+`--sql` is restricted to **read-only** `SELECT` statements against the public index schema.
+
+### Read-only HTTP (`nimbus serve`)
+
+With the Gateway started using **`nimbus serve`** (or equivalent HTTP sidecar flags), a **localhost-only** server exposes JSON endpoints such as:
+
+- `GET /v1/items` — same filter semantics as `index.queryItems` / `nimbus query` (shared SQL builder)
+- `GET /v1/items/:id`, `GET /v1/people`, `GET /v1/connectors`, `GET /v1/audit`, `GET /v1/health`
+
+There is **no auth** on localhost by design — bind address is loopback only.

@@ -1,4 +1,4 @@
-import { IPCClient } from "./ipc-transport.ts";
+import { IPCClient } from "./ipc-transport.js";
 
 export type NimbusClientOptions = {
   socketPath: string;

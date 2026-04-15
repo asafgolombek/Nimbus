@@ -19,6 +19,9 @@ jobs:
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
 
+      - name: Build client (dist ESM + CJS)
+        run: bun run --filter @nimbus-dev/client build
+
       - name: Typecheck
         run: bun run --filter @nimbus-dev/client typecheck
 

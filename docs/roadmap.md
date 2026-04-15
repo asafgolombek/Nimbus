@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** reflects `main` as of Phase 3 complete; **Phase 3.5** is the active planning focus for `v0.1.0` readiness.
+> **Last updated:** 2026-04-15 — Phase 3 complete on `main`; **Phase 3.5** is **in progress** (substantial delivery landed; release sign-off still tracked in `docs/phase-3.5-plan.md`).
 
 ---
 
@@ -28,7 +28,7 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 | Phase 1 | Foundation | ✅ Complete |
 | Phase 2 | The Bridge | ✅ Complete |
 | Phase 3 | Intelligence | ✅ Complete |
-| Phase 3.5 | Observability & Developer Experience | 🔵 Current focus |
+| Phase 3.5 | Observability & Developer Experience | 🔵 In progress (see Phase 3.5 section below) |
 | Phase 4 | Presence | Planned |
 | Phase 5 | The Extended Surface | Planned |
 | Phase 6 | Team | Planned |
@@ -197,111 +197,78 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 **Goal:** Make Nimbus debuggable, composable, and trustworthy before the public `v0.1.0` release. Connectors, workflows, and the index are only as useful as your ability to see what they're doing, query them programmatically, and recover when things go wrong.
 
-**Sequencing rationale:** Phase 3 delivers a large surface area of connectors and agentic capability. Phase 3.5 ensures that surface area is observable, configurable, and robust before it ships publicly. Without this phase, `v0.1.0` launches with no onboarding story, no programmatic query interface, no connector degradation visibility, and no database recovery path. **Phase 3.5 is a release prerequisite — Phase 4 does not begin until all acceptance criteria here pass.**
+**Sequencing rationale:** Phase 3 delivers a large surface area of connectors and agentic capability. Phase 3.5 ensures that surface area is observable, configurable, and robust before it ships publicly. **Phase 3.5 remains a release prerequisite** — Phase 4 does not begin until the consolidated acceptance criteria in `docs/phase-3.5-plan.md` are verified on Windows, macOS, and Linux.
+
+> **Progress (2026-04-15):** Most infrastructure for this phase is on `main`. What remains is mostly **documentation depth** (Starlight content beyond the starter site), **release verification** (performance claims, `bun audit`, first `@nimbus-dev/client` publish), **product polish** (first-run wizard, agent caveats, richer `nimbus doctor`), and **author templates** (extension CI workflow).
 
 ### Dependencies
 
 - Phase 3 connector mesh and watcher system (health model builds on them)
 - Phase 3 Extension Registry v1 (extension testing infrastructure builds on the SDK)
 
-### Nimbus Self-Observability
+### Delivered on `main` (high level)
 
-- [ ] **Index metrics** — `nimbus status --verbose` reports: index item count per service, index size on disk, embedding coverage %, last successful sync per connector, p50/p95 query latency over the last 24h
-- [ ] **Prometheus-compatible metrics endpoint** — read-only local HTTP endpoint (`localhost` only, configurable port, off by default); exposes the same metrics as `nimbus status --verbose` in Prometheus text format; enables local Grafana dashboards, shell scripts, and custom tooling without IPC client setup
-- [ ] **Slow query log** — queries that hit the network or exceed a configurable latency threshold are logged to a dedicated table; surfaced via `nimbus diag slow-queries`
-- [ ] **`nimbus diag`** — diagnostic snapshot command: running connectors, connector health states, index stats, pending HITL queue depth, active watchers, last 10 audit log entries; outputs human-readable and `--json` formats
+**Self-observability**
 
-### Connector Health Degradation Model
+- [x] **`nimbus diag`** — snapshot over IPC; `--json`; `slow-queries` subcommand (`packages/cli/src/commands/diag.ts`, `packages/gateway/src/ipc/diagnostics-rpc.ts`)
+- [x] **Metrics in diagnostics / status** — `diag.snapshot` carries index metrics (including query latency percentiles); `nimbus status --verbose` prints per-service item counts, total items, **p95** query latency, and per-connector health lines (`packages/cli/src/commands/status.ts`)
+- [x] **Prometheus-compatible metrics endpoint** — localhost-only, off by default (`packages/gateway/src/ipc/metrics-server.ts`)
+- [x] **Slow query logging** — ring buffer + SQLite persistence; surfaced via `nimbus diag slow-queries` (`packages/gateway/src/db/latency-ring-buffer.ts`, related DB tables)
 
-Today the roadmap describes the happy path for every connector. This section defines how Nimbus behaves and communicates when connectors degrade — including what the agent tells the user when results may be incomplete.
+**Connector health**
 
-- [ ] **Explicit connector health states** — each connector tracks one of: `healthy`, `degraded`, `error`, `rate_limited`, `unauthenticated`, `paused`; state persisted in `sync_state` and surfaced in `nimbus connector list` and `nimbus status`
-- [ ] **Rate-limit awareness** — 429 responses transition the connector to `rate_limited` with a calculated retry-after timestamp; the scheduler respects the window and does not retry early; `nimbus connector list` shows time until retry
-- [ ] **Silent token expiry detection** — 401/403 responses transition the connector to `unauthenticated` rather than logging a generic error; user is notified via the notification system with a direct `nimbus connector auth <name>` prompt
-- [ ] **Degraded-state query behaviour** — when a connector is `degraded` or `error`, agent responses that draw on its data include an explicit caveat: *"GitHub connector is currently degraded — results may be incomplete (last synced: 3h ago)"*
-- [ ] **Automatic retry with exponential backoff** — transient errors (5xx, network timeout) trigger exponential backoff with jitter; max backoff configurable per connector; backoff state visible in `nimbus connector status <name>`
-- [ ] **Health history** — last 7 days of connector health transitions stored in SQLite; `nimbus connector history <name>` shows the timeline; useful for diagnosing flaky connectors
+- [x] **Explicit health states** — persisted in `sync_state` (`healthy`, `degraded`, `error`, `rate_limited`, `unauthenticated`, `paused`); surfaced in IPC and **`nimbus connector list`** (`packages/gateway/src/connectors/health.ts`, CLI table)
+- [x] **429 → `rate_limited`** — connectors throw `RateLimitError`; scheduler skips dispatch until retry window (`packages/gateway/src/sync/scheduler.ts`)
+- [x] **Health history** — SQLite history + **`nimbus connector history <name>`** (`packages/gateway/src/connectors/health.ts`, `packages/cli/src/commands/connector.ts`)
+- [ ] **401/403 → `unauthenticated` + notification UX** — model exists; per-connector coverage and user-facing notification polish may still be incomplete
+- [ ] **Agent caveat strings** when a connector is degraded/error (roadmap UX) — not fully audited end-to-end
 
-### Data Layer API
+**Data layer**
 
-- [ ] **`nimbus query` CLI** — structured query interface over the local index; filter flags: `--service`, `--type`, `--since`, `--until`, `--limit`; `--sql` flag accepts read-only SQLite SELECT statements against the public index schema (non-SELECT statements rejected); `--json` by default; `--pretty` for human-readable table output
-  - Example: `nimbus query --service github --type pr --since 7d --json | jq '.[] | select(.ci_status == "failing")'`
-- [ ] **Read-only local HTTP API** — localhost-only HTTP server (off by default; `nimbus serve --port 7474`); REST endpoints: `GET /v1/items`, `GET /v1/items/:id`, `GET /v1/people`, `GET /v1/connectors`, `GET /v1/audit`; no auth required (localhost-only); enables Raycast extensions, Alfred workflows, custom dashboards, and CI pipeline integrations without IPC setup
-- [ ] **Official TypeScript client library (`@nimbus-dev/client`)** — MIT-licensed npm package; thin typed wrapper over the JSON-RPC IPC protocol; covers `agent.invoke`, `query.*`, `connector.*`, `audit.*`, `people.*`; includes `MockClient` for testing scripts without a running Gateway; VS Code extension (Phase 4) depends on this package
+- [x] **`nimbus query`** — structured filters, `--since` / `--until`, `--sql` read-only guard, `--json` / `--pretty` (`packages/cli/src/commands/query.ts`)
+- [x] **Read-only local HTTP API** — `nimbus serve`; `GET /v1/items`, `/v1/items/:id`, `/v1/people`, `/v1/people/:id`, `/v1/connectors`, `/v1/audit`, `/v1/health` (`packages/gateway/src/ipc/http-server.ts`); item list filters share SQL with IPC via `packages/gateway/src/index/item-list-query.ts`
+- [x] **`@nimbus-dev/client`** — typed IPC wrapper + `MockClient` (`packages/client/`); publish automation on tag `client-v*` (`.github/workflows/publish-client.yml`)
+- [x] **Dual CJS + ESM publish shape** — `dist/index.js` (tsc ESM) + `dist/index.cjs` (bundled `require`); `exports` exposes both *[ ] first npm publish still manual sign-off*
 
-### Configuration Management
+**Configuration**
 
-- [ ] **`nimbus config` CLI** — first-class configuration management without hand-editing TOML:
-  - `nimbus config get <key>` / `set <key> <value>` / `list` / `validate` / `edit`
-  - `list` shows source of each value: default / file / env override
-  - `validate` parses and validates `nimbus.toml` against the schema and reports all errors before applying
-- [ ] **Configuration schema versioning** — `nimbus.toml` carries a `schema_version` field; Gateway validates on startup, rejects unknown fields with a clear error, and prints migration hints when an older schema is detected
-- [ ] **Configuration profiles** — named profiles (e.g. `work`, `personal`) selectable via `--profile` flag or `NIMBUS_PROFILE` env var; each profile has its own connector set, sync intervals, and model selection; profiles share the Vault but credentials are profile-scoped by key prefix (e.g. `work.google.oauth.*`)
-  - `nimbus profile create <name>`, `list`, `switch <name>`
-  - Active profile shown in `nimbus status`
-- [ ] **Environment variable overrides** — any `nimbus.toml` key overridable via `NIMBUS_<SECTION>_<KEY>`; `nimbus config list` shows which values are env-overridden; useful for CI and container deployments
+- [x] **`nimbus config`** — `get` / `set` / `list` / `validate` / `edit` (`packages/cli/src/commands/config.ts`); telemetry keys show file vs env where wired
+- [x] **`nimbus profile`** — create / list / switch / delete (`packages/cli/src/commands/profile.ts`); Gateway profile support (`packages/gateway/src/config/profiles.ts`)
+- [ ] **Universal env override matrix in `config list`** — roadmap calls out every `nimbus.toml` key; today the table is intentionally small (extend incrementally)
 
-### Data Integrity & Disaster Recovery
+**Data integrity & recovery**
 
-- [ ] **`nimbus db verify`** — scans the SQLite index for: corrupted rows, broken FTS5 index consistency, vec table / metadata table rowid mismatches, orphaned sync tokens, schema version mismatch; exits non-zero on any finding; suitable for use in health checks and CI
-- [ ] **`nimbus db repair`** — attempts recovery from a corrupt index: rebuilds FTS5 index, removes rows with unrecoverable corruption, re-queues affected connectors for full resync; writes a repair report to the audit log; requires confirmation before modifying data
-- [ ] **Automatic pre-migration backup** — before any schema migration runs, the Gateway writes a compressed SQLite snapshot to `<dataDir>/backups/pre-migration-<version>-<timestamp>.db.gz`; kept for 30 days; `nimbus db backups list` shows available snapshots
-- [ ] **Migration rollback** — if a migration fails mid-run, the Gateway automatically restores from the pre-migration backup and exits with a clear error; the failed migration is marked `failed` in `_schema_migrations` so it can be retried after a fix; no partially-migrated schema persists
-- [ ] **Index snapshot scheduling** — `nimbus db snapshot` for manual snapshots; `[db.snapshots]` config enables automatic snapshots on a schedule (default: daily, keep last 7); stored separately from pre-migration backups; `nimbus db restore <snapshot>` restores with confirmation prompt
-- [ ] **Disk space monitoring** — Gateway warns via notification and `nimbus status` when index + snapshot storage exceeds a configurable threshold (default: 80% of available disk); `nimbus db prune` removes snapshots and index rows beyond `retentionDays`
+- [x] **`nimbus db verify` / `repair` / snapshot / restore / prune / backups list`** — CLI + gateway `packages/gateway/src/db/*`
+- [x] **Pre-migration backups + rollback tests** — backups under `<dataDir>/backups`; migration failure rollback covered in `packages/gateway/test/unit/db/migration-rollback.test.ts` (and FTS5 mismatch coverage in `verify.test.ts`)
 
-### Opt-In Telemetry
+**Telemetry**
 
-- [ ] **Telemetry infrastructure** — disabled by default; enabled via `nimbus config set telemetry.enabled true` or an explicit opt-in prompt during first-run onboarding; no data collected or transmitted until explicitly enabled
-- [ ] **Collected data — aggregate counters only, no content, no credentials:**
-  - Connector error rates and health state transition counts per connector type (not per account)
-  - Query latency histograms (p50/p95/p99) for index queries and agent invocations
-  - Sync duration histograms per connector type
-  - Gateway cold-start duration
-  - Extension install/uninstall counts per extension id
-  - Nimbus version and platform (for understanding adoption distribution)
-- [ ] **`nimbus telemetry show`** — prints the exact payload that would be sent on the next flush; inspectable before and after enabling; no surprises
-- [ ] **`nimbus telemetry disable`** — immediately stops collection and transmission; deletes locally buffered data
-- [ ] **Transmission** — batched, compressed, HTTPS only, at most once per hour; telemetry server source is open-source; endpoint published in docs
+- [x] **Opt-in pipeline** — `[telemetry]` TOML + env overrides, payload safety gate, `nimbus telemetry show` / `disable`, flush scheduler POST to configured endpoint (`packages/gateway/src/config/telemetry-toml.ts`, `packages/gateway/src/telemetry/*`, `packages/cli/src/commands/telemetry.ts`)
+- [ ] **Full roadmap telemetry catalog** — every aggregate listed in the original spec (connector error rates, sync histograms, cold-start, extension counters) vs the current minimal **preview + metrics** surface (iterate without weakening the no-content guarantee)
 
-### Documentation Site
+**Documentation & extension testing**
 
-The docs site is a Phase 3.5 release prerequisite — a new user installing `v0.1.0` must be able to find getting-started guidance, connector references, and SDK docs without reading raw Markdown in the repository.
+- [x] **Starlight docs package** — `packages/docs/`; `bun run docs:build`; Pagefind search at build time; **internal links validated** on production build (`starlight-links-validator@0.14.3`, compatible with Astro 5)
+- [x] **`nimbus test` + `runContractTests`** — CLI runs manifest contract from `@nimbus-dev/sdk` before optional `bun test` (`packages/cli/src/commands/test.ts`, `packages/sdk/src/contract-tests.ts`)
+- [ ] **Rich docs content** — per-connector pages, full CLI/SDK/client reference, FAQ, architecture digest, release/version banner (starter pages only today)
+- [x] **Extension CI template (copy-paste)** — `docs/templates/nimbus-extension-ci.yml` (adjust `nimbus` install + paths for your repo) *[ ] referenced from extension author walkthrough / SDK readme if desired*
 
-- [ ] **Getting started guide** — install → authenticate one connector → run first query; covers all three platforms; completable in under 10 minutes
-- [ ] **Connector reference** — one page per connector: auth method, required credentials, indexed item types, available tools, HITL-required tools, known limitations and rate limits
-- [ ] **CLI reference** — auto-generated from command definitions; covers every `nimbus` subcommand with flags, examples, and exit codes
-- [ ] **SDK reference** — `@nimbus-dev/sdk` API docs auto-generated from TypeScript types + JSDoc; `MockGateway` usage guide; end-to-end "build your first extension" tutorial
-- [ ] **`@nimbus-dev/client` reference** — API docs for the TypeScript client library; usage examples for common patterns (query the index, invoke the agent, handle HITL from a script)
-- [ ] **Architecture overview** — condensed version of `architecture.md` for contributors who want context without reading the full doc
-- [ ] **FAQ** — covers: "why is my connector showing degraded?", "how do I reset a connector's auth?", "what data does Nimbus store locally?", "how do I uninstall completely?", "what is HITL?"
-- [ ] **Search** — full-text search across all docs pages; static index generated at build time; no external service
-- [ ] **Versioning** — docs versioned alongside releases; `v0.1.0` docs frozen at release; `main` docs show unreleased changes with a banner
+**Onboarding**
 
-### Extension Testing Infrastructure
+- [x] **`nimbus doctor`** — Linux headless: warns when `secret-tool` is missing; checks Gateway reachability (`packages/cli/src/commands/doctor.ts`)
+- [ ] **Full doctor matrix** — Bun version, IPC permissions, disk space, connector health summary table, etc. (roadmap superset; implement incrementally)
+- [ ] **First-run wizard + `nimbus ask` empty-state guidance** — not shipped
 
-- [ ] **`nimbus test` command** — runs an extension's test suite inside a sandboxed environment mirroring the real Gateway: same env injection, same manifest validation, same HITL enforcement; `bun test` compatible; exits non-zero on failure
-- [ ] **Connector contract tests** — `@nimbus-dev/sdk` ships a `runContractTests(server)` helper that verifies an extension's tool surface against the connector tool contract: `list`, `get`, `search` must be present and return typed `NimbusItem` arrays; write tools declared in `hitlRequired` must be present
-- [ ] **Official CI template** — `.github/workflows/nimbus-extension-ci.yml` template published in docs and the SDK repo; covers `bun install`, `bun run build`, `nimbus test`, contract tests, `bun audit`; extension authors copy it to get automated testing without manual setup
+### Consolidated acceptance (release sign-off)
 
-### Onboarding
+Use **`docs/phase-3.5-plan.md` → *Phase 3.5 Acceptance Criteria (consolidated)*** as the checklist to tick only after manual verification on **Windows, macOS, and Linux** (the bullets there are tighter than this roadmap summary).
 
-- [ ] **First-run wizard (CLI)** — `nimbus start` on a fresh install detects no configuration and launches an interactive setup: platform check, connector selection, OAuth flow, initial sync, first query suggestion
-- [ ] **Empty state guidance** — `nimbus ask` with no connected connectors returns a helpful prompt listing connectors to authenticate and how, rather than a generic "no results" message
-- [ ] **`nimbus doctor`** — checks the full environment: Bun version, keystore availability, IPC socket permissions, connected connectors and their health, index population status, disk space; prints a pass/warn/fail report; first thing to run when something seems wrong
+Highlights still requiring explicit sign-off or work:
 
-### Acceptance Criteria
-
-- `nimbus status --verbose` reports per-connector health state, index item counts, and p95 query latency on all three platforms
-- A connector receiving a 429 enters `rate_limited` state; `nimbus connector list` shows the retry-after time; the scheduler does not attempt another sync until that window passes
-- `nimbus query --service github --type pr --since 7d --json` returns a valid JSON array of PR items from the local index in under 100ms on a 50k-item dataset
-- The local HTTP API (`nimbus serve`) returns a `GET /v1/items` response matching the same data as `nimbus query` for equivalent filters
-- `nimbus db verify` detects a manually introduced FTS5 rowid mismatch and exits non-zero; `nimbus db repair` resolves it and re-queues the affected connector
-- A failed migration restores from the pre-migration backup automatically; the Gateway exits with an actionable error message; no partially-migrated schema remains
-- `nimbus telemetry show` displays the exact payload with no content or credential fields present, before and after enabling
-- The docs site passes a link checker with zero broken internal links; the getting-started guide is completable in under 10 minutes on a clean machine on all three platforms
-- A community extension scaffolded with `nimbus scaffold extension` passes `nimbus test` and the contract tests out of the box before any custom logic is added
-- `nimbus doctor` detects a missing keystore session on Linux headless and prints a clear remediation step
+- [ ] **`nimbus query` … < 100ms on 50k rows** — performance claim; add benchmark / soak if you want CI enforcement
+- [ ] **`bun audit --audit-level high` clean** across the workspace on a schedule you trust for `v0.1.0`
+- [ ] **First successful `npm publish` of `@nimbus-dev/client`** using `client-v*` tags + `NPM_TOKEN`
+- [ ] **Docs completeness** vs the Documentation Site bullets in the detailed plan
 
 ---
 
