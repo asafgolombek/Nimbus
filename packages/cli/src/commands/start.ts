@@ -16,43 +16,51 @@ async function sleep(ms: number): Promise<void> {
   await new Promise<void>((r) => setTimeout(r, ms));
 }
 
+async function printOnboardingHintIfNoConnectors(
+  client: IPCClient,
+  markerPath: string,
+): Promise<void> {
+  const rows = await client.call<Array<{ serviceId?: string }>>("connector.listStatus", {});
+  if (Array.isArray(rows) && rows.length === 0) {
+    console.log("");
+    console.log("Next — connect a service so the index has data to search:");
+    console.log("  nimbus connector auth github");
+    console.log("  nimbus connector sync github");
+    console.log("  nimbus doctor");
+  }
+  try {
+    writeFileSync(markerPath, `${new Date().toISOString()}\n`, "utf8");
+  } catch {
+    /* non-fatal */
+  }
+}
+
 async function maybePrintFirstRunHints(
   paths: ReturnType<typeof getCliPlatformPaths>,
 ): Promise<void> {
   if (!process.stdout.isTTY || process.env["CI"] === "true") {
     return;
   }
-  const marker = join(paths.dataDir, ONBOARDING_MARKER);
-  if (existsSync(marker)) {
+  const markerPath = join(paths.dataDir, ONBOARDING_MARKER);
+  if (existsSync(markerPath)) {
     return;
   }
   for (let i = 0; i < 30; i++) {
     const state = await readGatewayState(paths);
-    if (state !== undefined && isProcessAlive(state.pid)) {
-      const client = new IPCClient(state.socketPath);
-      try {
-        await client.connect();
-        const rows = await client.call<Array<{ serviceId?: string }>>("connector.listStatus", {});
-        if (Array.isArray(rows) && rows.length === 0) {
-          console.log("");
-          console.log("Next — connect a service so the index has data to search:");
-          console.log("  nimbus connector auth github");
-          console.log("  nimbus connector sync github");
-          console.log("  nimbus doctor");
-        }
-        try {
-          writeFileSync(marker, `${new Date().toISOString()}\n`, "utf8");
-        } catch {
-          /* non-fatal */
-        }
-      } catch {
-        /* IPC not ready yet */
-      } finally {
-        await client.disconnect().catch(() => {});
-      }
-      return;
+    if (state === undefined || !isProcessAlive(state.pid)) {
+      await sleep(200);
+      continue;
     }
-    await sleep(200);
+    const client = new IPCClient(state.socketPath);
+    try {
+      await client.connect();
+      await printOnboardingHintIfNoConnectors(client, markerPath);
+    } catch {
+      /* IPC not ready yet */
+    } finally {
+      await client.disconnect().catch(() => {});
+    }
+    return;
   }
 }
 

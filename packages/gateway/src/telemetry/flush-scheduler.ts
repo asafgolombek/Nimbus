@@ -76,20 +76,20 @@ export function startTelemetryFlushScheduler(opts: {
         ...(opts.coldStartMs === undefined ? {} : { coldStartMs: opts.coldStartMs }),
       });
       assertTelemetryPayloadSafe(payload);
-      void fetch(cfg.endpoint, {
+      fetch(cfg.endpoint, {
         method: "POST",
         headers: { "content-type": "application/json; charset=utf-8" },
         body: JSON.stringify(payload),
-      }).then(
-        (res) => {
+      })
+        .then((res) => {
           if (!res.ok) {
             opts.logger.warn(
               { msg: "telemetry_flush_http_error", status: res.status, endpoint: cfg.endpoint },
               "telemetry POST failed",
             );
           }
-        },
-        (err: unknown) => {
+        })
+        .catch((err: unknown) => {
           opts.logger.warn(
             {
               msg: "telemetry_flush_network_error",
@@ -97,8 +97,7 @@ export function startTelemetryFlushScheduler(opts: {
             },
             "telemetry POST threw",
           );
-        },
-      );
+        });
     } catch (e) {
       opts.logger.warn(
         { msg: "telemetry_flush_tick_error", err: e instanceof Error ? e.message : String(e) },

@@ -25,22 +25,22 @@ function parsePositiveInt(raw: string | null, fallback: number, max: number): nu
   return Math.min(max, Math.max(1, Math.floor(Number.parseInt(raw, 10))));
 }
 
-function handleItemsList(url: URL, db: Database): Response {
-  const services = url.searchParams.getAll("service");
-  const type = url.searchParams.get("type") ?? undefined;
-  const types = type !== undefined && type !== "" ? [type] : [];
-  const limit = parsePositiveInt(url.searchParams.get("limit"), 50, 1000);
-  const now = Date.now();
-  const sinceRel = url.searchParams.get("since");
-  const sinceMsParam = url.searchParams.get("sinceMs");
-  const untilMsParam = url.searchParams.get("untilMs");
+function parseItemsListTimeFilters(
+  url: URL,
+  nowMs: number,
+): {
+  sinceMs: number | undefined;
+  untilMs: number | undefined;
+} {
   let sinceMs: number | undefined;
+  const sinceRel = url.searchParams.get("since");
   if (sinceRel !== null && sinceRel.trim() !== "") {
-    const rel = parseRelativeSinceToWindowMs(sinceRel, now);
+    const rel = parseRelativeSinceToWindowMs(sinceRel, nowMs);
     if (rel !== undefined) {
       sinceMs = rel;
     }
   }
+  const sinceMsParam = url.searchParams.get("sinceMs");
   if (sinceMs === undefined && sinceMsParam !== null && sinceMsParam !== "") {
     const n = Number(sinceMsParam);
     if (Number.isFinite(n)) {
@@ -48,18 +48,28 @@ function handleItemsList(url: URL, db: Database): Response {
     }
   }
   let untilMs: number | undefined;
+  const untilMsParam = url.searchParams.get("untilMs");
   if (untilMsParam !== null && untilMsParam !== "") {
     const n = Number(untilMsParam);
     if (Number.isFinite(n)) {
       untilMs = Math.floor(n);
     }
   }
+  return { sinceMs, untilMs };
+}
+
+function handleItemsList(url: URL, db: Database): Response {
+  const services = url.searchParams.getAll("service");
+  const type = url.searchParams.get("type") ?? undefined;
+  const types = type === undefined || type === "" ? [] : [type];
+  const limit = parsePositiveInt(url.searchParams.get("limit"), 50, 1000);
+  const { sinceMs, untilMs } = parseItemsListTimeFilters(url, Date.now());
   const { sql, vals } = buildItemListSql({
     services,
     types,
     limit,
-    ...(sinceMs !== undefined ? { sinceMs } : {}),
-    ...(untilMs !== undefined ? { untilMs } : {}),
+    ...(sinceMs === undefined ? {} : { sinceMs }),
+    ...(untilMs === undefined ? {} : { untilMs }),
   });
   const rows = db.query(sql).all(...vals) as Record<string, unknown>[];
   return json({ data: rows, meta: { total: rows.length, limit, offset: 0 } });

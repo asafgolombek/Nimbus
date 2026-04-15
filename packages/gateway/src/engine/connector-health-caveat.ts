@@ -88,7 +88,7 @@ export function buildSearchLocalIndexHealthExtras(
       services.add(g.service);
     }
   }
-  const ordered = [...services].sort();
+  const ordered = [...services].sort((a, b) => a.localeCompare(b));
   const caveats = collectConnectorHealthCaveatsForServices(db, ordered, 5);
   return caveats.length > 0 ? { connectorHealthCaveats: caveats } : {};
 }

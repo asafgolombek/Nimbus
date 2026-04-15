@@ -77,10 +77,19 @@ function formatQueryCell(value: unknown): string {
   if (value === null || value === undefined) {
     return "";
   }
-  if (typeof value === "object") {
-    return JSON.stringify(value);
+  switch (typeof value) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "bigint":
+      return String(value);
+    case "symbol":
+      return value.toString();
+    case "object":
+      return JSON.stringify(value);
+    default:
+      return "";
   }
-  return String(value);
 }
 
 function printRows(rows: Record<string, unknown>[], wantJson: boolean, pretty: boolean): void {

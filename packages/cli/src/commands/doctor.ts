@@ -50,33 +50,116 @@ function healthStateMark(st: string): string {
   return "[warn]";
 }
 
-export async function runDoctor(_args: string[]): Promise<void> {
-  let exit = 0;
-  const paths = getCliPlatformPaths();
-
+function doctorPrintBunCheck(): number {
   console.log(`Runtime: Bun ${Bun.version}`);
-  if (!bunVersionOk()) {
-    console.log(
-      `[fail] Nimbus expects Bun >= ${String(MIN_BUN_MAJOR)}.${String(MIN_BUN_MINOR)} (see repository README).`,
-    );
-    exit = Math.max(exit, 2);
-  } else {
+  if (bunVersionOk()) {
     console.log("[ok] Bun version meets minimum.");
+    return 0;
   }
+  console.log(
+    `[fail] Nimbus expects Bun >= ${String(MIN_BUN_MAJOR)}.${String(MIN_BUN_MINOR)} (see repository README).`,
+  );
+  return 2;
+}
+
+function doctorPrintVaultCheck(): number {
+  if (platform() === "linux") {
+    if (Bun.which("secret-tool") === null) {
+      console.log(`[fail] Vault: ${LINUX_SECRET_TOOL_HINT}`);
+      return 2;
+    }
+    console.log("[ok] Vault: secret-tool is on PATH.");
+    return 0;
+  }
+  console.log(`[ok] Vault: OS-native store (${platform()}) — no Linux secret-tool check.`);
+  return 0;
+}
+
+function doctorPrintConfigValidation(val: {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+}): number {
+  let exit = 0;
+  if (val.warnings.length > 0) {
+    for (const w of val.warnings) {
+      console.log(`[warn] Config: ${w}`);
+    }
+    exit = 1;
+  }
+  if (!val.ok) {
+    for (const e of val.errors) {
+      console.log(`[fail] Config: ${e}`);
+    }
+    return 2;
+  }
+  if (val.errors.length === 0 && val.warnings.length === 0) {
+    console.log("[ok] Config: valid.");
+  }
+  return exit;
+}
+
+function doctorPrintIndexFromSnapshot(snap: { index?: { totalItems?: unknown } }): number {
+  const total = snap.index?.totalItems;
+  const nItems =
+    typeof total === "number" && Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
+  if (nItems === 0) {
+    console.log("[warn] Index: zero items — run connector sync after auth.");
+    return 1;
+  }
+  console.log(`[ok] Index: ${String(nItems)} items.`);
+  return 0;
+}
+
+function doctorPrintHealthFromSnapshot(snap: { connectorHealth?: unknown }): number {
+  const healthRaw = snap.connectorHealth;
+  const health: ConnectorHealthRow[] = Array.isArray(healthRaw)
+    ? (healthRaw as ConnectorHealthRow[])
+    : [];
+  if (health.length === 0) {
+    console.log("[warn] Connectors: none registered.");
+    return 1;
+  }
+  console.log("Connector health:");
+  for (const h of health) {
+    const id = typeof h.connectorId === "string" ? h.connectorId : "?";
+    const st = typeof h.state === "string" ? h.state : "?";
+    const mark = healthStateMark(st);
+    console.log(`  ${mark} ${id}: ${st}`);
+  }
+  const sev = worstHealthSeverity(health);
+  return sev === "ok" ? 0 : 1;
+}
+
+async function doctorRunGatewayRpcs(client: IPCClient): Promise<number> {
+  const ping = await client.call<{ uptime?: number }>("gateway.ping", {});
+  const uptime = typeof ping.uptime === "number" && Number.isFinite(ping.uptime) ? ping.uptime : 0;
+  console.log(`[ok] Gateway: IPC OK (uptime ~${String(Math.round(uptime / 1000))}s).`);
+
+  const val = await client.call<{ ok: boolean; errors: string[]; warnings: string[] }>(
+    "config.validate",
+    {},
+  );
+  let exit = doctorPrintConfigValidation(val);
+
+  const snap = await client.call<{
+    index?: { totalItems?: unknown };
+    connectorHealth?: unknown;
+  }>("diag.snapshot", {});
+  exit = Math.max(exit, doctorPrintIndexFromSnapshot(snap));
+  exit = Math.max(exit, doctorPrintHealthFromSnapshot(snap));
+  return exit;
+}
+
+export async function runDoctor(_args: string[]): Promise<void> {
+  const paths = getCliPlatformPaths();
+  let exit = 0;
+  exit = Math.max(exit, doctorPrintBunCheck());
 
   console.log(`Data dir: ${paths.dataDir}`);
   console.log(`Gateway state file: ${gatewayStatePath(paths)}`);
 
-  if (platform() === "linux") {
-    if (Bun.which("secret-tool") === null) {
-      console.log(`[fail] Vault: ${LINUX_SECRET_TOOL_HINT}`);
-      exit = Math.max(exit, 2);
-    } else {
-      console.log("[ok] Vault: secret-tool is on PATH.");
-    }
-  } else {
-    console.log(`[ok] Vault: OS-native store (${platform()}) — no Linux secret-tool check.`);
-  }
+  exit = Math.max(exit, doctorPrintVaultCheck());
 
   const state = await readGatewayState(paths);
   if (state === undefined) {
@@ -91,66 +174,7 @@ export async function runDoctor(_args: string[]): Promise<void> {
     const client = new IPCClient(state.socketPath);
     try {
       await client.connect();
-      const ping = await client.call<{ uptime?: number }>("gateway.ping", {});
-      const uptime =
-        typeof ping.uptime === "number" && Number.isFinite(ping.uptime) ? ping.uptime : 0;
-      console.log(`[ok] Gateway: IPC OK (uptime ~${String(Math.round(uptime / 1000))}s).`);
-
-      const val = await client.call<{ ok: boolean; errors: string[]; warnings: string[] }>(
-        "config.validate",
-        {},
-      );
-      if (val.warnings.length > 0) {
-        for (const w of val.warnings) {
-          console.log(`[warn] Config: ${w}`);
-        }
-        exit = Math.max(exit, 1);
-      }
-      if (!val.ok) {
-        for (const e of val.errors) {
-          console.log(`[fail] Config: ${e}`);
-        }
-        exit = Math.max(exit, 2);
-      } else if (val.errors.length === 0 && val.warnings.length === 0) {
-        console.log("[ok] Config: valid.");
-      }
-
-      const snap = await client.call<{
-        index?: { totalItems?: unknown };
-        connectorHealth?: unknown;
-      }>("diag.snapshot", {});
-      const total = snap.index?.totalItems;
-      const nItems =
-        typeof total === "number" && Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
-      if (nItems === 0) {
-        console.log("[warn] Index: zero items — run connector sync after auth.");
-        exit = Math.max(exit, 1);
-      } else {
-        console.log(`[ok] Index: ${String(nItems)} items.`);
-      }
-
-      const healthRaw = snap.connectorHealth;
-      const health: ConnectorHealthRow[] = Array.isArray(healthRaw)
-        ? (healthRaw as ConnectorHealthRow[])
-        : [];
-      if (health.length === 0) {
-        console.log("[warn] Connectors: none registered.");
-        exit = Math.max(exit, 1);
-      } else {
-        console.log("Connector health:");
-        for (const h of health) {
-          const id = typeof h.connectorId === "string" ? h.connectorId : "?";
-          const st = typeof h.state === "string" ? h.state : "?";
-          const mark = healthStateMark(st);
-          console.log(`  ${mark} ${id}: ${st}`);
-        }
-        const sev = worstHealthSeverity(health);
-        if (sev === "fail") {
-          exit = Math.max(exit, 1);
-        } else if (sev === "warn") {
-          exit = Math.max(exit, 1);
-        }
-      }
+      exit = Math.max(exit, await doctorRunGatewayRpcs(client));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.log(`[fail] Gateway: IPC failed — ${msg}`);
