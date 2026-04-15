@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
+import { getConnectorHealth } from "../connectors/health.ts";
 import {
   DEFAULT_SLOW_QUERY_THRESHOLD_MS,
   latencyRingBuffer,
@@ -38,7 +39,11 @@ import {
   itemPrimaryKey,
   upsertNimbusItemIntoItemTable,
 } from "./item-store.ts";
-import { readIndexedUserVersion, runIndexedSchemaMigrations } from "./migrations/runner.ts";
+import {
+  type MigrationBackupOptions,
+  readIndexedUserVersion,
+  runIndexedSchemaMigrations,
+} from "./migrations/runner.ts";
 import type { RankedIndexItem } from "./ranked-item.ts";
 import { ensureSqliteVecForConnection } from "./sqlite-vec-load.ts";
 
@@ -250,8 +255,8 @@ export class LocalIndex {
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
    */
-  static ensureSchema(db: Database): void {
-    runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION);
+  static ensureSchema(db: Database, backup?: MigrationBackupOptions): void {
+    runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION, backup);
     ensureSqliteVecForConnection(db, readIndexedUserVersion(db));
     db.run("PRAGMA foreign_keys = ON");
   }
@@ -295,6 +300,7 @@ export class LocalIndex {
     } else if (row.status === "backoff") {
       status = "backoff";
     }
+    const health = getConnectorHealth(db, row.service_id);
     return {
       serviceId: row.service_id,
       status,
@@ -304,6 +310,8 @@ export class LocalIndex {
       itemCount: countItemsForService(db, row.service_id),
       lastError: row.error_msg,
       consecutiveFailures: row.consecutive_failures,
+      healthState: health.state,
+      healthRetryAfterMs: health.retryAfter !== undefined ? health.retryAfter.getTime() : null,
     };
   }
 

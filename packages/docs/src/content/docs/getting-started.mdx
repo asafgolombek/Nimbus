@@ -1,0 +1,28 @@
+---
+title: Getting started
+description: Install Bun, run the Gateway, and verify the CLI — under 10 minutes
+---
+
+## Prerequisites
+
+1. Install [Bun](https://bun.sh/) v1.2 or newer.
+2. Clone the Nimbus repository and run `bun install` at the repo root.
+
+## Run the Gateway
+
+From the repository root:
+
+```bash
+bun run --filter @nimbus/cli dev
+```
+
+In another terminal, start the Gateway and CLI as documented in the main README (e.g. `nimbus start` from a packaged build, or the workspace dev flow you use locally).
+
+## Verify the CLI
+
+```bash
+nimbus help
+nimbus doctor
+```
+
+Return to the [home page](/) for an overview of the project.

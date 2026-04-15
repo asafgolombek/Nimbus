@@ -149,6 +149,11 @@ jobs:
         env:
           CI: "true"
 
+      - name: Coverage gate — Telemetry (≥85%)
+        run: bun run test:coverage:telemetry --reporter=junit --reporter-outfile=junit-reports/junit-telemetry.xml
+        env:
+          CI: "true"
+
       - name: Integration tests
         run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=junit-reports/junit-integration.xml
         env:

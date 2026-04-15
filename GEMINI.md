@@ -72,6 +72,9 @@ bun run test:coverage:embedding # ≥80% threshold (embedding)
 bun run test:coverage:workflow  # ≥80% threshold (workflow runner + store)
 bun run test:coverage:watcher   # ≥80% threshold (watcher engine + store + anomaly stub)
 bun run test:coverage:extensions # ≥85% threshold (extension registry + manifest + verify)
+bun run test:coverage:config       # ≥80% threshold (config loader, profiles, env overrides)
+bun run test:coverage:client       # ≥80% threshold (@nimbus-dev/client)
+bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — payload safety gate)
 
 # Integration tests
 bun run test:integration
@@ -84,6 +87,9 @@ cd packages/ui && bunx vitest run
 
 # Build all packages
 bun run build
+
+# Docs site (Starlight — static output under packages/docs/dist)
+bun run docs:build
 
 # Clean all build outputs
 bun run clean

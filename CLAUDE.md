@@ -148,6 +148,7 @@ bun run package:installers:linux -- --version 0.1.0
 # nimbus connector history <name>
 
 # Docs site (packages/docs)
+bun run docs:build                     # from repo root (workspace filter)
 cd packages/docs && bunx astro build   # build static docs site
 cd packages/docs && bunx astro dev     # local dev server
 

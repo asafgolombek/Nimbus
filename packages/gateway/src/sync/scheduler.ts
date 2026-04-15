@@ -293,6 +293,7 @@ export class SyncScheduler {
     } else if (row.status === "backoff") {
       status = "backoff";
     }
+    const health = getConnectorHealth(this.db, serviceId);
     return {
       serviceId,
       status,
@@ -302,6 +303,8 @@ export class SyncScheduler {
       itemCount,
       lastError: row.error_msg,
       consecutiveFailures: row.consecutive_failures,
+      healthState: health.state,
+      healthRetryAfterMs: health.retryAfter !== undefined ? health.retryAfter.getTime() : null,
     };
   }
 

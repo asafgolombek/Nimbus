@@ -1,0 +1,34 @@
+name: Publish @nimbus-dev/client
+
+on:
+  push:
+    tags:
+      - "client-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Typecheck
+        run: bun run --filter @nimbus-dev/client typecheck
+
+      - name: Unit tests — client
+        run: bun test packages/client
+        env:
+          CI: "true"
+
+      - name: Publish to npm
+        working-directory: packages/client
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun publish --access public

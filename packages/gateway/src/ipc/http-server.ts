@@ -5,6 +5,7 @@
 
 import { Database } from "bun:sqlite";
 import { getAllConnectorHealth } from "../connectors/health.ts";
+import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
 
 export type ReadOnlyHttpServerHandle = {
   readonly stop: () => void;
@@ -27,31 +28,39 @@ function parsePositiveInt(raw: string | null, fallback: number, max: number): nu
 function handleItemsList(url: URL, db: Database): Response {
   const services = url.searchParams.getAll("service");
   const type = url.searchParams.get("type") ?? undefined;
-  const sinceMs = url.searchParams.get("sinceMs");
-  const untilMs = url.searchParams.get("untilMs");
+  const types = type !== undefined && type !== "" ? [type] : [];
   const limit = parsePositiveInt(url.searchParams.get("limit"), 50, 1000);
-  const filters: string[] = [];
-  const vals: Array<string | number> = [];
-  if (services.length > 0) {
-    const ph = services.map(() => "?").join(", ");
-    filters.push(`service IN (${ph})`);
-    vals.push(...services);
+  const now = Date.now();
+  const sinceRel = url.searchParams.get("since");
+  const sinceMsParam = url.searchParams.get("sinceMs");
+  const untilMsParam = url.searchParams.get("untilMs");
+  let sinceMs: number | undefined;
+  if (sinceRel !== null && sinceRel.trim() !== "") {
+    const rel = parseRelativeSinceToWindowMs(sinceRel, now);
+    if (rel !== undefined) {
+      sinceMs = rel;
+    }
   }
-  if (type !== undefined && type !== "") {
-    filters.push("type = ?");
-    vals.push(type);
+  if (sinceMs === undefined && sinceMsParam !== null && sinceMsParam !== "") {
+    const n = Number(sinceMsParam);
+    if (Number.isFinite(n)) {
+      sinceMs = Math.floor(n);
+    }
   }
-  if (sinceMs !== null && sinceMs !== "" && Number.isFinite(Number(sinceMs))) {
-    filters.push("modified_at >= ?");
-    vals.push(Math.floor(Number(sinceMs)));
+  let untilMs: number | undefined;
+  if (untilMsParam !== null && untilMsParam !== "") {
+    const n = Number(untilMsParam);
+    if (Number.isFinite(n)) {
+      untilMs = Math.floor(n);
+    }
   }
-  if (untilMs !== null && untilMs !== "" && Number.isFinite(Number(untilMs))) {
-    filters.push("modified_at <= ?");
-    vals.push(Math.floor(Number(untilMs)));
-  }
-  const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
-  const sql = `SELECT * FROM item ${where} ORDER BY modified_at DESC LIMIT ?`;
-  vals.push(limit);
+  const { sql, vals } = buildItemListSql({
+    services,
+    types,
+    limit,
+    ...(sinceMs !== undefined ? { sinceMs } : {}),
+    ...(untilMs !== undefined ? { untilMs } : {}),
+  });
   const rows = db.query(sql).all(...vals) as Record<string, unknown>[];
   return json({ data: rows, meta: { total: rows.length, limit, offset: 0 } });
 }

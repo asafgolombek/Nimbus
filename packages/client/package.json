@@ -16,6 +16,9 @@
     "src",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",

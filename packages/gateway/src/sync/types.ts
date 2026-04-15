@@ -113,4 +113,8 @@ export interface SyncStatus {
   itemCount: number;
   lastError: string | null;
   consecutiveFailures: number;
+  /** Phase 3.5 — `sync_state.health_state` (connector health). */
+  healthState?: string;
+  /** Epoch ms for `sync_state.retry_after` when rate-limited; otherwise `null`. */
+  healthRetryAfterMs?: number | null;
 }

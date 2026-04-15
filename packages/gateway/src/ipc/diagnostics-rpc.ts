@@ -15,6 +15,7 @@ import { runReadOnlySelect, SqlGuardError } from "../db/query-guard.ts";
 import { formatRepairReport, repairIndex } from "../db/repair.ts";
 import { listSnapshots, previewRestore, pruneSnapshots, takeSnapshot } from "../db/snapshot.ts";
 import { formatVerifyResult, verifyIndex } from "../db/verify.ts";
+import { buildItemListSql } from "../index/item-list-query.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { LocalIndex as LocalIndexClass } from "../index/local-index.ts";
 import { buildTelemetryPreview } from "../telemetry/collector.ts";
@@ -217,32 +218,13 @@ function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): Diagno
     ? (rec["types"] as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
   const d = requireDb(ctx);
-  const filters: string[] = [];
-  const vals: Array<string | number> = [];
-  if (services.length > 0) {
-    const ph = services.map(() => "?").join(", ");
-    filters.push(`service IN (${ph})`);
-    vals.push(...services);
-  }
-  if (types.length === 1 && types[0] !== undefined) {
-    filters.push("type = ?");
-    vals.push(types[0]);
-  } else if (types.length > 1) {
-    const ph = types.map(() => "?").join(", ");
-    filters.push(`type IN (${ph})`);
-    vals.push(...types);
-  }
-  if (sinceMs !== undefined) {
-    filters.push("modified_at >= ?");
-    vals.push(sinceMs);
-  }
-  if (untilMs !== undefined) {
-    filters.push("modified_at <= ?");
-    vals.push(untilMs);
-  }
-  const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
-  const sql = `SELECT * FROM item ${where} ORDER BY modified_at DESC LIMIT ?`;
-  vals.push(limit);
+  const { sql, vals } = buildItemListSql({
+    services,
+    types,
+    limit,
+    ...(sinceMs !== undefined ? { sinceMs } : {}),
+    ...(untilMs !== undefined ? { untilMs } : {}),
+  });
   const rows = d.query(sql).all(...vals) as Record<string, unknown>[];
   return { kind: "hit", value: { items: rows, meta: { limit, total: rows.length } } };
 }

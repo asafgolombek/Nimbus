@@ -30,6 +30,7 @@ import { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
 import type { SyncContext } from "../sync/types.ts";
+import { startTelemetryFlushScheduler } from "../telemetry/flush-scheduler.ts";
 import { createNimbusVault } from "../vault/factory.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { AnomalyDetectorStub } from "../watcher/anomaly-detector.ts";
@@ -60,8 +61,9 @@ function createStubNotifications(): NotificationService {
 type EmbeddingRuntime = Awaited<ReturnType<typeof createEmbeddingRuntime>>;
 
 function openGatewaySqlite(dataDir: string): Database {
-  const db = new Database(join(dataDir, "nimbus.db"));
-  LocalIndex.ensureSchema(db);
+  const dbPath = join(dataDir, "nimbus.db");
+  const db = new Database(dbPath);
+  LocalIndex.ensureSchema(db, { backupDir: join(dataDir, "backups"), dbPath });
   startLatencyFlushScheduler(db);
   db.run("PRAGMA busy_timeout = 8000");
   return db;
@@ -278,6 +280,14 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   }
 
   const sidecarStops = collectSidecarsFromEnv(db, paths);
+  const telemetryStop = startTelemetryFlushScheduler({
+    dataDir: paths.dataDir,
+    activeTomlPath,
+    getDatabase: () => db,
+    gatewayVersion: "0.1.0",
+    logger: syncLogger,
+  });
+  sidecarStops.push(telemetryStop.stop);
 
   return {
     vault,

@@ -21,6 +21,8 @@ type SyncStatus = {
   itemCount: number;
   lastError: string | null;
   consecutiveFailures: number;
+  healthState?: string;
+  healthRetryAfterMs?: number | null;
 };
 
 type SyncTelemetryEntry = {
@@ -1054,15 +1056,32 @@ async function runConnectorAuth(tail: string[]): Promise<void> {
   }
 }
 
+function fmtHealthRetry(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) {
+    return "—";
+  }
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) {
+    return "—";
+  }
+  return d.toISOString();
+}
+
 async function runConnectorList(): Promise<void> {
   const rows = await withIpc((c) => c.call<SyncStatus[]>("connector.listStatus"));
   if (rows.length === 0) {
     console.log("No connectors registered yet. Use: nimbus connector auth <service>");
     return;
   }
-  const errCap = 48;
+  const errCap = 40;
   const wService = Math.max(10, "SERVICE".length, ...rows.map((r) => r.serviceId.length));
   const wStatus = Math.max(8, "STATUS".length, ...rows.map((r) => r.status.length));
+  const wHealth = Math.max(8, "HEALTH".length, ...rows.map((r) => (r.healthState ?? "—").length));
+  const wRetry = Math.max(
+    14,
+    "RETRY·AFTER·(UTC)".length,
+    ...rows.map((r) => fmtHealthRetry(r.healthRetryAfterMs).length),
+  );
   const wLast = Math.max(10, "LAST SYNC".length, ...rows.map((r) => relTime(r.lastSyncAt).length));
   const wNext = Math.max(
     10,
@@ -1076,14 +1095,16 @@ async function runConnectorList(): Promise<void> {
     ...rows.map((r) => String(r.consecutiveFailures).length),
   );
 
-  const head = `${padField("SERVICE", wService)}  ${padField("STATUS", wStatus)}  ${padField("LAST SYNC", wLast)}  ${padField("NEXT SYNC", wNext)}  ${padField("ITEMS", wItems)}  ${padField("FAIL", wFail)}  ERROR`;
+  const head = `${padField("SERVICE", wService)}  ${padField("STATUS", wStatus)}  ${padField("HEALTH", wHealth)}  ${padField("RETRY·AFTER·(UTC)", wRetry)}  ${padField("LAST SYNC", wLast)}  ${padField("NEXT SYNC", wNext)}  ${padField("ITEMS", wItems)}  ${padField("FAIL", wFail)}  ERROR`;
   const ruleLen = head.length + errCap;
   console.log(head);
   console.log(repeatChar("─", ruleLen));
   for (const r of rows) {
     const errRaw = r.lastError ?? "—";
     const err = truncateText(errRaw, errCap);
-    const line = `${padField(r.serviceId, wService)}  ${padField(r.status, wStatus)}  ${padField(relTime(r.lastSyncAt), wLast)}  ${padField(fmtNextSync(r.nextSyncAt), wNext)}  ${padField(String(r.itemCount), wItems)}  ${padField(String(r.consecutiveFailures), wFail)}  ${err}`;
+    const h = r.healthState ?? "—";
+    const ra = fmtHealthRetry(r.healthRetryAfterMs);
+    const line = `${padField(r.serviceId, wService)}  ${padField(r.status, wStatus)}  ${padField(h, wHealth)}  ${padField(ra, wRetry)}  ${padField(relTime(r.lastSyncAt), wLast)}  ${padField(fmtNextSync(r.nextSyncAt), wNext)}  ${padField(String(r.itemCount), wItems)}  ${padField(String(r.consecutiveFailures), wFail)}  ${err}`;
     console.log(line);
   }
 }

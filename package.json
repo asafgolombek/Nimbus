@@ -11,6 +11,7 @@
     "packages/ui",
     "packages/sdk",
     "packages/client",
+    "packages/docs",
     "packages/mcp-connectors/onedrive",
     "packages/mcp-connectors/outlook",
     "packages/mcp-connectors/google-photos",
@@ -66,6 +67,8 @@
     "test:coverage:extensions": "bun test packages/gateway/src/extensions/install-from-local.test.ts packages/gateway/src/extensions/manifest.test.ts packages/gateway/src/extensions/spawn-env.test.ts packages/gateway/src/extensions/verify-extensions.test.ts packages/gateway/src/automation/extension-store.test.ts --coverage --coverage-threshold-lines=85",
     "test:coverage:config": "bun test packages/gateway/src/config --coverage --coverage-threshold-lines=80",
     "test:coverage:client": "bun test packages/client --coverage --coverage-threshold-lines=80",
+    "test:coverage:telemetry": "bun test packages/gateway/src/config/telemetry-toml.test.ts packages/gateway/test/unit/telemetry --coverage --coverage-threshold-lines=85",
+    "docs:build": "bun run --filter @nimbus/docs build",
     "package:headless": "bun scripts/package-headless-bundle.ts",
     "package:installers:linux": "bun scripts/package-linux-installers.ts",
     "clean": "bun run --filter '*' clean && rm -rf node_modules"
