@@ -19,9 +19,15 @@ export async function runScaffold(args: string[]): Promise<void> {
 
   const manifest = {
     id,
+    displayName: id,
     version: "0.0.1",
-    name: id,
-    entry: "dist/index.js",
+    description: "Scaffolded Nimbus extension",
+    author: "local",
+    entrypoint: "dist/index.js",
+    runtime: "bun" as const,
+    permissions: ["read" as const],
+    hitlRequired: [] as const,
+    minNimbusVersion: "0.1.0",
   };
   writeFileSync(
     join(dir, EXTENSION_MANIFEST_FILENAME),
@@ -31,6 +37,32 @@ export async function runScaffold(args: string[]): Promise<void> {
   writeFileSync(
     join(dir, "dist", "index.js"),
     "// Nimbus extension entry (MCP server wiring goes here)\nexport default {};\n",
+    "utf8",
+  );
+  writeFileSync(
+    join(dir, "package.json"),
+    `${JSON.stringify(
+      {
+        name: `nimbus-extension-${id.replaceAll(/[^a-z0-9-]/gi, "-")}`,
+        private: true,
+        type: "module",
+        scripts: { test: "bun test" },
+      },
+      undefined,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    join(dir, "smoke.test.ts"),
+    `import { describe, expect, test } from "bun:test";
+
+describe("extension smoke", () => {
+  test("loads", () => {
+    expect(1).toBe(1);
+  });
+});
+`,
     "utf8",
   );
   console.log(`Scaffolded extension at ./${id}/ (${EXTENSION_MANIFEST_FILENAME})`);

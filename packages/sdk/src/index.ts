@@ -12,6 +12,7 @@
  * by the Gateway. Extension authors focus on their service's API.
  */
 
+export { ExtensionContractError, runContractTests } from "./contract-tests";
 export { NimbusExtensionServer } from "./server";
 export { MockGateway } from "./testing/index";
 export type { ExtensionManifest, NimbusItem } from "./types";

@@ -31,4 +31,6 @@ export interface PlatformServices {
   openUrl(url: string): Promise<void>;
   /** RAG session memory (schema v10+); undefined when embeddings unavailable. */
   sessionMemoryStore?: SessionMemoryStore;
+  /** Optional HTTP / metrics sidecars; stopped before IPC on gateway shutdown. */
+  disposeSidecars?: () => void;
 }

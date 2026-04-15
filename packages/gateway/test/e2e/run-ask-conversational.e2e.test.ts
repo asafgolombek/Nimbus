@@ -35,6 +35,7 @@ function baseParams(
       rejectAllPending: () => {
         /* noop */
       },
+      pendingCount: () => 0,
     } as ConsentCoordinator,
     localIndex: {
       recordAudit: (): void => {

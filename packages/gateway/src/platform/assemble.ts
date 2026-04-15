@@ -6,8 +6,8 @@ import {
   evaluateWatchersStartupCatchUp,
 } from "../automation/watcher-engine.ts";
 import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
-import { loadNimbusEmbeddingFromConfigDir } from "../config/nimbus-toml.ts";
-import { loadNimbusSessionFromConfigDir } from "../config/session-toml.ts";
+import { loadNimbusEmbeddingFromPath, resolveNimbusTomlForProfile } from "../config/nimbus-toml.ts";
+import { loadNimbusSessionFromPath } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
 import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
 import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
@@ -22,7 +22,9 @@ import {
   type SemanticSearchDeps,
 } from "../index/local-index.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+import { startReadOnlyHttpServer } from "../ipc/http-server.ts";
 import { createIpcServer } from "../ipc/index.ts";
+import { startMetricsServer } from "../ipc/metrics-server.ts";
 import { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
@@ -63,8 +65,9 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const notifications = createStubNotifications();
   const syncLogger = pino({ level: processEnvGet("NIMBUS_LOG_LEVEL") ?? "warn" });
   const rateLimiter = new ProviderRateLimiter();
-  const tomlEmbedding = loadNimbusEmbeddingFromConfigDir(paths.configDir);
-  const sessionToml = loadNimbusSessionFromConfigDir(paths.configDir);
+  const activeTomlPath = resolveNimbusTomlForProfile(paths.configDir);
+  const tomlEmbedding = loadNimbusEmbeddingFromPath(activeTomlPath);
+  const sessionToml = loadNimbusSessionFromPath(activeTomlPath);
   const embeddingRuntime = await createEmbeddingRuntime(
     db,
     paths,
@@ -178,6 +181,8 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     vault,
     version: "0.1.0",
     localIndex,
+    dataDir: paths.dataDir,
+    configDir: paths.configDir,
     extensionsDir: paths.extensionsDir,
     openUrl: openUrlInDefaultBrowser,
     syncScheduler,
@@ -191,6 +196,23 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
       embeddingBackfill: rt.getBackfillProgress(),
     });
   }
+
+  const sidecarStops: Array<() => void> = [];
+  const httpPortRaw = processEnvGet("NIMBUS_HTTP_PORT");
+  if (httpPortRaw !== undefined && httpPortRaw.trim() !== "") {
+    const hp = Number.parseInt(httpPortRaw.trim(), 10);
+    if (Number.isFinite(hp) && hp > 0) {
+      sidecarStops.push(startReadOnlyHttpServer(join(paths.dataDir, "nimbus.db"), hp).stop);
+    }
+  }
+  const metricsPortRaw = processEnvGet("NIMBUS_METRICS_PORT");
+  if (metricsPortRaw !== undefined && metricsPortRaw.trim() !== "") {
+    const mp = Number.parseInt(metricsPortRaw.trim(), 10);
+    if (Number.isFinite(mp) && mp > 0) {
+      sidecarStops.push(startMetricsServer(() => db, mp).stop);
+    }
+  }
+
   return {
     vault,
     ipc: createIpcServer(ipcOpts),
@@ -202,5 +224,18 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     notifications,
     openUrl: openUrlInDefaultBrowser,
     ...(sessionMemoryStore === undefined ? {} : { sessionMemoryStore }),
+    ...(sidecarStops.length === 0
+      ? {}
+      : {
+          disposeSidecars(): void {
+            for (const s of sidecarStops) {
+              try {
+                s();
+              } catch {
+                /* ignore */
+              }
+            }
+          },
+        }),
   };
 }

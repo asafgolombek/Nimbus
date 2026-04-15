@@ -16,6 +16,7 @@ import {
   oauthProfileForService,
 } from "../connectors/connector-catalog.ts";
 import { clearOAuthVaultIfProviderUnused } from "../connectors/connector-vault.ts";
+import { getConnectorHealthHistory } from "../connectors/health.ts";
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import {
   deleteUserMcpConnector,
@@ -289,6 +290,27 @@ export function handleConnectorStatus(ctx: ConnectorRpcHandlerContext): Connecto
     return { kind: "hit", value: { ...row, telemetry } };
   }
   return { kind: "hit", value: row };
+}
+
+export function handleConnectorHealthHistory(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
+  const { rec, localIndex } = ctx;
+  const id = parseServiceArg(rec);
+  let limit = 100;
+  if (rec !== undefined && typeof rec["limit"] === "number" && Number.isFinite(rec["limit"])) {
+    limit = Math.min(500, Math.max(1, Math.floor(rec["limit"])));
+  }
+  const rows = getConnectorHealthHistory(localIndex.getDatabase(), id, limit);
+  return {
+    kind: "hit",
+    value: rows.map((r) => ({
+      id: r.id,
+      connectorId: r.connectorId,
+      fromState: r.fromState,
+      toState: r.toState,
+      reason: r.reason,
+      occurredAtMs: r.occurredAt.getTime(),
+    })),
+  };
 }
 
 export async function handleConnectorRemove(

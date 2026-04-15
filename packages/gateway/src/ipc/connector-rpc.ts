@@ -5,6 +5,7 @@ import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import {
   handleConnectorAddMcp,
   handleConnectorAuth,
+  handleConnectorHealthHistory,
   handleConnectorListStatus,
   handleConnectorPause,
   handleConnectorRemove,
@@ -43,6 +44,8 @@ export async function dispatchConnectorRpc(options: {
       return handleConnectorSetInterval(ctx);
     case "connector.status":
       return handleConnectorStatus(ctx);
+    case "connector.healthHistory":
+      return handleConnectorHealthHistory(ctx);
     case "connector.remove":
       return handleConnectorRemove(ctx);
     case "connector.sync":

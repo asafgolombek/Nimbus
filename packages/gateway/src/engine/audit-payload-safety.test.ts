@@ -110,6 +110,7 @@ describe("audit payload safety (§7.8)", () => {
       rejectAllPending: () => {
         /* noop */
       },
+      pendingCount: (): number => 0,
     };
     const consent = bindConsentChannel(coordinator, "client-1");
     const auditCalls: AuditRecord[] = [];

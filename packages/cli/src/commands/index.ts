@@ -4,18 +4,27 @@
 
 export { runAsk } from "./ask.ts";
 export { runAudit } from "./audit.ts";
+export { runConfig } from "./config.ts";
 export { runConnector } from "./connector.ts";
+export { runDb } from "./db.ts";
+export { runDiag } from "./diag.ts";
+export { runDoctor } from "./doctor.ts";
 export { runExtension } from "./extension.ts";
 export { printHelp } from "./help.ts";
 export { runPeople } from "./people.ts";
+export { runProfile } from "./profile.ts";
+export { runQuery } from "./query.ts";
 export { runRepl } from "./repl.ts";
 export { runWorkflowFromFile } from "./run-workflow.ts";
 export { runScaffold } from "./scaffold.ts";
 export { runSearch } from "./search.ts";
+export { runServe } from "./serve.ts";
 export { runSession } from "./session.ts";
 export { runStart } from "./start.ts";
 export { runStatus } from "./status.ts";
 export { runStop } from "./stop.ts";
+export { runTelemetry } from "./telemetry.ts";
+export { runTest } from "./test.ts";
 export { runVault } from "./vault.ts";
 export { runWatch } from "./watch.ts";
 export { runWorkflowCli } from "./workflow.ts";

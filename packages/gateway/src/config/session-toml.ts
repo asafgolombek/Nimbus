@@ -54,15 +54,18 @@ export function parseNimbusTomlSessionSection(source: string): Partial<NimbusSes
   return out;
 }
 
-export function loadNimbusSessionFromConfigDir(configDir: string): NimbusSessionToml {
-  const path = join(configDir, "nimbus.toml");
-  if (!existsSync(path)) {
+export function loadNimbusSessionFromPath(tomlPath: string): NimbusSessionToml {
+  if (!existsSync(tomlPath)) {
     return { ...DEFAULT_NIMBUS_SESSION_TOML };
   }
   try {
-    const raw = readFileSync(path, "utf8");
+    const raw = readFileSync(tomlPath, "utf8");
     return { ...DEFAULT_NIMBUS_SESSION_TOML, ...parseNimbusTomlSessionSection(raw) };
   } catch {
     return { ...DEFAULT_NIMBUS_SESSION_TOML };
   }
+}
+
+export function loadNimbusSessionFromConfigDir(configDir: string): NimbusSessionToml {
+  return loadNimbusSessionFromPath(join(configDir, "nimbus.toml"));
 }

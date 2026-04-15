@@ -2,6 +2,25 @@ import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
+type ConnectorHealthRow = {
+  connectorId?: unknown;
+  state?: unknown;
+  retryAfterMs?: unknown;
+  backoffUntilMs?: unknown;
+  lastError?: unknown;
+};
+
+type IndexMetricsBrief = {
+  totalItems?: unknown;
+  itemCountByService?: unknown;
+  queryLatencyP95Ms?: unknown;
+};
+
+type DiagSnapshot = {
+  connectorHealth?: unknown;
+  index?: unknown;
+};
+
 export async function runStatus(args: string[]): Promise<void> {
   const paths = getCliPlatformPaths();
   const state = await readGatewayState(paths);
@@ -11,6 +30,7 @@ export async function runStatus(args: string[]): Promise<void> {
   }
 
   const wantDrift = args.includes("--drift");
+  const verbose = args.includes("--verbose");
 
   const client = new IPCClient(state.socketPath);
   try {
@@ -27,6 +47,52 @@ export async function runStatus(args: string[]): Promise<void> {
     const emb = ping.embeddingBackfill;
     if (emb !== undefined && emb !== null && emb.total > 0) {
       console.log(`Embedding backfill: ${String(emb.done)} / ${String(emb.total)}`);
+    }
+    if (verbose) {
+      const snap = await client.call<DiagSnapshot>("diag.snapshot", {});
+      const idx = snap.index;
+      if (idx !== null && typeof idx === "object" && !Array.isArray(idx)) {
+        const m = idx as IndexMetricsBrief;
+        const p95 =
+          typeof m.queryLatencyP95Ms === "number" && Number.isFinite(m.queryLatencyP95Ms)
+            ? m.queryLatencyP95Ms
+            : "—";
+        const total =
+          typeof m.totalItems === "number" && Number.isFinite(m.totalItems) ? m.totalItems : "—";
+        console.log("");
+        console.log(`Index: total items=${String(total)}  query p95=${String(p95)} ms`);
+        const bySvc = m.itemCountByService;
+        if (bySvc !== null && typeof bySvc === "object" && !Array.isArray(bySvc)) {
+          console.log("Items by service:");
+          for (const [k, v] of Object.entries(bySvc)) {
+            console.log(`  ${k}: ${String(v)}`);
+          }
+        }
+      }
+      const ch = snap.connectorHealth;
+      if (Array.isArray(ch) && ch.length > 0) {
+        console.log("");
+        console.log("Connector health:");
+        for (const row of ch) {
+          if (row === null || typeof row !== "object" || Array.isArray(row)) {
+            continue;
+          }
+          const r = row as ConnectorHealthRow;
+          const id = typeof r.connectorId === "string" ? r.connectorId : "?";
+          const st = typeof r.state === "string" ? r.state : "?";
+          const ra =
+            typeof r.retryAfterMs === "number" && Number.isFinite(r.retryAfterMs)
+              ? ` retry_after=${new Date(r.retryAfterMs).toISOString()}`
+              : "";
+          const bu =
+            typeof r.backoffUntilMs === "number" && Number.isFinite(r.backoffUntilMs)
+              ? ` backoff_until=${new Date(r.backoffUntilMs).toISOString()}`
+              : "";
+          const err = typeof r.lastError === "string" ? r.lastError : "";
+          const errSuffix = err !== "" ? ` err=${err}` : "";
+          console.log(`  ${id}: ${st}${ra}${bu}${errSuffix}`);
+        }
+      }
     }
     if (wantDrift && ping.drift !== undefined && Array.isArray(ping.drift.lines)) {
       console.log("");

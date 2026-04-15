@@ -1225,6 +1225,35 @@ export async function runConnector(args: string[]): Promise<void> {
     await runConnectorList();
     return;
   }
+  if (sub === "history") {
+    const service = tail[0];
+    if (service === undefined) {
+      throw new Error("Usage: nimbus connector history <service> [--limit N]");
+    }
+    let limit = 100;
+    const li = tail.indexOf("--limit");
+    const limStr = li >= 0 ? tail[li + 1] : undefined;
+    if (limStr !== undefined) {
+      const n = Number.parseInt(limStr, 10);
+      if (Number.isFinite(n) && n > 0) {
+        limit = n;
+      }
+    }
+    const rows = await withIpc((c) =>
+      c.call<
+        Array<{
+          id: number;
+          connectorId: string;
+          fromState: string;
+          toState: string;
+          reason: string | null;
+          occurredAtMs: number;
+        }>
+      >("connector.healthHistory", { serviceId: service, limit }),
+    );
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
   if (sub === "pause" || sub === "resume" || sub === "status") {
     await runConnectorLifecycle(sub, tail);
     return;
@@ -1252,6 +1281,7 @@ Usage:
   nimbus connector auth <service> [--port <n>] [--scopes a,b] [--token <pat>] [--api-base <url>] [--help]
   nimbus connector add --mcp <mcp_id> <command...>   Register a user MCP server (id must be mcp_*)
   nimbus connector list
+  nimbus connector history <service> [--limit N]
   nimbus connector status <service> [--stats]
   nimbus connector sync <service> [--full]
   nimbus connector pause <service>

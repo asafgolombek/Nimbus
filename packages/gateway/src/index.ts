@@ -63,6 +63,11 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     process.stdout.write(`[gateway] ${signal} — shutting down\n`);
     try {
+      platform.disposeSidecars?.();
+    } catch {
+      /* ignore */
+    }
+    try {
       platform.syncScheduler.stop();
     } catch {
       /* ignore */
