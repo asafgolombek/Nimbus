@@ -116,10 +116,10 @@ describe("runIndexedSchemaMigrations — rollback on failure", () => {
     // non-existent target version greater than the max step.
     expect(() => runIndexedSchemaMigrations(db, 99)).toThrow();
 
-    // Schema version advances to the highest known step (13) before the runner
+    // Schema version advances to the highest known step (14) before the runner
     // throws "Unsupported local index schema version" for the gap to 99.
     const row = db.query("PRAGMA user_version").get() as { user_version: number };
-    expect(row.user_version).toBe(13);
+    expect(row.user_version).toBe(14);
     db.close();
   });
 

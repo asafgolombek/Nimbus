@@ -14,6 +14,7 @@ import { GRAPH_RELATION_TYPES_V12_SQL } from "../graph-relation-types-v12-sql.ts
 import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
+import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import { tryLoadSqliteVec } from "../sqlite-vec-load.ts";
@@ -191,6 +192,14 @@ function migrateIndexedV12ToV13(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV13ToV14(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(QUERY_LATENCY_V14_SQL);
+    db.exec("PRAGMA user_version = 14");
+    recordMigration(db, 14, "query_latency_log + slow_query_log", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -205,6 +214,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 10, toVersion: 11, apply: migrateIndexedV10ToV11 },
   { fromVersion: 11, toVersion: 12, apply: migrateIndexedV11ToV12 },
   { fromVersion: 12, toVersion: 13, apply: migrateIndexedV12ToV13 },
+  { fromVersion: 13, toVersion: 14, apply: migrateIndexedV13ToV14 },
 ];
 
 /**
@@ -262,6 +272,9 @@ function backfillMigrationsLedger(db: Database): void {
     }
     if (uv >= 13) {
       recordMigration(db, 13, "connector health state + history (backfilled)", now);
+    }
+    if (uv >= 14) {
+      recordMigration(db, 14, "query_latency_log + slow_query_log (backfilled)", now);
     }
   })();
 }

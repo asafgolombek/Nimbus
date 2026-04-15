@@ -13,6 +13,7 @@ import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog
 import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
 import { createLazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
+import { startLatencyFlushScheduler } from "../db/latency-ring-buffer.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
 import { verifyExtensionsBestEffort } from "../extensions/verify-extensions.ts";
 import {
@@ -57,6 +58,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const vault = await createNimbusVault(paths);
   const db = new Database(join(paths.dataDir, "nimbus.db"));
   LocalIndex.ensureSchema(db);
+  startLatencyFlushScheduler(db);
   db.run("PRAGMA busy_timeout = 8000");
   const notifications = createStubNotifications();
   const syncLogger = pino({ level: processEnvGet("NIMBUS_LOG_LEVEL") ?? "warn" });
