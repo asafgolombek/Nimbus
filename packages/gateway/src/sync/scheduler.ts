@@ -304,7 +304,7 @@ export class SyncScheduler {
       lastError: row.error_msg,
       consecutiveFailures: row.consecutive_failures,
       healthState: health.state,
-      healthRetryAfterMs: health.retryAfter !== undefined ? health.retryAfter.getTime() : null,
+      healthRetryAfterMs: health.retryAfter === undefined ? null : health.retryAfter.getTime(),
     };
   }
 

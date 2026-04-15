@@ -4,6 +4,21 @@ import { getConnectorHealth } from "../connectors/health.ts";
 
 import type { ContextWindow } from "./context-ranker.ts";
 
+function collectDistinctServicesFromWindow(window: ContextWindow): string[] {
+  const services = new Set<string>();
+  for (const it of window.items) {
+    if (it.service !== "") {
+      services.add(it.service);
+    }
+  }
+  for (const g of window.sourceSummary) {
+    if (g.service !== "") {
+      services.add(g.service);
+    }
+  }
+  return [...services].sort((a, b) => a.localeCompare(b));
+}
+
 /**
  * When the user scopes search to a single connector, surface non-healthy sync state
  * so the model can caveat incomplete results (Phase 3.5 roadmap).
@@ -73,18 +88,7 @@ export function buildSearchLocalIndexHealthExtras(
   const scoped =
     filteredService !== undefined && filteredService !== "" ? filteredService : undefined;
   if (scoped === undefined) {
-    const services = new Set<string>();
-    for (const it of window.items) {
-      if (it.service !== "") {
-        services.add(it.service);
-      }
-    }
-    for (const g of window.sourceSummary) {
-      if (g.service !== "") {
-        services.add(g.service);
-      }
-    }
-    const ordered = [...services].sort((a, b) => a.localeCompare(b));
+    const ordered = collectDistinctServicesFromWindow(window);
     const caveats = collectConnectorHealthCaveatsForServices(db, ordered, 5);
     return caveats.length > 0 ? { connectorHealthCaveats: caveats } : {};
   }
