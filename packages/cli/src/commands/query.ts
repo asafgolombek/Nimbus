@@ -41,7 +41,7 @@ Usage:
   const type = takeFlag(args, "--type");
   const sinceRaw = takeFlag(args, "--since");
   const limitRaw = takeFlag(args, "--limit");
-  const limit = limitRaw !== undefined ? Number.parseInt(limitRaw, 10) : Number.NaN;
+  const limit = limitRaw === undefined ? Number.NaN : Number.parseInt(limitRaw, 10);
 
   let sinceMs: number | undefined;
   if (sinceRaw !== undefined) {
@@ -73,6 +73,16 @@ Usage:
   printRows(r.items, wantJson, pretty);
 }
 
+function formatQueryCell(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
 function printRows(rows: Record<string, unknown>[], wantJson: boolean, pretty: boolean): void {
   if (wantJson || !pretty) {
     console.log(JSON.stringify(rows, null, wantJson ? 2 : 0));
@@ -85,6 +95,6 @@ function printRows(rows: Record<string, unknown>[], wantJson: boolean, pretty: b
   const keys = Object.keys(rows[0] ?? {});
   console.log(keys.join("\t"));
   for (const row of rows) {
-    console.log(keys.map((k) => String(row[k] ?? "")).join("\t"));
+    console.log(keys.map((k) => formatQueryCell(row[k])).join("\t"));
   }
 }

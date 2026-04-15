@@ -1200,6 +1200,35 @@ async function runConnectorRemove(tail: string[]): Promise<void> {
   }
 }
 
+async function runConnectorHistory(tail: string[]): Promise<void> {
+  const service = tail[0];
+  if (service === undefined) {
+    throw new Error("Usage: nimbus connector history <service> [--limit N]");
+  }
+  let limit = 100;
+  const li = tail.indexOf("--limit");
+  const limStr = li >= 0 ? tail[li + 1] : undefined;
+  if (limStr !== undefined) {
+    const n = Number.parseInt(limStr, 10);
+    if (Number.isFinite(n) && n > 0) {
+      limit = n;
+    }
+  }
+  const rows = await withIpc((c) =>
+    c.call<
+      Array<{
+        id: number;
+        connectorId: string;
+        fromState: string;
+        toState: string;
+        reason: string | null;
+        occurredAtMs: number;
+      }>
+    >("connector.healthHistory", { serviceId: service, limit }),
+  );
+  console.log(JSON.stringify(rows, null, 2));
+}
+
 export async function runConnector(args: string[]): Promise<void> {
   const sub = args[0];
   const tail = args.slice(1);
@@ -1209,69 +1238,41 @@ export async function runConnector(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === "auth") {
-    await runConnectorAuth(tail);
-    return;
-  }
-  if (sub === "add") {
-    const mode = tail[0]?.trim() ?? "";
-    if (mode === "--mcp") {
-      await runConnectorAddMcp(tail.slice(1));
+  switch (sub) {
+    case "auth":
+      await runConnectorAuth(tail);
       return;
-    }
-    throw new Error("Usage: nimbus connector add --mcp <mcp_id> <command...>");
-  }
-  if (sub === "list") {
-    await runConnectorList();
-    return;
-  }
-  if (sub === "history") {
-    const service = tail[0];
-    if (service === undefined) {
-      throw new Error("Usage: nimbus connector history <service> [--limit N]");
-    }
-    let limit = 100;
-    const li = tail.indexOf("--limit");
-    const limStr = li >= 0 ? tail[li + 1] : undefined;
-    if (limStr !== undefined) {
-      const n = Number.parseInt(limStr, 10);
-      if (Number.isFinite(n) && n > 0) {
-        limit = n;
+    case "add": {
+      const mode = tail[0]?.trim() ?? "";
+      if (mode === "--mcp") {
+        await runConnectorAddMcp(tail.slice(1));
+        return;
       }
+      throw new Error("Usage: nimbus connector add --mcp <mcp_id> <command...>");
     }
-    const rows = await withIpc((c) =>
-      c.call<
-        Array<{
-          id: number;
-          connectorId: string;
-          fromState: string;
-          toState: string;
-          reason: string | null;
-          occurredAtMs: number;
-        }>
-      >("connector.healthHistory", { serviceId: service, limit }),
-    );
-    console.log(JSON.stringify(rows, null, 2));
-    return;
+    case "list":
+      await runConnectorList();
+      return;
+    case "history":
+      await runConnectorHistory(tail);
+      return;
+    case "pause":
+    case "resume":
+    case "status":
+      await runConnectorLifecycle(sub, tail);
+      return;
+    case "set-interval":
+      await runConnectorSetInterval(tail);
+      return;
+    case "sync":
+      await runConnectorSync(tail);
+      return;
+    case "remove":
+      await runConnectorRemove(tail);
+      return;
+    default:
+      throw new Error(`Unknown connector subcommand: ${sub}. Try: nimbus connector help`);
   }
-  if (sub === "pause" || sub === "resume" || sub === "status") {
-    await runConnectorLifecycle(sub, tail);
-    return;
-  }
-  if (sub === "set-interval") {
-    await runConnectorSetInterval(tail);
-    return;
-  }
-  if (sub === "sync") {
-    await runConnectorSync(tail);
-    return;
-  }
-  if (sub === "remove") {
-    await runConnectorRemove(tail);
-    return;
-  }
-
-  throw new Error(`Unknown connector subcommand: ${sub}. Try: nimbus connector help`);
 }
 
 function printConnectorHelp(): void {

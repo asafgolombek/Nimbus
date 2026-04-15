@@ -66,7 +66,7 @@ function formatConnectorHealthLine(row: unknown): string | null {
       ? ` backoff_until=${new Date(r.backoffUntilMs).toISOString()}`
       : "";
   const err = typeof r.lastError === "string" ? r.lastError : "";
-  const errSuffix = err !== "" ? ` err=${err}` : "";
+  const errSuffix = err === "" ? "" : ` err=${err}`;
   return `  ${id}: ${st}${ra}${bu}${errSuffix}`;
 }
 

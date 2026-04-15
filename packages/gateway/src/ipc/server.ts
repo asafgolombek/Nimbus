@@ -602,7 +602,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   function tryDispatchDiagnosticsRpc(
     method: string,
     params: unknown,
-  ): unknown | typeof diagnosticsRpcSkipped {
+  ): typeof diagnosticsRpcSkipped | object {
     const wantsConfig = method.startsWith("config.");
     const wantsTelemetry = method.startsWith("telemetry.");
     const wantsDiagnostics =
@@ -627,7 +627,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         options.localIndex === undefined ? ctxBase : { ...ctxBase, localIndex: options.localIndex };
       const out = dispatchDiagnosticsRpc(method, params, diagCtx);
       if (out.kind === "hit") {
-        return out.value;
+        return out.value as object;
       }
     } catch (e) {
       if (e instanceof DiagnosticsRpcError) {

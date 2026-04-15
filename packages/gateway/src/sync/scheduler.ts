@@ -305,20 +305,34 @@ export class SyncScheduler {
     };
   }
 
-  /** True when this connector should be skipped for the current tick (health gate). */
-  private connectorSkippedForHealth(connectorId: string, now: number): boolean {
+  /**
+   * When true, health state blocks scheduling / dispatch (rate_limited in window, or
+   * unauthenticated / paused). Caller chooses whether to log rate_limited skips.
+   */
+  private healthGatePreventsDispatch(
+    connectorId: string,
+    now: number,
+    opts: { logRateLimited: boolean },
+  ): boolean {
     const health = getConnectorHealth(this.db, connectorId);
     if (!SKIP_HEALTH_STATES.has(health.state)) {
       return false;
     }
     if (health.state === "rate_limited") {
       if (health.retryAfter !== undefined && now < health.retryAfter.getTime()) {
-        this.ctx.logger.debug({ msg: "skipped_rate_limited", connectorId });
+        if (opts.logRateLimited) {
+          this.ctx.logger.debug({ msg: "skipped_rate_limited", connectorId });
+        }
         return true;
       }
       return false;
     }
     return true;
+  }
+
+  /** True when this connector should be skipped for the current tick (health gate). */
+  private connectorSkippedForHealth(connectorId: string, now: number): boolean {
+    return this.healthGatePreventsDispatch(connectorId, now, { logRateLimited: true });
   }
 
   private tick(): void {
@@ -367,19 +381,11 @@ export class SyncScheduler {
       return false;
     }
     // Health-state gate (non-force jobs only).
-    if (job.reason !== "force") {
-      const health = getConnectorHealth(this.db, job.serviceId);
-      if (SKIP_HEALTH_STATES.has(health.state)) {
-        if (health.state === "rate_limited") {
-          const now = Date.now();
-          if (health.retryAfter !== undefined && now < health.retryAfter.getTime()) {
-            return false;
-          }
-          // Window passed — allow dispatch.
-        } else {
-          return false;
-        }
-      }
+    if (
+      job.reason !== "force" &&
+      this.healthGatePreventsDispatch(job.serviceId, Date.now(), { logRateLimited: false })
+    ) {
+      return false;
     }
     return true;
   }

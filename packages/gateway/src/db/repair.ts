@@ -250,7 +250,7 @@ export function formatRepairReport(report: RepairReport): string {
     } else {
       tag = "[ error ]";
     }
-    const detail = o.detail !== undefined ? `: ${o.detail}` : "";
+    const detail = o.detail === undefined ? "" : `: ${o.detail}`;
     return `${tag} ${o.action}${detail}`;
   });
   lines.push(`\nRepaired at: ${report.repairedAt}`);

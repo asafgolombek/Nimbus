@@ -251,7 +251,7 @@ export function verifyIndex(db: Database, expectedVersion: number): VerifyResult
 export function formatVerifyResult(result: VerifyResult): { output: string; exitCode: 0 | 1 } {
   const lines = result.findings.map((f) => {
     const tag = f.status === "ok" ? "[ok]  " : "[FAIL]";
-    const detail = f.detail !== undefined ? `: ${f.detail}` : "";
+    const detail = f.detail === undefined ? "" : `: ${f.detail}`;
     return `${tag} ${f.label}${detail}`;
   });
   return {
