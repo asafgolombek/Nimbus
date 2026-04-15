@@ -6,5 +6,5 @@
 import { runCiTestSuite } from "./lib/ci-tests.ts";
 import { REPO_ROOT, run } from "./lib/root.ts";
 
-runCiTestSuite();
+await runCiTestSuite();
 run(["bun", "run", "build"], REPO_ROOT);

@@ -1,7 +1,6 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { Logger } from "pino";
-import pino from "pino";
 import {
   evaluateWatchersAfterSync,
   evaluateWatchersStartupCatchUp,
@@ -38,6 +37,7 @@ import { registerConnectorMeshSyncables } from "./assemble-sync-registrations.ts
 import { openUrlInDefaultBrowser } from "./browser.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
 import { processEnvGet } from "./env-access.ts";
+import { createGatewayPinoLogger } from "./gateway-log-file.ts";
 import type { PlatformPaths } from "./paths.ts";
 import { registerUserMcpSyncablesFromDatabase } from "./register-user-mcp-sync.ts";
 import type { AutostartManager, NotificationService, PlatformServices } from "./types.ts";
@@ -226,7 +226,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const vault = await createNimbusVault(paths);
   const db = openGatewaySqlite(paths.dataDir);
   const notifications = createStubNotifications();
-  const syncLogger = pino({ level: processEnvGet("NIMBUS_LOG_LEVEL") ?? "warn" });
+  const syncLogger: Logger = createGatewayPinoLogger(paths.logDir);
   const rateLimiter = new ProviderRateLimiter();
   const activeTomlPath = resolveNimbusTomlForProfile(paths.configDir);
   const sessionToml = loadNimbusSessionFromPath(activeTomlPath);

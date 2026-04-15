@@ -3,21 +3,26 @@
  * Debug-oriented build: bundled JS + sourcemaps (no `bun build --compile`).
  * Run from anywhere: `bun scripts/build-debug.ts` or `scripts/linux/build-debug.sh` / `scripts/windows/build-debug.ps1`
  */
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { runCiTestSuite } from "./lib/ci-tests.ts";
 import { REPO_ROOT, run } from "./lib/root.ts";
 
-runCiTestSuite();
+await runCiTestSuite();
 
 mkdirSync(join(REPO_ROOT, "dist"), { recursive: true });
 mkdirSync(join(REPO_ROOT, "packages/cli/dist"), { recursive: true });
 
-const MCP_CONNECTORS: readonly { dir: string; outfileBase: string }[] = [
-  { dir: "onedrive", outfileBase: "nimbus-mcp-onedrive" },
-  { dir: "outlook", outfileBase: "nimbus-mcp-outlook" },
-  { dir: "google-photos", outfileBase: "nimbus-mcp-google-photos" },
-];
+const MCP_ROOT = join(REPO_ROOT, "packages", "mcp-connectors");
+const MCP_CONNECTORS: readonly { dir: string; outfileBase: string }[] = readdirSync(MCP_ROOT, {
+  withFileTypes: true,
+})
+  .filter((e) => e.isDirectory())
+  .map((e) => e.name)
+  .filter((dir) => existsSync(join(MCP_ROOT, dir, "src", "server.ts")))
+  .sort((a, b) => a.localeCompare(b))
+  .map((dir) => ({ dir, outfileBase: `nimbus-mcp-${dir}` }));
+
 for (const { dir } of MCP_CONNECTORS) {
   mkdirSync(join(REPO_ROOT, "packages/mcp-connectors", dir, "dist"), {
     recursive: true,

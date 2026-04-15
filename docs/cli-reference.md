@@ -30,6 +30,8 @@ nimbus start --no-wizard        # Skip first-run onboarding hints
 
 The Gateway starts in the background and listens on the platform-native IPC socket. On first start it prints next-step hints (connect a service, run `nimbus doctor`) unless `--no-wizard` is passed or the index already contains items.
 
+The Gateway also writes **structured JSON logs** (Pino) to a daily file under your data directory’s **`logs/`** folder, named `gateway-YYYY-MM-DD.log` (same path the CLI uses when it redirects the child process). This applies whether you start via `nimbus start` or run the gateway binary directly, so logs are available even when nothing is attached to a console.
+
 ---
 
 ### `nimbus stop`

@@ -8,7 +8,7 @@ import { resolveGatewayLaunch } from "./resolve-gateway-launch.ts";
 
 const PROFILE_FILENAME = ".nimbus-profile";
 
-/** Local calendar date for log filenames (append same file for multiple starts on the same day). */
+/** Local calendar date for log filenames (append same file for multiple starts on the same day). Keep in sync with `packages/gateway/src/platform/gateway-log-file.ts`. */
 function gatewayLogBasename(): string {
   const d = new Date();
   const y = d.getFullYear();

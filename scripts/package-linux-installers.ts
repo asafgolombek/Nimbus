@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Build Linux release artifacts from the headless binary bundle (§7.9):
+ * Build Linux release artifacts from the headless binary bundle (release packaging):
  * - `nimbus-headless-linux-amd64.tar.gz` — `bin/nimbus`, `bin/nimbus-gateway`
  * - `nimbus-headless_amd64.deb` — installs to `/usr/lib/nimbus/bin` + symlinks in `/usr/local/bin`
  *

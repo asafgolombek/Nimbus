@@ -11,6 +11,7 @@ import { runWorkflowExecution } from "./automation/workflow-runner.ts";
 import { createConnectorDispatcher, type McpToolListingClient } from "./connectors/index.ts";
 import { createNimbusEngineAgent } from "./engine/agent.ts";
 import { runAsk } from "./engine/run-ask.ts";
+import { emergencyGatewayLog } from "./platform/gateway-log-file.ts";
 import { createPlatformServices } from "./platform/index.ts";
 
 const GATEWAY_VERSION = "0.1.0";
@@ -98,6 +99,7 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (err: unknown) {
+  emergencyGatewayLog(err);
   console.error("[gateway] fatal:", err);
   process.exit(1);
 }

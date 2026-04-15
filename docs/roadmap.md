@@ -271,6 +271,8 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 **Goal:** Give Nimbus a face, a local AI backbone that requires no cloud API key, and the trust foundations needed for a public `v0.1.0` release.
 
+> Full implementation plan with task breakdown, file locations, and per-workstream acceptance criteria: [`docs/phase-4-plan.md`](./phase-4-plan.md)
+
 ### Dependencies
 
 - **Phase 3.5 complete** — all Phase 3.5 acceptance criteria must pass before Phase 4 begins; the docs site, onboarding, and data integrity work are release prerequisites

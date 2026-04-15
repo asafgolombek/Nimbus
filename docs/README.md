@@ -121,7 +121,9 @@ See [`docs/roadmap.md`](./roadmap.md) for the full Phase 3.5 delivery list and [
 ### Prerequisites
 
 - **From source:** [Bun v1.2+](https://bun.sh/docs/installation)
-- **Pre-built binaries:** No Bun required — releases are self-contained executables
+- **Workspace install (includes Sharp):** From the repository root, run **`bun install`**. The Gateway’s local embedder uses **`@xenova/transformers`**, which depends on **`sharp`** and platform packages such as **`@img/sharp-win32-x64`** (Windows x64). They are installed with the workspace; you do not install Sharp system-wide.
+- **If Sharp failed to download or build:** From the repo root, remove **`node_modules`** and run **`bun install`** again (ensure install scripts are not disabled). On Windows, [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) can help other native addons; Sharp itself uses prebuilt binaries for common platforms.
+- **Pre-built binaries:** No Bun required on the **target** machine for release executables. **Note:** Gateway binaries built with **`bun build --compile`** bundle JavaScript into a single file; **Sharp’s native `.node` file may not load inside that layout** on some platforms. If `nimbus-gateway` exits with a Sharp error, run the Gateway **from source** with **`bun`** after `bun install` (for example `cd packages/gateway && bun run dev`). Linux `.deb` / tarball artifacts from CI are normal compiled binaries—end users do not run `npm install sharp`; if a packaged binary ever failed the same way, the fix would be in **build/packaging**, not an extra OS package on the user’s machine.
 
 ### Option A — Pre-built Binaries
 
@@ -140,6 +142,7 @@ Linux/macOS: `chmod +x nimbus-gateway-* nimbus-cli-*`. Optionally rename the CLI
 git clone https://github.com/your-org/nimbus.git
 cd nimbus
 bun install          # NOT "bun run install" — that looks for a script and fails
+                     # Installs sharp + platform @img/sharp-* for embeddings (via @xenova/transformers)
 bun run build
 ```
 
