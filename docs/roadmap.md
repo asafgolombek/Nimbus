@@ -248,7 +248,7 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 **Documentation & extension testing**
 
-- [x] **Starlight docs package** — `packages/docs/`; `bun run docs:build`; Pagefind search at build time; **internal links validated** on production build (`starlight-links-validator@0.14.3`, compatible with Astro 5)
+- [x] **Starlight docs package** — `packages/docs/`; `bun run docs:build`; Pagefind search at build time; **internal links validated** on production build (`starlight-links-validator@0.23.0`, Astro 6 per Starlight peer range)
 - [x] **`nimbus test` + `runContractTests`** — CLI runs manifest contract from `@nimbus-dev/sdk` before optional `bun test` (`packages/cli/src/commands/test.ts`, `packages/sdk/src/contract-tests.ts`)
 - [x] **Docs hub (Phase 3.5 scope)** — Starlight site with getting started, connectors overview, query/HTTP, telemetry, client, architecture overview, FAQ, unreleased banner on home; deep per-connector pages → Phase 5+ content cadence
 - [x] **Extension CI template (copy-paste)** — `docs/templates/nimbus-extension-ci.yml`; referenced from `docs/contributors/extension-author-walkthrough.md`
