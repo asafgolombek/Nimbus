@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** is the next roadmap focus
+**Status:** Phase 3.5 — Observability & DX ✅ Complete; **Phase 4** — Presence 🔵 Active
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -121,6 +121,7 @@ bun run clean
 
 # Security audit
 bun audit --audit-level high
+bun run audit:high                 # same as above (root script)
 
 # Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
 # Optional: set NIMBUS_EMBEDDING_MODEL_DIR to pre-downloaded MiniLM weights (or pass --embedding-model-dir) to embed them in the bundle output
@@ -148,8 +149,12 @@ bun run package:installers:linux -- --version 0.1.0
 # nimbus connector history <name>
 
 # Docs site (packages/docs)
+bun run docs:build                     # from repo root (workspace filter)
 cd packages/docs && bunx astro build   # build static docs site
 cd packages/docs && bunx astro dev     # local dev server
+
+# Extension author CI template (copy into extension repo `.github/workflows/`)
+# docs/templates/nimbus-extension-ci.yml
 
 # Publish @nimbus-dev/client (triggered by git tag client-v*)
 # git tag client-v0.1.0 && git push origin client-v0.1.0
@@ -219,8 +224,8 @@ A system that orchestrates real actions against real data cannot rely on develop
 | Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | ✅ Complete |
 | Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | ✅ Complete |
 | Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | ✅ Complete |
-| Phase 3.5 | Observability — Connector health model, `nimbus query` / `diag` / `doctor` / `db`, config profiles, `@nimbus-dev/client`, telemetry, docs site | 🔵 Current focus |
-| Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | Planned |
+| Phase 3.5 | Observability — Connector health model, `nimbus query` / `diag` / `doctor` / `db`, config profiles, `@nimbus-dev/client`, telemetry, docs site | ✅ Complete |
+| Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | 🔵 Active |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | Planned |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |
 | Phase 7 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop | Planned |

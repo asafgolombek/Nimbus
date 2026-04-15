@@ -1,0 +1,32 @@
+---
+title: First-party connectors
+description: Built-in MCP connectors — authenticate with nimbus connector auth
+---
+
+Nimbus ships first-party MCP servers under `packages/mcp-connectors/` in the repository. Each connector syncs metadata into your local SQLite index; the Engine talks to connectors **only over MCP** (never direct cloud SDK calls from the Gateway).
+
+### Authenticate
+
+```bash
+nimbus connector auth github      # PAT → Vault
+nimbus connector auth google      # OAuth PKCE
+nimbus connector list
+nimbus connector sync github
+```
+
+### Service ids (common)
+
+| Area | `service` id | Auth |
+|------|----------------|------|
+| Google | `google_drive`, `gmail`, `google_photos` | OAuth |
+| Microsoft | `onedrive`, `outlook`, `teams` | OAuth |
+| Dev | `github`, `gitlab`, `bitbucket` | PAT / OAuth |
+| Work tracking | `linear`, `jira`, `notion`, `confluence` | API key / OAuth |
+| Chat | `slack`, `discord` (opt-in) | OAuth / bot token |
+| CI / cloud | `jenkins`, `github_actions`, `circleci`, `gitlab` (CI), `aws`, `azure`, `gcp`, `iac`, `kubernetes`, … | Tokens / CLI |
+
+Use `nimbus connector help` for the full command surface. Source for each connector lives beside its MCP package in the monorepo.
+
+### Health
+
+Connectors report **health** (`healthy`, `degraded`, `error`, `rate_limited`, `unauthenticated`, `paused`). When you filter index search by `service`, the agent tools may include a **`connectorHealthCaveat`** field so the assistant can warn you if results may be incomplete. When search is **not** scoped to a single service, **`connectorHealthCaveats`** (a short list) may appear if several connectors in the result set are non-healthy.

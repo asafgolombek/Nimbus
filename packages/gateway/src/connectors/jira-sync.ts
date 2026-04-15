@@ -1,6 +1,14 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
-import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import {
+  RateLimitError,
+  retryAfterDateFromHeader,
+  type Syncable,
+  type SyncContext,
+  type SyncResult,
+  syncNoopResult,
+  UnauthenticatedError,
+} from "../sync/types.ts";
 import {
   asRecord,
   basicAuthHeader,
@@ -144,8 +152,13 @@ async function jiraFetchSearchPage(p: {
   const text = await res.text();
 
   if (res.status === 429) {
-    ctx.rateLimiter.penalise("jira", 60_000);
-    throw new Error("Jira sync: rate limited");
+    const retryAt = retryAfterDateFromHeader(res.headers.get("retry-after"), 60);
+    const ms = Math.max(1000, retryAt.getTime() - Date.now());
+    ctx.rateLimiter.penalise("jira", ms);
+    throw new RateLimitError(retryAt, "Jira sync: rate limited");
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new UnauthenticatedError(`Jira sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);
   }
   if (!res.ok) {
     throw new Error(`Jira sync HTTP ${String(res.status)}: ${text.slice(0, 200)}`);

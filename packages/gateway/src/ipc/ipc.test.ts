@@ -100,6 +100,8 @@ async function withMemoryLocalIndexServer<T>(
     vault: new MockVault(),
     version: "t",
     localIndex,
+    dataDir: tmpdir(),
+    configDir: tmpdir(),
     ...options?.extras,
   });
   await server.start();
@@ -424,6 +426,8 @@ describe("ipc server integration", () => {
       vault: new MockVault(),
       version: "t",
       localIndex,
+      dataDir: tmp,
+      configDir: tmp,
       extensionsDir,
     });
     await server.start();
@@ -458,6 +462,8 @@ describe("ipc server integration", () => {
       vault: new MockVault(),
       version: "t",
       localIndex,
+      dataDir: tmpdir(),
+      configDir: tmpdir(),
     });
     server.setWorkflowRunHandler(async (ctx) => ({
       runId: "run-test",

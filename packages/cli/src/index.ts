@@ -10,16 +10,25 @@ import {
   printHelp,
   runAsk,
   runAudit,
+  runConfig,
   runConnector,
+  runDb,
+  runDiag,
+  runDoctor,
   runExtension,
   runPeople,
+  runProfile,
+  runQuery,
   runRepl,
   runScaffold,
   runSearch,
+  runServe,
   runSession,
   runStart,
   runStatus,
   runStop,
+  runTelemetry,
+  runTest,
   runVault,
   runWatch,
   runWorkflowCli,
@@ -56,6 +65,33 @@ async function main(): Promise<void> {
           break;
         case "status":
           await runStatus(args);
+          break;
+        case "db":
+          await runDb(args);
+          break;
+        case "diag":
+          await runDiag(args);
+          break;
+        case "query":
+          await runQuery(args);
+          break;
+        case "telemetry":
+          await runTelemetry(args);
+          break;
+        case "doctor":
+          await runDoctor(args);
+          break;
+        case "config":
+          await runConfig(args);
+          break;
+        case "profile":
+          runProfile(args);
+          break;
+        case "serve":
+          await runServe(args);
+          break;
+        case "test":
+          await runTest(args);
           break;
         case "ask":
           await runAsk(args);

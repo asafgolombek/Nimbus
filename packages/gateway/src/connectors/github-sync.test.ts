@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { RateLimitError, UnauthenticatedError } from "../sync/types.ts";
 import {
   createMemoryIndexDb,
   createStubVault,
@@ -99,5 +100,48 @@ describeWithFetchRestore("github-sync", () => {
     expect(second.itemsUpserted).toBe(0);
     expect(second.cursor).toBe(first.cursor);
     expect(calls).toBe(2);
+  });
+
+  test("401 throws UnauthenticatedError", async () => {
+    const db = createMemoryIndexDb();
+    globalThis.fetch = (async () =>
+      new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch;
+
+    const sync = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const ctx = {
+      vault: createStubVault({ "github.pat": "ghp_x" }),
+      db,
+      ...silentSyncContextExtras(),
+    };
+    await expect(sync.sync(ctx, null)).rejects.toThrow(UnauthenticatedError);
+  });
+
+  test("403 with exhausted quota throws RateLimitError honoring Retry-After seconds", async () => {
+    const db = createMemoryIndexDb();
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ message: "rate limit" }), {
+        status: 403,
+        headers: {
+          "x-ratelimit-remaining": "0",
+          "retry-after": "90",
+        },
+      })) as unknown as typeof fetch;
+
+    const sync = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const ctx = {
+      vault: createStubVault({ "github.pat": "ghp_x" }),
+      db,
+      ...silentSyncContextExtras(),
+    };
+    try {
+      await sync.sync(ctx, null);
+      expect.unreachable();
+    } catch (e: unknown) {
+      expect(e).toBeInstanceOf(RateLimitError);
+      const rl = e as RateLimitError;
+      const delta = rl.retryAfter.getTime() - Date.now();
+      expect(delta).toBeGreaterThanOrEqual(90_000 - 200);
+      expect(delta).toBeLessThanOrEqual(90_000 + 200);
+    }
   });
 });

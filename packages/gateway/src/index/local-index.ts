@@ -1,6 +1,12 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
-
+import { getConnectorHealth } from "../connectors/health.ts";
+import {
+  DEFAULT_SLOW_QUERY_THRESHOLD_MS,
+  latencyRingBuffer,
+  type QueryLatencyKind,
+  recordSlowQuery,
+} from "../db/latency-ring-buffer.ts";
 import {
   compositeSearchScore,
   normalizeHigherIsBetter,
@@ -33,7 +39,11 @@ import {
   itemPrimaryKey,
   upsertNimbusItemIntoItemTable,
 } from "./item-store.ts";
-import { readIndexedUserVersion, runIndexedSchemaMigrations } from "./migrations/runner.ts";
+import {
+  type MigrationBackupOptions,
+  readIndexedUserVersion,
+  runIndexedSchemaMigrations,
+} from "./migrations/runner.ts";
 import type { RankedIndexItem } from "./ranked-item.ts";
 import { ensureSqliteVecForConnection } from "./sqlite-vec-load.ts";
 
@@ -240,13 +250,13 @@ export type LocalIndexOptions = {
 };
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 12;
+  static readonly SCHEMA_VERSION = 14;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
    */
-  static ensureSchema(db: Database): void {
-    runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION);
+  static ensureSchema(db: Database, backup?: MigrationBackupOptions): void {
+    runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION, backup);
     ensureSqliteVecForConnection(db, readIndexedUserVersion(db));
     db.run("PRAGMA foreign_keys = ON");
   }
@@ -265,6 +275,22 @@ export class LocalIndex {
     return this.db;
   }
 
+  private emitQueryLatency(
+    kind: QueryLatencyKind,
+    latencyMs: number,
+    slowHint: string | null,
+  ): void {
+    const at = Date.now();
+    latencyRingBuffer.push({ latencyMs, queryType: kind, recordedAt: at });
+    recordSlowQuery(this.db, {
+      queryText: slowHint,
+      latencyMs,
+      queryType: kind,
+      recordedAt: at,
+      thresholdMs: DEFAULT_SLOW_QUERY_THRESHOLD_MS,
+    });
+  }
+
   private static rowToPersistedSyncStatus(db: Database, row: SchedulerStateRow): SyncStatus {
     let status: SyncStatus["status"] = "ok";
     if (row.paused === 1) {
@@ -274,6 +300,7 @@ export class LocalIndex {
     } else if (row.status === "backoff") {
       status = "backoff";
     }
+    const health = getConnectorHealth(db, row.service_id);
     return {
       serviceId: row.service_id,
       status,
@@ -283,6 +310,8 @@ export class LocalIndex {
       itemCount: countItemsForService(db, row.service_id),
       lastError: row.error_msg,
       consecutiveFailures: row.consecutive_failures,
+      healthState: health.state,
+      healthRetryAfterMs: health.retryAfter === undefined ? null : health.retryAfter.getTime(),
     };
   }
 
@@ -499,6 +528,7 @@ export class LocalIndex {
    * Q2 §7.2 — ranked + canonical_url dedup. FTS matches use SQLite FTS5 `ORDER BY rank` for relevance ordering.
    */
   searchRanked(query: IndexSearchQuery, options?: SearchRankOptions): RankedIndexItem[] {
+    const t0 = performance.now();
     const candidateLimit = Math.min(500, Math.max(1, Math.floor(options?.candidateLimit ?? 500)));
     const now = options?.nowMs ?? Date.now();
     const priorities = options?.searchServicePriority ?? new Map<string, number>();
@@ -507,44 +537,52 @@ export class LocalIndex {
     const useFts = nameQ.length > 0;
     const fts = useFts ? ftsTitleMatchQuery(nameQ) : "";
 
-    if (useFts && fts === "") {
-      return [];
-    }
-
-    const { filters, params, whereExtra } = LocalIndex.searchFiltersAndParams(query);
-
-    let rows: ItemRow[];
-    let normBm25: number[];
-
-    if (useFts) {
-      rows = this.searchWithFtsOrderRank(fts, whereExtra, params, candidateLimit);
-      normBm25 =
-        rows.length <= 1 ? rows.map(() => 1) : rows.map((_, i) => 1 - i / (rows.length - 1));
-    } else {
-      rows = this.searchWithoutFtsOrdered(filters, params, candidateLimit);
-      normBm25 = rows.map(() => 0.5);
-    }
-
-    const scored: Array<{ row: ItemRow; score: number }> = rows.map((row, i) => {
-      const mod = Number(row.modified_at);
-      const rec = recencyScore(mod, now);
-      const sp = servicePriorityScore(row.service, priorities);
-      const bm = normBm25[i];
-      const comp = compositeSearchScore(bm ?? 0.5, rec, sp);
-      return { row, score: comp };
-    });
-
-    scored.sort((a, b) => {
-      if (b.score !== a.score) {
-        return b.score - a.score;
+    try {
+      if (useFts && fts === "") {
+        return [];
       }
-      return b.row.modified_at - a.row.modified_at;
-    });
 
-    const out = dedupeRankedByCanonicalUrl(scored);
+      const { filters, params, whereExtra } = LocalIndex.searchFiltersAndParams(query);
 
-    const limit = Math.min(500, Math.max(1, query.limit ?? 50));
-    return out.slice(0, limit);
+      let rows: ItemRow[];
+      let normBm25: number[];
+
+      if (useFts) {
+        rows = this.searchWithFtsOrderRank(fts, whereExtra, params, candidateLimit);
+        normBm25 =
+          rows.length <= 1 ? rows.map(() => 1) : rows.map((_, i) => 1 - i / (rows.length - 1));
+      } else {
+        rows = this.searchWithoutFtsOrdered(filters, params, candidateLimit);
+        normBm25 = rows.map(() => 0.5);
+      }
+
+      const scored: Array<{ row: ItemRow; score: number }> = rows.map((row, i) => {
+        const mod = Number(row.modified_at);
+        const rec = recencyScore(mod, now);
+        const sp = servicePriorityScore(row.service, priorities);
+        const bm = normBm25[i];
+        const comp = compositeSearchScore(bm ?? 0.5, rec, sp);
+        return { row, score: comp };
+      });
+
+      scored.sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        return b.row.modified_at - a.row.modified_at;
+      });
+
+      const out = dedupeRankedByCanonicalUrl(scored);
+
+      const limit = Math.min(500, Math.max(1, query.limit ?? 50));
+      return out.slice(0, limit);
+    } finally {
+      const kind: QueryLatencyKind = useFts ? "fts" : "sql";
+      const hint = useFts
+        ? nameQ.slice(0, 200) || null
+        : `browse:${query.service ?? "*"}:${query.itemType ?? "*"}`;
+      this.emitQueryLatency(kind, performance.now() - t0, hint);
+    }
   }
 
   /**
@@ -563,46 +601,51 @@ export class LocalIndex {
     const canHybrid = semanticOn && nameQ !== "" && ss !== undefined && uv >= 6 && vecReady;
 
     if (canHybrid) {
-      const qVec = await ss.embedQuery(nameQ);
-      const hybridOpts: HybridSearchOptions = {
-        query: nameQ,
-        limit: query.limit ?? 50,
-        semantic: true,
-        embeddingModel: ss.model,
-        contextChunks: options?.contextChunks ?? 2,
-      };
-      if (query.service !== undefined && query.service !== "") {
-        hybridOpts.service = query.service;
-      }
-      if (query.itemType !== undefined && query.itemType !== "") {
-        hybridOpts.itemType = query.itemType;
-      }
-      if (qVec !== null && qVec !== undefined) {
-        hybridOpts.queryEmbedding = qVec;
-      }
-      const hybridResults = await hybridSearch(this.db, hybridOpts);
-
-      const normRrf = normalizeHigherIsBetter(hybridResults.map((h) => h.rrfScore));
-      const now = options?.nowMs ?? Date.now();
-      const priorities = options?.searchServicePriority ?? new Map();
-
-      return hybridResults.map((h, i) => {
-        const row = h.item as ItemRow;
-        const rec = recencyScore(row.modified_at, now);
-        const sp = servicePriorityScore(row.service, priorities);
-        const nr = normRrf[i] ?? 0.5;
-        const comp = compositeSearchScore(nr, rec, sp);
-        const base = rowToRankedItem(row, comp, h.duplicates);
-        const ranked: RankedIndexItem = {
-          ...base,
-          bm25Rank: h.bm25Rank,
-          vectorRank: h.vectorRank,
+      const t0 = performance.now();
+      try {
+        const qVec = await ss.embedQuery(nameQ);
+        const hybridOpts: HybridSearchOptions = {
+          query: nameQ,
+          limit: query.limit ?? 50,
+          semantic: true,
+          embeddingModel: ss.model,
+          contextChunks: options?.contextChunks ?? 2,
         };
-        if (h.semanticSnippet !== undefined) {
-          ranked.semanticSnippet = h.semanticSnippet;
+        if (query.service !== undefined && query.service !== "") {
+          hybridOpts.service = query.service;
         }
-        return ranked;
-      });
+        if (query.itemType !== undefined && query.itemType !== "") {
+          hybridOpts.itemType = query.itemType;
+        }
+        if (qVec !== null && qVec !== undefined) {
+          hybridOpts.queryEmbedding = qVec;
+        }
+        const hybridResults = await hybridSearch(this.db, hybridOpts);
+
+        const normRrf = normalizeHigherIsBetter(hybridResults.map((h) => h.rrfScore));
+        const now = options?.nowMs ?? Date.now();
+        const priorities = options?.searchServicePriority ?? new Map();
+
+        return hybridResults.map((h, i) => {
+          const row = h.item as ItemRow;
+          const rec = recencyScore(row.modified_at, now);
+          const sp = servicePriorityScore(row.service, priorities);
+          const nr = normRrf[i] ?? 0.5;
+          const comp = compositeSearchScore(nr, rec, sp);
+          const base = rowToRankedItem(row, comp, h.duplicates);
+          const ranked: RankedIndexItem = {
+            ...base,
+            bm25Rank: h.bm25Rank,
+            vectorRank: h.vectorRank,
+          };
+          if (h.semanticSnippet !== undefined) {
+            ranked.semanticSnippet = h.semanticSnippet;
+          }
+          return ranked;
+        });
+      } finally {
+        this.emitQueryLatency("hybrid", performance.now() - t0, nameQ.slice(0, 200) || null);
+      }
     }
 
     return this.searchRanked(query, options);
@@ -617,14 +660,19 @@ export class LocalIndex {
     offset: number,
     limit: number,
   ): NimbusItem[] {
+    const t0 = performance.now();
     const lim = Math.min(100, Math.max(1, Math.floor(limit)));
     const off = Math.max(0, Math.floor(offset));
-    const rows = this.db
-      .query(
-        `SELECT * FROM item WHERE service = ? AND type = ? ORDER BY modified_at DESC LIMIT ? OFFSET ?`,
-      )
-      .all(service, indexedType, lim, off) as ItemRow[];
-    return rows.map(rowToItem);
+    try {
+      const rows = this.db
+        .query(
+          `SELECT * FROM item WHERE service = ? AND type = ? ORDER BY modified_at DESC LIMIT ? OFFSET ?`,
+        )
+        .all(service, indexedType, lim, off) as ItemRow[];
+      return rows.map(rowToItem);
+    } finally {
+      this.emitQueryLatency("sql", performance.now() - t0, `fetchMore:${service}/${indexedType}`);
+    }
   }
 
   search(query: IndexSearchQuery): NimbusItem[] {

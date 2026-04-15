@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { processEnvGet } from "../platform/env-access.ts";
+
 export type NimbusEmbeddingToml = {
   enabled: boolean;
   provider: "local" | "openai";
@@ -155,15 +157,28 @@ export function parseNimbusTomlEmbeddingSection(source: string): Partial<NimbusE
   return out;
 }
 
-export function loadNimbusEmbeddingFromConfigDir(configDir: string): NimbusEmbeddingToml {
-  const path = join(configDir, "nimbus.toml");
-  if (!existsSync(path)) {
+/** Active profile from `NIMBUS_PROFILE` (default profile uses `nimbus.toml`). */
+export function resolveNimbusTomlForProfile(configDir: string): string {
+  const p = processEnvGet("NIMBUS_PROFILE")?.trim();
+  if (p === undefined || p === "" || p === "default") {
+    return join(configDir, "nimbus.toml");
+  }
+  const alt = join(configDir, `nimbus.${p}.toml`);
+  return existsSync(alt) ? alt : join(configDir, "nimbus.toml");
+}
+
+export function loadNimbusEmbeddingFromPath(tomlPath: string): NimbusEmbeddingToml {
+  if (!existsSync(tomlPath)) {
     return { ...DEFAULT_NIMBUS_EMBEDDING_TOML };
   }
   try {
-    const raw = readFileSync(path, "utf8");
+    const raw = readFileSync(tomlPath, "utf8");
     return { ...DEFAULT_NIMBUS_EMBEDDING_TOML, ...parseNimbusTomlEmbeddingSection(raw) };
   } catch {
     return { ...DEFAULT_NIMBUS_EMBEDDING_TOML };
   }
+}
+
+export function loadNimbusEmbeddingFromConfigDir(configDir: string): NimbusEmbeddingToml {
+  return loadNimbusEmbeddingFromPath(join(configDir, "nimbus.toml"));
 }

@@ -1,28 +1,70 @@
-import { type SpawnOptions, spawn } from "node:child_process";
-import { closeSync, openSync, writeSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
 import { spinner } from "@clack/prompts";
-
-import {
-  ensureGatewayDirs,
-  gatewayStatePath,
-  isProcessAlive,
-  readGatewayState,
-} from "../lib/gateway-process.ts";
-import { resolveGatewayLaunch } from "../lib/resolve-gateway-launch.ts";
+import { IPCClient } from "../ipc-client/index.ts";
+import { ensureGatewayDirs, isProcessAlive, readGatewayState } from "../lib/gateway-process.ts";
+import { spawnGateway } from "../lib/spawn-gateway.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
-/** Local calendar date for log filenames (append same file for multiple starts on the same day). */
-function gatewayLogBasename(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `gateway-${String(y)}-${m}-${day}.log`;
+const ONBOARDING_MARKER = ".nimbus-post-start-onboarding";
+
+function wantsNoWizard(args: readonly string[]): boolean {
+  return args.includes("--no-wizard");
 }
 
-export async function runStart(_args: string[]): Promise<void> {
+async function sleep(ms: number): Promise<void> {
+  await new Promise<void>((r) => setTimeout(r, ms));
+}
+
+async function printOnboardingHintIfNoConnectors(
+  client: IPCClient,
+  markerPath: string,
+): Promise<void> {
+  const rows = await client.call<Array<{ serviceId?: string }>>("connector.listStatus", {});
+  if (Array.isArray(rows) && rows.length === 0) {
+    console.log("");
+    console.log("Next — connect a service so the index has data to search:");
+    console.log("  nimbus connector auth github");
+    console.log("  nimbus connector sync github");
+    console.log("  nimbus doctor");
+  }
+  try {
+    writeFileSync(markerPath, `${new Date().toISOString()}\n`, "utf8");
+  } catch {
+    /* non-fatal */
+  }
+}
+
+async function maybePrintFirstRunHints(
+  paths: ReturnType<typeof getCliPlatformPaths>,
+): Promise<void> {
+  if (!process.stdout.isTTY || process.env["CI"] === "true") {
+    return;
+  }
+  const markerPath = join(paths.dataDir, ONBOARDING_MARKER);
+  if (existsSync(markerPath)) {
+    return;
+  }
+  for (let i = 0; i < 30; i++) {
+    const state = await readGatewayState(paths);
+    if (state === undefined || !isProcessAlive(state.pid)) {
+      await sleep(200);
+      continue;
+    }
+    const client = new IPCClient(state.socketPath);
+    try {
+      await client.connect();
+      await printOnboardingHintIfNoConnectors(client, markerPath);
+    } catch {
+      /* IPC not ready yet */
+    } finally {
+      await client.disconnect().catch(() => {});
+    }
+    return;
+  }
+}
+
+export async function runStart(args: string[]): Promise<void> {
   const paths = getCliPlatformPaths();
   await ensureGatewayDirs(paths);
 
@@ -35,63 +77,18 @@ export async function runStart(_args: string[]): Promise<void> {
   const s = spinner();
   s.start("Starting Gateway");
 
-  const launch = resolveGatewayLaunch(process.execPath, import.meta.url);
-  if (launch.ok) {
-    const logPath = join(paths.logDir, gatewayLogBasename());
-
-    /**
-     * Use Node `spawn` with real append fds — `Bun.spawn` + inherited stdio is unreliable on Windows
-     * (log stays empty, gateway often exits when the CLI process exits).
-     * `detached: true` on Windows lets the gateway keep running and keep valid stdio handles after `unref`.
-     *
-     * Open the log file once and reuse the same fd for the banner write and child stdio (avoids
-     * check/use races between separate opens on the same path).
-     */
-    const executable = launch.cmd[0];
-    if (executable === undefined || executable === "") {
-      throw new Error("Gateway launch command is empty");
-    }
-    const spawnArgs = launch.cmd.slice(1);
-    const logFd = openSync(logPath, "a");
-    let pid: number;
-    try {
-      writeSync(
-        logFd,
-        `\n--- ${new Date().toISOString()} nimbus: spawning gateway (${launch.cmd.join(" ")}) ---\n`,
-      );
-      const opts: SpawnOptions = {
-        cwd: launch.cwd,
-        stdio: ["ignore", logFd, logFd],
-        windowsHide: true,
-      };
-      if (process.platform === "win32") {
-        opts.detached = true;
-      }
-      const child = spawn(executable, spawnArgs, opts);
-      const p = child.pid;
-      if (p === undefined) {
-        throw new Error("Gateway spawn did not return a process id");
-      }
-      pid = p;
-      child.unref();
-    } finally {
-      closeSync(logFd);
-    }
-
-    const state = {
-      pid,
-      socketPath: paths.socketPath,
-      logPath,
-    };
-    await Bun.write(gatewayStatePath(paths), `${JSON.stringify(state, undefined, 2)}\n`);
-
+  try {
+    const { pid, logPath } = await spawnGateway(paths);
     s.stop(`Gateway started (pid ${String(pid)})`);
     console.log(`Socket: ${paths.socketPath}`);
     console.log(`Log:    ${logPath}`);
-    return;
+    if (!wantsNoWizard(args)) {
+      await maybePrintFirstRunHints(paths);
+    }
+  } catch (e) {
+    s.stop("Could not start Gateway");
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(msg);
+    process.exitCode = 1;
   }
-
-  s.stop("Could not start Gateway");
-  console.error(launch.message);
-  process.exitCode = 1;
 }

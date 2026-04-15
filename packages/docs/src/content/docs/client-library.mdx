@@ -1,0 +1,18 @@
+---
+title: "@nimbus-dev/client"
+description: TypeScript IPC client for scripts and automation
+---
+
+The **`@nimbus-dev/client`** package (MIT) is a thin typed wrapper over the same JSON-RPC IPC surface the CLI uses. It ships **ESM** (`import`) and a **CommonJS** bundle (`require`) from the published `dist/` build.
+
+```typescript
+import { NimbusClient } from "@nimbus-dev/client";
+
+const client = await NimbusClient.open({ socketPath: "/path/to/socket" });
+const out = await client.queryItems({ services: ["github"], limit: 20 });
+await client.close();
+```
+
+Use **`MockClient`** in unit tests when no Gateway process is available.
+
+Publishing is automated from this monorepo with a tag **`client-v*`** (see `.github/workflows/publish-client.yml`). Configure an **`NPM_TOKEN`** secret in GitHub Actions.

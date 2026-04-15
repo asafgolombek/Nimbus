@@ -3,6 +3,7 @@
  * Loaded via `new Worker(new URL("./embedding-worker.ts", import.meta.url))`.
  */
 import { Database } from "bun:sqlite";
+import { dirname, join } from "node:path";
 
 import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
 import { LocalIndex } from "../index/local-index.ts";
@@ -37,7 +38,11 @@ let embedChain = Promise.resolve();
 function setupDb(dbPath: string): void {
   const d = new Database(dbPath);
   d.run("PRAGMA busy_timeout = 8000");
-  runIndexedSchemaMigrations(d, LocalIndex.SCHEMA_VERSION);
+  const dir = dirname(dbPath);
+  runIndexedSchemaMigrations(d, LocalIndex.SCHEMA_VERSION, {
+    backupDir: join(dir, "backups"),
+    dbPath,
+  });
   ensureSqliteVecForConnection(d, readIndexedUserVersion(d));
   d.run("PRAGMA foreign_keys = ON");
   db = d;

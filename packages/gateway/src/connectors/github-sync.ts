@@ -3,7 +3,15 @@ import type { Database } from "bun:sqlite";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import type { PersonSyncHints } from "../people/person-types.ts";
-import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import {
+  RateLimitError,
+  retryAfterDateFromHeader,
+  type Syncable,
+  type SyncContext,
+  type SyncResult,
+  syncNoopResult,
+  UnauthenticatedError,
+} from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -226,23 +234,6 @@ function buildGithubEventHeaders(pat: string, etag: string | null): Record<strin
   return headers;
 }
 
-function applyGithubRateLimitPenaltyIfNeeded(ctx: SyncContext, res: Response): void {
-  if (res.status === 403) {
-    const remaining = res.headers.get("x-ratelimit-remaining");
-    if (remaining === "0" || remaining === null) {
-      const retryAfter = res.headers.get("retry-after");
-      let sec: number;
-      if (retryAfter === null) {
-        sec = 60;
-      } else {
-        sec = Number.parseInt(retryAfter, 10);
-      }
-      const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 60_000;
-      ctx.rateLimiter.penalise("github", ms);
-    }
-  }
-}
-
 function parseGithubEventsPayload(text: string): unknown[] {
   let parsed: unknown;
   try {
@@ -276,7 +267,26 @@ async function syncGithubUserEvents(
     return { ...syncNoopResult(cursor, t0), bytesTransferred };
   }
 
-  applyGithubRateLimitPenaltyIfNeeded(ctx, res);
+  if (res.status === 401) {
+    throw new UnauthenticatedError("GitHub events: unauthorized (401)");
+  }
+
+  if (res.status === 403) {
+    const remaining = res.headers.get("x-ratelimit-remaining");
+    if (remaining === "0" || remaining === null) {
+      const retryAt = retryAfterDateFromHeader(res.headers.get("retry-after"), 60);
+      const ms = Math.max(1000, retryAt.getTime() - Date.now());
+      ctx.rateLimiter.penalise("github", ms);
+      throw new RateLimitError(retryAt, "GitHub events: rate limited (403)");
+    }
+  }
+
+  if (res.status === 429) {
+    const retryAt = retryAfterDateFromHeader(res.headers.get("retry-after"), 60);
+    const ms = Math.max(1000, retryAt.getTime() - Date.now());
+    ctx.rateLimiter.penalise("github", ms);
+    throw new RateLimitError(retryAt, "GitHub events: rate limited (429)");
+  }
 
   if (!res.ok) {
     throw new Error(`GitHub events ${String(res.status)}: ${text.slice(0, 200)}`);

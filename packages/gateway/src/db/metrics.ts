@@ -1,0 +1,79 @@
+/**
+ * Phase 3.5 Workstream 3.1 — aggregate index metrics for status / diag / Prometheus.
+ */
+
+import type { Database } from "bun:sqlite";
+
+import {
+  computeLatencyPercentilesMs,
+  latencyRingBuffer,
+  readLatencyPercentilesFromDb,
+} from "./latency-ring-buffer.ts";
+
+export type IndexMetrics = {
+  itemCountByService: Record<string, number>;
+  totalItems: number;
+  indexSizeBytes: number;
+  embeddingCoveragePercent: number;
+  lastSuccessfulSyncByConnector: Record<string, Date | null>;
+  queryLatencyP50Ms: number;
+  queryLatencyP95Ms: number;
+  queryLatencyP99Ms: number;
+};
+
+function pageStats(db: Database): { bytes: number } {
+  const row = db
+    .query("SELECT page_count * page_size AS b FROM pragma_page_count(), pragma_page_size()")
+    .get() as { b: number } | null;
+  const b = row?.b;
+  return { bytes: typeof b === "number" && Number.isFinite(b) ? Math.max(0, Math.floor(b)) : 0 };
+}
+
+export function collectIndexMetrics(db: Database): IndexMetrics {
+  const byServiceRows = db
+    .query("SELECT service, COUNT(*) AS c FROM item GROUP BY service")
+    .all() as Array<{ service: string; c: number }> | undefined;
+  const itemCountByService: Record<string, number> = {};
+  let totalItems = 0;
+  for (const r of byServiceRows ?? []) {
+    const c = Math.max(0, Math.floor(r.c));
+    itemCountByService[r.service] = c;
+    totalItems += c;
+  }
+
+  const withEmbRow = db
+    .query(
+      `SELECT COUNT(DISTINCT ec.item_id) AS with_emb
+       FROM embedding_chunk ec`,
+    )
+    .get() as { with_emb: number } | null;
+  const withEmb = Math.max(0, Math.floor(withEmbRow?.with_emb ?? 0));
+  const embeddingCoveragePercent = totalItems > 0 ? Math.min(100, (withEmb * 100) / totalItems) : 0;
+
+  const syncRows = db.query("SELECT connector_id, last_sync_at FROM sync_state").all() as
+    | Array<{ connector_id: string; last_sync_at: number | null }>
+    | undefined;
+  const lastSuccessfulSyncByConnector: Record<string, Date | null> = {};
+  for (const r of syncRows ?? []) {
+    const t = r.last_sync_at;
+    lastSuccessfulSyncByConnector[r.connector_id] =
+      typeof t === "number" && Number.isFinite(t) ? new Date(t) : null;
+  }
+
+  const inMem = latencyRingBuffer.snapshotOrdered();
+  const lat =
+    inMem.length > 0 ? computeLatencyPercentilesMs(inMem) : readLatencyPercentilesFromDb(db);
+
+  const { bytes } = pageStats(db);
+
+  return {
+    itemCountByService,
+    totalItems,
+    indexSizeBytes: bytes,
+    embeddingCoveragePercent,
+    lastSuccessfulSyncByConnector,
+    queryLatencyP50Ms: lat.p50Ms,
+    queryLatencyP95Ms: lat.p95Ms,
+    queryLatencyP99Ms: lat.p99Ms,
+  };
+}

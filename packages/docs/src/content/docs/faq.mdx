@@ -1,0 +1,29 @@
+---
+title: FAQ
+description: Common questions about Nimbus behaviour, data, and trust
+---
+
+### Why does my connector show “degraded” or “error”?
+
+The Gateway tracks connector health in the local index. A connector moves to **degraded** or **error** when sync fails repeatedly, auth is invalid, or the service returns errors. Use `nimbus connector list`, `nimbus connector status <name>`, and `nimbus connector history <name>` for detail. Re-auth with `nimbus connector auth <name>` when the state is **unauthenticated**.
+
+### How do I reset a connector’s auth?
+
+Remove the connector (which deletes vault keys and index rows for that service), then authenticate again:
+
+```bash
+nimbus connector remove <service>
+nimbus connector auth <service>
+```
+
+### What data does Nimbus store locally?
+
+Metadata only in SQLite (titles, paths, IDs, sync cursors, audit entries, embeddings metadata). **Raw email bodies and full file contents are not bulk-stored** in the index by design — see the repository `architecture.md` for the exact boundary.
+
+### How do I uninstall completely?
+
+Stop the Gateway, remove your OS keystore entries for Nimbus (platform-specific), and delete the Nimbus data directory (`%APPDATA%\\Nimbus` on Windows, `~/Library/Application Support/Nimbus` on macOS, `~/.config/nimbus` on Linux unless overridden).
+
+### What is HITL?
+
+**Human-in-the-loop:** destructive or outbound actions (delete, send email, post to Slack, trigger CI, etc.) require explicit approval in the CLI (or UI in Phase 4). The consent gate is enforced in the Gateway executor, not by model instructions.

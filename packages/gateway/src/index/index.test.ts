@@ -217,6 +217,7 @@ describe("LocalIndex", () => {
     expect(rows[0]?.serviceId).toBe("google_drive");
     expect(rows[0]?.intervalMs).toBe(60_000);
     expect(rows[0]?.status).toBe("ok");
+    expect(rows[0]?.healthState).toBe("healthy");
     idx.upsert({
       id: "g1",
       service: "google_drive",

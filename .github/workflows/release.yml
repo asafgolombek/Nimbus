@@ -26,9 +26,22 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+  # Full test suite on the tagged commit — prevents publishing broken binaries.
+  # Runs on ubuntu only (the full 3-OS matrix already runs on every push to main).
+  test:
+    name: Test suite (release gate)
+    needs: validate
+    uses: ./.github/workflows/_test-suite.yml
+    with:
+      runner: ubuntu-22.04
+      run-packaging: false
+    permissions:
+      contents: read
+      checks: write
+
   build-gateway:
     name: Build Gateway — ${{ matrix.target.os }}
-    needs: validate
+    needs: [validate, test]
     runs-on: ${{ matrix.target.runner }}
     timeout-minutes: 45
     permissions:
@@ -47,6 +60,11 @@ jobs:
           - os: macos
             runner: macos-15-intel
             artifact: nimbus-gateway-macos-x64
+            ext: ""
+          # Apple Silicon — native arm64 binary (no Rosetta)
+          - os: macos-arm64
+            runner: macos-14
+            artifact: nimbus-gateway-macos-arm64
             ext: ""
           - os: windows
             runner: windows-2022
@@ -69,7 +87,7 @@ jobs:
 
       # When implementing signing, prefer a `release` GitHub Environment for secrets + optional reviewers.
       - name: Sign binary (macOS)
-        if: matrix.target.os == 'macos'
+        if: startsWith(matrix.target.os, 'macos')
         timeout-minutes: 15
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -107,7 +125,7 @@ jobs:
 
   build-cli:
     name: Build CLI — ${{ matrix.target.os }}
-    needs: validate
+    needs: [validate, test]
     runs-on: ${{ matrix.target.runner }}
     timeout-minutes: 45
     permissions:
@@ -125,6 +143,11 @@ jobs:
           - os: macos
             runner: macos-15-intel
             artifact: nimbus-cli-macos-x64
+            ext: ""
+          # Apple Silicon — native arm64 binary (no Rosetta)
+          - os: macos-arm64
+            runner: macos-14
+            artifact: nimbus-cli-macos-arm64
             ext: ""
           - os: windows
             runner: windows-2022

@@ -29,6 +29,8 @@ export interface ConsentCoordinator {
    * so {@link ToolExecutor} records a rejected HITL audit entry.
    */
   rejectAllPending(message: string, hitlAuditReason: string): void;
+  /** Diagnostic: how many HITL prompts are awaiting `consent.respond`. */
+  pendingCount(): number;
 }
 
 type PendingConsent = {
@@ -111,5 +113,9 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
     for (const entry of snapshot.values()) {
       entry.reject(err);
     }
+  }
+
+  pendingCount(): number {
+    return this.pending.size;
   }
 }

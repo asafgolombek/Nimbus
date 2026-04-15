@@ -39,6 +39,11 @@ export function runCiTestSuite(): void {
 
   runBunTest(["packages/gateway/src/vault", "--coverage", "--coverage-threshold-lines=90"], true);
 
+  runBunTest(
+    ["packages/gateway/test/unit/db", "--coverage", "--coverage-threshold-lines=85"],
+    false,
+  );
+
   runBunTest(["packages/gateway/test/integration/", "packages/cli/test/integration/"], false);
 
   runBunTest(["packages/gateway/test/e2e/", "packages/cli/test/e2e/"], false);

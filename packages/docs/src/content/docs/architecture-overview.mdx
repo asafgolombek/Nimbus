@@ -1,0 +1,12 @@
+---
+title: Architecture overview
+description: How Gateway, IPC, MCP, Vault, and the local index fit together
+---
+
+Nimbus is **local-first**: a **Gateway** process owns a private **SQLite** index, talks to **MCP connector** child processes for cloud services, and exposes **JSON-RPC 2.0** over a **domain socket** (Unix) or **named pipe** (Windows).
+
+Read the full subsystem design in the repository **`architecture.md`** (repo root). This site focuses on user-facing flows; contributors should treat `architecture.md` as authoritative for IPC contracts, the HITL gate location (`packages/gateway/src/engine/executor.ts`), and the Platform Abstraction Layer.
+
+### One-sentence mental model
+
+**CLI/UI → IPC → Gateway → (Vault + LocalIndex + MCP mesh) — no Nimbus cloud in the middle.**

@@ -51,6 +51,25 @@ export async function runAsk(args: string[]): Promise<void> {
   registerInteractiveCliIpcHandlers(client);
 
   try {
+    const connectors = await client.call<Array<{ serviceId?: string }>>("connector.listStatus", {});
+    if (!Array.isArray(connectors) || connectors.length === 0) {
+      process.stdout.write(
+        [
+          "No connectors are registered in the local index yet.",
+          "",
+          "Authenticate at least one connector, then sync:",
+          "  nimbus connector auth github",
+          "  nimbus connector auth google",
+          "  nimbus connector list",
+          "  nimbus connector sync <service>",
+          "",
+          "Until a connector is registered, searches and agent answers have no cloud data to draw on.",
+          "",
+        ].join("\n"),
+      );
+      return;
+    }
+
     const invokeParams: Record<string, unknown> = {
       input: query,
       stream: true,

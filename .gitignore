@@ -12,6 +12,7 @@ node_modules/
 dist/
 build/
 out/
+.astro/
 
 # Bundled JS must not live under package src/ (use dist/ or repo root dist/ via scripts/build-debug.ts)
 packages/cli/src/nimbus.js

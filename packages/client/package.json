@@ -1,0 +1,39 @@
+{
+  "name": "@nimbus-dev/client",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun run build:clean && tsc -p tsconfig.build.json && bun build ./src/index.ts --bundle --target=node --format=cjs --outfile=dist/index.cjs",
+    "build:clean": "bun -e \"import { rmSync } from 'node:fs'; try { rmSync('dist', { recursive: true }); } catch {}\"",
+    "clean": "bun run build:clean",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "test": "bun test",
+    "prepublishOnly": "bun run build && bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@nimbus-dev/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.2"
+  }
+}

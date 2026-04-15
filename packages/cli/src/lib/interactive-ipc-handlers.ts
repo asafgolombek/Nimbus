@@ -4,7 +4,7 @@ import type { IPCClient } from "../ipc-client/index.ts";
 
 /** Stream agent tokens to stdout (used by `agent.invoke` / `workflow.run` with streaming). */
 export function registerAgentChunkStdout(client: IPCClient): void {
-  client.onNotification("agent.chunk", (params) => {
+  client.onNotification("agent.chunk", (params: unknown) => {
     const t = (params as { text?: string }).text;
     if (typeof t === "string" && t.length > 0) {
       process.stdout.write(t);
@@ -14,7 +14,7 @@ export function registerAgentChunkStdout(client: IPCClient): void {
 
 /** Prompt in the terminal for HITL consent and respond over IPC. */
 export function registerConsentPromptHandler(client: IPCClient): void {
-  client.onNotification("consent.request", async (params) => {
+  client.onNotification("consent.request", async (params: unknown) => {
     const p = params as { requestId?: string; prompt?: string };
     if (typeof p.requestId !== "string") {
       return;

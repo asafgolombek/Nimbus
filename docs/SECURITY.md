@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Nimbus is in active development (Phase 3 — Intelligence). Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
+Nimbus is in active development (Phase 4 — Presence; Phase 3.5 Observability is complete). Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
 
 | Branch / Tag | Supported |
 |---|---|

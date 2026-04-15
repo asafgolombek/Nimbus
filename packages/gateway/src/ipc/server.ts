@@ -16,6 +16,7 @@ import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
+import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "./diagnostics-rpc.ts";
 import {
   encodeLine,
   errorResponse,
@@ -236,6 +237,13 @@ export type CreateIpcServerOptions = {
   /** RAG session chunks (schema v10+); requires embedding runtime + sqlite-vec. */
   sessionMemoryStore?: SessionMemoryStore;
   /**
+   * Data directory (`paths.dataDir`) for `db.*` / snapshot listing RPCs.
+   * Required when exposing diagnostics methods that touch the filesystem.
+   */
+  dataDir?: string;
+  /** Config directory (`paths.configDir`) for `config.validate` and related RPCs. */
+  configDir?: string;
+  /**
    * Optional hook when a client connects (tests, diagnostics).
    * Not part of the JSON-RPC surface.
    */
@@ -251,6 +259,33 @@ function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key:
     throw new RpcMethodError(-32602, `Missing or invalid ${key}`);
   }
   return v.trim();
+}
+
+function assertDiagnosticsRpcAccess(
+  method: string,
+  wantsConfig: boolean,
+  wantsTelemetry: boolean,
+  wantsDiagnostics: boolean,
+  opts: Pick<CreateIpcServerOptions, "configDir" | "dataDir" | "localIndex">,
+): void {
+  if (wantsConfig) {
+    if (opts.configDir === undefined) {
+      throw new RpcMethodError(-32603, "configDir is required for config.* RPCs");
+    }
+    return;
+  }
+  if (wantsTelemetry) {
+    if (opts.dataDir === undefined) {
+      throw new RpcMethodError(-32603, "dataDir is required for telemetry.* RPCs");
+    }
+    if (method === "telemetry.preview" && opts.localIndex === undefined) {
+      throw new RpcMethodError(-32603, "telemetry.preview requires local index");
+    }
+    return;
+  }
+  if (wantsDiagnostics && (opts.localIndex === undefined || opts.dataDir === undefined)) {
+    throw new RpcMethodError(-32603, "Diagnostics require local index and dataDir");
+  }
 }
 
 export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
@@ -562,6 +597,47 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return { ...base, drift: { lines } };
   }
 
+  const diagnosticsRpcSkipped = Symbol("diagnosticsRpcSkipped");
+
+  function tryDispatchDiagnosticsRpc(
+    method: string,
+    params: unknown,
+  ): typeof diagnosticsRpcSkipped | object {
+    const wantsConfig = method.startsWith("config.");
+    const wantsTelemetry = method.startsWith("telemetry.");
+    const wantsDiagnostics =
+      method.startsWith("db.") ||
+      method.startsWith("diag.") ||
+      method === "index.metrics" ||
+      method === "index.queryItems" ||
+      method === "index.querySql";
+    if (!wantsConfig && !wantsTelemetry && !wantsDiagnostics) {
+      return diagnosticsRpcSkipped;
+    }
+    assertDiagnosticsRpcAccess(method, wantsConfig, wantsTelemetry, wantsDiagnostics, options);
+    try {
+      const ctxBase = {
+        dataDir: options.dataDir ?? "",
+        configDir: options.configDir ?? "",
+        consent: consentImpl,
+        gatewayVersion: options.version,
+        startedAtMs,
+      };
+      const diagCtx =
+        options.localIndex === undefined ? ctxBase : { ...ctxBase, localIndex: options.localIndex };
+      const out = dispatchDiagnosticsRpc(method, params, diagCtx);
+      if (out.kind === "hit") {
+        return out.value as object;
+      }
+    } catch (e) {
+      if (e instanceof DiagnosticsRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+    return diagnosticsRpcSkipped;
+  }
+
   async function rpcIndexSearchRanked(params: unknown): Promise<unknown> {
     if (options.localIndex === undefined) {
       throw new RpcMethodError(-32603, "Local index is not available");
@@ -647,6 +723,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const connectorOutcome = await tryDispatchConnectorRpc(method, params);
     if (connectorOutcome !== connectorRpcSkipped) {
       return connectorOutcome;
+    }
+
+    const diagnosticsHit = tryDispatchDiagnosticsRpc(method, params);
+    if (diagnosticsHit !== diagnosticsRpcSkipped) {
+      return diagnosticsHit;
     }
 
     const peopleOutcome = tryDispatchPeopleRpc(method, params);

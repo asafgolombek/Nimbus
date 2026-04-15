@@ -1,0 +1,220 @@
+/**
+ * Tests for the connector health state machine (connectors/health.ts).
+ *
+ * Plan §2.1 / §2.2 acceptance criteria:
+ *  - sync_success         → healthy
+ *  - rate_limited         → rate_limited; retry_after persisted
+ *  - unauthenticated      → unauthenticated
+ *  - transient_error      → degraded (below max); error (at max)
+ *  - persistent_error     → error
+ *  - paused / resumed     → paused / healthy
+ *  - skipped_offline      → no state change; history row appended
+ *  - getConnectorHealth   returns default healthy snapshot for unknown connector
+ *  - history rows appended correctly
+ *  - pruneConnectorHealthHistory removes old rows
+ */
+
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  DEFAULT_MAX_BACKOFF_ATTEMPTS,
+  getConnectorHealth,
+  getConnectorHealthHistory,
+  type HealthHistoryRow,
+  pruneConnectorHealthHistory,
+  transitionHealth,
+} from "../../../src/connectors/health.ts";
+import { LocalIndex } from "../../../src/index/local-index.ts";
+
+let db: Database;
+
+beforeEach(() => {
+  db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  // Seed a sync_state row so health columns exist
+  db.run(
+    `INSERT OR IGNORE INTO sync_state (connector_id, last_sync_at, next_sync_token)
+     VALUES ('github', NULL, NULL)`,
+  );
+});
+
+afterEach(() => {
+  db.close();
+});
+
+describe("transitionHealth — basic transitions", () => {
+  test("sync_success sets state to healthy and clears error fields", () => {
+    // First push into degraded
+    transitionHealth(db, "github", { type: "transient_error", error: "timeout", attempt: 1 });
+    const snap = transitionHealth(db, "github", { type: "sync_success" });
+
+    expect(snap.state).toBe("healthy");
+    expect(snap.backoffAttempt).toBe(0);
+    expect(snap.lastError).toBeUndefined();
+    expect(snap.backoffUntil).toBeUndefined();
+  });
+
+  test("rate_limited sets state and persists retryAfter", () => {
+    const retryAfter = new Date(Date.now() + 60_000);
+    const snap = transitionHealth(db, "github", { type: "rate_limited", retryAfter });
+
+    expect(snap.state).toBe("rate_limited");
+    expect(snap.retryAfter).toBeDefined();
+    expect(snap.retryAfter?.getTime()).toBeCloseTo(retryAfter.getTime(), -2);
+  });
+
+  test("unauthenticated sets state and records error", () => {
+    const snap = transitionHealth(db, "github", { type: "unauthenticated" });
+
+    expect(snap.state).toBe("unauthenticated");
+    expect(snap.lastError).toContain("401");
+  });
+
+  test("transient_error below max → degraded", () => {
+    const snap = transitionHealth(db, "github", {
+      type: "transient_error",
+      error: "ETIMEDOUT",
+      attempt: 1,
+    });
+
+    expect(snap.state).toBe("degraded");
+    expect(snap.backoffAttempt).toBe(1);
+    expect(snap.lastError).toBe("ETIMEDOUT");
+    expect(snap.backoffUntil).toBeDefined();
+  });
+
+  test("transient_error at maxAttempts → error", () => {
+    const snap = transitionHealth(
+      db,
+      "github",
+      {
+        type: "transient_error",
+        error: "persistent timeout",
+        attempt: DEFAULT_MAX_BACKOFF_ATTEMPTS,
+      },
+      DEFAULT_MAX_BACKOFF_ATTEMPTS,
+    );
+
+    expect(snap.state).toBe("error");
+  });
+
+  test("persistent_error → error", () => {
+    const snap = transitionHealth(db, "github", {
+      type: "persistent_error",
+      error: "SSL certificate expired",
+    });
+
+    expect(snap.state).toBe("error");
+    expect(snap.lastError).toBe("SSL certificate expired");
+  });
+
+  test("paused → paused", () => {
+    const snap = transitionHealth(db, "github", { type: "paused" });
+    expect(snap.state).toBe("paused");
+  });
+
+  test("resumed after paused → healthy", () => {
+    transitionHealth(db, "github", { type: "paused" });
+    const snap = transitionHealth(db, "github", { type: "resumed" });
+    expect(snap.state).toBe("healthy");
+    expect(snap.backoffAttempt).toBe(0);
+  });
+});
+
+describe("transitionHealth — skipped_offline", () => {
+  test("does not change health_state", () => {
+    transitionHealth(db, "github", {
+      type: "rate_limited",
+      retryAfter: new Date(Date.now() + 60_000),
+    });
+    const before = getConnectorHealth(db, "github");
+
+    transitionHealth(db, "github", { type: "skipped_offline" });
+    const after = getConnectorHealth(db, "github");
+
+    expect(after.state).toBe(before.state);
+    expect(after.retryAfter?.getTime()).toBe(before.retryAfter?.getTime());
+  });
+
+  test("still appends a history row for offline skip", () => {
+    transitionHealth(db, "github", { type: "skipped_offline" });
+    const history = getConnectorHealthHistory(db, "github");
+    expect(history.length).toBeGreaterThanOrEqual(1);
+    expect(history[0]?.reason).toContain("offline");
+  });
+});
+
+describe("getConnectorHealth", () => {
+  test("returns healthy default for unknown connector", () => {
+    const snap = getConnectorHealth(db, "unknown-connector");
+    expect(snap.state).toBe("healthy");
+    expect(snap.backoffAttempt).toBe(0);
+  });
+});
+
+describe("history", () => {
+  test("appends one row per transition", () => {
+    transitionHealth(db, "github", { type: "transient_error", error: "err", attempt: 1 });
+    transitionHealth(db, "github", { type: "sync_success" });
+
+    const history = getConnectorHealthHistory(db, "github");
+    expect(history.length).toBe(2);
+  });
+
+  test("returns rows most-recent-first", () => {
+    transitionHealth(db, "github", { type: "transient_error", error: "err", attempt: 1 });
+    transitionHealth(db, "github", { type: "sync_success" });
+
+    const history = getConnectorHealthHistory(db, "github");
+    expect(history[0]?.toState).toBe("healthy");
+    expect(history[1]?.toState).toBe("degraded");
+  });
+
+  test("limits rows by limit param", () => {
+    for (let i = 1; i <= 5; i++) {
+      transitionHealth(db, "github", {
+        type: "transient_error",
+        error: `err ${String(i)}`,
+        attempt: i,
+      });
+    }
+    const history = getConnectorHealthHistory(db, "github", 2);
+    expect(history.length).toBe(2);
+  });
+});
+
+describe("pruneConnectorHealthHistory", () => {
+  test("removes rows older than maxAgeDays", () => {
+    // Insert an old row directly
+    const oldMs = Date.now() - 10 * 24 * 60 * 60 * 1000; // 10 days ago
+    db.run(
+      `INSERT INTO connector_health_history (connector_id, from_state, to_state, reason, occurred_at)
+       VALUES ('github', 'healthy', 'degraded', 'old', ?)`,
+      [oldMs],
+    );
+    // Insert a recent row via transition
+    transitionHealth(db, "github", { type: "sync_success" });
+
+    const removed = pruneConnectorHealthHistory(db, 7);
+    expect(removed).toBe(1);
+
+    const remaining = getConnectorHealthHistory(db, "github");
+    expect(
+      remaining.every(
+        (r: HealthHistoryRow) => r.occurredAt.getTime() >= Date.now() - 8 * 24 * 60 * 60 * 1000,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("last_error truncation", () => {
+  test("truncates errors longer than 512 chars", () => {
+    const longError = "x".repeat(600);
+    const snap = transitionHealth(db, "github", {
+      type: "persistent_error",
+      error: longError,
+    });
+    expect(snap.lastError?.length).toBeLessThanOrEqual(512);
+    expect(snap.lastError?.endsWith("...")).toBe(true);
+  });
+});
