@@ -46,6 +46,29 @@ function parseIntDec(raw: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function applyTelemetryKv(out: Partial<NimbusTelemetryToml>, key: string, valRaw: string): void {
+  if (key === "enabled") {
+    const b = parseBool(valRaw);
+    if (b !== undefined) {
+      out.enabled = b;
+    }
+    return;
+  }
+  if (key === "endpoint") {
+    const u = parseString(valRaw);
+    if (u !== "") {
+      out.endpoint = u;
+    }
+    return;
+  }
+  if (key === "flush_interval_seconds") {
+    const n = parseIntDec(valRaw);
+    if (n !== undefined && n > 0) {
+      out.flushIntervalSeconds = n;
+    }
+  }
+}
+
 /** Best-effort `[telemetry]` section (no full TOML parser). */
 export function parseNimbusTomlTelemetrySection(source: string): Partial<NimbusTelemetryToml> {
   const lines = source.split(/\r?\n/);
@@ -61,33 +84,12 @@ export function parseNimbusTomlTelemetrySection(source: string): Partial<NimbusT
       inTelemetry = trimmed === "[telemetry]";
       continue;
     }
-    if (!inTelemetry) {
-      continue;
-    }
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) {
-      continue;
-    }
-    const key = trimmed.slice(0, eq).trim();
-    const valRaw = trimmed.slice(eq + 1).trim();
-    if (key === "enabled") {
-      const b = parseBool(valRaw);
-      if (b !== undefined) {
-        out.enabled = b;
-      }
-      continue;
-    }
-    if (key === "endpoint") {
-      const u = parseString(valRaw);
-      if (u !== "") {
-        out.endpoint = u;
-      }
-      continue;
-    }
-    if (key === "flush_interval_seconds") {
-      const n = parseIntDec(valRaw);
-      if (n !== undefined && n > 0) {
-        out.flushIntervalSeconds = n;
+    if (inTelemetry) {
+      const eq = trimmed.indexOf("=");
+      if (eq > 0) {
+        const key = trimmed.slice(0, eq).trim();
+        const valRaw = trimmed.slice(eq + 1).trim();
+        applyTelemetryKv(out, key, valRaw);
       }
     }
   }

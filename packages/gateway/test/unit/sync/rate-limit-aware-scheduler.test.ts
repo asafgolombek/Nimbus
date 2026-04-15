@@ -37,6 +37,14 @@ function makeCtx(): SyncContext {
   };
 }
 
+async function forceSyncExpectReject(sched: SyncScheduler, serviceId: string): Promise<void> {
+  try {
+    await sched.forceSync(serviceId);
+  } catch {
+    /* connector threw — forceSync rejects */
+  }
+}
+
 function okConnector(id: string): Syncable {
   return {
     serviceId: id,
@@ -72,11 +80,7 @@ describe("RateLimitError", () => {
 
     const sched = new SyncScheduler(ctx, {}, { initialOnline: true, isOnline: async () => true });
     sched.register(c);
-    try {
-      await sched.forceSync("github");
-    } catch {
-      /* rate-limit causes forceSync to reject */
-    }
+    await forceSyncExpectReject(sched, "github");
     sched.stop();
 
     const health = getConnectorHealth(db, "github");
@@ -104,12 +108,7 @@ describe("RateLimitError", () => {
 
     const sched = new SyncScheduler(ctx, {}, { initialOnline: true, isOnline: async () => true });
     sched.register(c);
-    // Trigger first (rate-limited) sync
-    try {
-      await sched.forceSync("rl-skip");
-    } catch {
-      /* expected */
-    }
+    await forceSyncExpectReject(sched, "rl-skip");
 
     // Start the scheduler loop — should NOT dispatch again because retryAfter is 10s ahead
     sched.start();
@@ -138,11 +137,7 @@ describe("UnauthenticatedError", () => {
 
     const sched = new SyncScheduler(ctx, {}, { initialOnline: true, isOnline: async () => true });
     sched.register(c);
-    try {
-      await sched.forceSync("jira");
-    } catch {
-      /* expected */
-    }
+    await forceSyncExpectReject(sched, "jira");
     sched.stop();
 
     const health = getConnectorHealth(db, "jira");
@@ -171,11 +166,7 @@ describe("UnauthenticatedError", () => {
       },
     );
     sched.register(c);
-    try {
-      await sched.forceSync("slack");
-    } catch {
-      /* expected */
-    }
+    await forceSyncExpectReject(sched, "slack");
     sched.stop();
 
     expect(notifications.length).toBe(1);
@@ -194,11 +185,7 @@ describe("UnauthenticatedError", () => {
 
     const sched = new SyncScheduler(ctx, {}, { initialOnline: true, isOnline: async () => true });
     sched.register(c);
-    try {
-      await sched.forceSync("gdrive");
-    } catch {
-      /* expected */
-    }
+    await forceSyncExpectReject(sched, "gdrive");
     sched.stop();
 
     const row = loadSchedulerState(db, "gdrive");
@@ -265,11 +252,7 @@ describe("generic error", () => {
 
     const sched = new SyncScheduler(ctx, {}, { initialOnline: true, isOnline: async () => true });
     sched.register(c);
-    try {
-      await sched.forceSync("gen-err");
-    } catch {
-      /* expected */
-    }
+    await forceSyncExpectReject(sched, "gen-err");
     sched.stop();
 
     const health = getConnectorHealth(db, "gen-err");
@@ -296,11 +279,7 @@ describe("generic error", () => {
     sched.register(c);
     // Drive 5 failures via forceSync; after 5 the scheduler enters error state
     for (let i = 0; i < 5; i++) {
-      try {
-        await sched.forceSync("multi-fail");
-      } catch {
-        /* expected */
-      }
+      await forceSyncExpectReject(sched, "multi-fail");
     }
     sched.stop();
 

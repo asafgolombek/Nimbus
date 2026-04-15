@@ -70,25 +70,27 @@ export function buildSearchLocalIndexHealthExtras(
   window: ContextWindow,
   filteredService: string | undefined,
 ): { connectorHealthCaveat?: string; connectorHealthCaveats?: string[] } {
-  if (filteredService !== undefined && filteredService !== "") {
-    const c = formatConnectorHealthCaveatForIndexSearch(
-      filteredService,
-      getConnectorHealth(db, filteredService),
-    );
-    return c !== undefined ? { connectorHealthCaveat: c } : {};
-  }
-  const services = new Set<string>();
-  for (const it of window.items) {
-    if (it.service !== "") {
-      services.add(it.service);
+  const scoped =
+    filteredService !== undefined && filteredService !== "" ? filteredService : undefined;
+  if (scoped === undefined) {
+    const services = new Set<string>();
+    for (const it of window.items) {
+      if (it.service !== "") {
+        services.add(it.service);
+      }
     }
-  }
-  for (const g of window.sourceSummary) {
-    if (g.service !== "") {
-      services.add(g.service);
+    for (const g of window.sourceSummary) {
+      if (g.service !== "") {
+        services.add(g.service);
+      }
     }
+    const ordered = [...services].sort((a, b) => a.localeCompare(b));
+    const caveats = collectConnectorHealthCaveatsForServices(db, ordered, 5);
+    return caveats.length > 0 ? { connectorHealthCaveats: caveats } : {};
   }
-  const ordered = [...services].sort((a, b) => a.localeCompare(b));
-  const caveats = collectConnectorHealthCaveatsForServices(db, ordered, 5);
-  return caveats.length > 0 ? { connectorHealthCaveats: caveats } : {};
+  const c = formatConnectorHealthCaveatForIndexSearch(scoped, getConnectorHealth(db, scoped));
+  if (c === undefined) {
+    return {};
+  }
+  return { connectorHealthCaveat: c };
 }

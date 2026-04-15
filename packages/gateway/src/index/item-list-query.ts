@@ -48,7 +48,7 @@ export function buildItemListSql(params: ItemListQueryParams): {
  */
 export function parseRelativeSinceToWindowMs(raw: string, nowMs: number): number | undefined {
   const s = raw.trim();
-  const m = /^(\d+)\s*(d|h|m|s)$/i.exec(s);
+  const m = /^(\d+)\s*([dhms])$/i.exec(s);
   if (m === null) {
     return undefined;
   }

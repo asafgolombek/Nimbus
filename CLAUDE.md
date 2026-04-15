@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** — Observability & DX ✅ code-complete on `main` (release sign-off: `docs/phase-3.5-plan.md` consolidated checklist + npm publish + audit cadence)
+**Status:** Phase 3.5 — Observability & DX ✅ Complete; **Phase 4** — Presence 🔵 Active
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -224,8 +224,8 @@ A system that orchestrates real actions against real data cannot rely on develop
 | Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | ✅ Complete |
 | Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | ✅ Complete |
 | Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | ✅ Complete |
-| Phase 3.5 | Observability — Connector health model, `nimbus query` / `diag` / `doctor` / `db`, config profiles, `@nimbus-dev/client`, telemetry, docs site | ✅ Code-complete on `main` (release checklist in `docs/phase-3.5-plan.md`) |
-| Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | Planned |
+| Phase 3.5 | Observability — Connector health model, `nimbus query` / `diag` / `doctor` / `db`, config profiles, `@nimbus-dev/client`, telemetry, docs site | ✅ Complete |
+| Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | 🔵 Active |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | Planned |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |
 | Phase 7 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop | Planned |

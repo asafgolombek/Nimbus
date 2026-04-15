@@ -18,6 +18,14 @@ function seedSyncState(db: Database, connectorId: string): void {
   );
 }
 
+function seedPausedGithubUnauthSlack(db: Database): void {
+  for (const id of ["github", "slack"]) {
+    seedSyncState(db, id);
+  }
+  transitionHealth(db, "github", { type: "paused" });
+  transitionHealth(db, "slack", { type: "unauthenticated" });
+}
+
 function stubRankedItem(service: string): RankedIndexItem {
   return {
     id: `${service}:1`,
@@ -86,11 +94,7 @@ describe("collectConnectorHealthCaveatsForServices", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
-    for (const id of ["github", "slack"]) {
-      seedSyncState(db, id);
-    }
-    transitionHealth(db, "github", { type: "paused" });
-    transitionHealth(db, "slack", { type: "unauthenticated" });
+    seedPausedGithubUnauthSlack(db);
   });
 
   afterEach(() => {
@@ -119,11 +123,7 @@ describe("buildSearchLocalIndexHealthExtras", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
-    for (const id of ["github", "slack"]) {
-      seedSyncState(db, id);
-    }
-    transitionHealth(db, "github", { type: "paused" });
-    transitionHealth(db, "slack", { type: "unauthenticated" });
+    seedPausedGithubUnauthSlack(db);
   });
 
   afterEach(() => {

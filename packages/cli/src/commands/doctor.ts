@@ -162,15 +162,7 @@ export async function runDoctor(_args: string[]): Promise<void> {
   exit = Math.max(exit, doctorPrintVaultCheck());
 
   const state = await readGatewayState(paths);
-  if (state === undefined) {
-    console.log("[fail] Gateway: not running (no gateway.json — start with: nimbus start).");
-    exit = Math.max(exit, 2);
-  } else if (!isProcessAlive(state.pid)) {
-    console.log(
-      `[fail] Gateway: stale state (pid ${String(state.pid)} is not running) — try nimbus stop or remove the state file.`,
-    );
-    exit = Math.max(exit, 2);
-  } else {
+  if (state !== undefined && isProcessAlive(state.pid)) {
     const client = new IPCClient(state.socketPath);
     try {
       await client.connect();
@@ -182,6 +174,14 @@ export async function runDoctor(_args: string[]): Promise<void> {
     } finally {
       await client.disconnect().catch(() => {});
     }
+  } else if (state === undefined) {
+    console.log("[fail] Gateway: not running (no gateway.json — start with: nimbus start).");
+    exit = Math.max(exit, 2);
+  } else {
+    console.log(
+      `[fail] Gateway: stale state (pid ${String(state.pid)} is not running) — try nimbus stop or remove the state file.`,
+    );
+    exit = Math.max(exit, 2);
   }
 
   process.exitCode = exit;

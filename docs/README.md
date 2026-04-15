@@ -11,7 +11,7 @@
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
 [![Platforms](https://img.shields.io/badge/platforms-Windows_%7C_macOS_%7C_Linux-blue)]()
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](../LICENSE)
-[![Status: Alpha](https://img.shields.io/badge/status-Alpha-orange)]()
+[![Status: Phase 4](https://img.shields.io/badge/status-Phase_4_Active-blue)]()
 
 </div>
 
@@ -97,12 +97,22 @@ Third-party connectors ship as npm packages. Install in one command; the agent g
 
 See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
-### Phase 3.5 pointers
+### Phase 3.5 — shipped
 
-- **Roadmap status (what shipped vs open):** [`docs/roadmap.md`](./roadmap.md) — Phase 3.5 section.
-- **Engineering checklist / release gate:** [`docs/phase-3.5-plan.md`](./phase-3.5-plan.md) (consolidated acceptance at end of file).
-- **Starlight docs site (workspace package):** `packages/docs/` — from repo root: `bun run docs:build`.
-- **Publish `@nimbus-dev/client`:** push tag `client-v*` (see `.github/workflows/publish-client.yml`); requires `NPM_TOKEN` in GitHub Actions secrets.
+Phase 3.5 (Observability & Developer Experience) is ✅ complete. Highlights:
+
+- **`nimbus doctor`** — environment health checks with actionable remediation
+- **`nimbus diag`** — full diagnostic snapshot; `slow-queries` subcommand
+- **`nimbus query`** — structured index queries with `--sql` guard and `--json` output
+- **`nimbus db verify / repair / snapshot / restore / prune`** — data integrity and recovery
+- **`nimbus config` / `nimbus profile`** — named config profiles and env-var overrides
+- **`nimbus telemetry show / disable`** — opt-in aggregate-only telemetry
+- **`nimbus serve`** — read-only local HTTP API on `localhost`
+- **`nimbus connector history <name>`** — per-connector health history
+- **`@nimbus-dev/client`** — typed IPC wrapper with `MockClient` for extensions and scripts
+- **Starlight docs site** — `packages/docs/`; `bun run docs:build`
+
+See [`docs/roadmap.md`](./roadmap.md) for the full Phase 3.5 delivery list and [`docs/cli-reference.md`](./cli-reference.md) for the complete CLI command reference.
 
 ---
 
@@ -174,6 +184,42 @@ nimbus ask "Which of my open PRs mention payment-service?"
 nimbus ask "What Linear issues am I assigned this week?"
 nimbus search --service google_drive --type pdf --since 30d
 nimbus sync all
+```
+
+### Observe and Debug
+
+```bash
+# Structured index queries
+nimbus query --service github --type pr --since 7d --json
+nimbus query --sql "SELECT title FROM items WHERE pinned = 1" --pretty
+
+# Diagnostics and slow queries
+nimbus diag
+nimbus diag slow-queries --limit 10
+
+# Environment health check
+nimbus doctor
+
+# Connector health history
+nimbus connector history github
+
+# Database integrity
+nimbus db verify
+nimbus db repair          # --yes to skip confirmation
+nimbus db snapshot
+```
+
+### Configure
+
+```bash
+nimbus config list
+nimbus config get sync.intervalSeconds
+nimbus config set sync.intervalSeconds 300
+nimbus config validate
+
+nimbus profile create work
+nimbus profile switch work
+nimbus profile list
 ```
 
 ### Run a Script
@@ -362,8 +408,8 @@ Nimbus uses phases, not calendar dates. A phase completes when its acceptance cr
 | 1 | Foundation | ✅ Complete |
 | 2 | The Bridge (15 connectors) | ✅ Complete |
 | 3 | Intelligence (semantic search, CI/CD, cloud) | ✅ Complete |
-| 3.5 | Observability (health model, query API, recovery, telemetry, docs) | 🔵 Active |
-| 4 | Presence (Tauri UI, local LLM, v0.1.0 release) | Planned |
+| 3.5 | Observability (health model, query API, recovery, telemetry, docs) | ✅ Complete |
+| 4 | Presence (Tauri UI, local LLM, v0.1.0 release) | 🔵 Active |
 | 5–9 | Extended Surface → Enterprise | Planned |
 
 See [`roadmap.md`](./roadmap.md) for full acceptance criteria and sequencing.

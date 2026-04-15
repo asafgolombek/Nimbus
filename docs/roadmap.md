@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-15 — Phase 3 complete on `main`; **Phase 3.5** is **code-complete on `main`** (release sign-off, npm publish, and three-platform soak still tracked in `docs/phase-3.5-plan.md`).
+> **Last updated:** 2026-04-15 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is now active.
 
 ---
 
@@ -28,8 +28,8 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 | Phase 1 | Foundation | ✅ Complete |
 | Phase 2 | The Bridge | ✅ Complete |
 | Phase 3 | Intelligence | ✅ Complete |
-| Phase 3.5 | Observability & Developer Experience | Code-complete on `main` (release sign-off in `docs/phase-3.5-plan.md`) |
-| Phase 4 | Presence | Planned |
+| Phase 3.5 | Observability & Developer Experience | ✅ Complete |
+| Phase 4 | Presence | 🔵 Active |
 | Phase 5 | The Extended Surface | Planned |
 | Phase 6 | Team | Planned |
 | Phase 7 | The Autonomous Agent | Planned |
@@ -193,13 +193,13 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 ---
 
-## Phase 3.5 — Observability & Developer Experience
+## Phase 3.5 — Observability & Developer Experience ✅
 
 **Goal:** Make Nimbus debuggable, composable, and trustworthy before the public `v0.1.0` release. Connectors, workflows, and the index are only as useful as your ability to see what they're doing, query them programmatically, and recover when things go wrong.
 
 **Sequencing rationale:** Phase 3 delivers a large surface area of connectors and agentic capability. Phase 3.5 ensures that surface area is observable, configurable, and robust before it ships publicly. **Phase 3.5 remains a release prerequisite** — Phase 4 does not begin until the consolidated acceptance criteria in `docs/phase-3.5-plan.md` are verified on Windows, macOS, and Linux.
 
-> **Progress (2026-04-15):** Phase 3.5 **implementation** is on `main` (health, diag/query/serve, db tools, telemetry with DB-backed aggregates, client publish workflow, Starlight hub + FAQ, richer `nimbus doctor`, first-start CLI hints, optional query bench). **Release work** remains: per-OS sign-off in `docs/phase-3.5-plan.md`, first `@nimbus-dev/client` npm publish, and workspace `bun audit --audit-level high` on a schedule you trust.
+> **Status (2026-04-15):** Phase 3.5 is **✅ Complete**. All acceptance criteria have been verified on Windows, macOS, and Linux. `@nimbus-dev/client` is published to npm. The Starlight docs site is live. Phase 4 (Presence) is now active.
 
 ### Dependencies
 
@@ -258,20 +258,16 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 - [x] **`nimbus doctor`** — Bun minimum, Linux `secret-tool`, Gateway IPC + `config.validate`, `diag.snapshot` index total + per-connector health table; exit `0` / `1` / `2` for ok / warnings / hard failures (`packages/cli/src/commands/doctor.ts`)
 - [x] **First-run / empty index guidance** — `nimbus start` prints next-step hints once (TTY, skip with `--no-wizard`); `nimbus ask` exits early with no connectors; Gateway `runAsk` returns onboarding text when the index has zero items
 
-### Consolidated acceptance (release sign-off)
+### Acceptance (all criteria met)
 
-Use **`docs/phase-3.5-plan.md` → *Phase 3.5 Acceptance Criteria (consolidated)*** as the checklist to tick only after manual verification on **Windows, macOS, and Linux** (the bullets there are tighter than this roadmap summary).
-
-Highlights still requiring explicit sign-off or work:
-
-- [x] **`nimbus query` latency harness** — `packages/gateway/test/benchmark/item-query-latency.test.ts` (8k-row in-memory index; default assert `< 500ms` p95; set `NIMBUS_RUN_QUERY_BENCH=1` for `< 100ms` strict mode on capable machines)
-- [ ] **`bun audit --audit-level high` clean** across the workspace on a schedule you trust for `v0.1.0`
-- [ ] **First successful `npm publish` of `@nimbus-dev/client`** using `client-v*` tags + `NPM_TOKEN`
-- [ ] **Docs editorial sign-off** — Starlight hub shipped; per-OS “getting started in under 10 minutes” still human-verified against `docs/phase-3.5-plan.md`
+- [x] **`nimbus query` latency harness** — p95 < 500ms on 8k-row index; strict mode (`< 100ms`) gated by `NIMBUS_RUN_QUERY_BENCH=1`
+- [x] **`bun audit --audit-level high` clean** — workspace audit passes at HIGH threshold
+- [x] **`@nimbus-dev/client` published to npm** — `client-v*` tag + `NPM_TOKEN` workflow verified
+- [x] **Docs editorial sign-off** — Starlight hub live; “getting started in under 10 minutes” verified on all three platforms
 
 ---
 
-## Phase 4 — Presence
+## Phase 4 — Presence 🔵
 
 **Goal:** Give Nimbus a face, a local AI backbone that requires no cloud API key, and the trust foundations needed for a public `v0.1.0` release.
 

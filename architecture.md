@@ -1,8 +1,8 @@
 # Nimbus Architecture
 
-**Version:** 0.6
+**Version:** 0.7
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Active Design — reflects `main` as of Phase 3 (Intelligence) complete; **Phase 3.5 (Observability) active**
+**Status:** Active Design — reflects `main` as of Phase 3.5 (Observability) complete; **Phase 4 (Presence) active**
 
 ---
 
@@ -16,7 +16,7 @@ Nimbus is composed of four primary subsystems, all hosted inside a single headle
 | **MCP Connector Mesh** | Integration surface: unified interface to all cloud and local services |
 | **Secure Vault** | Secrets layer: OS-native credential storage, zero plaintext exposure |
 | **Extension Registry** | Plugin layer: sandboxed third-party MCP connectors + local marketplace |
-| **Observability Layer** *(Phase 3.5)* | Health model, index metrics, query latency ring buffer, Prometheus endpoint, HTTP read API |
+| **Observability Layer** | Health model, index metrics, query latency ring buffer, Prometheus endpoint, HTTP read API |
 
 ---
 
