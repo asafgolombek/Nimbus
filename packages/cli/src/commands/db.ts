@@ -14,6 +14,98 @@ function takeFlag(args: string[], flag: string): string | undefined {
   return args[i + 1];
 }
 
+async function dbCmdVerify(): Promise<void> {
+  const r = await withGatewayIpc((c) =>
+    c.call<{ clean: boolean; formatted: string; exitCode: number }>("db.verify", {}),
+  );
+  console.log(r.formatted);
+  process.exitCode = r.exitCode;
+}
+
+async function dbCmdRepair(tail: string[]): Promise<void> {
+  const yes = tail.includes("--yes");
+  if (!yes) {
+    throw new Error("Usage: nimbus db repair --yes");
+  }
+  const r = await withGatewayIpc((c) =>
+    c.call<{ formatted: string }>("db.repair", { confirm: true }),
+  );
+  console.log(r.formatted);
+}
+
+async function dbCmdSnapshot(): Promise<void> {
+  const r = await withGatewayIpc((c) => c.call<{ path: string }>("db.snapshot.take", {}));
+  console.log(r.path);
+}
+
+async function dbCmdSnapshotsList(): Promise<void> {
+  const rows = await withGatewayIpc((c) =>
+    c.call<
+      Array<{
+        filename: string;
+        timestampMs: number;
+        compressedSizeBytes: number;
+        path: string;
+      }>
+    >("db.snapshots.list", {}),
+  );
+  if (rows.length === 0) {
+    console.log("No snapshots yet.");
+    return;
+  }
+  for (const e of rows) {
+    console.log(
+      `${e.filename}\t${String(e.timestampMs)}\t${String(e.compressedSizeBytes)} B\t${e.path}`,
+    );
+  }
+}
+
+async function dbCmdSnapshotsPrune(tail: string[]): Promise<void> {
+  const yes = tail.includes("--yes");
+  if (!yes) {
+    throw new Error("Usage: nimbus db snapshots prune --yes [--keep-last N]");
+  }
+  const keepRaw = takeFlag(tail, "--keep-last");
+  const keepLast = keepRaw === undefined ? Number.NaN : Number.parseInt(keepRaw, 10);
+  const params: { confirm: true; keepLast?: number } = { confirm: true };
+  if (Number.isFinite(keepLast) && keepLast > 0) {
+    params.keepLast = Math.floor(keepLast);
+  }
+  const r = await withGatewayIpc((c) =>
+    c.call<{ deleted: number; keepLast: number }>("db.snapshots.prune", params),
+  );
+  console.log(`Pruned ${String(r.deleted)} snapshot(s); keep_last=${String(r.keepLast)}`);
+}
+
+async function dbCmdBackupsList(): Promise<void> {
+  const rows = await withGatewayIpc((c) => c.call<unknown[]>("db.backups.list", {}));
+  console.log(JSON.stringify(rows, null, 2));
+}
+
+async function dbCmdRestore(tail: string[]): Promise<void> {
+  const snap = tail[0]?.trim() ?? "";
+  if (snap === "") {
+    throw new Error("Usage: nimbus db restore <snapshot.db.gz> [--yes]");
+  }
+  const yes = tail.includes("--yes");
+  const paths = getCliPlatformPaths();
+  const state = await readGatewayState(paths);
+  if (state !== undefined && isProcessAlive(state.pid)) {
+    throw new Error("Stop the Gateway before restoring the database file (nimbus stop).");
+  }
+  if (!yes) {
+    console.log(
+      "Restoring overwrites nimbus.db. Stop the Gateway, then run:\n" +
+        `  nimbus db restore ${snap} --yes`,
+    );
+    return;
+  }
+  const dbPath = join(paths.dataDir, "nimbus.db");
+  mkdirSync(paths.dataDir, { recursive: true });
+  restoreDbFromSnapshot(snap, dbPath);
+  console.log(`Restored database from ${snap}`);
+}
+
 export async function runDb(args: string[]): Promise<void> {
   const sub = args[0];
   const tail = args.slice(1);
@@ -23,71 +115,28 @@ export async function runDb(args: string[]): Promise<void> {
   }
 
   if (sub === "verify") {
-    const r = await withGatewayIpc((c) =>
-      c.call<{ clean: boolean; formatted: string; exitCode: number }>("db.verify", {}),
-    );
-    console.log(r.formatted);
-    process.exitCode = r.exitCode;
+    await dbCmdVerify();
     return;
   }
 
   if (sub === "repair") {
-    const yes = tail.includes("--yes");
-    if (!yes) {
-      throw new Error("Usage: nimbus db repair --yes");
-    }
-    const r = await withGatewayIpc((c) =>
-      c.call<{ formatted: string }>("db.repair", { confirm: true }),
-    );
-    console.log(r.formatted);
+    await dbCmdRepair(tail);
     return;
   }
 
   if (sub === "snapshot") {
-    const r = await withGatewayIpc((c) => c.call<{ path: string }>("db.snapshot.take", {}));
-    console.log(r.path);
+    await dbCmdSnapshot();
     return;
   }
 
   if (sub === "snapshots") {
     const op = tail[0];
     if (op === "list") {
-      const rows = await withGatewayIpc((c) =>
-        c.call<
-          Array<{
-            filename: string;
-            timestampMs: number;
-            compressedSizeBytes: number;
-            path: string;
-          }>
-        >("db.snapshots.list", {}),
-      );
-      if (rows.length === 0) {
-        console.log("No snapshots yet.");
-        return;
-      }
-      for (const e of rows) {
-        console.log(
-          `${e.filename}\t${String(e.timestampMs)}\t${String(e.compressedSizeBytes)} B\t${e.path}`,
-        );
-      }
+      await dbCmdSnapshotsList();
       return;
     }
     if (op === "prune") {
-      const yes = tail.includes("--yes");
-      if (!yes) {
-        throw new Error("Usage: nimbus db snapshots prune --yes [--keep-last N]");
-      }
-      const keepRaw = takeFlag(tail, "--keep-last");
-      const keepLast = keepRaw !== undefined ? Number.parseInt(keepRaw, 10) : Number.NaN;
-      const params: { confirm: true; keepLast?: number } = { confirm: true };
-      if (Number.isFinite(keepLast) && keepLast > 0) {
-        params.keepLast = Math.floor(keepLast);
-      }
-      const r = await withGatewayIpc((c) =>
-        c.call<{ deleted: number; keepLast: number }>("db.snapshots.prune", params),
-      );
-      console.log(`Pruned ${String(r.deleted)} snapshot(s); keep_last=${String(r.keepLast)}`);
+      await dbCmdSnapshotsPrune(tail);
       return;
     }
     throw new Error(
@@ -100,33 +149,12 @@ export async function runDb(args: string[]): Promise<void> {
     if (op !== "list") {
       throw new Error("Usage: nimbus db backups list");
     }
-    const rows = await withGatewayIpc((c) => c.call<unknown[]>("db.backups.list", {}));
-    console.log(JSON.stringify(rows, null, 2));
+    await dbCmdBackupsList();
     return;
   }
 
   if (sub === "restore") {
-    const snap = tail[0]?.trim() ?? "";
-    if (snap === "") {
-      throw new Error("Usage: nimbus db restore <snapshot.db.gz> [--yes]");
-    }
-    const yes = tail.includes("--yes");
-    const paths = getCliPlatformPaths();
-    const state = await readGatewayState(paths);
-    if (state !== undefined && isProcessAlive(state.pid)) {
-      throw new Error("Stop the Gateway before restoring the database file (nimbus stop).");
-    }
-    if (!yes) {
-      console.log(
-        "Restoring overwrites nimbus.db. Stop the Gateway, then run:\n" +
-          `  nimbus db restore ${snap} --yes`,
-      );
-      return;
-    }
-    const dbPath = join(paths.dataDir, "nimbus.db");
-    mkdirSync(paths.dataDir, { recursive: true });
-    restoreDbFromSnapshot(snap, dbPath);
-    console.log(`Restored database from ${snap}`);
+    await dbCmdRestore(tail);
     return;
   }
 

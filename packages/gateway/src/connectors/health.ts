@@ -18,8 +18,8 @@ import type { Database } from "bun:sqlite";
 function jitterBelowMs(maxExclusive: number): number {
   const word = new Uint32Array(1);
   crypto.getRandomValues(word);
-  const u = word[0];
-  return ((u === undefined ? 0 : u) / 2 ** 32) * maxExclusive;
+  const u = word[0] ?? 0;
+  return (u / 2 ** 32) * maxExclusive;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

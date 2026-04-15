@@ -545,14 +545,34 @@ export class SyncScheduler {
     this.onConnectorSyncSuccess?.(job.serviceId, result, durationMs);
   }
 
-  private async runJob(job: Job): Promise<void> {
+  /** Telemetry for sync attempts that end without a successful result payload. */
+  private recordAbortedSyncTelemetry(job: Job, startedAt: number, errorMsg: string): void {
+    const durationMs = Date.now() - startedAt;
+    insertSyncTelemetry(this.db, {
+      service: job.serviceId,
+      startedAt,
+      durationMs,
+      itemsUpserted: 0,
+      itemsDeleted: 0,
+      bytesTransferred: null,
+      hadMore: false,
+      errorMsg,
+    });
+  }
+
+  /**
+   * Resolves connector + scheduler row or finishes waiters and returns null.
+   */
+  private resolveRunJobContext(
+    job: Job,
+  ): { connector: Syncable; row: NonNullable<ReturnType<typeof loadSchedulerState>> } | null {
     const connector = this.connectors.get(job.serviceId);
     if (connector === undefined) {
       this.resolveForceWaiters(
         job.serviceId,
         job.reason === "force" ? new Error("Unknown service") : undefined,
       );
-      return;
+      return null;
     }
     const row = loadSchedulerState(this.db, job.serviceId);
     if (row === null) {
@@ -560,16 +580,25 @@ export class SyncScheduler {
         job.serviceId,
         job.reason === "force" ? new Error("Missing scheduler state") : undefined,
       );
-      return;
+      return null;
     }
     if (row.paused === 1 && job.reason !== "force") {
       this.resolveForceWaiters(job.serviceId);
-      return;
+      return null;
     }
     if (row.status === "error" && job.reason !== "force") {
       this.resolveForceWaiters(job.serviceId);
+      return null;
+    }
+    return { connector, row };
+  }
+
+  private async runJob(job: Job): Promise<void> {
+    const ctx = this.resolveRunJobContext(job);
+    if (ctx === null) {
       return;
     }
+    const { connector, row } = ctx;
 
     const startedAt = Date.now();
     let result: SyncResult;
@@ -585,22 +614,8 @@ export class SyncScheduler {
         // Record telemetry but do NOT call runJobRecordSyncFailure — that would
         // call transitionHealth(transient_error) and overwrite the rate_limited state,
         // and would also increment consecutive_failures which is wrong for a 429.
-        const durationMs = Date.now() - startedAt;
-        insertSyncTelemetry(this.db, {
-          service: job.serviceId,
-          startedAt,
-          durationMs,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          bytesTransferred: null,
-          hadMore: false,
-          errorMsg: err.message,
-        });
-        if (job.reason === "force") {
-          this.resolveForceWaiters(job.serviceId, err);
-        } else {
-          this.resolveForceWaiters(job.serviceId);
-        }
+        this.recordAbortedSyncTelemetry(job, startedAt, err.message);
+        this.resolveForceWaiters(job.serviceId, job.reason === "force" ? err : undefined);
         return;
       }
       // ── Typed error: unauthenticated ──────────────────────────────────────
@@ -612,22 +627,8 @@ export class SyncScheduler {
           `${job.serviceId} connector lost authentication. Run: nimbus connector auth ${job.serviceId}`,
         );
         // Do NOT call runJobRecordSyncFailure so backoff counters are not incremented.
-        const durationMs = Date.now() - startedAt;
-        insertSyncTelemetry(this.db, {
-          service: job.serviceId,
-          startedAt,
-          durationMs,
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          bytesTransferred: null,
-          hadMore: false,
-          errorMsg: err.message,
-        });
-        if (job.reason === "force") {
-          this.resolveForceWaiters(job.serviceId, err);
-        } else {
-          this.resolveForceWaiters(job.serviceId);
-        }
+        this.recordAbortedSyncTelemetry(job, startedAt, err.message);
+        this.resolveForceWaiters(job.serviceId, job.reason === "force" ? err : undefined);
         return;
       }
       // ── Generic / transient error ─────────────────────────────────────────

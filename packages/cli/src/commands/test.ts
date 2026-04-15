@@ -7,7 +7,8 @@ import { type ExtensionManifest, runContractTests } from "@nimbus-dev/sdk";
 const MANIFEST = "nimbus.extension.json";
 
 export async function runTest(args: string[]): Promise<void> {
-  const root = (args[0]?.trim() !== "" ? args[0]?.trim() : undefined) ?? process.cwd();
+  const rootArg = args[0]?.trim() ?? "";
+  const root = rootArg === "" ? process.cwd() : rootArg;
   const manifestPath = join(root, MANIFEST);
   if (!existsSync(manifestPath)) {
     throw new Error(`No ${MANIFEST} in ${root}`);
@@ -36,7 +37,11 @@ export async function runTest(args: string[]): Promise<void> {
         : undefined;
     if (typeof testScript === "string" && testScript.trim() !== "") {
       await new Promise<void>((resolve, reject) => {
-        const child = spawn("bun", ["test"], { cwd: root, stdio: "inherit", shell: false });
+        const child = spawn(process.execPath, ["test"], {
+          cwd: root,
+          stdio: "inherit",
+          shell: false,
+        });
         child.on("error", reject);
         child.on("close", (code) => {
           if (code === 0) {

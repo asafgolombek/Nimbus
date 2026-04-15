@@ -30,7 +30,7 @@ Usage:
 
   if (sub === "slow-queries") {
     const limitRaw = takeFlag(tail, "--limit");
-    const limit = limitRaw !== undefined ? Number.parseInt(limitRaw, 10) : Number.NaN;
+    const limit = limitRaw === undefined ? Number.NaN : Number.parseInt(limitRaw, 10);
     const sinceArg = takeFlag(tail, "--since");
     let sinceMs = 0;
     if (sinceArg !== undefined) {

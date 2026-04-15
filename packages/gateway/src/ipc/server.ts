@@ -261,6 +261,33 @@ function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key:
   return v.trim();
 }
 
+function assertDiagnosticsRpcAccess(
+  method: string,
+  wantsConfig: boolean,
+  wantsTelemetry: boolean,
+  wantsDiagnostics: boolean,
+  opts: Pick<CreateIpcServerOptions, "configDir" | "dataDir" | "localIndex">,
+): void {
+  if (wantsConfig) {
+    if (opts.configDir === undefined) {
+      throw new RpcMethodError(-32603, "configDir is required for config.* RPCs");
+    }
+    return;
+  }
+  if (wantsTelemetry) {
+    if (opts.dataDir === undefined) {
+      throw new RpcMethodError(-32603, "dataDir is required for telemetry.* RPCs");
+    }
+    if (method === "telemetry.preview" && opts.localIndex === undefined) {
+      throw new RpcMethodError(-32603, "telemetry.preview requires local index");
+    }
+    return;
+  }
+  if (wantsDiagnostics && (opts.localIndex === undefined || opts.dataDir === undefined)) {
+    throw new RpcMethodError(-32603, "Diagnostics require local index and dataDir");
+  }
+}
+
 export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   const startedAtMs = options.startedAtMs ?? Date.now();
   let agentInvokeHandler: AgentInvokeHandler | undefined = options.agentInvoke;
@@ -587,20 +614,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (!wantsConfig && !wantsTelemetry && !wantsDiagnostics) {
       return diagnosticsRpcSkipped;
     }
-    if (wantsConfig) {
-      if (options.configDir === undefined) {
-        throw new RpcMethodError(-32603, "configDir is required for config.* RPCs");
-      }
-    } else if (wantsTelemetry) {
-      if (options.dataDir === undefined) {
-        throw new RpcMethodError(-32603, "dataDir is required for telemetry.* RPCs");
-      }
-      if (method === "telemetry.preview" && options.localIndex === undefined) {
-        throw new RpcMethodError(-32603, "telemetry.preview requires local index");
-      }
-    } else if (options.localIndex === undefined || options.dataDir === undefined) {
-      throw new RpcMethodError(-32603, "Diagnostics require local index and dataDir");
-    }
+    assertDiagnosticsRpcAccess(method, wantsConfig, wantsTelemetry, wantsDiagnostics, options);
     try {
       const ctxBase = {
         dataDir: options.dataDir ?? "",

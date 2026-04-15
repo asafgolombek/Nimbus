@@ -14,10 +14,7 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim() !== "";
 }
 
-/**
- * Validates a {@link ExtensionManifest} for CI / `nimbus test` (no network, no Gateway).
- */
-export function runContractTests(manifest: ExtensionManifest): void {
+function validateRequiredStrings(manifest: ExtensionManifest): string[] {
   const errors: string[] = [];
   if (!isNonEmptyString(manifest.id)) {
     errors.push("manifest.id is required");
@@ -37,32 +34,65 @@ export function runContractTests(manifest: ExtensionManifest): void {
   if (!isNonEmptyString(manifest.entrypoint)) {
     errors.push("manifest.entrypoint is required");
   }
-  if (manifest.runtime !== "bun" && manifest.runtime !== "node") {
-    errors.push('manifest.runtime must be "bun" or "node"');
+  return errors;
+}
+
+function validateRuntime(manifest: ExtensionManifest): string[] {
+  if (manifest.runtime === "bun" || manifest.runtime === "node") {
+    return [];
   }
+  return ['manifest.runtime must be "bun" or "node"'];
+}
+
+function validatePermissions(manifest: ExtensionManifest): string[] {
+  const errors: string[] = [];
   if (!Array.isArray(manifest.permissions) || manifest.permissions.length === 0) {
     errors.push("manifest.permissions must be a non-empty array");
-  } else {
-    for (const p of manifest.permissions) {
-      if (!PERMS.has(p)) {
-        errors.push(`invalid manifest.permissions entry: ${String(p)}`);
-      }
+    return errors;
+  }
+  for (const p of manifest.permissions) {
+    if (!PERMS.has(p)) {
+      errors.push(`invalid manifest.permissions entry: ${String(p)}`);
     }
   }
-  if (!Array.isArray(manifest.hitlRequired)) {
-    errors.push("manifest.hitlRequired must be an array");
-  } else {
+  return errors;
+}
+
+function validateHitlRequired(manifest: ExtensionManifest): string[] {
+  const errors: string[] = [];
+  if (Array.isArray(manifest.hitlRequired)) {
     for (const h of manifest.hitlRequired) {
       if (!HITL.has(h)) {
         errors.push(`invalid manifest.hitlRequired entry: ${String(h)}`);
       }
     }
+  } else {
+    errors.push("manifest.hitlRequired must be an array");
   }
+  return errors;
+}
+
+function validateMinNimbusVersion(manifest: ExtensionManifest): string[] {
   if (!isNonEmptyString(manifest.minNimbusVersion)) {
-    errors.push("manifest.minNimbusVersion is required");
-  } else if (!/^\d+\.\d+\.\d+/.test(manifest.minNimbusVersion.trim())) {
-    errors.push("manifest.minNimbusVersion must start with semver x.y.z");
+    return ["manifest.minNimbusVersion is required"];
   }
+  if (!/^\d+\.\d+\.\d+/.test(manifest.minNimbusVersion.trim())) {
+    return ["manifest.minNimbusVersion must start with semver x.y.z"];
+  }
+  return [];
+}
+
+/**
+ * Validates a {@link ExtensionManifest} for CI / `nimbus test` (no network, no Gateway).
+ */
+export function runContractTests(manifest: ExtensionManifest): void {
+  const errors: string[] = [
+    ...validateRequiredStrings(manifest),
+    ...validateRuntime(manifest),
+    ...validatePermissions(manifest),
+    ...validateHitlRequired(manifest),
+    ...validateMinNimbusVersion(manifest),
+  ];
   if (errors.length > 0) {
     throw new ExtensionContractError(errors.join("; "));
   }

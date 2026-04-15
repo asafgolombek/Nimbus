@@ -8,7 +8,7 @@ export type MockClientFixtures = {
  * In-memory stub for scripts/tests without a running Gateway.
  */
 export class MockClient {
-  private fixtures: MockClientFixtures;
+  private readonly fixtures: MockClientFixtures;
 
   constructor(fixtures: MockClientFixtures = {}) {
     this.fixtures = fixtures;

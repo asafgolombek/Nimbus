@@ -199,13 +199,15 @@ export function dispatchDiagnosticsRpc(
 
     case "index.queryItems": {
       const rec = asRecord(params);
+      const rawSinceMs = rec?.["sinceMs"];
       const sinceMs =
-        typeof rec?.["sinceMs"] === "number" && Number.isFinite(rec["sinceMs"])
-          ? Math.floor(rec["sinceMs"] as number)
+        typeof rawSinceMs === "number" && Number.isFinite(rawSinceMs)
+          ? Math.floor(rawSinceMs)
           : undefined;
+      const rawUntilMs = rec?.["untilMs"];
       const untilMs =
-        typeof rec?.["untilMs"] === "number" && Number.isFinite(rec["untilMs"])
-          ? Math.floor(rec["untilMs"] as number)
+        typeof rawUntilMs === "number" && Number.isFinite(rawUntilMs)
+          ? Math.floor(rawUntilMs)
           : undefined;
       const limitRaw = rec?.["limit"];
       const limit =
@@ -269,9 +271,10 @@ export function dispatchDiagnosticsRpc(
       if (rec !== undefined && typeof rec["limit"] === "number" && Number.isFinite(rec["limit"])) {
         limit = Math.min(500, Math.max(1, Math.floor(rec["limit"])));
       }
+      const rawSinceSlow = rec?.["sinceMs"];
       const sinceMs =
-        typeof rec?.["sinceMs"] === "number" && Number.isFinite(rec["sinceMs"])
-          ? Math.floor(rec["sinceMs"] as number)
+        typeof rawSinceSlow === "number" && Number.isFinite(rawSinceSlow)
+          ? Math.floor(rawSinceSlow)
           : 0;
       const d = requireDb(ctx);
       const hasTable = d

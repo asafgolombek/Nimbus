@@ -27,8 +27,8 @@ export class NimbusClient {
     return await this.ipc.call("agent.invoke", {
       input,
       stream: options?.stream ?? false,
-      ...(options?.sessionId !== undefined ? { sessionId: options.sessionId } : {}),
-      ...(options?.agent !== undefined ? { agent: options.agent } : {}),
+      ...(options?.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+      ...(options?.agent === undefined ? {} : { agent: options.agent }),
     });
   }
 

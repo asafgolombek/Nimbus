@@ -161,7 +161,8 @@ export function previewRestore(db: Database, snapshotPath: string): RestorePrevi
       /* item table may not exist yet */
     }
 
-    const tsStr = snapshotPath.match(/nimbus-(\d+)\.db\.gz/)?.[1] ?? "0";
+    const snapshotTsMatch = /nimbus-(\d+)\.db\.gz/.exec(snapshotPath);
+    const tsStr = snapshotTsMatch?.[1] ?? "0";
     const tsMs = Number.parseInt(tsStr, 10);
 
     return {
