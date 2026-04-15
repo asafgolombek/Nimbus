@@ -45,6 +45,7 @@
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",
     "build": "bun run --filter '*' build",
     "typecheck": "bun run --filter '*' typecheck",
+    "audit:high": "bun audit --audit-level high",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",

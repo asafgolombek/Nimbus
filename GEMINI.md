@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** — Observability & DX 🔵 in progress on `main` (see `docs/roadmap.md` + `docs/phase-3.5-plan.md`)
+**Status:** Phase 3 — Intelligence ✅ complete; **Phase 3.5** — Observability & DX ✅ code-complete on `main` (release sign-off: `docs/phase-3.5-plan.md` consolidated checklist + npm publish + audit cadence)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -100,6 +100,7 @@ bun run clean
 
 # Security audit
 bun audit --audit-level high
+bun run audit:high                 # same (root script)
 
 # Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
 # Optional: NIMBUS_EMBEDDING_MODEL_DIR or bun run package:headless -- --embedding-model-dir <path>
@@ -164,7 +165,7 @@ mcp-connectors/*  ← depend on @nimbus-dev/sdk only
 | Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | ✅ Complete |
 | Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | ✅ Complete |
 | Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | ✅ Complete |
-| Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | 🔵 In progress (see `docs/roadmap.md`) |
+| Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | ✅ Code-complete on `main` (see `docs/roadmap.md` + release checklist in `docs/phase-3.5-plan.md`) |
 | Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | Planned |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | Planned |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |

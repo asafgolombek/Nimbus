@@ -23,6 +23,25 @@ export type RunAskParams = {
   conversationalAgent?: Agent;
 };
 
+const EMPTY_INDEX_GUIDANCE = `No data indexed yet.
+
+To get started, connect a service and run an initial sync:
+  nimbus connector auth github
+  nimbus connector auth google
+  nimbus connector auth slack
+  nimbus connector list
+  nimbus connector sync <service>
+
+Then try your question again, or run nimbus doctor for a health summary.`;
+
+function countIndexedItems(localIndex: LocalIndex): number {
+  const row = localIndex.getDatabase().query(`SELECT COUNT(*) AS c FROM item`).get() as {
+    c: number;
+  } | null;
+  const c = row?.c;
+  return typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0;
+}
+
 function formatResultSummary(results: unknown[]): string {
   if (results.length === 0) {
     return "Done.";
@@ -42,6 +61,13 @@ function formatResultSummary(results: unknown[]): string {
  * NL ask pipeline: classify → plan → HITL-gated {@link ToolExecutor} steps.
  */
 export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
+  if (p.input.trim() !== "" && countIndexedItems(p.localIndex) === 0) {
+    if (p.stream) {
+      p.sendChunk(`${EMPTY_INDEX_GUIDANCE}\n`);
+    }
+    return { reply: EMPTY_INDEX_GUIDANCE };
+  }
+
   let classified: ClassifiedIntent;
   try {
     classified = await classifyIntent(p.input);

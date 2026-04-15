@@ -2,7 +2,7 @@ export function printHelp(): void {
   console.log(`Nimbus CLI — local-first gateway client
 
 Usage:
-  nimbus start              Start gateway (background)
+  nimbus start [--no-wizard] Start gateway (background); omit first-run hint with --no-wizard
   nimbus stop               Stop gateway
   nimbus status [--verbose] [--drift]   Ping gateway; --verbose adds health + index metrics; --drift adds IaC/AWS index hints
   nimbus db verify | repair --yes | snapshot | snapshots list | snapshots prune --yes | backups list | restore <snap> --yes

@@ -280,7 +280,8 @@ function rpcTelemetryPreview(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome 
       },
     };
   }
-  const m = collectIndexMetrics(requireDb(ctx));
+  const d = requireDb(ctx);
+  const m = collectIndexMetrics(d);
   return {
     kind: "hit",
     value: buildTelemetryPreview({
@@ -288,6 +289,7 @@ function rpcTelemetryPreview(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome 
       queryLatencyP50Ms: m.queryLatencyP50Ms,
       queryLatencyP95Ms: m.queryLatencyP95Ms,
       queryLatencyP99Ms: m.queryLatencyP99Ms,
+      db: d,
     }),
   };
 }

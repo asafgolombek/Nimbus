@@ -11,6 +11,10 @@ export default defineConfig({
       sidebar: [
         { label: "Home", link: "/" },
         { label: "Getting started", link: "/getting-started/" },
+        {
+          label: "Connectors",
+          items: [{ label: "Overview", link: "/connectors/overview/" }],
+        },
         { label: "Query & HTTP API", link: "/query-and-http/" },
         { label: "Telemetry", link: "/telemetry/" },
         { label: "@nimbus-dev/client", link: "/client-library/" },

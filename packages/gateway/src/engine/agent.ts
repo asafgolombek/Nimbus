@@ -3,10 +3,15 @@ import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 
 import { Config } from "../config.ts";
+import { getConnectorHealth } from "../connectors/health.ts";
 import type { IndexSearchQuery, LocalIndex, TraverseGraphOptions } from "../index/local-index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { searchPersons } from "../people/person-store.ts";
 import { getAgentRequestSessionId } from "./agent-request-context.ts";
+import {
+  buildSearchLocalIndexHealthExtras,
+  formatConnectorHealthCaveatForIndexSearch,
+} from "./connector-health-caveat.ts";
 import { buildContextWindow } from "./context-ranker.ts";
 
 function isStringArray(xs: unknown): xs is string[] {
@@ -40,14 +45,15 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   const searchLocalIndex = createTool({
     id: "searchLocalIndex",
     description:
-      "Ranked search of the local SQLite index: FTS5 keywords plus optional semantic (vector) fusion when enabled. Set semantic false for keyword-only. Returns a context window (top full items) plus sourceSummary. Use fetchMoreIndexResults to page within a bucket.",
+      "Ranked search of the local SQLite index: FTS5 keywords plus optional semantic (vector) fusion when enabled. Set semantic false for keyword-only. Returns a context window (top full items) plus sourceSummary. When `service` is set, `connectorHealthCaveat` warns if that connector is unhealthy; when `service` is omitted, `connectorHealthCaveats` lists up to 5 warnings for services appearing in the window that are unhealthy — tell the user. Use fetchMoreIndexResults to page within a bucket.",
     execute: async (inputData: unknown) => {
       const q =
         inputData !== null && typeof inputData === "object" && !Array.isArray(inputData)
           ? (inputData as Record<string, unknown>)
           : {};
       const name = typeof q["name"] === "string" ? q["name"] : undefined;
-      const service = typeof q["service"] === "string" ? q["service"] : undefined;
+      const serviceRaw = typeof q["service"] === "string" ? q["service"] : undefined;
+      const service = serviceRaw !== undefined ? serviceRaw.trim() : undefined;
       const itemType = typeof q["itemType"] === "string" ? q["itemType"] : undefined;
       const limit =
         typeof q["limit"] === "number" && Number.isFinite(q["limit"])
@@ -62,8 +68,9 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
       if (name !== undefined) {
         query.name = name;
       }
-      if (service !== undefined) {
-        query.service = service;
+      const serviceForQuery = service !== undefined && service !== "" ? service : undefined;
+      if (serviceForQuery !== undefined) {
+        query.service = serviceForQuery;
       }
       if (itemType !== undefined) {
         query.itemType = itemType;
@@ -74,12 +81,15 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         contextChunks,
       });
       const window = buildContextWindow(ranked, contextWindowItems);
+      const db = deps.localIndex.getDatabase();
+      const healthExtras = buildSearchLocalIndexHealthExtras(db, window, serviceForQuery);
       return {
         totalMatches: window.totalMatches,
         itemsInWindow: window.items.length,
         items: window.items,
         sourceSummary: window.sourceSummary,
         note: "Additional matches are collapsed into sourceSummary. Call fetchMoreIndexResults with the same service and indexedType values shown in sourceSummary.type to retrieve more rows (offset starts at 0).",
+        ...healthExtras,
       };
     },
   });
@@ -107,7 +117,20 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         return { error: "service and indexedType are required strings" };
       }
       const items = deps.localIndex.fetchMoreItems(service, indexedType, offset, limit);
-      return { count: items.length, items, offset, limit, service, indexedType };
+      const db = deps.localIndex.getDatabase();
+      const healthCaveat = formatConnectorHealthCaveatForIndexSearch(
+        service,
+        getConnectorHealth(db, service),
+      );
+      return {
+        count: items.length,
+        items,
+        offset,
+        limit,
+        service,
+        indexedType,
+        ...(healthCaveat !== undefined ? { connectorHealthCaveat: healthCaveat } : {}),
+      };
     },
   });
 

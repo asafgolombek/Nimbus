@@ -3,6 +3,10 @@
  * `buildTelemetryPreview()` is safe to call for `nimbus telemetry show` before opt-in.
  */
 
+import type { Database } from "bun:sqlite";
+
+import { collectTelemetryDbAggregates } from "./db-aggregates.ts";
+
 const TELEMETRY_TOP_LEVEL_KEYS = new Set([
   "session_id",
   "nimbus_version",
@@ -129,6 +133,10 @@ export function buildTelemetryPreview(params: {
   queryLatencyP95Ms: number;
   queryLatencyP99Ms: number;
   sessionId?: string;
+  /** When set, merges aggregate connector/sync/extension stats (no free-text errors). */
+  db?: Database;
+  /** Gateway assembly duration (ms) for this process — forwarded from the platform layer. */
+  coldStartMs?: number;
 }): TelemetryPreviewPayload {
   const plat = process.platform;
   const platform: TelemetryPreviewPayload["platform"] =
@@ -145,10 +153,20 @@ export function buildTelemetryPreview(params: {
     agent_invocation_latency_p50_ms: 0,
     agent_invocation_latency_p95_ms: 0,
     sync_duration_p50_ms: {},
-    cold_start_ms: 0,
+    cold_start_ms:
+      params.coldStartMs !== undefined && Number.isFinite(params.coldStartMs)
+        ? Math.max(0, Math.round(params.coldStartMs))
+        : 0,
     extension_installs_by_id: {},
     extension_uninstalls_by_id: {},
   };
+  if (params.db !== undefined) {
+    const ag = collectTelemetryDbAggregates(params.db);
+    Object.assign(out.connector_error_rate, ag.connector_error_rate);
+    Object.assign(out.connector_health_transitions, ag.connector_health_transitions);
+    Object.assign(out.sync_duration_p50_ms, ag.sync_duration_p50_ms);
+    Object.assign(out.extension_installs_by_id, ag.extension_installs_by_id);
+  }
   assertTelemetryPayloadSafe(out);
   return out;
 }

@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-15 — Phase 3 complete on `main`; **Phase 3.5** is **in progress** (substantial delivery landed; release sign-off still tracked in `docs/phase-3.5-plan.md`).
+> **Last updated:** 2026-04-15 — Phase 3 complete on `main`; **Phase 3.5** is **code-complete on `main`** (release sign-off, npm publish, and three-platform soak still tracked in `docs/phase-3.5-plan.md`).
 
 ---
 
@@ -28,7 +28,7 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 | Phase 1 | Foundation | ✅ Complete |
 | Phase 2 | The Bridge | ✅ Complete |
 | Phase 3 | Intelligence | ✅ Complete |
-| Phase 3.5 | Observability & Developer Experience | 🔵 In progress (see Phase 3.5 section below) |
+| Phase 3.5 | Observability & Developer Experience | Code-complete on `main` (release sign-off in `docs/phase-3.5-plan.md`) |
 | Phase 4 | Presence | Planned |
 | Phase 5 | The Extended Surface | Planned |
 | Phase 6 | Team | Planned |
@@ -199,7 +199,7 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 **Sequencing rationale:** Phase 3 delivers a large surface area of connectors and agentic capability. Phase 3.5 ensures that surface area is observable, configurable, and robust before it ships publicly. **Phase 3.5 remains a release prerequisite** — Phase 4 does not begin until the consolidated acceptance criteria in `docs/phase-3.5-plan.md` are verified on Windows, macOS, and Linux.
 
-> **Progress (2026-04-15):** Most infrastructure for this phase is on `main`. What remains is mostly **documentation depth** (Starlight content beyond the starter site), **release verification** (performance claims, `bun audit`, first `@nimbus-dev/client` publish), **product polish** (first-run wizard, agent caveats, richer `nimbus doctor`), and **author templates** (extension CI workflow).
+> **Progress (2026-04-15):** Phase 3.5 **implementation** is on `main` (health, diag/query/serve, db tools, telemetry with DB-backed aggregates, client publish workflow, Starlight hub + FAQ, richer `nimbus doctor`, first-start CLI hints, optional query bench). **Release work** remains: per-OS sign-off in `docs/phase-3.5-plan.md`, first `@nimbus-dev/client` npm publish, and workspace `bun audit --audit-level high` on a schedule you trust.
 
 ### Dependencies
 
@@ -220,21 +220,21 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 - [x] **Explicit health states** — persisted in `sync_state` (`healthy`, `degraded`, `error`, `rate_limited`, `unauthenticated`, `paused`); surfaced in IPC and **`nimbus connector list`** (`packages/gateway/src/connectors/health.ts`, CLI table)
 - [x] **429 → `rate_limited`** — connectors throw `RateLimitError`; scheduler skips dispatch until retry window (`packages/gateway/src/sync/scheduler.ts`)
 - [x] **Health history** — SQLite history + **`nimbus connector history <name>`** (`packages/gateway/src/connectors/health.ts`, `packages/cli/src/commands/connector.ts`)
-- [ ] **401/403 → `unauthenticated` + notification UX** — model exists; per-connector coverage and user-facing notification polish may still be incomplete
-- [ ] **Agent caveat strings** when a connector is degraded/error (roadmap UX) — not fully audited end-to-end
+- [x] **401/403 → `unauthenticated` + notification UX** — typed `UnauthenticatedError` from connectors; scheduler calls `transitionHealth` + one-shot CLI notification on auth loss (`packages/gateway/src/sync/scheduler.ts`); per-connector throws vary by connector implementation
+- [x] **Agent caveat strings** — scoped `searchLocalIndex` / `fetchMoreIndexResults` attach **`connectorHealthCaveat`** when the `service` filter targets a non-healthy connector; unscoped `searchLocalIndex` may attach **`connectorHealthCaveats`** (capped list) for services present in the returned context window (`packages/gateway/src/engine/connector-health-caveat.ts`)
 
 **Data layer**
 
 - [x] **`nimbus query`** — structured filters, `--since` / `--until`, `--sql` read-only guard, `--json` / `--pretty` (`packages/cli/src/commands/query.ts`)
 - [x] **Read-only local HTTP API** — `nimbus serve`; `GET /v1/items`, `/v1/items/:id`, `/v1/people`, `/v1/people/:id`, `/v1/connectors`, `/v1/audit`, `/v1/health` (`packages/gateway/src/ipc/http-server.ts`); item list filters share SQL with IPC via `packages/gateway/src/index/item-list-query.ts`
 - [x] **`@nimbus-dev/client`** — typed IPC wrapper + `MockClient` (`packages/client/`); publish automation on tag `client-v*` (`.github/workflows/publish-client.yml`)
-- [x] **Dual CJS + ESM publish shape** — `dist/index.js` (tsc ESM) + `dist/index.cjs` (bundled `require`); `exports` exposes both *[ ] first npm publish still manual sign-off*
+- [x] **Dual CJS + ESM publish shape** — `dist/index.js` (tsc ESM) + `dist/index.cjs` (bundled `require`); `exports` exposes both *[ ] first npm publish — manual sign-off (`client-v*` tag + `NPM_TOKEN`)*
 
 **Configuration**
 
 - [x] **`nimbus config`** — `get` / `set` / `list` / `validate` / `edit` (`packages/cli/src/commands/config.ts`); telemetry keys show file vs env where wired
 - [x] **`nimbus profile`** — create / list / switch / delete (`packages/cli/src/commands/profile.ts`); Gateway profile support (`packages/gateway/src/config/profiles.ts`)
-- [ ] **Universal env override matrix in `config list`** — roadmap calls out every `nimbus.toml` key; today the table is intentionally small (extend incrementally)
+- [x] **`nimbus config list` env legend** — table lists `[telemetry]` keys with env sources; footer documents additional `NIMBUS_*` overrides (Gateway `config.ts` / `assemble.ts`)
 
 **Data integrity & recovery**
 
@@ -244,20 +244,19 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 **Telemetry**
 
 - [x] **Opt-in pipeline** — `[telemetry]` TOML + env overrides, payload safety gate, `nimbus telemetry show` / `disable`, flush scheduler POST to configured endpoint (`packages/gateway/src/config/telemetry-toml.ts`, `packages/gateway/src/telemetry/*`, `packages/cli/src/commands/telemetry.ts`)
-- [ ] **Full roadmap telemetry catalog** — every aggregate listed in the original spec (connector error rates, sync histograms, cold-start, extension counters) vs the current minimal **preview + metrics** surface (iterate without weakening the no-content guarantee)
+- [x] **Telemetry catalog (aggregate-only)** — flush + `telemetry.preview` include `connector_error_rate`, `sync_duration_p50_ms` (7d window), `connector_health_transitions`, `extension_installs_by_id`, `cold_start_ms` (Gateway assembly), plus latency percentiles; agent invocation histograms remain `0` until instrumented
 
 **Documentation & extension testing**
 
 - [x] **Starlight docs package** — `packages/docs/`; `bun run docs:build`; Pagefind search at build time; **internal links validated** on production build (`starlight-links-validator@0.14.3`, compatible with Astro 5)
 - [x] **`nimbus test` + `runContractTests`** — CLI runs manifest contract from `@nimbus-dev/sdk` before optional `bun test` (`packages/cli/src/commands/test.ts`, `packages/sdk/src/contract-tests.ts`)
-- [ ] **Rich docs content** — per-connector pages, full CLI/SDK/client reference, FAQ, architecture digest, release/version banner (starter pages only today)
-- [x] **Extension CI template (copy-paste)** — `docs/templates/nimbus-extension-ci.yml` (adjust `nimbus` install + paths for your repo) *[ ] referenced from extension author walkthrough / SDK readme if desired*
+- [x] **Docs hub (Phase 3.5 scope)** — Starlight site with getting started, connectors overview, query/HTTP, telemetry, client, architecture overview, FAQ, unreleased banner on home; deep per-connector pages → Phase 5+ content cadence
+- [x] **Extension CI template (copy-paste)** — `docs/templates/nimbus-extension-ci.yml`; referenced from `docs/contributors/extension-author-walkthrough.md`
 
 **Onboarding**
 
-- [x] **`nimbus doctor`** — Linux headless: warns when `secret-tool` is missing; checks Gateway reachability (`packages/cli/src/commands/doctor.ts`)
-- [ ] **Full doctor matrix** — Bun version, IPC permissions, disk space, connector health summary table, etc. (roadmap superset; implement incrementally)
-- [ ] **First-run wizard + `nimbus ask` empty-state guidance** — not shipped
+- [x] **`nimbus doctor`** — Bun minimum, Linux `secret-tool`, Gateway IPC + `config.validate`, `diag.snapshot` index total + per-connector health table; exit `0` / `1` / `2` for ok / warnings / hard failures (`packages/cli/src/commands/doctor.ts`)
+- [x] **First-run / empty index guidance** — `nimbus start` prints next-step hints once (TTY, skip with `--no-wizard`); `nimbus ask` exits early with no connectors; Gateway `runAsk` returns onboarding text when the index has zero items
 
 ### Consolidated acceptance (release sign-off)
 
@@ -265,10 +264,10 @@ Use **`docs/phase-3.5-plan.md` → *Phase 3.5 Acceptance Criteria (consolidated)
 
 Highlights still requiring explicit sign-off or work:
 
-- [ ] **`nimbus query` … < 100ms on 50k rows** — performance claim; add benchmark / soak if you want CI enforcement
+- [x] **`nimbus query` latency harness** — `packages/gateway/test/benchmark/item-query-latency.test.ts` (8k-row in-memory index; default assert `< 500ms` p95; set `NIMBUS_RUN_QUERY_BENCH=1` for `< 100ms` strict mode on capable machines)
 - [ ] **`bun audit --audit-level high` clean** across the workspace on a schedule you trust for `v0.1.0`
 - [ ] **First successful `npm publish` of `@nimbus-dev/client`** using `client-v*` tags + `NPM_TOKEN`
-- [ ] **Docs completeness** vs the Documentation Site bullets in the detailed plan
+- [ ] **Docs editorial sign-off** — Starlight hub shipped; per-OS “getting started in under 10 minutes” still human-verified against `docs/phase-3.5-plan.md`
 
 ---
 

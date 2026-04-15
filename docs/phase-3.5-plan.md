@@ -5,7 +5,7 @@
 > **Constraint:** Solo developer — all workstreams are sequential unless explicitly noted as parallelisable.  
 > **Release gate:** Phase 4 does not begin until every acceptance criterion in this document passes on all three platforms.
 
-**Living status (2026-04-15):** Implementation detail in this file remains the engineering spec. **What is already on `main`** is summarized with checkboxes in [`docs/roadmap.md`](./roadmap.md) (Phase 3.5 — *Delivered on `main`* vs *Still open*). Use the **consolidated acceptance list** at the end of *this* file for per-OS release sign-off; update those checkboxes when you have verified behaviour, not merely when code exists.
+**Living status (2026-04-15):** Implementation on `main` is **code-complete** for Phase 3.5 (observability, query/diag/db, telemetry with DB-backed aggregates, client publish workflow, docs hub, doctor, first-start hints, optional query bench). This document remains the engineering spec. **What is already on `main`** is summarized in [`docs/roadmap.md`](./roadmap.md). Use the **consolidated acceptance list** at the end of *this* file for per-OS release sign-off (`[x] code` vs `[ ] verified`); tick only after manual verification, not when code alone exists.
 
 ---
 

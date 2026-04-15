@@ -43,6 +43,8 @@ export function startTelemetryFlushScheduler(opts: {
   readonly getDatabase: () => Database;
   readonly gatewayVersion: string;
   readonly logger: Logger;
+  /** One-shot assembly cost (ms) attributed to this Gateway process boot. */
+  readonly coldStartMs?: number;
 }): TelemetryFlushHandle {
   let stopped = false;
   const cfg0 = loadNimbusTelemetryFromPath(opts.activeTomlPath);
@@ -70,6 +72,8 @@ export function startTelemetryFlushScheduler(opts: {
         queryLatencyP95Ms: m.queryLatencyP95Ms,
         queryLatencyP99Ms: m.queryLatencyP99Ms,
         sessionId,
+        db,
+        ...(opts.coldStartMs !== undefined ? { coldStartMs: opts.coldStartMs } : {}),
       });
       assertTelemetryPayloadSafe(payload);
       void fetch(cfg.endpoint, {

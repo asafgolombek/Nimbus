@@ -221,6 +221,7 @@ function collectSidecarsFromEnv(db: Database, paths: PlatformPaths): Array<() =>
 }
 
 export async function assemblePlatformServices(paths: PlatformPaths): Promise<PlatformServices> {
+  const assemblyStartedMs = performance.now();
   await ensurePlatformDirectories(paths);
   const vault = await createNimbusVault(paths);
   const db = openGatewaySqlite(paths.dataDir);
@@ -280,12 +281,14 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   }
 
   const sidecarStops = collectSidecarsFromEnv(db, paths);
+  const gatewayAssemblyMs = Math.max(0, Math.round(performance.now() - assemblyStartedMs));
   const telemetryStop = startTelemetryFlushScheduler({
     dataDir: paths.dataDir,
     activeTomlPath,
     getDatabase: () => db,
     gatewayVersion: "0.1.0",
     logger: syncLogger,
+    coldStartMs: gatewayAssemblyMs,
   });
   sidecarStops.push(telemetryStop.stop);
 

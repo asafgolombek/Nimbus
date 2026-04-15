@@ -39,6 +39,22 @@ async function configValidate(): Promise<void> {
   process.exitCode = r.ok ? 0 : 1;
 }
 
+function printAdditionalEnvOverrideLegend(): void {
+  console.log("");
+  console.log(
+    "Other NIMBUS_* overrides read by the Gateway (not shown as TOML rows unless also listed above):",
+  );
+  console.log(
+    "  NIMBUS_PROFILE, NIMBUS_HTTP_PORT, NIMBUS_METRICS_PORT, NIMBUS_LOG_LEVEL, NIMBUS_EMBEDDINGS,",
+  );
+  console.log(
+    "  NIMBUS_EMBEDDING_MODEL_DIR, NIMBUS_AGENT_MODEL, NIMBUS_CLASSIFIER_MODEL, NIMBUS_ASK_MAX_STEPS, …",
+  );
+  console.log(
+    "  (see packages/gateway/src/config.ts and packages/gateway/src/platform/assemble.ts)",
+  );
+}
+
 function configList(tomlPath: string): void {
   console.log(tomlPath);
   const rows = listTomlKeysWithEnv(tomlPath);
@@ -50,6 +66,7 @@ function configList(tomlPath: string): void {
       console.log(`${r.key}\t${src}\t${r.value}`);
     }
   }
+  printAdditionalEnvOverrideLegend();
   if (!existsSync(tomlPath)) {
     console.log("");
     console.log("(file missing)");
