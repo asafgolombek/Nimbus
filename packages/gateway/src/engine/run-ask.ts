@@ -34,12 +34,20 @@ To get started, connect a service and run an initial sync:
 
 Then try your question again, or run nimbus doctor for a health summary.`;
 
-function countIndexedItems(localIndex: LocalIndex): number {
-  const row = localIndex.getDatabase().query(`SELECT COUNT(*) AS c FROM item`).get() as {
-    c: number;
-  } | null;
-  const c = row?.c;
-  return typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0;
+/** Item count when the DB is reachable; `undefined` if we cannot query (e.g. test stubs without `getDatabase`). */
+function countIndexedItems(localIndex: LocalIndex): number | undefined {
+  if (typeof localIndex.getDatabase !== "function") {
+    return undefined;
+  }
+  try {
+    const row = localIndex.getDatabase().query(`SELECT COUNT(*) AS c FROM item`).get() as {
+      c: number;
+    } | null;
+    const c = row?.c;
+    return typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0;
+  } catch {
+    return undefined;
+  }
 }
 
 function formatResultSummary(results: unknown[]): string {
@@ -61,7 +69,8 @@ function formatResultSummary(results: unknown[]): string {
  * NL ask pipeline: classify → plan → HITL-gated {@link ToolExecutor} steps.
  */
 export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
-  if (p.input.trim() !== "" && countIndexedItems(p.localIndex) === 0) {
+  const indexed = countIndexedItems(p.localIndex);
+  if (p.input.trim() !== "" && indexed === 0) {
     if (p.stream) {
       p.sendChunk(`${EMPTY_INDEX_GUIDANCE}\n`);
     }

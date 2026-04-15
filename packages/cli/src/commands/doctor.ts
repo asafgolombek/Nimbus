@@ -40,6 +40,16 @@ function worstHealthSeverity(rows: ConnectorHealthRow[]): "ok" | "warn" | "fail"
   return worst;
 }
 
+function healthStateMark(st: string): string {
+  if (st === "healthy" || st === "paused") {
+    return "[ok]";
+  }
+  if (st === "unauthenticated" || st === "error") {
+    return "[fail]";
+  }
+  return "[warn]";
+}
+
 export async function runDoctor(_args: string[]): Promise<void> {
   let exit = 0;
   const paths = getCliPlatformPaths();
@@ -131,12 +141,7 @@ export async function runDoctor(_args: string[]): Promise<void> {
         for (const h of health) {
           const id = typeof h.connectorId === "string" ? h.connectorId : "?";
           const st = typeof h.state === "string" ? h.state : "?";
-          const mark =
-            st === "healthy" || st === "paused"
-              ? "[ok]"
-              : st === "unauthenticated" || st === "error"
-                ? "[fail]"
-                : "[warn]";
+          const mark = healthStateMark(st);
           console.log(`  ${mark} ${id}: ${st}`);
         }
         const sev = worstHealthSeverity(health);

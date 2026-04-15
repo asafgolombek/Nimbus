@@ -41,7 +41,8 @@ describe("item list query latency (optional bench)", () => {
       samples.push(performance.now() - t0);
     }
     samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)] ?? samples[samples.length - 1] ?? 0;
+    const idx = Math.floor(samples.length * 0.95);
+    const p95 = samples.at(idx) ?? samples.at(-1) ?? 0;
 
     if (process.env["NIMBUS_RUN_QUERY_BENCH"] === "1") {
       expect(p95).toBeLessThan(100);

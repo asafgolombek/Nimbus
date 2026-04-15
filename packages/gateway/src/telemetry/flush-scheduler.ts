@@ -73,7 +73,7 @@ export function startTelemetryFlushScheduler(opts: {
         queryLatencyP99Ms: m.queryLatencyP99Ms,
         sessionId,
         db,
-        ...(opts.coldStartMs !== undefined ? { coldStartMs: opts.coldStartMs } : {}),
+        ...(opts.coldStartMs === undefined ? {} : { coldStartMs: opts.coldStartMs }),
       });
       assertTelemetryPayloadSafe(payload);
       void fetch(cfg.endpoint, {

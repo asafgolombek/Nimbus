@@ -66,6 +66,61 @@ export function getTomlValueFromFile(tomlPath: string, dotted: string): string |
   return parseSectionKey(raw, section, key);
 }
 
+function findSectionHeaderLine(lines: readonly string[], header: string): number {
+  for (let i = 0; i < lines.length; i++) {
+    const t = stripComment(lines[i] ?? "").trim();
+    if (t === header) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findSectionEndLine(
+  lines: readonly string[],
+  sectionStart: number,
+  header: string,
+): number {
+  for (let j = sectionStart + 1; j < lines.length; j++) {
+    const t = stripComment(lines[j] ?? "").trim();
+    if (t.startsWith("[") && t.endsWith("]") && t !== header) {
+      return j;
+    }
+  }
+  return lines.length;
+}
+
+function tryReplaceKeyInSection(
+  lines: readonly string[],
+  sectionStart: number,
+  sectionEnd: number,
+  key: string,
+  formattedValue: string,
+): { lines: string[]; replaced: boolean } {
+  const newLines = [...lines];
+  for (let j = sectionStart + 1; j < sectionEnd; j++) {
+    const rawLine = lines[j] ?? "";
+    const t = stripComment(rawLine).trim();
+    const eq = t.indexOf("=");
+    if (eq > 0 && t.slice(0, eq).trim() === key) {
+      newLines[j] = `${key} = ${formattedValue}`;
+      return { lines: newLines, replaced: true };
+    }
+  }
+  return { lines: newLines, replaced: false };
+}
+
+function writeNewSectionToToml(
+  tomlPath: string,
+  full: string,
+  header: string,
+  key: string,
+  formattedValue: string,
+): void {
+  const sep = full.trim() === "" ? "" : "\n\n";
+  writeFileSync(tomlPath, `${full.trimEnd()}${sep}${header}\n${key} = ${formattedValue}\n`, "utf8");
+}
+
 export function setTomlValueInFile(tomlPath: string, dotted: string, value: string): void {
   const dot = dotted.indexOf(".");
   if (dot <= 0) {
@@ -73,50 +128,28 @@ export function setTomlValueInFile(tomlPath: string, dotted: string, value: stri
   }
   const section = dotted.slice(0, dot);
   const key = dotted.slice(dot + 1);
+  const formattedValue = formatTomlValue(value);
   const full = existsSync(tomlPath) ? readFileSync(tomlPath, "utf8") : "";
   const lines = full.split(/\r?\n/);
   const header = `[${section}]`;
-  let sectionStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const t = stripComment(lines[i] ?? "").trim();
-    if (t === header) {
-      sectionStart = i;
-      break;
-    }
-  }
+  const sectionStart = findSectionHeaderLine(lines, header);
   if (sectionStart < 0) {
-    const sep = full.trim() === "" ? "" : "\n\n";
-    writeFileSync(
-      tomlPath,
-      `${full.replace(/\s+$/, "")}${sep}${header}\n${key} = ${formatTomlValue(value)}\n`,
-      "utf8",
-    );
+    writeNewSectionToToml(tomlPath, full, header, key, formattedValue);
     return;
   }
-  let sectionEnd = lines.length;
-  for (let j = sectionStart + 1; j < lines.length; j++) {
-    const t = stripComment(lines[j] ?? "").trim();
-    if (t.startsWith("[") && t.endsWith("]") && t !== header) {
-      sectionEnd = j;
-      break;
-    }
-  }
-  const newLines = [...lines];
-  let replaced = false;
-  for (let j = sectionStart + 1; j < sectionEnd; j++) {
-    const rawLine = lines[j] ?? "";
-    const t = stripComment(rawLine).trim();
-    const eq = t.indexOf("=");
-    if (eq > 0 && t.slice(0, eq).trim() === key) {
-      newLines[j] = `${key} = ${formatTomlValue(value)}`;
-      replaced = true;
-      break;
-    }
-  }
+  const sectionEnd = findSectionEndLine(lines, sectionStart, header);
+  const { lines: newLines, replaced } = tryReplaceKeyInSection(
+    lines,
+    sectionStart,
+    sectionEnd,
+    key,
+    formattedValue,
+  );
   if (!replaced) {
-    newLines.splice(sectionEnd, 0, `${key} = ${formatTomlValue(value)}`);
+    newLines.splice(sectionEnd, 0, `${key} = ${formattedValue}`);
   }
-  writeFileSync(tomlPath, `${newLines.join("\n").replace(/\n+$/, "")}\n`, "utf8");
+  const body = newLines.join("\n").trimEnd();
+  writeFileSync(tomlPath, `${body}\n`, "utf8");
 }
 
 function formatTomlValue(value: string): string {

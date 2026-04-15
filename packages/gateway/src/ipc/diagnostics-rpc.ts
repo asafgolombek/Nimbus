@@ -222,8 +222,8 @@ function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): Diagno
     services,
     types,
     limit,
-    ...(sinceMs !== undefined ? { sinceMs } : {}),
-    ...(untilMs !== undefined ? { untilMs } : {}),
+    ...(sinceMs === undefined ? {} : { sinceMs }),
+    ...(untilMs === undefined ? {} : { untilMs }),
   });
   const rows = d.query(sql).all(...vals) as Record<string, unknown>[];
   return { kind: "hit", value: { items: rows, meta: { limit, total: rows.length } } };

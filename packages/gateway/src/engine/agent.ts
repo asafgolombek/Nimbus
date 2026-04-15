@@ -53,7 +53,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
           : {};
       const name = typeof q["name"] === "string" ? q["name"] : undefined;
       const serviceRaw = typeof q["service"] === "string" ? q["service"] : undefined;
-      const service = serviceRaw !== undefined ? serviceRaw.trim() : undefined;
+      const service = serviceRaw === undefined ? undefined : serviceRaw.trim();
       const itemType = typeof q["itemType"] === "string" ? q["itemType"] : undefined;
       const limit =
         typeof q["limit"] === "number" && Number.isFinite(q["limit"])
@@ -129,7 +129,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         limit,
         service,
         indexedType,
-        ...(healthCaveat !== undefined ? { connectorHealthCaveat: healthCaveat } : {}),
+        ...(healthCaveat === undefined ? {} : { connectorHealthCaveat: healthCaveat }),
       };
     },
   });

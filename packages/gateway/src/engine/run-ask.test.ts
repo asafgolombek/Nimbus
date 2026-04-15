@@ -1,5 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { LocalIndex } from "../index/local-index.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
@@ -7,13 +9,14 @@ import type { PlatformPaths } from "../platform/paths.ts";
 import { runAsk } from "./run-ask.ts";
 import type { ConnectorDispatcher } from "./types.ts";
 
+const stubBase = join(tmpdir(), "nimbus-run-ask-test");
 const stubPaths: PlatformPaths = {
-  configDir: "/tmp/nimbus-test-cfg",
-  dataDir: "/tmp/nimbus-test-data",
-  logDir: "/tmp/nimbus-test-logs",
-  socketPath: "/tmp/nimbus-test.sock",
-  extensionsDir: "/tmp/nimbus-test-ext",
-  tempDir: "/tmp/nimbus-test-tmp",
+  configDir: join(stubBase, "cfg"),
+  dataDir: join(stubBase, "data"),
+  logDir: join(stubBase, "logs"),
+  socketPath: join(stubBase, "gateway.sock"),
+  extensionsDir: join(stubBase, "ext"),
+  tempDir: join(stubBase, "tmp"),
 };
 
 const stubConsent: ConsentCoordinator = {
