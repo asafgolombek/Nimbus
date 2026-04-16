@@ -3,8 +3,9 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { listWatchers } from "../automation/watcher-store.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
@@ -141,10 +142,36 @@ function assertTelemetryDisablePathSafe(path: string): void {
   }
 }
 
+function resolvedPathOrLogical(dir: string): string {
+  const logical = resolve(dir);
+  try {
+    return realpathSync(logical);
+  } catch {
+    return logical;
+  }
+}
+
+/** True when `candidate` resolves to the temp root or a subdirectory of it (multi-user temp risk). */
+function isResolvedDirUnderOsTemp(candidate: string): boolean {
+  const tmpRoot = resolvedPathOrLogical(tmpdir());
+  const dir = resolvedPathOrLogical(candidate);
+  if (dir === tmpRoot) {
+    return true;
+  }
+  const rel = relative(tmpRoot, dir);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
 function rpcTelemetryDisableMark(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
+  if (isResolvedDirUnderOsTemp(ctx.dataDir)) {
+    throw new DiagnosticsRpcError(
+      -32603,
+      "Refusing to write telemetry marker: data directory must not be under the OS temporary directory",
+    );
+  }
   const p = join(ctx.dataDir, ".nimbus-telemetry-disabled");
   assertTelemetryDisablePathSafe(p);
-  writeFileSync(p, `${String(Date.now())}\n`);
+  writeFileSync(p, `${String(Date.now())}\n`, { mode: 0o600 });
   return { kind: "hit", value: { ok: true } };
 }
 

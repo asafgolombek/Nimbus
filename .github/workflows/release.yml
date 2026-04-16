@@ -212,14 +212,25 @@ jobs:
       - build-cli
     runs-on: ubuntu-22.04
     timeout-minutes: 30
+    # Keep GITHUB_TOKEN read-only here; GitHub Release API uses RELEASE_PAT (fine-grained: Contents RW).
     permissions:
-      contents: write
+      contents: read
+      actions: read
 
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
         with:
           egress-policy: audit
+
+      - name: Require release PAT
+        env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "${RELEASE_PAT}" ]; then
+            echo "Missing repository secret RELEASE_PAT (fine-grained PAT: Contents read/write for this repo)." >&2
+            exit 1
+          fi
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -248,6 +259,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c95fe1489396fe8a21967200391e1b9067ad0ba5 # v2.6.2
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           files: |
             dist/nimbus-gateway-*/nimbus-gateway-*
             dist/nimbus-cli-*/nimbus-cli-*
