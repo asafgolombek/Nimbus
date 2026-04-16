@@ -12,26 +12,19 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    # Needed when using the default GITHUB_TOKEN (no RELEASE_PLEASE_PAT). Optional PAT keeps
+    # the same scopes off the automatic token if you add secret RELEASE_PLEASE_PAT later.
     permissions:
-      contents: read
-      pull-requests: read
+      contents: write
+      pull-requests: write
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
         with:
           egress-policy: audit
 
-      - name: Require release-please PAT
-        env:
-          RELEASE_PLEASE_PAT: ${{ secrets.RELEASE_PLEASE_PAT }}
-        run: |
-          if [ -z "${RELEASE_PLEASE_PAT}" ]; then
-            echo "Missing repository secret RELEASE_PLEASE_PAT (contents + pull-requests write for release PRs)." >&2
-            exit 1
-          fi
-
       - uses: googleapis/release-please-action@7987652d64b4581673a76e33ad5e98e3dd56832f # v4.1.3
         with:
           release-type: node
           package-name: nimbus
-          token: ${{ secrets.RELEASE_PLEASE_PAT }}
+          token: ${{ secrets.RELEASE_PLEASE_PAT || github.token }}
