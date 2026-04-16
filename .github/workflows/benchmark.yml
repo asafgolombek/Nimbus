@@ -27,6 +27,16 @@ jobs:
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
 
+      - name: Ensure gh-pages branch exists
+        run: |
+          if ! git ls-remote --exit-code --heads origin gh-pages > /dev/null 2>&1; then
+            git checkout --orphan gh-pages
+            git reset --hard
+            git commit --allow-empty -m "chore: initialise gh-pages branch for benchmark history"
+            git push origin gh-pages
+            git checkout -
+          fi
+
       - name: Run benchmarks
         run: bun run scripts/capture-benchmarks.ts > benchmark-result.json
 
