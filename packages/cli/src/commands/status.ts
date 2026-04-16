@@ -111,11 +111,21 @@ export async function runStatus(args: string[]): Promise<void> {
       version: string;
       uptime: number;
       embeddingBackfill?: { done: number; total: number } | null;
+      agentLimits?: { maxAgentDepth: number; maxToolCallsPerSession: number };
       drift?: { lines: string[] };
     }>("gateway.ping", wantDrift ? { includeDrift: true } : {});
     console.log(`Gateway: running (pid ${String(state.pid)})`);
     console.log(`Version: ${ping.version}`);
     console.log(`Uptime:  ${String(Math.round(ping.uptime / 1000))}s`);
+    if (
+      ping.agentLimits !== undefined &&
+      typeof ping.agentLimits === "object" &&
+      ping.agentLimits !== null
+    ) {
+      console.log(
+        `Agent limits: depth=${String(ping.agentLimits.maxAgentDepth)}  tool-calls/session=${String(ping.agentLimits.maxToolCallsPerSession)}`,
+      );
+    }
     printEmbeddingBackfill(ping.embeddingBackfill);
     if (verbose) {
       const snap = await client.call<DiagSnapshot>("diag.snapshot", {});

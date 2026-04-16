@@ -1,5 +1,9 @@
 # The Nimbus Mission
 
+**Nimbus is a local-first AI agent that runs on your machine, maintains a private index of your data across every connected service, and executes multi-step tasks on your behalf — with your explicit consent before any action that writes, sends, or deletes.** No cloud server holds your data; no API key is required for local queries; every credential lives in your OS keystore.
+
+---
+
 Nimbus exists because the modern developer and knowledge worker have no coherent way to reason across the services they depend on. Your pull requests are in GitHub. Your pipeline is in Jenkins. Your tickets are in Jira. Your alerts are in PagerDuty. Your team's discussion of the incident is in Slack. Understanding any single situation requires seven browser tabs, four logins, and constant context-switching.
 
 That fragmentation is not accidental — it is the natural result of excellent tools that were never designed to talk to each other. Nimbus adds the missing composition layer: local, secure, and extensible.

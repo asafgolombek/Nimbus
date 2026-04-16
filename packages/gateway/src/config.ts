@@ -40,6 +40,24 @@ function parseConversationalAgentMaxSteps(): number {
   return Number.isFinite(n) && n >= 1 && n <= 64 ? n : 20;
 }
 
+function parseMaxAgentDepth(): number {
+  const raw = processEnvGet("NIMBUS_MAX_AGENT_DEPTH");
+  if (raw === undefined || raw === "") {
+    return 3;
+  }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? n : 3;
+}
+
+function parseMaxToolCallsPerSession(): number {
+  const raw = processEnvGet("NIMBUS_MAX_TOOL_CALLS_PER_SESSION");
+  if (raw === undefined || raw === "") {
+    return 20;
+  }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 1 && n <= 200 ? n : 20;
+}
+
 function parseEmbeddingsEnabled(): boolean {
   const raw = processEnvGet("NIMBUS_EMBEDDINGS");
   if (raw === "0" || raw === "false") {
@@ -60,7 +78,8 @@ export const Config = {
   openaiClassifierModel: processEnvGet("NIMBUS_OPENAI_CLASSIFIER_MODEL") ?? "gpt-4o-mini",
   /**
    * Public OAuth client ids (PKCE). Set in the environment until bundled desktop ids ship.
-   * Shared per provider family: google.oauth covers Drive + Gmail + Photos; microsoft.oauth covers OneDrive + Outlook + Teams.
+   * Phase 4 A.3: each Google/Microsoft service now also stores a per-service vault key
+   * (e.g. `google.drive.oauth`) in addition to the shared provider key.
    */
   oauthGoogleClientId: processEnvGet("NIMBUS_OAUTH_GOOGLE_CLIENT_ID") ?? "",
   /**
@@ -85,4 +104,12 @@ export const Config = {
    * Phase 3 — background local embeddings after index upserts (`NIMBUS_EMBEDDINGS=false` to disable).
    */
   embeddingsEnabled: parseEmbeddingsEnabled(),
+  /**
+   * Phase 4 WS1 — multi-agent loop guards.
+   * `maxAgentDepth`: maximum sub-agent recursion depth (`NIMBUS_MAX_AGENT_DEPTH`, 1–10; default 3).
+   * `maxToolCallsPerSession`: hard cap on total tool calls per session (`NIMBUS_MAX_TOOL_CALLS_PER_SESSION`, 1–200; default 20).
+   * Exceeding either fires `agent.gasLimitReached` and halts new decomposition.
+   */
+  maxAgentDepth: parseMaxAgentDepth(),
+  maxToolCallsPerSession: parseMaxToolCallsPerSession(),
 } as const;

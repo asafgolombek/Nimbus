@@ -102,7 +102,7 @@ Third-party extensions run as child processes. They:
 - Cannot read other connectors' credentials
 - Have their manifest SHA-256 hash verified on every Gateway startup — a tampered manifest causes the extension to be disabled before it runs
 
-> **Current sandbox depth:** The current isolation mechanism is scoped environment injection and process separation. Full syscall-level and network-level isolation (beyond env scoping) is planned for Phase 3 hardening and is tracked in the risk register. Users who install third-party extensions from untrusted sources should treat them with the same caution as any arbitrary npm package.
+> **Current sandbox depth:** The current isolation mechanism is scoped environment injection and process separation. Full syscall-level and network-level isolation (seccomp / sandbox profiles) was originally planned for Phase 3 hardening but was deferred; it is now tracked for Phase 5. The current model is honest and reasonable, but users who install third-party extensions from untrusted sources should treat them with the same caution as any arbitrary npm package — the sandbox does not prevent a malicious extension from making outbound network calls or reading files the OS user can access.
 
 ---
 
@@ -120,9 +120,32 @@ File content, email bodies, and external API responses are injected into the age
 
 ### Audit Log
 
-Every action the agent takes — including every HITL decision — is recorded in a local SQLite `action_log` table before the action executes. You can reconstruct exactly what Nimbus did on your behalf at any time via `nimbus audit` or the desktop audit log viewer.
+Every action the agent takes — including every HITL decision — is recorded in a local SQLite `audit_log` table before the action executes. You can reconstruct exactly what Nimbus did on your behalf at any time via `nimbus audit` or the desktop audit log viewer.
 
-Phase 4 will add a BLAKE3-chained tamper-evident audit log with `nimbus audit verify`.
+**Single source of truth:** The audit log lives exclusively in SQLite — there is no separate `audit.jsonl` file. This is a deliberate architectural decision: a split store would require two separate tamper-evident chains and create reconciliation risk before `v0.1.0`.
+
+Phase 4 migration N+3 will add `row_hash` and `prev_hash` columns to `audit_log`, implementing a BLAKE3-chained tamper-evident log verifiable with `nimbus audit verify`.
+
+---
+
+### Standing Approvals (Phase 5 — Security Model Pre-Design)
+
+Phase 5 will introduce standing approvals: pre-authorized patterns that allow recurring write actions to execute without an interactive HITL prompt. Because standing approvals are functionally a scoped HITL bypass, the security boundaries are defined here before implementation begins.
+
+**Threat model:**
+
+| Threat | Mitigation |
+|---|---|
+| Overly broad rule scope — user grants wider permissions than intended | Standing rules must specify an exact connector, action type, and target pattern. Wildcard targets require explicit opt-in at rule creation. |
+| Malicious extension crafts tool calls to match a standing rule | Standing rules are matched against the tool's declared manifest name and connector id, not against the free-text action description. Extensions cannot self-declare as a built-in connector. |
+| Privilege escalation via rule chaining | A standing approval covers exactly one tool call. The approval does not propagate to subsequent tool calls in the same session. |
+| Audit trail gap | Standing-approved actions are written to `audit_log` with `hitl_status = 'standing_approved'` and the rule id before execution — the same audit-first guarantee as interactive HITL. |
+| Rule revocation window | Revoked rules take effect immediately; any in-flight session that already passed the gate completes, but no new calls are approved. |
+
+**Design constraints (enforced at implementation time):**
+- Standing rules are stored in SQLite, not in config files — they are subject to the same integrity checks as the rest of the local index.
+- No standing rule may cover `vault.*` or `db.*` tool calls.
+- The rule editor in the UI must show a diff preview of the scope before saving.
 
 ---
 

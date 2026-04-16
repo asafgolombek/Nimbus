@@ -191,7 +191,12 @@ nimbus sync all
 
 ### Observe and Debug
 
+> **First debugging step:** run `nimbus doctor`. It checks your Bun version, vault availability, Gateway connectivity, index health, and connector states — and prints actionable remediation for anything it finds.
+
 ```bash
+# Environment health check — run this first when something seems wrong
+nimbus doctor
+
 # Structured index queries
 nimbus query --service github --type pr --since 7d --json
 nimbus query --sql "SELECT title FROM items WHERE pinned = 1" --pretty
@@ -199,9 +204,6 @@ nimbus query --sql "SELECT title FROM items WHERE pinned = 1" --pretty
 # Diagnostics and slow queries
 nimbus diag
 nimbus diag slow-queries --limit 10
-
-# Environment health check
-nimbus doctor
 
 # Connector health history
 nimbus connector history github

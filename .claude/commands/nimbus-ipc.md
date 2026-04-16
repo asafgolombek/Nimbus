@@ -1,0 +1,341 @@
+---
+name: nimbus-ipc
+description: >
+  Complete reference for the Nimbus Gateway IPC layer: JSON-RPC 2.0 conventions, all
+  method namespaces, notification patterns, streaming patterns, the Tauri allowlist,
+  error codes, and the step-by-step checklist for adding a new method correctly. Use
+  this skill whenever the user is adding a new IPC method, designing a new notification,
+  wiring an IPC call from the CLI or UI, asking what method name to use, checking whether
+  a method is safe to expose to the Tauri frontend, or debugging an IPC contract. Also
+  trigger for questions like "how do I expose X over IPC?", "what namespace does Y belong
+  to?", "should this be a notification or a response?", or "how do I stream results?".
+  Consult this skill before writing any code that touches packages/gateway/src/ipc/.
+---
+
+# Nimbus IPC Reference
+
+## Transport
+
+JSON-RPC 2.0 over a **local-only** domain socket (macOS/Linux) or named pipe (Windows). There is no TCP surface — the Gateway is never reachable over the network except via the opt-in encrypted LAN server (`packages/gateway/src/ipc/lan-server.ts`).
+
+| Platform | Socket path |
+|---|---|
+| Windows 10+ | `\\.\pipe\nimbus-gateway` |
+| macOS 13+ | `~/Library/Application Support/Nimbus/gateway.sock` |
+| Ubuntu 22.04+ | `~/.local/share/nimbus/gateway.sock` |
+
+Use `PlatformServices` to resolve the path — never hardcode it.
+
+---
+
+## Method Naming Convention
+
+```
+namespace.methodName
+```
+
+- **namespace** — lowercase, matches the subsystem (e.g. `engine`, `llm`, `connector`)
+- **methodName** — camelCase (e.g. `listModels`, `askStream`)
+- **Notifications** follow the same pattern but are sent server→client with no `id` and no response expected
+
+❌ Wrong: `getConnectorList`, `LLM_LIST_MODELS`, `nimbus/connector/list`
+✅ Right: `connector.list`, `llm.listModels`
+
+---
+
+## Requests vs Notifications
+
+| Type | Has `id` | Expects response | Direction | Use for |
+|---|---|---|---|---|
+| **Request** | yes | yes | client→server | Queries, commands, one-shot fetches |
+| **Response** | yes (matching) | — | server→client | Reply to a request |
+| **Notification** | no | no | server→client | Async events, progress streams, health changes |
+
+When a method needs to stream results, it returns a handle immediately and emits notifications:
+
+```
+→ engine.askStream({ prompt })          request  →  { streamId }
+← engine.streamToken { streamId, token }           notification (×N)
+← engine.streamDone  { streamId, result }          notification (×1)
+← engine.streamError { streamId, error }           notification (on failure)
+```
+
+---
+
+## Complete Method Registry
+
+### `engine.*` — Agent queries
+
+| Method | Type | Params | Returns / Emits |
+|---|---|---|---|
+| `engine.ask` | request | `{ prompt, sessionId? }` | `{ result: string }` |
+| `engine.askStream` | request | `{ prompt, sessionId? }` | `{ streamId }` → see streaming notifications below |
+| `engine.getSubTaskPlan` | request | `{ sessionId }` | `SubTaskPlan` |
+
+**Streaming notifications (engine):**
+
+| Notification | Payload |
+|---|---|
+| `engine.streamToken` | `{ streamId, token }` |
+| `engine.streamDone` | `{ streamId, result }` |
+| `engine.streamError` | `{ streamId, error }` |
+
+---
+
+### `agent.*` — Multi-agent orchestration events (notifications only)
+
+| Notification | Payload | Description |
+|---|---|---|
+| `agent.subTaskProgress` | `{ sessionId, subTaskId, status, description }` | Status update per sub-task |
+| `agent.hitlBatch` | `{ sessionId, actions: HitlAction[] }` | Consolidated consent request for all HITL-required sub-tasks |
+| `agent.gasLimitReached` | `{ sessionId, limit: 'depth' \| 'toolCalls' }` | Loop protection triggered |
+
+`HitlAction` shape:
+```ts
+interface HitlAction {
+  actionId: string;
+  subTaskId: string;
+  summary: string;
+  diff?: string;   // before/after diff for file/code changes
+}
+```
+
+---
+
+### `llm.*` — Local model management
+
+| Method | Type | Description |
+|---|---|---|
+| `llm.listModels` | request | Merged list from Ollama tags + `llm_models` SQLite table |
+| `llm.pullModel` | request | Triggers Ollama pull; streams `llm.pullProgress` notifications |
+| `llm.loadModel` | request | Spawns llama-server for a GGUF file |
+| `llm.unloadModel` | request | Terminates llama-server for a model |
+| `llm.setDefault` | request | Sets `is_default = 1` for a model id |
+| `llm.getRouterStatus` | request | Current routing decision per task type |
+| `llm.listLocalModels` | request | Scans model dir for GGUF files (including subdirs + symlinks) |
+
+**Notifications (llm):**
+
+| Notification | Payload |
+|---|---|
+| `llm.pullProgress` | `{ model, status, completed, total }` |
+
+---
+
+### `connector.*` — Connector health and management
+
+| Method | Type | Description |
+|---|---|---|
+| `connector.list` | request | All connectors with current health state |
+| `connector.history` | request | Last N health transitions for a connector |
+
+**Notifications (connector):**
+
+| Notification | Payload |
+|---|---|
+| `connector.healthChanged` | `{ service, state, reason?, timestamp }` |
+
+Health states: `healthy` \| `degraded` \| `error` \| `rate_limited` \| `unauthenticated` \| `paused`
+
+---
+
+### `watcher.*` — Watcher CRUD
+
+| Method | Type | Description |
+|---|---|---|
+| `watcher.list` | request | All watchers with enabled state + last-fired time |
+| `watcher.create` | request | Create a new watcher |
+| `watcher.update` | request | Update watcher definition |
+| `watcher.delete` | request | Delete a watcher |
+| `watcher.history` | request | Past fire events for a watcher |
+
+---
+
+### `workflow.*` — Pipeline management
+
+| Method | Type | Description |
+|---|---|---|
+| `workflow.list` | request | All saved workflow pipelines |
+| `workflow.create` | request | Create a pipeline |
+| `workflow.update` | request | Update a pipeline |
+| `workflow.delete` | request | Delete a pipeline |
+| `workflow.run` | request | Execute a pipeline (supports `dryRun: true`) |
+| `workflow.rerun` | request | Re-run from step N (`fromStep` param) |
+| `workflow.history` | request | Run history with per-step status |
+
+---
+
+### `index.*` — Read-only index queries
+
+Available to LAN peers without `grant-write`. Never mutates data.
+
+| Method | Type | Description |
+|---|---|---|
+| `index.query` | request | Structured filter query over indexed items |
+| `index.search` | request | Hybrid BM25 + vector search |
+| `index.getItem` | request | Fetch a single item by id |
+
+**Notifications (index):**
+
+| Notification | Payload |
+|---|---|
+| `index.changed` | `{ service, count }` — emitted after a sync cycle writes new rows |
+
+---
+
+### `status.*` — Health and diagnostics (read-only)
+
+Available to LAN peers. Never mutates data.
+
+| Method | Type | Description |
+|---|---|---|
+| `status.gateway` | request | Gateway uptime, version, platform |
+| `status.index` | request | Item counts, p95 query latency, per-connector totals |
+| `status.connectors` | request | All connectors + health + last-sync timestamp |
+
+---
+
+### `session.*` — RAG session memory
+
+| Method | Type | Description |
+|---|---|---|
+| `session.create` | request | Start a new RAG session |
+| `session.clear` | request | Clear session chunks |
+| `session.list` | request | Active sessions |
+
+---
+
+### `updater.*` — Auto-update (Phase 4)
+
+| Method | Type | Description |
+|---|---|---|
+| `updater.applyUpdate` | request | User-initiated; verifies Ed25519 signature before applying |
+
+**Notifications (updater):**
+
+| Notification | Payload |
+|---|---|
+| `updater.updateAvailable` | `{ version, notes }` — emitted on Gateway startup if newer version found |
+| `updater.rolledBack` | `{ reason }` — emitted if corrupted binary triggers rollback |
+
+---
+
+### `voice.*` — Voice interface (Phase 4)
+
+| Method | Type | Description |
+|---|---|---|
+| `voice.startListening` | request | Begin STT capture |
+| `voice.stopListening` | request | End capture and return transcript |
+| `voice.speak` | request | TTS playback of a string |
+
+---
+
+### `extension.*` — Extension management
+
+| Method | Type | Description |
+|---|---|---|
+| `extension.list` | request | All installed extensions |
+| `extension.install` | request | Install from URL, tarball, or local path |
+| `extension.enable` | request | Enable a disabled extension |
+| `extension.disable` | request | Disable without removing |
+| `extension.remove` | request | Uninstall |
+
+---
+
+### `diag.*` — Diagnostics (read-only, available to LAN peers)
+
+| Method | Type | Description |
+|---|---|---|
+| `diag.snapshot` | request | Full diagnostic snapshot (index metrics, latency percentiles, connector health) |
+| `diag.slowQueries` | request | Recent slow queries from ring buffer |
+
+---
+
+### `vault.*` ⛔ — Credential store (Gateway-internal only)
+
+**NOT in the Tauri UI `ALLOWED_METHODS` list.** Never callable from the frontend.
+
+| Method | Description |
+|---|---|
+| `vault.set` | Write a credential |
+| `vault.get` | Read a credential |
+| `vault.delete` | Remove a credential |
+| `vault.list` | List key names only (never values) |
+
+---
+
+### `db.*` ⛔ — Database internals (Gateway-internal only)
+
+**NOT in the Tauri UI `ALLOWED_METHODS` list.**
+
+| Method | Description |
+|---|---|
+| `db.verify` | Check database integrity |
+| `db.repair` | Attempt repair |
+| `db.snapshot` | Write a backup snapshot |
+
+---
+
+## Error Codes
+
+| Code | Constant | Meaning |
+|---|---|---|
+| -32700 | `PARSE_ERROR` | Invalid JSON |
+| -32600 | `INVALID_REQUEST` | Not a valid JSON-RPC object |
+| -32601 | `METHOD_NOT_FOUND` | Method does not exist |
+| -32602 | `INVALID_PARAMS` | Missing or invalid parameters |
+| -32603 | `INTERNAL_ERROR` | Unhandled server error |
+| -32000 | `ERR_METHOD_NOT_ALLOWED` | Method exists but blocked by Tauri allowlist |
+| -32001 | `ERR_HITL_REJECTED` | User rejected a HITL action |
+| -32002 | `ERR_GAS_LIMIT` | `maxToolCallsPerSession` exceeded |
+| -32003 | `ERR_VAULT_LOCKED` | Vault unavailable (e.g. screen locked on macOS) |
+| -32004 | `ERR_CONNECTOR_UNAVAILABLE` | Connector not running or unauthenticated |
+| -32005 | `ERR_AIR_GAP` | Outbound HTTP blocked by `enforce_air_gap = true` |
+
+---
+
+## Tauri UI Allowlist
+
+`packages/ui/src-tauri/src/gateway_bridge.rs` maintains `ALLOWED_METHODS: &[&str]` at compile time. Any `rpc_call` for a method not in this set returns `ERR_METHOD_NOT_ALLOWED` before the request reaches the Gateway socket.
+
+**Blocked from the UI (never add these):**
+- `vault.*` — credential values must never be readable from the webview
+- `db.*` — raw database operations are internal-only
+
+**When adding a new UI-facing method:**
+1. Add it to `ALLOWED_METHODS` in `gateway_bridge.rs`
+2. Consider: is this read-only or write? Write methods need HITL in the executor
+3. Is it sensitive (touches credentials or raw DB)? If yes, keep it Gateway-internal
+
+---
+
+## Checklist: Adding a New IPC Method
+
+1. **Choose the namespace** — match the subsystem (`engine`, `llm`, `connector`, etc.)
+2. **Name it** — `namespace.camelCaseMethod`
+3. **Decide the type** — request/response, or notification-only?
+4. **Streaming?** — return `{ streamId }` immediately; emit `namespace.eventName { streamId, ... }` notifications
+5. **Write the handler** — `packages/gateway/src/ipc/handlers/<namespace>.ts`
+6. **Register it** — in the IPC server (handler map)
+7. **Tauri-accessible?** — add to `ALLOWED_METHODS` in `gateway_bridge.rs`
+8. **HITL-required?** — if it triggers a write/destructive action, add the tool to `HITL_REQUIRED` in `executor.ts`
+9. **Write the unit test** — `packages/gateway/test/unit/ipc/<namespace>-<method>.test.ts`
+10. **Update `@nimbus-dev/client`** — add typed wrapper in `packages/client/src/` so CLI and extensions can call it without raw JSON-RPC
+
+---
+
+## @nimbus-dev/client Usage
+
+The published `@nimbus-dev/client` package wraps raw IPC with typed methods. Always use it in the CLI and extensions — never construct raw JSON-RPC in application code.
+
+```ts
+import { NimbusClient } from '@nimbus-dev/client';
+
+const client = new NimbusClient();
+const result = await client.engine.ask({ prompt: 'summarize my week' });
+
+// For testing — use MockClient, never a real socket
+import { MockClient } from '@nimbus-dev/client';
+const mock = new MockClient();
+mock.connector.list.mockResolvedValue([...]);
+```

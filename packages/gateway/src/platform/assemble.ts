@@ -10,6 +10,7 @@ import { loadNimbusEmbeddingFromPath, resolveNimbusTomlForProfile } from "../con
 import { loadNimbusSessionFromPath } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
 import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
+import { migrateToPerServiceOAuthKeys } from "../connectors/connector-vault.ts";
 import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
 import { createLazyConnectorMesh, type LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
@@ -22,6 +23,7 @@ import {
   type SemanticSearchDeps,
 } from "../index/local-index.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+import { resumePendingRemovals } from "../ipc/connector-rpc-handlers.ts";
 import { startReadOnlyHttpServer } from "../ipc/http-server.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { startMetricsServer } from "../ipc/metrics-server.ts";
@@ -239,6 +241,13 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     activeTomlPath,
   );
   await ensureGithubCircleCiSchedulerCompanions(localIndex, vault);
+
+  // Phase 4 A.3 — copy shared provider OAuth keys to per-service keys for any
+  // service that hasn't been re-authenticated since the migration landed.
+  await migrateToPerServiceOAuthKeys(vault);
+
+  // Complete any connector removals that were interrupted by a crash. Idempotent.
+  await resumePendingRemovals(vault, localIndex);
 
   const syncBase: SyncContext = { vault, db, logger: syncLogger, rateLimiter };
   const syncContext: SyncContext = scheduleItemEmbedding

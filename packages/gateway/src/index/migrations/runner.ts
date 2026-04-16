@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
 import {
   EMBEDDING_V6_MIGRATION_SQL,
@@ -200,6 +201,14 @@ function migrateIndexedV13ToV14(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV14ToV15(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(CONNECTOR_REMOVE_INTENT_V15_SQL);
+    db.exec("PRAGMA user_version = 15");
+    recordMigration(db, 15, "connector_remove_intent (crash-safe removal WAL)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -215,6 +224,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 11, toVersion: 12, apply: migrateIndexedV11ToV12 },
   { fromVersion: 12, toVersion: 13, apply: migrateIndexedV12ToV13 },
   { fromVersion: 13, toVersion: 14, apply: migrateIndexedV13ToV14 },
+  { fromVersion: 14, toVersion: 15, apply: migrateIndexedV14ToV15 },
 ];
 
 /**
@@ -275,6 +285,9 @@ function backfillMigrationsLedger(db: Database): void {
     }
     if (uv >= 14) {
       recordMigration(db, 14, "query_latency_log + slow_query_log (backfilled)", now);
+    }
+    if (uv >= 15) {
+      recordMigration(db, 15, "connector_remove_intent (backfilled)", now);
     }
   })();
 }

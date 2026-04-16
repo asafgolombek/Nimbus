@@ -5,6 +5,7 @@ import { mkdirSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { LocalIndex } from "../../../src/index/local-index.ts";
 import {
   type MigrationBackupOptions,
   MigrationRollbackError,
@@ -117,10 +118,10 @@ describe("runIndexedSchemaMigrations — rollback on failure", () => {
     // non-existent target version greater than the max step.
     expect(() => runIndexedSchemaMigrations(db, 99)).toThrow();
 
-    // Schema version advances to the highest known step (14) before the runner
+    // Schema version advances to the highest known step before the runner
     // throws "Unsupported local index schema version" for the gap to 99.
     const row = db.query("PRAGMA user_version").get() as { user_version: number };
-    expect(row.user_version).toBe(14);
+    expect(row.user_version).toBe(LocalIndex.SCHEMA_VERSION);
     db.close();
   });
 

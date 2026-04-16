@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
+import { Config } from "../config.ts";
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
 import { type AgentRequestContext, agentRequestContext } from "../engine/agent-request-context.ts";
@@ -584,6 +585,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const base: Record<string, unknown> = {
       version: options.version,
       uptime: Date.now() - startedAtMs,
+      agentLimits: {
+        maxAgentDepth: Config.maxAgentDepth,
+        maxToolCallsPerSession: Config.maxToolCallsPerSession,
+      },
       ...extra,
     };
     const rec = asRecord(params);

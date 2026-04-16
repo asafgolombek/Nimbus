@@ -15,9 +15,17 @@ import {
   normalizeConnectorServiceId,
   oauthProfileForService,
 } from "../connectors/connector-catalog.ts";
-import { clearOAuthVaultIfProviderUnused } from "../connectors/connector-vault.ts";
+import {
+  clearOAuthVaultIfProviderUnused,
+  writePerServiceOAuthKey,
+} from "../connectors/connector-vault.ts";
 import { getConnectorHealthHistory } from "../connectors/health.ts";
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import {
+  clearRemoveIntent,
+  getPendingRemoveIntents,
+  writeRemoveIntent,
+} from "../connectors/remove-intent.ts";
 import {
   deleteUserMcpConnector,
   insertUserMcpConnector,
@@ -319,6 +327,12 @@ export async function handleConnectorRemove(
   const { rec, vault, localIndex, syncScheduler } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const db = localIndex.getDatabase();
+
+  // Write WAL intent before touching either store. A crash between here and
+  // clearRemoveIntent leaves an orphaned intent row that resumePendingRemovals
+  // will detect and complete on the next Gateway startup.
+  writeRemoveIntent(db, id);
+
   let googleOAuthBackup: string | null = null;
   let microsoftOAuthBackup: string | null = null;
   const normalizedForFamily = normalizeConnectorServiceId(id);
@@ -364,7 +378,40 @@ export async function handleConnectorRemove(
     }
     throw removeErr;
   }
+
+  // Both stores clean — clear the WAL intent.
+  clearRemoveIntent(db, id);
+
   return { kind: "hit", value: { ok: true, itemsDeleted, vaultKeysRemoved: vaultKeys } };
+}
+
+/**
+ * On Gateway startup, detect any connector removals that were interrupted by a crash
+ * and complete them. Call once after both vault and localIndex are initialised.
+ */
+export async function resumePendingRemovals(
+  vault: NimbusVault,
+  localIndex: LocalIndex,
+): Promise<string[]> {
+  const db = localIndex.getDatabase();
+  const pending = getPendingRemoveIntents(db);
+  const completed: string[] = [];
+  for (const serviceId of pending) {
+    try {
+      // Index cleanup is idempotent; Vault deletes ignore missing keys.
+      localIndex.removeConnectorIndexData(serviceId);
+      await clearOAuthVaultIfProviderUnused(vault, db, serviceId);
+      const normalizedBuiltin = normalizeConnectorServiceId(serviceId);
+      if (normalizedBuiltin !== null) {
+        await deleteConnectorPatAndTokenKeys(vault, normalizedBuiltin);
+      }
+      clearRemoveIntent(db, serviceId);
+      completed.push(serviceId);
+    } catch {
+      // Leave the intent intact — will retry on next startup.
+    }
+  }
+  return completed;
 }
 
 export async function handleConnectorSync(
@@ -908,6 +955,18 @@ async function connectorAuthOAuthPkce(
   const pkceFlowInput: PKCEOptions =
     redirectPort === undefined ? merged : { ...merged, redirectPort };
   const tokens = await runPKCEFlow(pkceFlowInput);
+
+  // Mirror the token to the per-service vault key so each connector reads
+  // only its own key (Phase 4 A.3 — scope isolation groundwork).
+  const sharedKey =
+    profile.provider === "google"
+      ? "google.oauth"
+      : profile.provider === "microsoft"
+        ? "microsoft.oauth"
+        : undefined;
+  if (sharedKey !== undefined) {
+    await writePerServiceOAuthKey(vault, id, sharedKey);
+  }
 
   const interval = defaultSyncIntervalMsForService(id);
   localIndex.ensureConnectorSchedulerRegistration(id, interval, Date.now());
