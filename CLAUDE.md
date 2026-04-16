@@ -39,8 +39,13 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/gateway/src/platform/darwin.ts` | macOS platform implementation |
 | `packages/gateway/src/platform/linux.ts` | Linux platform implementation |
 | `packages/gateway/src/vault/index.ts` | `NimbusVault` interface |
+| `packages/gateway/src/auth/google-access-token.ts` | Google per-service OAuth token resolution — `resolveGoogleOAuthVaultKey()`, `anyGoogleOAuthVaultPresent()` |
+| `packages/gateway/src/auth/oauth-vault-tokens.ts` | Generic OAuth token storage/refresh helpers — `getValidVaultOAuthAccessToken()`, `microsoftOAuthAccessFromConfig()` |
 | `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh.ts` — Phase 3 bundle spawns AWS/Azure/GCP/IaC/observability MCPs when vault keys exist) |
 | `packages/gateway/src/connectors/health.ts` | Connector health state machine — `transitionHealth()`, `ConnectorHealthSnapshot` |
+| `packages/gateway/src/connectors/connector-vault.ts` | Per-service OAuth vault key helpers — `perServiceOAuthVaultKey()`, `writePerServiceOAuthKey()`, `migrateToPerServiceOAuthKeys()` (Phase 4) |
+| `packages/gateway/src/connectors/connector-secrets-manifest.ts` | `CONNECTOR_VAULT_SECRET_KEYS` — per-connector PAT/API-key vault manifest; `clearConnectorVaultSecretKeys()` |
+| `packages/gateway/src/connectors/remove-intent.ts` | Connector removal — cascade vault + index cleanup via `executeRemoveIntent()` |
 | `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
 | `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
 | `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
@@ -147,6 +152,11 @@ bun run package:installers:linux -- --version 0.1.0
 # nimbus serve [--port 7474]
 # nimbus docs [topic]
 # nimbus connector history <name>
+
+# Phase 4 env-var overrides (multi-agent loop guards)
+# NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)
+# NIMBUS_MAX_TOOL_CALLS_PER_SESSION=20  hard cap on tool calls per session (1–200; default 20)
+# Exceeding either fires agent.gasLimitReached and halts new decomposition.
 
 # Docs site (packages/docs)
 bun run docs:build                     # from repo root (workspace filter)

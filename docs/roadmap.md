@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-15 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is now active.
+> **Last updated:** 2026-04-16 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is now active. Per-connector OAuth vault keys landed (Google + Microsoft per-service keys; `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth`, `onedrive.oauth`, `outlook.oauth`, `teams.oauth`). Multi-agent loop-guard config stubs in place (`maxAgentDepth`, `maxToolCallsPerSession`).
 
 ---
 
@@ -296,7 +296,7 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 ### Local LLM & Multi-Agent
 
 - [ ] **Local LLM support** — Ollama integration (model discovery, pull, load, unload via Gateway IPC); llama.cpp fallback (GGUF model files, no Ollama required); per-task model routing (fast local model for classification; remote for multi-step reasoning; configurable); fully air-gapped operation when a local model is loaded
-- [ ] **Multi-agent orchestration** — coordinator agent decomposes complex tasks into independent sub-tasks; sub-agents run in parallel in isolated tool scopes; all sub-agent write operations remain HITL-gated; coordinator cannot approve on behalf of the user
+- [ ] **Multi-agent orchestration** — coordinator agent decomposes complex tasks into independent sub-tasks; sub-agents run in parallel in isolated tool scopes; all sub-agent write operations remain HITL-gated; coordinator cannot approve on behalf of the user *(loop-guard config stubs in place: `NIMBUS_MAX_AGENT_DEPTH` default 3, `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` default 20; `agent.gasLimitReached` notification reserved)*
 
 ### VS Code Extension
 
@@ -331,7 +331,7 @@ These items resolve deferred decisions from Phase 3.
 
 - [ ] **Graph-aware watcher conditions** — extend the watcher condition evaluator with `graph.*` condition types (`graph.has_relation`, `graph.path_exists`, `graph.neighbor_count`); uses `traverseGraph` from the Phase 3 relationship graph substrate; enables patterns like "alert when a PR author has no prior reviews" without per-watcher custom traversal code; new condition types are additive and backwards-compatible with existing Phase 3 watcher definitions
 - [ ] **Workflow branching and conditionals** — extend the workflow DSL with `if` / `else` / `switch` step types; condition expressions can reference step outputs and index query results; independent branches execute in parallel where possible; DSL remains backwards-compatible with Phase 3 linear pipelines; dry-run and HITL safety apply to all branch variants
-- [ ] **Per-connector OAuth vault keys** — migrate shared family keys (`google.oauth`, `microsoft.oauth`) to per-connector scoped keys (`google.drive.oauth`, `google.gmail.oauth`, etc.); `nimbus connector auth` migrates existing tokens transparently on re-auth; eliminates scope-collision UX edge cases; key migration recorded in the audit log
+- [x] **Per-connector OAuth vault keys** — per-service keys implemented: `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth` for Google; `onedrive.oauth`, `outlook.oauth`, `teams.oauth` for Microsoft; `nimbus connector auth` writes per-service key on each PKCE flow; Microsoft keys back-filled from `microsoft.oauth` on Gateway startup; legacy shared keys kept as fallback for Google until each service re-auths; eliminates scope-collision between Google connectors
 
 ### Release Infrastructure
 

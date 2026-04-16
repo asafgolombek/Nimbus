@@ -55,7 +55,7 @@ nimbus status --drift           # Include IaC drift hints alongside status
 nimbus status --json
 ```
 
-**Output includes:** Gateway PID, uptime, active profile, total indexed items, connector list with health state (`healthy` / `degraded` / `error` / `rate_limited` / `unauthenticated` / `paused`).
+**Output includes:** Gateway PID, uptime, active profile, total indexed items, agent limits (`depth=N  tool-calls/session=N`), connector list with health state (`healthy` / `degraded` / `error` / `rate_limited` / `unauthenticated` / `paused`).
 
 ---
 
@@ -190,8 +190,12 @@ nimbus sync google_drive
 Authenticate a service and store credentials in the OS keystore. Never stores credentials to disk or logs.
 
 ```bash
-nimbus connector auth google        # OAuth PKCE — opens browser
-nimbus connector auth microsoft
+nimbus connector auth google_drive  # OAuth PKCE — opens browser
+nimbus connector auth gmail
+nimbus connector auth google_photos
+nimbus connector auth onedrive
+nimbus connector auth outlook
+nimbus connector auth teams
 nimbus connector auth github        # PAT prompt — stored in OS keystore
 nimbus connector auth gitlab
 nimbus connector auth linear
@@ -797,6 +801,7 @@ nimbus audit --json
 |---|---|
 | `NIMBUS_LLM_PROVIDER` | Override `[llm].provider` |
 | `NIMBUS_LLM_MODEL` | Override `[llm].model` |
+| `NIMBUS_AGENT_MODEL` | LLM model used by the agent (default: `claude-sonnet-4-6`) |
 | `NIMBUS_SYNC_INTERVAL_SECONDS` | Override `[sync].intervalSeconds` |
 | `NIMBUS_TELEMETRY_ENABLED` | Override `[telemetry].enabled` |
 | `NIMBUS_TELEMETRY_ENDPOINT` | Override `[telemetry].endpoint` |
@@ -804,6 +809,12 @@ nimbus audit --json
 | `NIMBUS_CONFIG_DIR` | Override the platform config directory |
 | `NIMBUS_PROFILE` | Set the active profile at launch |
 | `NIMBUS_EMBEDDING_MODEL_DIR` | Path to pre-downloaded MiniLM model weights (headless bundle) |
+| `NIMBUS_EMBEDDINGS` | Set to `false` to disable background embedding generation after index upserts |
+| `NIMBUS_ENGINE_CONTEXT_WINDOW_ITEMS` | Top-N index items passed in full to the agent after ranked search (1–200; default 10) |
+| `NIMBUS_SEARCH_PRIORITY_JSON` | Per-service search priority weights (0–1) as a JSON object e.g. `{"github":0.8,"slack":0.7}` |
+| `NIMBUS_ASK_MAX_STEPS` | Mastra tool-loop depth for `nimbus ask` sessions (1–64) |
+| `NIMBUS_MAX_AGENT_DEPTH` | Maximum sub-agent recursion depth for multi-agent tasks (1–10; default 3) |
+| `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` | Hard cap on total tool calls per session (1–200; default 20) |
 | `NIMBUS_RUN_QUERY_BENCH` | Set to `1` to enable strict `< 100ms` p95 assertion in the query latency benchmark |
 | `NIMBUS_LOG_LEVEL` | `debug` / `info` / `warn` / `error` (default: `info`) |
 

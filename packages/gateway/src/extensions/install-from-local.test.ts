@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -104,19 +104,29 @@ describe("install-from-local", () => {
       "utf8",
     );
     writeFileSync(join(src, "dist", "index.js"), "export {}\n", "utf8");
-    const archive = join(dirname(src), "ext.tgz");
+    // Write the archive outside the tree being packed — creating a .tgz next to the
+    // source folder can make Windows tar exit non-zero while the archive grows in the same directory.
+    const archive = join(tmpdir(), `nimbus-ext-test-${process.pid}-${Date.now()}.tgz`);
     const tarBin = process.platform === "win32" ? "tar.exe" : "tar";
-    const pack = spawnSync(tarBin, ["-czf", archive, "-C", dirname(src), basename(src)], {
-      windowsHide: true,
-    });
-    expect(pack.status).toBe(0);
+    try {
+      const pack = spawnSync(tarBin, ["-czf", archive, "-C", dirname(src), basename(src)], {
+        windowsHide: true,
+      });
+      expect(pack.status).toBe(0);
 
-    const r = installExtensionFromLocalDirectory({
-      db,
-      extensionsDir,
-      sourcePath: archive,
-    });
-    expect(r.id).toBe("bundle.tar.ext");
-    expect(listExtensions(db).length).toBe(1);
+      const r = installExtensionFromLocalDirectory({
+        db,
+        extensionsDir,
+        sourcePath: archive,
+      });
+      expect(r.id).toBe("bundle.tar.ext");
+      expect(listExtensions(db).length).toBe(1);
+    } finally {
+      try {
+        rmSync(archive, { force: true });
+      } catch {
+        /* ignore */
+      }
+    }
   });
 });
