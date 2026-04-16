@@ -22,10 +22,11 @@ jobs:
         with:
           egress-policy: audit
 
+      # Use the default job token for clone — do not pass BENCHMARK_PUSH_TOKEN here; a PAT scoped
+      # to another repo or missing repo scope yields a tree without `.github/actions/*` and breaks
+      # the composite action below.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          token: ${{ secrets.BENCHMARK_PUSH_TOKEN || github.token }}
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci

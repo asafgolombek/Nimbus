@@ -1,7 +1,7 @@
 import {
-  constants as fsConstants,
   copyFileSync,
   existsSync,
+  constants as fsConstants,
   readdirSync,
   readFileSync,
   rmSync,
