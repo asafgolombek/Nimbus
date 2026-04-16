@@ -40,7 +40,8 @@ jobs:
             git reset --hard
             git commit --allow-empty -m "chore: initialise gh-pages branch for benchmark history"
             git push origin gh-pages
-            git checkout -
+            # `checkout -` is unreliable after `--orphan`; return to the branch that triggered this workflow.
+            git checkout "${GITHUB_REF_NAME}"
           fi
 
       - name: Run benchmarks

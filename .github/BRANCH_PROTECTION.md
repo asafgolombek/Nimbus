@@ -12,23 +12,37 @@ Those findings measure **default-branch rules** on GitHub, not files in this rep
 2. **Ruleset name:** e.g. `main — required reviews + checks`.
 3. **Enforcement status:** **Active**.
 4. **Target branches** → **Add target** → **Include default branch** (or **Add pattern** `main`).
-5. Under **Branch rules**, enable at least:
+5. Under **Branch rules**, enable at least (see [mapping table](#map-scorecard-branch-protection-warnings-to-github) for Scorecard wording):
    - **Require a pull request before merging**
-   - **Required approvals** → **1** (or more)
-   - **Require status checks to pass** → **Add checks** → pick jobs from the table below (names must match the Actions tab exactly).
-   - Optional but good for Scorecard: **Require review from Code Owners** (uses [`.github/CODEOWNERS`](./CODEOWNERS) on `main`).
-   - Optional: **Dismiss stale pull request approvals when new commits are pushed**.
-   - Optional: **Require approval of the most recent reviewable push** (wording may vary by plan).
-6. **Bypass list** — leave empty for strictest posture, or add a **release automation** bot only if needed.
+   - **Required approvals** → **2** for maximal OpenSSF Scorecard (use **1** if you are solo and accept a lower score).
+   - **Require status checks to pass** → **Add checks** → pick jobs from the [table below](#recommended-required-status-checks) (names must match the Actions tab exactly).
+   - **Require review from Code Owners** (uses [`.github/CODEOWNERS`](./CODEOWNERS) on `main`).
+   - **Dismiss stale pull request approvals when new commits are pushed**
+   - **Require approval of the most recent reviewable push** (wording may vary by plan).
+6. **Bypass list** — leave **empty** so admins cannot skip rules (fixes Scorecard “does not apply to administrators”).
 7. **Create** / **Save** the ruleset.
 
 ### Option B — **Classic** branch protection rule
 
 1. **Settings** → **Branches** → **Add branch protection rule** (or edit existing) for `main`.
-2. Enable **Require a pull request before merging**, **Require approvals** (≥1), **Require status checks to pass**, and the same optional toggles as above.
-3. Enable **Do not allow bypassing the above settings** for administrators if your org allows it (improves Scorecard **Branch-Protection**).
+2. Enable **Require a pull request before merging**, **Require approvals** (prefer **2** for Scorecard; **1** if solo), **Require review from Code Owners**, **Require status checks to pass** (add checks from the table below), **Dismiss stale reviews**, and **Require review before merging the most recent push** if shown.
+3. Enable **Do not allow bypassing the above settings** for administrators (same as “rules apply to administrators” in Scorecard).
 
 After this is live on `main`, open **Security → Code scanning**, filter **Tool: Scorecard**, and use **Dismiss** only if a finding is a false positive (rare for these three).
+
+## Map Scorecard Branch-Protection warnings to GitHub
+
+Scorecard **Branch-Protection** (rule `BranchProtectionID`) reads **enforced** rules on **`main`**. Typical warnings and how to clear them:
+
+| Scorecard warning (gist) | What to set on `main` |
+|----------------------------|------------------------|
+| Branch protection **does not apply to administrators** | **Rulesets:** leave **Bypass list** empty (do not add admins or “Repository admin”). **Classic:** enable **Do not allow bypassing the above settings**. |
+| **Required approving review count** is only 1 | Set **Required number of approvals** to **2** for a higher Scorecard score; keep **1** if that matches your team size. |
+| **Code owners** review not required | Enable **Require review from Code Owners** and merge [`.github/CODEOWNERS`](./CODEOWNERS) on `main`. |
+| **Last push approval** disabled | Enable **Require approval of the most recent reviewable push** (rulesets) or the closest equivalent in classic rules. |
+| **No status checks** found for merge | In the same ruleset, **Require status checks to pass** and add checks from the [table below](#recommended-required-status-checks). They must be **required before merge** — Scorecard only sees checks GitHub **blocks merges** on, not jobs that merely exist in YAML. |
+
+**Finding check names:** open **Actions** → pick a recent **CI** / **Security** / **CodeQL** run on `main` or a PR → copy each **job name** exactly (including punctuation and OS suffixes) into the ruleset search box.
 
 ## Scorecard alerts in “Code scanning” (no file in repo)
 
@@ -38,7 +52,7 @@ Scorecard uploads SARIF to **Security → Code scanning**. Findings such as **Br
 |--------------------|-----------------------------------|
 | **Branch-Protection** | Strong default-branch rule: require PR, required status checks (below), optional “include administrators”. |
 | **Code-Review** | Same rule: required approving reviews, optional CODEOWNERS reviews, dismiss stale reviews, “require approval of most recent push” if your plan offers it. |
-| **Maintained** | Steady **commits**, **releases**, and **issue/PR triage** (Scorecard looks at activity windows). **Dependabot** (`.github/dependabot.yml`) already helps; keep merging dependency PRs and responding to contributors. |
+| **Maintained** | Steady **commits**, **releases**, and **issue/PR triage** (Scorecard looks at activity windows). **Dependabot** (`.github/dependabot.yml`) already helps. Repos **younger than ~90 days** often score **0** until that window passes — expected, not a misconfiguration. |
 | **Fuzzing** | Continuous fuzzing Scorecard recognizes includes **[OSS-Fuzz](https://google.github.io/oss-fuzz/)** (separate application repo), **[ClusterFuzzLite](https://github.com/google/clusterfuzzlite)**, or **[OneFuzz](https://github.com/microsoft/onefuzz)** wiring — not a one-line repo change. |
 | **CII-Best-Practices** | Complete the [OpenSSF Best Practices](https://www.bestpractices.dev/) questionnaire for this repository (badge is optional). |
 
