@@ -31,37 +31,59 @@ function readErrorCode(err: unknown): string | undefined {
   return undefined;
 }
 
+type SessionFileRead =
+  | { kind: "valid"; id: string }
+  | { kind: "corrupt" }
+  | { kind: "missing" };
+
+function readSessionFileState(path: string): SessionFileRead | { kind: "unreadable" } {
+  try {
+    const raw = readFileSync(path, "utf8").trim().split(/\r?\n/)[0]?.trim() ?? "";
+    const parsed = parseStoredTelemetrySessionId(raw);
+    return parsed !== undefined ? { kind: "valid", id: parsed } : { kind: "corrupt" };
+  } catch (error_: unknown) {
+    return readErrorCode(error_) === "ENOENT" ? { kind: "missing" } : { kind: "unreadable" };
+  }
+}
+
+function persistCorruptSessionFile(path: string): string {
+  const id = crypto.randomUUID();
+  try {
+    writeFileSync(path, `${id}\n`, "utf8");
+  } catch {
+    /* non-fatal */
+  }
+  return id;
+}
+
+/** @returns created id, or `retry` if another writer won the race (`wx` + EEXIST). */
+function tryExclusiveCreateSessionFile(path: string): { id: string; retry: boolean } {
+  const id = crypto.randomUUID();
+  try {
+    writeFileSync(path, `${id}\n`, { encoding: "utf8", flag: "wx" });
+    return { id, retry: false };
+  } catch (error_: unknown) {
+    return readErrorCode(error_) === "EEXIST" ? { id, retry: true } : { id, retry: false };
+  }
+}
+
 /** Persists a random session id without echoing arbitrary file bytes into outbound telemetry. */
 function readOrCreateSessionId(dataDir: string): string {
   const p = join(dataDir, ".nimbus-telemetry-session");
   for (let attempt = 0; attempt < 8; attempt++) {
-    try {
-      const raw = readFileSync(p, "utf8").trim().split(/\r?\n/)[0]?.trim() ?? "";
-      const parsed = parseStoredTelemetrySessionId(raw);
-      if (parsed !== undefined) {
-        return parsed;
-      }
-      const id = crypto.randomUUID();
-      try {
-        writeFileSync(p, `${id}\n`, "utf8");
-      } catch {
-        /* non-fatal */
-      }
-      return id;
-    } catch (e: unknown) {
-      if (readErrorCode(e) === "ENOENT") {
-        const id = crypto.randomUUID();
-        try {
-          writeFileSync(p, `${id}\n`, { encoding: "utf8", flag: "wx" });
-          return id;
-        } catch (e2: unknown) {
-          if (readErrorCode(e2) === "EEXIST") {
-            continue;
-          }
-          return id;
-        }
-      }
+    const state = readSessionFileState(p);
+    if (state.kind === "valid") {
+      return state.id;
+    }
+    if (state.kind === "corrupt") {
+      return persistCorruptSessionFile(p);
+    }
+    if (state.kind === "unreadable") {
       return crypto.randomUUID();
+    }
+    const created = tryExclusiveCreateSessionFile(p);
+    if (!created.retry) {
+      return created.id;
     }
   }
   return crypto.randomUUID();

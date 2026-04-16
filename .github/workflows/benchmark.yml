@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@cb605e52c26070c328af45a28ef5834d603b173d # v2.18.0
+        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
         with:
           egress-policy: audit
 

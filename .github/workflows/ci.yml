@@ -21,10 +21,10 @@ jobs:
       rust: ${{ steps.changes.outputs.rust }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
+        uses: step-security/harden-runner@4d991eb9b9053564e4732d7058422796b792c346 # v2.18.0
         with:
           egress-policy: audit
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.3
         id: changes
         with:
@@ -61,12 +61,12 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
+        uses: step-security/harden-runner@4d991eb9b9053564e4732d7058422796b792c346 # v2.18.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Rust + Tauri checks
         uses: ./.github/actions/setup-rust-tauri
@@ -82,12 +82,12 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
+        uses: step-security/harden-runner@4d991eb9b9053564e4732d7058422796b792c346 # v2.18.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -129,12 +129,12 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
+        uses: step-security/harden-runner@4d991eb9b9053564e4732d7058422796b792c346 # v2.18.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Rust + Tauri checks
         uses: ./.github/actions/setup-rust-tauri
@@ -156,12 +156,12 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
+        uses: step-security/harden-runner@4d991eb9b9053564e4732d7058422796b792c346 # v2.18.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -172,7 +172,7 @@ jobs:
           run-checks: "false"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@d4323d4df104b026a6aa633f9c4b8fdf10c58829 # v4.2.0
+        uses: actions/cache@d4323d4df104b026a6e56905928a8f11545b9c71 # v4.2.0
         with:
           path: .playwright-browsers
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
@@ -222,12 +222,12 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
+        uses: step-security/harden-runner@4d991eb9b9053564e4732d7058422796b792c346 # v2.18.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -238,7 +238,7 @@ jobs:
           run-checks: "false"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@d4323d4df104b026a6aa633f9c4b8fdf10c58829 # v4.2.0
+        uses: actions/cache@d4323d4df104b026a6e56905928a8f11545b9c71 # v4.2.0
         with:
           path: .playwright-browsers
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}

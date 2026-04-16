@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import {
   GOOGLE_OAUTH_CLIENT_ID_HELP,
   MICROSOFT_OAUTH_CLIENT_ID_HELP,
@@ -227,6 +228,80 @@ export function handleConnectorHealthHistory(ctx: ConnectorRpcHandlerContext): C
   };
 }
 
+async function snapshotGoogleOAuthIfLastFamilyMember(
+  vault: NimbusVault,
+  db: Database,
+  normalizedForFamily: ConnectorServiceId | null,
+): Promise<Record<string, string> | null> {
+  if (
+    normalizedForFamily === null ||
+    !GOOGLE_CONNECTOR_SERVICES.has(normalizedForFamily) ||
+    sumItemsSiblingServices(db, normalizedForFamily, GOOGLE_CONNECTOR_SERVICES) !== 0
+  ) {
+    return null;
+  }
+  const snap: Record<string, string> = {};
+  for (const k of ALL_GOOGLE_OAUTH_VAULT_KEYS) {
+    const v = await vault.get(k);
+    if (v !== null && v !== "") {
+      snap[k] = v;
+    }
+  }
+  return Object.keys(snap).length > 0 ? snap : null;
+}
+
+async function snapshotMicrosoftOAuthIfLastFamilyMember(
+  vault: NimbusVault,
+  db: Database,
+  normalizedForFamily: ConnectorServiceId | null,
+): Promise<string | null> {
+  if (
+    normalizedForFamily === null ||
+    !MICROSOFT_CONNECTOR_SERVICES.has(normalizedForFamily) ||
+    sumItemsSiblingServices(db, normalizedForFamily, MICROSOFT_CONNECTOR_SERVICES) !== 0
+  ) {
+    return null;
+  }
+  return await vault.get("microsoft.oauth");
+}
+
+function unregisterConnectorFromSyncScheduler(
+  syncScheduler: SyncScheduler | undefined,
+  id: string,
+): void {
+  if (syncScheduler === undefined) {
+    return;
+  }
+  if (id === "github") {
+    syncScheduler.unregister("github_actions");
+  }
+  syncScheduler.unregister(id);
+}
+
+function removeConnectorIndexEntries(localIndex: LocalIndex, id: string): number {
+  let itemsDeleted = 0;
+  if (id === "github") {
+    itemsDeleted += localIndex.removeConnectorIndexData("github_actions");
+  }
+  itemsDeleted += localIndex.removeConnectorIndexData(id);
+  return itemsDeleted;
+}
+
+async function restoreGoogleAndMicrosoftOAuthBackups(
+  vault: NimbusVault,
+  googleOAuthBackup: Record<string, string> | null,
+  microsoftOAuthBackup: string | null,
+): Promise<void> {
+  if (googleOAuthBackup !== null) {
+    for (const [k, v] of Object.entries(googleOAuthBackup)) {
+      await vault.set(k, v);
+    }
+  }
+  if (microsoftOAuthBackup !== null) {
+    await vault.set("microsoft.oauth", microsoftOAuthBackup);
+  }
+}
+
 export async function handleConnectorRemove(
   ctx: ConnectorRpcHandlerContext,
 ): Promise<ConnectorRpcHit> {
@@ -239,42 +314,16 @@ export async function handleConnectorRemove(
   // will detect and complete on the next Gateway startup.
   writeRemoveIntent(db, id);
 
-  let googleOAuthBackup: Record<string, string> | null = null;
-  let microsoftOAuthBackup: string | null = null;
   const normalizedForFamily = normalizeConnectorServiceId(id);
-  if (
-    normalizedForFamily !== null &&
-    GOOGLE_CONNECTOR_SERVICES.has(normalizedForFamily) &&
-    sumItemsSiblingServices(db, normalizedForFamily, GOOGLE_CONNECTOR_SERVICES) === 0
-  ) {
-    const snap: Record<string, string> = {};
-    for (const k of ALL_GOOGLE_OAUTH_VAULT_KEYS) {
-      const v = await vault.get(k);
-      if (v !== null && v !== "") {
-        snap[k] = v;
-      }
-    }
-    googleOAuthBackup = Object.keys(snap).length > 0 ? snap : null;
-  }
-  if (
-    normalizedForFamily !== null &&
-    MICROSOFT_CONNECTOR_SERVICES.has(normalizedForFamily) &&
-    sumItemsSiblingServices(db, normalizedForFamily, MICROSOFT_CONNECTOR_SERVICES) === 0
-  ) {
-    microsoftOAuthBackup = await vault.get("microsoft.oauth");
-  }
-  if (syncScheduler !== undefined) {
-    if (id === "github") {
-      syncScheduler.unregister("github_actions");
-    }
-    syncScheduler.unregister(id);
-  }
+  const [googleOAuthBackup, microsoftOAuthBackup] = await Promise.all([
+    snapshotGoogleOAuthIfLastFamilyMember(vault, db, normalizedForFamily),
+    snapshotMicrosoftOAuthIfLastFamilyMember(vault, db, normalizedForFamily),
+  ]);
+
+  unregisterConnectorFromSyncScheduler(syncScheduler, id);
   deleteUserMcpConnector(db, id);
-  let itemsDeleted = 0;
-  if (id === "github") {
-    itemsDeleted += localIndex.removeConnectorIndexData("github_actions");
-  }
-  itemsDeleted += localIndex.removeConnectorIndexData(id);
+  const itemsDeleted = removeConnectorIndexEntries(localIndex, id);
+
   let vaultKeys: string[] = [];
   try {
     vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
@@ -283,14 +332,7 @@ export async function handleConnectorRemove(
       vaultKeys.push(...(await clearConnectorVaultSecretKeys(vault, normalizedBuiltin)));
     }
   } catch (removeErr) {
-    if (googleOAuthBackup !== null) {
-      for (const [k, v] of Object.entries(googleOAuthBackup)) {
-        await vault.set(k, v);
-      }
-    }
-    if (microsoftOAuthBackup !== null) {
-      await vault.set("microsoft.oauth", microsoftOAuthBackup);
-    }
+    await restoreGoogleAndMicrosoftOAuthBackups(vault, googleOAuthBackup, microsoftOAuthBackup);
     throw removeErr;
   }
 
