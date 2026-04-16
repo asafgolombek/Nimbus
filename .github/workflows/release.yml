@@ -9,7 +9,8 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   # Single typecheck pass — no need to repeat across all build platforms
