@@ -20,6 +20,11 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ secrets.BENCHMARK_PUSH_TOKEN }}
+
       - name: Require benchmark push PAT
         env:
           BENCHMARK_PUSH_TOKEN: ${{ secrets.BENCHMARK_PUSH_TOKEN }}
@@ -28,11 +33,6 @@ jobs:
             echo "Missing repository secret BENCHMARK_PUSH_TOKEN (contents write for gh-pages benchmark pushes)." >&2
             exit 1
           fi
-
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          token: ${{ secrets.BENCHMARK_PUSH_TOKEN }}
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci

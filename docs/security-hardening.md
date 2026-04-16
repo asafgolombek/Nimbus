@@ -8,6 +8,7 @@ Items marked **Automated** run in CI; **Manual** require human sign-off before a
 | Trivy on dependency / config surface | **Automated** | `security.yml` job `trivy-scan` (filesystem scan of repo root; includes all workspace `package.json` and lockfiles) |
 | `cargo audit` (Tauri / `Cargo.lock`) | **Automated** | `security.yml` job `cargo-audit` (`packages/ui/src-tauri`) |
 | CodeQL JavaScript/TypeScript | **Automated** | `.github/workflows/codeql.yml` (entire monorepo, including MCP connector packages) |
+| OpenSSF Scorecard (supply chain SARIF) | **Automated** | `.github/workflows/scorecard.yml`; see [`SECURITY.md`](../SECURITY.md) for **Security-Policy** and items that need GitHub settings (branch protection, reviews) or external programs (OSS-Fuzz, CII badge) |
 | `pkce.ts` — no secrets in exchange-failure exceptions | **Automated** | `packages/gateway/src/auth/pkce.test.ts` (Google + Microsoft invalid_grant paths) |
 | `pkce.ts` / IPC / logs — full manual pass | **Manual** | Spot-check on material PKCE or IPC changes |
 | Connector layout — no per-connector `auth.ts` | **Automated** | `packages/gateway/test/e2e/scenarios/mcp-connector-structure.contract.test.ts` |

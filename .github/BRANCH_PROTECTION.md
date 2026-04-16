@@ -23,6 +23,20 @@ After workflows have run at least once, add as **required checks**:
 
 These are configured under **Settings → Code security and analysis**, not in workflow files.
 
+## OpenSSF Scorecard: Branch-Protection and Code-Review
+
+Scorecard’s **Branch-Protection** and **Code-Review** checks reflect **default-branch** settings (usually `main`), not YAML in this repo. To improve those scores:
+
+1. **Branch protection rule for `main`** (and `develop` if it is a protected merge target):
+   - Require a pull request before merging.
+   - Require approvals (at least one; use more for sensitive repos).
+   - Require status checks to pass (see the table above).
+   - Prefer **Require review from Code Owners** if you add a `CODEOWNERS` file.
+   - Enable **Do not allow bypassing the above settings** for administrators when your governance model allows it.
+2. **Code-Review** in Scorecard also considers review policy depth (e.g. dismiss stale reviews, required review on last push) — configure those in the same branch rule UI.
+
+See [`SECURITY.md`](../SECURITY.md) for other Scorecard items (fuzzing, CII badge) that need separate enrollment.
+
 ## Why both PR quality and CI matrix?
 
 - **PR quality** (single Ubuntu runner) gives fast feedback on every PR.

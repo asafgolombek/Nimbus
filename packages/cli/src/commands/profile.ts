@@ -55,22 +55,27 @@ Usage:
 `);
 }
 
+function fsErrorCode(e: unknown): string | undefined {
+  if (e !== null && typeof e === "object" && "code" in e) {
+    const c = (e as { code: unknown }).code;
+    return typeof c === "string" ? c : undefined;
+  }
+  return undefined;
+}
+
 function profileCreate(configDir: string, baseToml: string, tail: string[]): void {
   const name = tail[0]?.trim() ?? "";
   if (name === "" || name === "default") {
     throw new Error("Usage: nimbus profile create <name>");
   }
   const dest = join(configDir, `${PROFILE_PREFIX}${name}${PROFILE_SUFFIX}`);
-  if (existsSync(dest)) {
-    throw new Error(`Profile file already exists: ${dest}`);
-  }
   try {
     copyFileSync(baseToml, dest, fsConstants.COPYFILE_EXCL);
   } catch (e: unknown) {
-    const code =
-      e !== null && typeof e === "object" && "code" in e
-        ? (e as { code: unknown }).code
-        : undefined;
+    const code = fsErrorCode(e);
+    if (code === "EEXIST") {
+      throw new Error(`Profile file already exists: ${dest}`);
+    }
     if (code !== "ENOENT") {
       throw e;
     }

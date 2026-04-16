@@ -13,14 +13,18 @@ import { Database as BunDatabase, type Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -66,12 +70,13 @@ function snapshotsDir(dataDir: string): string {
  */
 export function takeSnapshot(db: Database, dataDir: string): string {
   const dir = snapshotsDir(dataDir);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
 
   const timestamp = Date.now();
   const uniq = randomUUID();
   const tmpPath = join(dir, `nimbus-${String(timestamp)}-${uniq}.db`);
   const gzPath = join(dir, `nimbus-${String(timestamp)}.db.gz`);
+  const gzPartial = join(dir, `nimbus-${String(timestamp)}-${uniq}.db.gz.partial`);
 
   db.run(`VACUUM INTO ?`, [tmpPath]);
   try {
@@ -82,7 +87,18 @@ export function takeSnapshot(db: Database, dataDir: string): string {
 
   const raw = readFileSync(tmpPath);
   const compressed = Bun.gzipSync(raw);
-  writeFileSync(gzPath, compressed, { mode: 0o600 });
+  const fd = openSync(gzPartial, "wx", 0o600);
+  try {
+    writeSync(fd, compressed);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameSync(gzPartial, gzPath);
+  } catch {
+    rmSync(gzPath, { force: true });
+    renameSync(gzPartial, gzPath);
+  }
 
   try {
     rmSync(tmpPath);
@@ -155,10 +171,9 @@ export function previewRestore(db: Database, snapshotPath: string): RestorePrevi
   const compressed = readFileSync(snapshotPath);
   const raw = Bun.gunzipSync(compressed);
 
-  // Write to a temp file to open it
-  const tmpPath = `${snapshotPath}.restore-preview.tmp`;
+  const tmpPath = join(dirname(snapshotPath), `.restore-preview-${randomUUID()}.tmp`);
   try {
-    writeFileSync(tmpPath, raw);
+    writeFileSync(tmpPath, raw, { mode: 0o600, flag: "wx" });
     const snapDb = new BunDatabase(tmpPath, { readonly: true });
     let snapCount = 0;
     try {

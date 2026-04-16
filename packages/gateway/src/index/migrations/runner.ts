@@ -2,12 +2,15 @@ import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
-  writeFileSync,
+  writeSync,
 } from "node:fs";
 import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
@@ -346,14 +349,16 @@ function writePreMigrationBackup(
   version: number,
   opts: MigrationBackupOptions,
 ): string {
-  mkdirSync(opts.backupDir, { recursive: true });
+  mkdirSync(opts.backupDir, { recursive: true, mode: 0o700 });
 
   const timestamp = Date.now();
+  const uniq = randomUUID();
   const tmpPath = join(
     opts.backupDir,
-    `pre-migration-${String(version)}-${String(timestamp)}-${randomUUID()}.db`,
+    `pre-migration-${String(version)}-${String(timestamp)}-${uniq}.db`,
   );
   const gzPath = `${tmpPath}.gz`;
+  const gzPartial = `${tmpPath}.${uniq}.gz.partial`;
 
   // VACUUM INTO creates a defragmented, WAL-checkpointed copy without locking
   // the source for longer than a read transaction.
@@ -364,11 +369,22 @@ function writePreMigrationBackup(
     /* best-effort */
   }
 
-  // readFileSync / Bun.gzipSync / writeFileSync are all synchronous —
+  // readFileSync / Bun.gzipSync / open+writeSync are all synchronous —
   // safe to call from the migration runner without async plumbing.
   const raw = readFileSync(tmpPath);
   const compressed = Bun.gzipSync(raw);
-  writeFileSync(gzPath, compressed, { mode: 0o600 });
+  const fd = openSync(gzPartial, "wx", 0o600);
+  try {
+    writeSync(fd, compressed);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameSync(gzPartial, gzPath);
+  } catch {
+    rmSync(gzPath, { force: true });
+    renameSync(gzPartial, gzPath);
+  }
 
   // Remove the uncompressed temp copy
   try {
