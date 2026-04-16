@@ -1,0 +1,30 @@
+# Configuration for actions/labeler
+
+'pkg:gateway':
+  - changed-files:
+    - any-glob-to-any-file: 'packages/gateway/**/*'
+
+'pkg:cli':
+  - changed-files:
+    - any-glob-to-any-file: 'packages/cli/**/*'
+
+'pkg:ui':
+  - changed-files:
+    - any-glob-to-any-file: 'packages/ui/**/*'
+
+'pkg:sdk':
+  - changed-files:
+    - any-glob-to-any-file: 'packages/sdk/**/*'
+
+'pkg:client':
+  - changed-files:
+    - any-glob-to-any-file: 'packages/client/**/*'
+
+'pkg:mcp':
+  - changed-files:
+    - any-glob-to-any-file: 'packages/mcp-connectors/**/*'
+
+'infra:ci':
+  - changed-files:
+    - any-glob-to-any-file: '.github/**/*'
+    - any-glob-to-any-file: 'scripts/ci/**/*'

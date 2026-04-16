@@ -18,144 +18,41 @@ import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { UserMcpConnectorRow } from "./user-mcp-store.ts";
 
-function googleDriveMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "google-drive", "src", "server.ts");
+const _LAZY_MESH_DIR = dirname(fileURLToPath(import.meta.url));
+const MCP_CONNECTORS_ROOT = join(_LAZY_MESH_DIR, "..", "..", "..", "mcp-connectors");
+
+function mcpConnectorServerScript(packageDir: string): string {
+  return join(MCP_CONNECTORS_ROOT, packageDir, "src", "server.ts");
 }
 
-function gmailMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "gmail", "src", "server.ts");
-}
+type LazyMcpSlot = {
+  client: MCPClient | undefined;
+  idleTimer: ReturnType<typeof setTimeout> | undefined;
+};
 
-function googlePhotosMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "google-photos", "src", "server.ts");
-}
+const LAZY_MESH = {
+  googleBundle: "mesh:google-bundle",
+  microsoftBundle: "mesh:microsoft-bundle",
+  github: "mesh:github",
+  gitlab: "mesh:gitlab",
+  bitbucket: "mesh:bitbucket",
+  slack: "mesh:slack",
+  linear: "mesh:linear",
+  jira: "mesh:jira",
+  notion: "mesh:notion",
+  confluence: "mesh:confluence",
+  discord: "mesh:discord",
+  jenkins: "mesh:jenkins",
+  circleci: "mesh:circleci",
+  pagerduty: "mesh:pagerduty",
+  kubernetes: "mesh:kubernetes",
+  phase3Bundle: "mesh:phase3-bundle",
+} as const;
 
-function onedriveMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "onedrive", "src", "server.ts");
-}
+const USER_MESH_PREFIX = "mesh:user:";
 
-function outlookMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "outlook", "src", "server.ts");
-}
-
-function teamsMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "teams", "src", "server.ts");
-}
-
-function githubMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "github", "src", "server.ts");
-}
-
-function githubActionsMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "github-actions", "src", "server.ts");
-}
-
-function gitlabMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "gitlab", "src", "server.ts");
-}
-
-function bitbucketMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "bitbucket", "src", "server.ts");
-}
-
-function slackMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "slack", "src", "server.ts");
-}
-
-function linearMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "linear", "src", "server.ts");
-}
-
-function jiraMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "jira", "src", "server.ts");
-}
-
-function notionMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "notion", "src", "server.ts");
-}
-
-function confluenceMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "confluence", "src", "server.ts");
-}
-
-function discordMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "discord", "src", "server.ts");
-}
-
-function jenkinsMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "jenkins", "src", "server.ts");
-}
-
-function circleciMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "circleci", "src", "server.ts");
-}
-
-function pagerdutyMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "pagerduty", "src", "server.ts");
-}
-
-function kubernetesMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "kubernetes", "src", "server.ts");
-}
-
-function awsMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "aws", "src", "server.ts");
-}
-
-function azureMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "azure", "src", "server.ts");
-}
-
-function gcpMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "gcp", "src", "server.ts");
-}
-
-function iacMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "iac", "src", "server.ts");
-}
-
-function grafanaMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "grafana", "src", "server.ts");
-}
-
-function sentryMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "sentry", "src", "server.ts");
-}
-
-function newrelicMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "newrelic", "src", "server.ts");
-}
-
-function datadogMcpScriptPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "mcp-connectors", "datadog", "src", "server.ts");
+function userMcpMeshKey(serviceId: string): string {
+  return `${USER_MESH_PREFIX}${serviceId}`;
 }
 
 /** MCP stdio `env` must be `Record<string, string>` (no undefined values). */
@@ -189,40 +86,8 @@ async function listLazyMeshClientTools(client: MCPClient | undefined): Promise<L
  */
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
-  private googleBundleClient: MCPClient | undefined;
-  private googleIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private microsoftBundleClient: MCPClient | undefined;
-  private microsoftIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private githubClient: MCPClient | undefined;
-  private githubIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private gitlabClient: MCPClient | undefined;
-  private gitlabIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private bitbucketClient: MCPClient | undefined;
-  private bitbucketIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private slackClient: MCPClient | undefined;
-  private slackIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private linearClient: MCPClient | undefined;
-  private linearIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private jiraClient: MCPClient | undefined;
-  private jiraIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private notionClient: MCPClient | undefined;
-  private notionIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private confluenceClient: MCPClient | undefined;
-  private confluenceIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private discordClient: MCPClient | undefined;
-  private discordIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private jenkinsClient: MCPClient | undefined;
-  private jenkinsIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private circleciClient: MCPClient | undefined;
-  private circleciIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private pagerdutyClient: MCPClient | undefined;
-  private pagerdutyIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private kubernetesClient: MCPClient | undefined;
-  private kubernetesIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private phase3BundleClient: MCPClient | undefined;
-  private phase3BundleIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  private readonly userMcpClients = new Map<string, MCPClient>();
-  private readonly userMcpIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Lazy MCP stdio children: built-in bundles use `LAZY_MESH.*`; user MCP uses `mesh:user:<serviceId>`. */
+  private readonly lazySlots = new Map<string, LazyMcpSlot>();
   private readonly listUserMcpConnectors: () => readonly UserMcpConnectorRow[];
   private readonly inactivityMs: number;
   private toolsEpoch = 0;
@@ -255,267 +120,51 @@ export class LazyConnectorMesh {
     this.toolsEpoch += 1;
   }
 
-  private clearGoogleIdleTimer(): void {
-    if (this.googleIdleTimer !== undefined) {
-      clearTimeout(this.googleIdleTimer);
-      this.googleIdleTimer = undefined;
+  private lazySlot(key: string): LazyMcpSlot {
+    let s = this.lazySlots.get(key);
+    if (s === undefined) {
+      s = { client: undefined, idleTimer: undefined };
+      this.lazySlots.set(key, s);
+    }
+    return s;
+  }
+
+  private getLazyClient(key: string): MCPClient | undefined {
+    return this.lazySlots.get(key)?.client ?? undefined;
+  }
+
+  private setLazyClient(key: string, client: MCPClient): void {
+    this.lazySlot(key).client = client;
+  }
+
+  private clearLazyIdle(key: string): void {
+    const s = this.lazySlots.get(key);
+    if (s?.idleTimer !== undefined) {
+      clearTimeout(s.idleTimer);
+      s.idleTimer = undefined;
     }
   }
 
-  private clearMicrosoftIdleTimer(): void {
-    if (this.microsoftIdleTimer !== undefined) {
-      clearTimeout(this.microsoftIdleTimer);
-      this.microsoftIdleTimer = undefined;
+  private scheduleLazyDisconnect(key: string): void {
+    this.clearLazyIdle(key);
+    const slot = this.lazySlot(key);
+    slot.idleTimer = setTimeout(() => {
+      slot.idleTimer = undefined;
+      void this.stopLazyClient(key);
+    }, this.inactivityMs);
+  }
+
+  private async stopLazyClient(key: string): Promise<void> {
+    this.clearLazyIdle(key);
+    const slot = this.lazySlots.get(key);
+    if (slot === undefined) {
+      return;
     }
-  }
-
-  private clearGithubIdleTimer(): void {
-    if (this.githubIdleTimer !== undefined) {
-      clearTimeout(this.githubIdleTimer);
-      this.githubIdleTimer = undefined;
+    const c = slot.client;
+    slot.client = undefined;
+    if (slot.idleTimer === undefined) {
+      this.lazySlots.delete(key);
     }
-  }
-
-  private clearGitlabIdleTimer(): void {
-    if (this.gitlabIdleTimer !== undefined) {
-      clearTimeout(this.gitlabIdleTimer);
-      this.gitlabIdleTimer = undefined;
-    }
-  }
-
-  private clearBitbucketIdleTimer(): void {
-    if (this.bitbucketIdleTimer !== undefined) {
-      clearTimeout(this.bitbucketIdleTimer);
-      this.bitbucketIdleTimer = undefined;
-    }
-  }
-
-  private clearSlackIdleTimer(): void {
-    if (this.slackIdleTimer !== undefined) {
-      clearTimeout(this.slackIdleTimer);
-      this.slackIdleTimer = undefined;
-    }
-  }
-
-  private clearLinearIdleTimer(): void {
-    if (this.linearIdleTimer !== undefined) {
-      clearTimeout(this.linearIdleTimer);
-      this.linearIdleTimer = undefined;
-    }
-  }
-
-  private clearJiraIdleTimer(): void {
-    if (this.jiraIdleTimer !== undefined) {
-      clearTimeout(this.jiraIdleTimer);
-      this.jiraIdleTimer = undefined;
-    }
-  }
-
-  private clearNotionIdleTimer(): void {
-    if (this.notionIdleTimer !== undefined) {
-      clearTimeout(this.notionIdleTimer);
-      this.notionIdleTimer = undefined;
-    }
-  }
-
-  private clearConfluenceIdleTimer(): void {
-    if (this.confluenceIdleTimer !== undefined) {
-      clearTimeout(this.confluenceIdleTimer);
-      this.confluenceIdleTimer = undefined;
-    }
-  }
-
-  private clearDiscordIdleTimer(): void {
-    if (this.discordIdleTimer !== undefined) {
-      clearTimeout(this.discordIdleTimer);
-      this.discordIdleTimer = undefined;
-    }
-  }
-
-  private clearJenkinsIdleTimer(): void {
-    if (this.jenkinsIdleTimer !== undefined) {
-      clearTimeout(this.jenkinsIdleTimer);
-      this.jenkinsIdleTimer = undefined;
-    }
-  }
-
-  private clearCircleciIdleTimer(): void {
-    if (this.circleciIdleTimer !== undefined) {
-      clearTimeout(this.circleciIdleTimer);
-      this.circleciIdleTimer = undefined;
-    }
-  }
-
-  private clearPagerdutyIdleTimer(): void {
-    if (this.pagerdutyIdleTimer !== undefined) {
-      clearTimeout(this.pagerdutyIdleTimer);
-      this.pagerdutyIdleTimer = undefined;
-    }
-  }
-
-  private clearKubernetesIdleTimer(): void {
-    if (this.kubernetesIdleTimer !== undefined) {
-      clearTimeout(this.kubernetesIdleTimer);
-      this.kubernetesIdleTimer = undefined;
-    }
-  }
-
-  private clearPhase3BundleIdleTimer(): void {
-    if (this.phase3BundleIdleTimer !== undefined) {
-      clearTimeout(this.phase3BundleIdleTimer);
-      this.phase3BundleIdleTimer = undefined;
-    }
-  }
-
-  private scheduleGoogleDisconnect(): void {
-    this.clearGoogleIdleTimer();
-    this.googleIdleTimer = setTimeout(() => {
-      this.googleIdleTimer = undefined;
-      void this.stopGoogleBundle();
-    }, this.inactivityMs);
-  }
-
-  private scheduleMicrosoftDisconnect(): void {
-    this.clearMicrosoftIdleTimer();
-    this.microsoftIdleTimer = setTimeout(() => {
-      this.microsoftIdleTimer = undefined;
-      void this.stopMicrosoftBundle();
-    }, this.inactivityMs);
-  }
-
-  private scheduleGithubDisconnect(): void {
-    this.clearGithubIdleTimer();
-    this.githubIdleTimer = setTimeout(() => {
-      this.githubIdleTimer = undefined;
-      void this.stopGithubClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleGitlabDisconnect(): void {
-    this.clearGitlabIdleTimer();
-    this.gitlabIdleTimer = setTimeout(() => {
-      this.gitlabIdleTimer = undefined;
-      void this.stopGitlabClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleBitbucketDisconnect(): void {
-    this.clearBitbucketIdleTimer();
-    this.bitbucketIdleTimer = setTimeout(() => {
-      this.bitbucketIdleTimer = undefined;
-      void this.stopBitbucketClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleSlackDisconnect(): void {
-    this.clearSlackIdleTimer();
-    this.slackIdleTimer = setTimeout(() => {
-      this.slackIdleTimer = undefined;
-      void this.stopSlackClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleLinearDisconnect(): void {
-    this.clearLinearIdleTimer();
-    this.linearIdleTimer = setTimeout(() => {
-      this.linearIdleTimer = undefined;
-      void this.stopLinearClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleJiraDisconnect(): void {
-    this.clearJiraIdleTimer();
-    this.jiraIdleTimer = setTimeout(() => {
-      this.jiraIdleTimer = undefined;
-      void this.stopJiraClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleNotionDisconnect(): void {
-    this.clearNotionIdleTimer();
-    this.notionIdleTimer = setTimeout(() => {
-      this.notionIdleTimer = undefined;
-      void this.stopNotionClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleConfluenceDisconnect(): void {
-    this.clearConfluenceIdleTimer();
-    this.confluenceIdleTimer = setTimeout(() => {
-      this.confluenceIdleTimer = undefined;
-      void this.stopConfluenceClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleDiscordDisconnect(): void {
-    this.clearDiscordIdleTimer();
-    this.discordIdleTimer = setTimeout(() => {
-      this.discordIdleTimer = undefined;
-      void this.stopDiscordClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleJenkinsDisconnect(): void {
-    this.clearJenkinsIdleTimer();
-    this.jenkinsIdleTimer = setTimeout(() => {
-      this.jenkinsIdleTimer = undefined;
-      void this.stopJenkinsClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleCircleciDisconnect(): void {
-    this.clearCircleciIdleTimer();
-    this.circleciIdleTimer = setTimeout(() => {
-      this.circleciIdleTimer = undefined;
-      void this.stopCircleciClient();
-    }, this.inactivityMs);
-  }
-
-  private schedulePagerdutyDisconnect(): void {
-    this.clearPagerdutyIdleTimer();
-    this.pagerdutyIdleTimer = setTimeout(() => {
-      this.pagerdutyIdleTimer = undefined;
-      void this.stopPagerdutyClient();
-    }, this.inactivityMs);
-  }
-
-  private scheduleKubernetesDisconnect(): void {
-    this.clearKubernetesIdleTimer();
-    this.kubernetesIdleTimer = setTimeout(() => {
-      this.kubernetesIdleTimer = undefined;
-      void this.stopKubernetesClient();
-    }, this.inactivityMs);
-  }
-
-  private schedulePhase3BundleDisconnect(): void {
-    this.clearPhase3BundleIdleTimer();
-    this.phase3BundleIdleTimer = setTimeout(() => {
-      this.phase3BundleIdleTimer = undefined;
-      void this.stopPhase3BundleClient();
-    }, this.inactivityMs);
-  }
-
-  private clearUserMcpIdleTimer(serviceId: string): void {
-    const t = this.userMcpIdleTimers.get(serviceId);
-    if (t !== undefined) {
-      clearTimeout(t);
-      this.userMcpIdleTimers.delete(serviceId);
-    }
-  }
-
-  private scheduleUserMcpDisconnect(serviceId: string): void {
-    this.clearUserMcpIdleTimer(serviceId);
-    const handle = setTimeout(() => {
-      this.userMcpIdleTimers.delete(serviceId);
-      void this.stopUserMcpClient(serviceId);
-    }, this.inactivityMs);
-    this.userMcpIdleTimers.set(serviceId, handle);
-  }
-
-  private async stopUserMcpClient(serviceId: string): Promise<void> {
-    this.clearUserMcpIdleTimer(serviceId);
-    const c = this.userMcpClients.get(serviceId);
-    this.userMcpClients.delete(serviceId);
     if (c !== undefined) {
       this.bumpToolsEpoch();
       try {
@@ -526,14 +175,19 @@ export class LazyConnectorMesh {
     }
   }
 
+  private async stopUserMcpClient(serviceId: string): Promise<void> {
+    await this.stopLazyClient(userMcpMeshKey(serviceId));
+  }
+
   private mcpServerKeyForUserConnector(serviceId: string): string {
     return serviceId.replaceAll(/[^a-zA-Z0-9_-]/g, "_");
   }
 
   private async ensureUserMcpClient(row: UserMcpConnectorRow): Promise<void> {
-    this.clearUserMcpIdleTimer(row.service_id);
-    if (this.userMcpClients.has(row.service_id)) {
-      this.scheduleUserMcpDisconnect(row.service_id);
+    const meshKey = userMcpMeshKey(row.service_id);
+    this.clearLazyIdle(meshKey);
+    if (this.getLazyClient(meshKey) !== undefined) {
+      this.scheduleLazyDisconnect(meshKey);
       return;
     }
     let args: string[];
@@ -557,15 +211,19 @@ export class LazyConnectorMesh {
         },
       },
     });
-    this.userMcpClients.set(row.service_id, client);
+    this.setLazyClient(meshKey, client);
     this.bumpToolsEpoch();
-    this.scheduleUserMcpDisconnect(row.service_id);
+    this.scheduleLazyDisconnect(meshKey);
   }
 
   private async ensureUserMcpConnectorsRunning(): Promise<void> {
     const rows = this.listUserMcpConnectors();
     const active = new Set(rows.map((r) => r.service_id));
-    for (const id of this.userMcpClients.keys()) {
+    for (const key of [...this.lazySlots.keys()]) {
+      if (!key.startsWith(USER_MESH_PREFIX)) {
+        continue;
+      }
+      const id = key.slice(USER_MESH_PREFIX.length);
       if (!active.has(id)) {
         await this.stopUserMcpClient(id);
       }
@@ -583,214 +241,6 @@ export class LazyConnectorMesh {
       return;
     }
     await this.ensureUserMcpClient(row);
-  }
-
-  private async stopGoogleBundle(): Promise<void> {
-    const c = this.googleBundleClient;
-    this.googleBundleClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopMicrosoftBundle(): Promise<void> {
-    const c = this.microsoftBundleClient;
-    this.microsoftBundleClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopGithubClient(): Promise<void> {
-    const c = this.githubClient;
-    this.githubClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopGitlabClient(): Promise<void> {
-    const c = this.gitlabClient;
-    this.gitlabClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopBitbucketClient(): Promise<void> {
-    const c = this.bitbucketClient;
-    this.bitbucketClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopSlackClient(): Promise<void> {
-    const c = this.slackClient;
-    this.slackClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopLinearClient(): Promise<void> {
-    const c = this.linearClient;
-    this.linearClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopJiraClient(): Promise<void> {
-    const c = this.jiraClient;
-    this.jiraClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopNotionClient(): Promise<void> {
-    const c = this.notionClient;
-    this.notionClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopConfluenceClient(): Promise<void> {
-    const c = this.confluenceClient;
-    this.confluenceClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopDiscordClient(): Promise<void> {
-    const c = this.discordClient;
-    this.discordClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopJenkinsClient(): Promise<void> {
-    const c = this.jenkinsClient;
-    this.jenkinsClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopCircleciClient(): Promise<void> {
-    const c = this.circleciClient;
-    this.circleciClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopPagerdutyClient(): Promise<void> {
-    const c = this.pagerdutyClient;
-    this.pagerdutyClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopKubernetesClient(): Promise<void> {
-    const c = this.kubernetesClient;
-    this.kubernetesClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  private async stopPhase3BundleClient(): Promise<void> {
-    const c = this.phase3BundleClient;
-    this.phase3BundleClient = undefined;
-    if (c !== undefined) {
-      this.bumpToolsEpoch();
-      try {
-        await c.disconnect();
-      } catch {
-        /* ignore */
-      }
-    }
   }
 
   private async phase3AddAwsMcp(
@@ -820,7 +270,7 @@ export class LazyConnectorMesh {
     }
     servers["aws"] = {
       command: "bun",
-      args: [awsMcpScriptPath()],
+      args: [mcpConnectorServerScript("aws")],
       env: compactProcessEnv(extra),
     };
   }
@@ -836,7 +286,7 @@ export class LazyConnectorMesh {
     }
     servers["azure"] = {
       command: "bun",
-      args: [azureMcpScriptPath()],
+      args: [mcpConnectorServerScript("azure")],
       env: compactProcessEnv({
         AZURE_TENANT_ID: azT,
         AZURE_CLIENT_ID: azC,
@@ -854,7 +304,7 @@ export class LazyConnectorMesh {
     }
     servers["gcp"] = {
       command: "bun",
-      args: [gcpMcpScriptPath()],
+      args: [mcpConnectorServerScript("gcp")],
       env: compactProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: gcpPath }),
     };
   }
@@ -868,7 +318,7 @@ export class LazyConnectorMesh {
     }
     servers["iac"] = {
       command: "bun",
-      args: [iacMcpScriptPath()],
+      args: [mcpConnectorServerScript("iac")],
       env: compactProcessEnv({}),
     };
   }
@@ -883,7 +333,7 @@ export class LazyConnectorMesh {
     }
     servers["grafana"] = {
       command: "bun",
-      args: [grafanaMcpScriptPath()],
+      args: [mcpConnectorServerScript("grafana")],
       env: compactProcessEnv({ GRAFANA_URL: gfu, GRAFANA_API_TOKEN: gtk }),
     };
   }
@@ -906,7 +356,7 @@ export class LazyConnectorMesh {
     }
     servers["sentry"] = {
       command: "bun",
-      args: [sentryMcpScriptPath()],
+      args: [mcpConnectorServerScript("sentry")],
       env: compactProcessEnv(extra),
     };
   }
@@ -920,7 +370,7 @@ export class LazyConnectorMesh {
     }
     servers["newrelic"] = {
       command: "bun",
-      args: [newrelicMcpScriptPath()],
+      args: [mcpConnectorServerScript("newrelic")],
       env: compactProcessEnv({ NEW_RELIC_API_KEY: nrKey }),
     };
   }
@@ -943,7 +393,7 @@ export class LazyConnectorMesh {
     }
     servers["datadog"] = {
       command: "bun",
-      args: [datadogMcpScriptPath()],
+      args: [mcpConnectorServerScript("datadog")],
       env: compactProcessEnv(extra),
     };
   }
@@ -970,21 +420,25 @@ export class LazyConnectorMesh {
    * Starts the Phase 3 MCP bundle (any of AWS / Azure / GCP / IaC / observability) when vault keys are present.
    */
   async ensurePhase3BundleRunning(): Promise<void> {
-    this.clearPhase3BundleIdleTimer();
-    if (this.phase3BundleClient !== undefined) {
-      this.schedulePhase3BundleDisconnect();
+    const slotKey = LAZY_MESH.phase3Bundle;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const servers = await this.buildPhase3Servers();
     if (Object.keys(servers).length === 0) {
       return;
     }
-    this.phase3BundleClient = new MCPClient({
-      id: `nimbus-phase3-${String(Date.now())}`,
-      servers,
-    });
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-phase3-${String(Date.now())}`,
+        servers,
+      }),
+    );
     this.bumpToolsEpoch();
-    this.schedulePhase3BundleDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
@@ -992,9 +446,10 @@ export class LazyConnectorMesh {
    * token exists (per-service keys or legacy `google.oauth`). Each server gets its own access token.
    */
   async ensureGoogleDriveRunning(): Promise<void> {
-    this.clearGoogleIdleTimer();
-    if (this.googleBundleClient !== undefined) {
-      this.scheduleGoogleDisconnect();
+    const slotKey = LAZY_MESH.googleBundle;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const googleServers: Record<
@@ -1011,19 +466,19 @@ export class LazyConnectorMesh {
       if (id === "google_drive") {
         googleServers["google_drive"] = {
           command: "bun",
-          args: [googleDriveMcpScriptPath()],
+          args: [mcpConnectorServerScript("google-drive")],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
         };
       } else if (id === "gmail") {
         googleServers["gmail"] = {
           command: "bun",
-          args: [gmailMcpScriptPath()],
+          args: [mcpConnectorServerScript("gmail")],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
         };
       } else {
         googleServers["google_photos"] = {
           command: "bun",
-          args: [googlePhotosMcpScriptPath()],
+          args: [mcpConnectorServerScript("google-photos")],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
         };
       }
@@ -1031,21 +486,25 @@ export class LazyConnectorMesh {
     if (Object.keys(googleServers).length === 0) {
       return;
     }
-    this.googleBundleClient = new MCPClient({
-      id: `nimbus-google-${String(Date.now())}`,
-      servers: googleServers,
-    });
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-google-${String(Date.now())}`,
+        servers: googleServers,
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleGoogleDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts OneDrive + Outlook + Teams MCP subprocesses when `microsoft.oauth` is present (shared token).
    */
   async ensureMicrosoftBundleRunning(): Promise<void> {
-    this.clearMicrosoftIdleTimer();
-    if (this.microsoftBundleClient !== undefined) {
-      this.scheduleMicrosoftDisconnect();
+    const slotKey = LAZY_MESH.microsoftBundle;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const token = await getValidMicrosoftAccessToken(this.vault);
@@ -1057,69 +516,77 @@ export class LazyConnectorMesh {
     if (outlookScopes !== undefined) {
       outlookEnv["MICROSOFT_OAUTH_SCOPES"] = outlookScopes;
     }
-    this.microsoftBundleClient = new MCPClient({
-      id: `nimbus-ms-${String(Date.now())}`,
-      servers: {
-        onedrive: {
-          command: "bun",
-          args: [onedriveMcpScriptPath()],
-          env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-ms-${String(Date.now())}`,
+        servers: {
+          onedrive: {
+            command: "bun",
+            args: [mcpConnectorServerScript("onedrive")],
+            env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+          },
+          outlook: {
+            command: "bun",
+            args: [mcpConnectorServerScript("outlook")],
+            env: outlookEnv,
+          },
+          teams: {
+            command: "bun",
+            args: [mcpConnectorServerScript("teams")],
+            env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+          },
         },
-        outlook: {
-          command: "bun",
-          args: [outlookMcpScriptPath()],
-          env: outlookEnv,
-        },
-        teams: {
-          command: "bun",
-          args: [teamsMcpScriptPath()],
-          env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
-        },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleMicrosoftDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts GitHub MCP when `github.pat` is present in the Vault.
    */
   async ensureGithubRunning(): Promise<void> {
-    this.clearGithubIdleTimer();
-    if (this.githubClient !== undefined) {
-      this.scheduleGithubDisconnect();
+    const slotKey = LAZY_MESH.github;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const pat = await this.vault.get("github.pat");
     if (pat === null || pat === "") {
       return;
     }
-    this.githubClient = new MCPClient({
-      id: `nimbus-github-${String(Date.now())}`,
-      servers: {
-        github: {
-          command: "bun",
-          args: [githubMcpScriptPath()],
-          env: { ...process.env, GITHUB_PAT: pat },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-github-${String(Date.now())}`,
+        servers: {
+          github: {
+            command: "bun",
+            args: [mcpConnectorServerScript("github")],
+            env: { ...process.env, GITHUB_PAT: pat },
+          },
+          github_actions: {
+            command: "bun",
+            args: [mcpConnectorServerScript("github-actions")],
+            env: { ...process.env, GITHUB_PAT: pat },
+          },
         },
-        github_actions: {
-          command: "bun",
-          args: [githubActionsMcpScriptPath()],
-          env: { ...process.env, GITHUB_PAT: pat },
-        },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleGithubDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts GitLab MCP when `gitlab.pat` is present in the Vault.
    */
   async ensureGitlabRunning(): Promise<void> {
-    this.clearGitlabIdleTimer();
-    if (this.gitlabClient !== undefined) {
-      this.scheduleGitlabDisconnect();
+    const slotKey = LAZY_MESH.gitlab;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const pat = await this.vault.get("gitlab.pat");
@@ -1133,27 +600,31 @@ export class LazyConnectorMesh {
       trimmedBase === null
         ? { ...process.env, GITLAB_PAT: pat }
         : { ...process.env, GITLAB_PAT: pat, GITLAB_API_BASE_URL: trimmedBase };
-    this.gitlabClient = new MCPClient({
-      id: `nimbus-gitlab-${String(Date.now())}`,
-      servers: {
-        gitlab: {
-          command: "bun",
-          args: [gitlabMcpScriptPath()],
-          env: gitlabServerEnv,
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-gitlab-${String(Date.now())}`,
+        servers: {
+          gitlab: {
+            command: "bun",
+            args: [mcpConnectorServerScript("gitlab")],
+            env: gitlabServerEnv,
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleGitlabDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Bitbucket Cloud MCP when `bitbucket.username` + `bitbucket.app_password` exist in the Vault.
    */
   async ensureBitbucketRunning(): Promise<void> {
-    this.clearBitbucketIdleTimer();
-    if (this.bitbucketClient !== undefined) {
-      this.scheduleBitbucketDisconnect();
+    const slotKey = LAZY_MESH.bitbucket;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const user = await this.vault.get("bitbucket.username");
@@ -1161,31 +632,35 @@ export class LazyConnectorMesh {
     if (user === null || user === "" || pass === null || pass === "") {
       return;
     }
-    this.bitbucketClient = new MCPClient({
-      id: `nimbus-bitbucket-${String(Date.now())}`,
-      servers: {
-        bitbucket: {
-          command: "bun",
-          args: [bitbucketMcpScriptPath()],
-          env: {
-            ...process.env,
-            BITBUCKET_USERNAME: user,
-            BITBUCKET_APP_PASSWORD: pass,
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-bitbucket-${String(Date.now())}`,
+        servers: {
+          bitbucket: {
+            command: "bun",
+            args: [mcpConnectorServerScript("bitbucket")],
+            env: {
+              ...process.env,
+              BITBUCKET_USERNAME: user,
+              BITBUCKET_APP_PASSWORD: pass,
+            },
           },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleBitbucketDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Slack MCP when `slack.oauth` is present in the Vault.
    */
   async ensureSlackRunning(): Promise<void> {
-    this.clearSlackIdleTimer();
-    if (this.slackClient !== undefined) {
-      this.scheduleSlackDisconnect();
+    const slotKey = LAZY_MESH.slack;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     let token: string;
@@ -1197,54 +672,62 @@ export class LazyConnectorMesh {
     if (token === "") {
       return;
     }
-    this.slackClient = new MCPClient({
-      id: `nimbus-slack-${String(Date.now())}`,
-      servers: {
-        slack: {
-          command: "bun",
-          args: [slackMcpScriptPath()],
-          env: { ...process.env, SLACK_USER_ACCESS_TOKEN: token },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-slack-${String(Date.now())}`,
+        servers: {
+          slack: {
+            command: "bun",
+            args: [mcpConnectorServerScript("slack")],
+            env: { ...process.env, SLACK_USER_ACCESS_TOKEN: token },
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleSlackDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Linear MCP when `linear.api_key` is present in the Vault.
    */
   async ensureLinearRunning(): Promise<void> {
-    this.clearLinearIdleTimer();
-    if (this.linearClient !== undefined) {
-      this.scheduleLinearDisconnect();
+    const slotKey = LAZY_MESH.linear;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const key = await this.vault.get("linear.api_key");
-    if (key === null || key === "") {
+    const apiKey = await this.vault.get("linear.api_key");
+    if (apiKey === null || apiKey === "") {
       return;
     }
-    this.linearClient = new MCPClient({
-      id: `nimbus-linear-${String(Date.now())}`,
-      servers: {
-        linear: {
-          command: "bun",
-          args: [linearMcpScriptPath()],
-          env: { ...process.env, LINEAR_API_KEY: key },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-linear-${String(Date.now())}`,
+        servers: {
+          linear: {
+            command: "bun",
+            args: [mcpConnectorServerScript("linear")],
+            env: { ...process.env, LINEAR_API_KEY: apiKey },
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleLinearDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Jira MCP when `jira.api_token`, `jira.email`, and `jira.base_url` are present in the Vault.
    */
   async ensureJiraRunning(): Promise<void> {
-    this.clearJiraIdleTimer();
-    if (this.jiraClient !== undefined) {
-      this.scheduleJiraDisconnect();
+    const slotKey = LAZY_MESH.jira;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const token = await this.vault.get("jira.api_token");
@@ -1260,32 +743,36 @@ export class LazyConnectorMesh {
     ) {
       return;
     }
-    this.jiraClient = new MCPClient({
-      id: `nimbus-jira-${String(Date.now())}`,
-      servers: {
-        jira: {
-          command: "bun",
-          args: [jiraMcpScriptPath()],
-          env: {
-            ...process.env,
-            JIRA_API_TOKEN: token,
-            JIRA_EMAIL: email,
-            JIRA_BASE_URL: baseUrl,
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-jira-${String(Date.now())}`,
+        servers: {
+          jira: {
+            command: "bun",
+            args: [mcpConnectorServerScript("jira")],
+            env: {
+              ...process.env,
+              JIRA_API_TOKEN: token,
+              JIRA_EMAIL: email,
+              JIRA_BASE_URL: baseUrl,
+            },
           },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleJiraDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Notion MCP when `notion.oauth` is present and a valid access token can be resolved.
    */
   async ensureNotionRunning(): Promise<void> {
-    this.clearNotionIdleTimer();
-    if (this.notionClient !== undefined) {
-      this.scheduleNotionDisconnect();
+    const slotKey = LAZY_MESH.notion;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const raw = await this.vault.get("notion.oauth");
@@ -1301,27 +788,31 @@ export class LazyConnectorMesh {
     if (accessToken === "") {
       return;
     }
-    this.notionClient = new MCPClient({
-      id: `nimbus-notion-${String(Date.now())}`,
-      servers: {
-        notion: {
-          command: "bun",
-          args: [notionMcpScriptPath()],
-          env: { ...process.env, NOTION_ACCESS_TOKEN: accessToken },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-notion-${String(Date.now())}`,
+        servers: {
+          notion: {
+            command: "bun",
+            args: [mcpConnectorServerScript("notion")],
+            env: { ...process.env, NOTION_ACCESS_TOKEN: accessToken },
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleNotionDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Confluence MCP when Confluence vault keys are present.
    */
   async ensureConfluenceRunning(): Promise<void> {
-    this.clearConfluenceIdleTimer();
-    if (this.confluenceClient !== undefined) {
-      this.scheduleConfluenceDisconnect();
+    const slotKey = LAZY_MESH.confluence;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const token = await this.vault.get("confluence.api_token");
@@ -1337,32 +828,36 @@ export class LazyConnectorMesh {
     ) {
       return;
     }
-    this.confluenceClient = new MCPClient({
-      id: `nimbus-confluence-${String(Date.now())}`,
-      servers: {
-        confluence: {
-          command: "bun",
-          args: [confluenceMcpScriptPath()],
-          env: {
-            ...process.env,
-            CONFLUENCE_API_TOKEN: token,
-            CONFLUENCE_EMAIL: em,
-            CONFLUENCE_BASE_URL: baseUrl,
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-confluence-${String(Date.now())}`,
+        servers: {
+          confluence: {
+            command: "bun",
+            args: [mcpConnectorServerScript("confluence")],
+            env: {
+              ...process.env,
+              CONFLUENCE_API_TOKEN: token,
+              CONFLUENCE_EMAIL: em,
+              CONFLUENCE_BASE_URL: baseUrl,
+            },
           },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleConfluenceDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Discord MCP when `discord.enabled` is `1` and `discord.bot_token` is set (Q2 §4.3 opt-in).
    */
   async ensureDiscordRunning(): Promise<void> {
-    this.clearDiscordIdleTimer();
-    if (this.discordClient !== undefined) {
-      this.scheduleDiscordDisconnect();
+    const slotKey = LAZY_MESH.discord;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const enabled = await this.vault.get("discord.enabled");
@@ -1370,27 +865,31 @@ export class LazyConnectorMesh {
     if (enabled !== "1" || token === null || token === "") {
       return;
     }
-    this.discordClient = new MCPClient({
-      id: `nimbus-discord-${String(Date.now())}`,
-      servers: {
-        discord: {
-          command: "bun",
-          args: [discordMcpScriptPath()],
-          env: { ...process.env, DISCORD_BOT_TOKEN: token },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-discord-${String(Date.now())}`,
+        servers: {
+          discord: {
+            command: "bun",
+            args: [mcpConnectorServerScript("discord")],
+            env: { ...process.env, DISCORD_BOT_TOKEN: token },
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleDiscordDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Jenkins MCP when `jenkins.base_url`, `jenkins.username`, and `jenkins.api_token` are present in the Vault.
    */
   async ensureJenkinsRunning(): Promise<void> {
-    this.clearJenkinsIdleTimer();
-    if (this.jenkinsClient !== undefined) {
-      this.scheduleJenkinsDisconnect();
+    const slotKey = LAZY_MESH.jenkins;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const baseRaw = await this.vault.get("jenkins.base_url");
@@ -1407,86 +906,98 @@ export class LazyConnectorMesh {
       return;
     }
     const base = stripTrailingSlashes(baseRaw.trim());
-    this.jenkinsClient = new MCPClient({
-      id: `nimbus-jenkins-${String(Date.now())}`,
-      servers: {
-        jenkins: {
-          command: "bun",
-          args: [jenkinsMcpScriptPath()],
-          env: {
-            ...process.env,
-            JENKINS_BASE_URL: base,
-            JENKINS_USERNAME: user.trim(),
-            JENKINS_API_TOKEN: token.trim(),
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-jenkins-${String(Date.now())}`,
+        servers: {
+          jenkins: {
+            command: "bun",
+            args: [mcpConnectorServerScript("jenkins")],
+            env: {
+              ...process.env,
+              JENKINS_BASE_URL: base,
+              JENKINS_USERNAME: user.trim(),
+              JENKINS_API_TOKEN: token.trim(),
+            },
           },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleJenkinsDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts CircleCI MCP when `circleci.api_token` is present in the Vault.
    */
   async ensureCircleciRunning(): Promise<void> {
-    this.clearCircleciIdleTimer();
-    if (this.circleciClient !== undefined) {
-      this.scheduleCircleciDisconnect();
+    const slotKey = LAZY_MESH.circleci;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const tok = await this.vault.get("circleci.api_token");
     if (tok === null || tok.trim() === "") {
       return;
     }
-    this.circleciClient = new MCPClient({
-      id: `nimbus-circleci-${String(Date.now())}`,
-      servers: {
-        circleci: {
-          command: "bun",
-          args: [circleciMcpScriptPath()],
-          env: { ...process.env, CIRCLECI_API_TOKEN: tok.trim() },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-circleci-${String(Date.now())}`,
+        servers: {
+          circleci: {
+            command: "bun",
+            args: [mcpConnectorServerScript("circleci")],
+            env: { ...process.env, CIRCLECI_API_TOKEN: tok.trim() },
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleCircleciDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts PagerDuty MCP when `pagerduty.api_token` is present in the Vault.
    */
   async ensurePagerdutyRunning(): Promise<void> {
-    this.clearPagerdutyIdleTimer();
-    if (this.pagerdutyClient !== undefined) {
-      this.schedulePagerdutyDisconnect();
+    const slotKey = LAZY_MESH.pagerduty;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const tok = await this.vault.get("pagerduty.api_token");
     if (tok === null || tok.trim() === "") {
       return;
     }
-    this.pagerdutyClient = new MCPClient({
-      id: `nimbus-pagerduty-${String(Date.now())}`,
-      servers: {
-        pagerduty: {
-          command: "bun",
-          args: [pagerdutyMcpScriptPath()],
-          env: { ...process.env, PAGERDUTY_API_TOKEN: tok.trim() },
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-pagerduty-${String(Date.now())}`,
+        servers: {
+          pagerduty: {
+            command: "bun",
+            args: [mcpConnectorServerScript("pagerduty")],
+            env: { ...process.env, PAGERDUTY_API_TOKEN: tok.trim() },
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.schedulePagerdutyDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   /**
    * Starts Kubernetes MCP when `kubernetes.kubeconfig` is set (path to kubeconfig file).
    */
   async ensureKubernetesRunning(): Promise<void> {
-    this.clearKubernetesIdleTimer();
-    if (this.kubernetesClient !== undefined) {
-      this.scheduleKubernetesDisconnect();
+    const slotKey = LAZY_MESH.kubernetes;
+    this.clearLazyIdle(slotKey);
+    if (this.getLazyClient(slotKey) !== undefined) {
+      this.scheduleLazyDisconnect(slotKey);
       return;
     }
     const kc = await this.vault.get("kubernetes.kubeconfig");
@@ -1498,18 +1009,21 @@ export class LazyConnectorMesh {
     if (ctxRaw !== null && ctxRaw.trim() !== "") {
       kubeExtra["KUBE_CONTEXT"] = ctxRaw.trim();
     }
-    this.kubernetesClient = new MCPClient({
-      id: `nimbus-kubernetes-${String(Date.now())}`,
-      servers: {
-        kubernetes: {
-          command: "bun",
-          args: [kubernetesMcpScriptPath()],
-          env: compactProcessEnv(kubeExtra),
+    this.setLazyClient(
+      slotKey,
+      new MCPClient({
+        id: `nimbus-kubernetes-${String(Date.now())}`,
+        servers: {
+          kubernetes: {
+            command: "bun",
+            args: [mcpConnectorServerScript("kubernetes")],
+            env: compactProcessEnv(kubeExtra),
+          },
         },
-      },
-    });
+      }),
+    );
     this.bumpToolsEpoch();
-    this.scheduleKubernetesDisconnect();
+    this.scheduleLazyDisconnect(slotKey);
   }
 
   private async ensureIfVaultKeyNonEmpty(key: string, run: () => Promise<void>): Promise<void> {
@@ -1625,25 +1139,31 @@ export class LazyConnectorMesh {
     await this.ensureUserMcpConnectorsRunning();
 
     const fsTools = await this.filesystem.listTools();
-    const gdTools = await listLazyMeshClientTools(this.googleBundleClient);
-    const msTools = await listLazyMeshClientTools(this.microsoftBundleClient);
-    const ghTools = await listLazyMeshClientTools(this.githubClient);
-    const glTools = await listLazyMeshClientTools(this.gitlabClient);
-    const bbTools = await listLazyMeshClientTools(this.bitbucketClient);
-    const slackTools = await listLazyMeshClientTools(this.slackClient);
-    const linearTools = await listLazyMeshClientTools(this.linearClient);
-    const jiraTools = await listLazyMeshClientTools(this.jiraClient);
-    const notionTools = await listLazyMeshClientTools(this.notionClient);
-    const confluenceTools = await listLazyMeshClientTools(this.confluenceClient);
-    const discordTools = await listLazyMeshClientTools(this.discordClient);
-    const jenkinsTools = await listLazyMeshClientTools(this.jenkinsClient);
-    const circleciTools = await listLazyMeshClientTools(this.circleciClient);
-    const pagerdutyTools = await listLazyMeshClientTools(this.pagerdutyClient);
-    const kubernetesTools = await listLazyMeshClientTools(this.kubernetesClient);
-    const phase3Tools = await listLazyMeshClientTools(this.phase3BundleClient);
+    const gdTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.googleBundle));
+    const msTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.microsoftBundle));
+    const ghTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.github));
+    const glTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.gitlab));
+    const bbTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.bitbucket));
+    const slackTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.slack));
+    const linearTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.linear));
+    const jiraTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.jira));
+    const notionTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.notion));
+    const confluenceTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.confluence));
+    const discordTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.discord));
+    const jenkinsTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.jenkins));
+    const circleciTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.circleci));
+    const pagerdutyTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.pagerduty));
+    const kubernetesTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.kubernetes));
+    const phase3Tools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.phase3Bundle));
     let userMcpMerged: LazyMeshToolMap = {};
-    for (const c of this.userMcpClients.values()) {
-      userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
+    for (const [meshKey, slot] of this.lazySlots) {
+      if (!meshKey.startsWith(USER_MESH_PREFIX)) {
+        continue;
+      }
+      const c = slot.client;
+      if (c !== undefined) {
+        userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
+      }
     }
     return {
       ...fsTools,
@@ -1668,44 +1188,9 @@ export class LazyConnectorMesh {
   }
 
   async disconnect(): Promise<void> {
-    this.clearGoogleIdleTimer();
-    this.clearMicrosoftIdleTimer();
-    this.clearGithubIdleTimer();
-    this.clearGitlabIdleTimer();
-    this.clearBitbucketIdleTimer();
-    this.clearSlackIdleTimer();
-    this.clearLinearIdleTimer();
-    this.clearJiraIdleTimer();
-    this.clearNotionIdleTimer();
-    this.clearConfluenceIdleTimer();
-    this.clearDiscordIdleTimer();
-    this.clearJenkinsIdleTimer();
-    this.clearCircleciIdleTimer();
-    this.clearPagerdutyIdleTimer();
-    this.clearKubernetesIdleTimer();
-    this.clearPhase3BundleIdleTimer();
-    for (const id of this.userMcpIdleTimers.keys()) {
-      this.clearUserMcpIdleTimer(id);
+    for (const key of [...this.lazySlots.keys()]) {
+      await this.stopLazyClient(key);
     }
-    for (const id of this.userMcpClients.keys()) {
-      await this.stopUserMcpClient(id);
-    }
-    await this.stopGoogleBundle();
-    await this.stopMicrosoftBundle();
-    await this.stopGithubClient();
-    await this.stopGitlabClient();
-    await this.stopBitbucketClient();
-    await this.stopSlackClient();
-    await this.stopLinearClient();
-    await this.stopJiraClient();
-    await this.stopNotionClient();
-    await this.stopConfluenceClient();
-    await this.stopDiscordClient();
-    await this.stopJenkinsClient();
-    await this.stopCircleciClient();
-    await this.stopPagerdutyClient();
-    await this.stopKubernetesClient();
-    await this.stopPhase3BundleClient();
     try {
       await this.filesystem.disconnect();
     } catch {

@@ -3,6 +3,7 @@ import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 
 import { Config } from "../config.ts";
+import { CONNECTOR_SERVICE_IDS } from "../connectors/connector-catalog.ts";
 import { getConnectorHealth } from "../connectors/health.ts";
 import type { IndexSearchQuery, LocalIndex, TraverseGraphOptions } from "../index/local-index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
@@ -13,6 +14,13 @@ import {
   formatConnectorHealthCaveatForIndexSearch,
 } from "./connector-health-caveat.ts";
 import { buildContextWindow } from "./context-ranker.ts";
+
+/** Max length for free-text tool string args (search queries, paths fragments, etc.). */
+const MAX_TOOL_STRING_LEN = 2000;
+
+function clipToolString(s: string, max = MAX_TOOL_STRING_LEN): string {
+  return s.length > max ? s.slice(0, max) : s;
+}
 
 function isStringArray(xs: unknown): xs is string[] {
   return Array.isArray(xs) && xs.every((x) => typeof x === "string");
@@ -51,10 +59,15 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         inputData !== null && typeof inputData === "object" && !Array.isArray(inputData)
           ? (inputData as Record<string, unknown>)
           : {};
-      const name = typeof q["name"] === "string" ? q["name"] : undefined;
+      const name =
+        typeof q["name"] === "string" ? clipToolString(q["name"].trim()) || undefined : undefined;
       const serviceRaw = typeof q["service"] === "string" ? q["service"] : undefined;
-      const service = serviceRaw === undefined ? undefined : serviceRaw.trim();
-      const itemType = typeof q["itemType"] === "string" ? q["itemType"] : undefined;
+      const service =
+        serviceRaw === undefined ? undefined : clipToolString(serviceRaw.trim()) || undefined;
+      const itemType =
+        typeof q["itemType"] === "string"
+          ? clipToolString(q["itemType"].trim()) || undefined
+          : undefined;
       const limit =
         typeof q["limit"] === "number" && Number.isFinite(q["limit"])
           ? Math.min(500, Math.max(1, Math.floor(q["limit"])))
@@ -103,8 +116,9 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         inputData !== null && typeof inputData === "object" && !Array.isArray(inputData)
           ? (inputData as Record<string, unknown>)
           : {};
-      const service = typeof q["service"] === "string" ? q["service"].trim() : "";
-      const indexedType = typeof q["indexedType"] === "string" ? q["indexedType"].trim() : "";
+      const service = typeof q["service"] === "string" ? clipToolString(q["service"].trim()) : "";
+      const indexedType =
+        typeof q["indexedType"] === "string" ? clipToolString(q["indexedType"].trim()) : "";
       const offset =
         typeof q["offset"] === "number" && Number.isFinite(q["offset"])
           ? Math.max(0, Math.floor(q["offset"]))
@@ -143,7 +157,8 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         inputData !== null && typeof inputData === "object" && !Array.isArray(inputData)
           ? (inputData as Record<string, unknown>)
           : {};
-      const startRef = typeof q["entityId"] === "string" ? q["entityId"].trim() : "";
+      const startRef =
+        typeof q["entityId"] === "string" ? clipToolString(q["entityId"].trim()) : "";
       if (startRef === "") {
         return { error: "entityId must be a non-empty string (item id or graph entity id)" };
       }
@@ -153,7 +168,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
       }
       const relationTypesRaw = q["relationTypes"];
       if (isStringArray(relationTypesRaw)) {
-        opts.relationTypes = relationTypesRaw;
+        opts.relationTypes = relationTypesRaw.map((x) => clipToolString(x));
       }
       return deps.localIndex.traverseGraph(startRef, opts);
     },
@@ -168,7 +183,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         inputData !== null && typeof inputData === "object" && !Array.isArray(inputData)
           ? (inputData as Record<string, unknown>)
           : {};
-      const queryText = typeof q["query"] === "string" ? q["query"] : "";
+      const queryText = typeof q["query"] === "string" ? clipToolString(q["query"].trim()) : "";
       if (queryText.trim() === "") {
         return { candidates: [] as const, error: "query must be a non-empty string" };
       }
@@ -194,43 +209,31 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
     },
   });
 
+  const listConnectorsStaticFallback: readonly string[] = ["filesystem", ...CONNECTOR_SERVICE_IDS];
+
   const listConnectors = createTool({
     id: "listConnectors",
     description:
-      "List first-party index/sync connector service ids shipped in Nimbus (filesystem is always available; cloud MCPs lazy-start when credentials exist in the Vault — see lazy mesh / connector catalog).",
-    execute: async () => ({
-      connectors: [
-        "filesystem",
-        "google_drive",
-        "gmail",
-        "google_photos",
-        "onedrive",
-        "outlook",
-        "teams",
-        "github",
-        "github_actions",
-        "gitlab",
-        "bitbucket",
-        "slack",
-        "linear",
-        "jira",
-        "notion",
-        "confluence",
-        "discord",
-        "jenkins",
-        "circleci",
-        "pagerduty",
-        "kubernetes",
-        "aws",
-        "azure",
-        "gcp",
-        "iac",
-        "grafana",
-        "sentry",
-        "newrelic",
-        "datadog",
-      ] as const,
-    }),
+      "List connector service ids: rows from the local index `sync_state` when present, otherwise the full first-party catalog (filesystem is always included; cloud MCPs lazy-start when credentials exist in the Vault).",
+    execute: async () => {
+      try {
+        const db = deps.localIndex.getDatabase();
+        const rows = db
+          .query(`SELECT DISTINCT connector_id FROM sync_state ORDER BY connector_id`)
+          .all() as Array<{ connector_id: string }>;
+        const fromDb = rows
+          .map((r) => r.connector_id)
+          .filter((id) => typeof id === "string" && id.trim() !== "")
+          .map((id) => id.trim());
+        if (fromDb.length === 0) {
+          return { connectors: [...listConnectorsStaticFallback] };
+        }
+        const merged = new Set<string>(["filesystem", ...fromDb]);
+        return { connectors: [...merged].sort((a, b) => a.localeCompare(b)) };
+      } catch {
+        return { connectors: [...listConnectorsStaticFallback] };
+      }
+    },
   });
 
   const getAuditLog = createTool({
@@ -265,7 +268,8 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
               typeof q["sessionId"] === "string" && q["sessionId"].trim() !== ""
                 ? q["sessionId"].trim()
                 : getAgentRequestSessionId();
-            const queryText = typeof q["query"] === "string" ? q["query"].trim() : "";
+            const queryText =
+              typeof q["query"] === "string" ? clipToolString(q["query"].trim()) : "";
             if (sid === undefined || sid === "") {
               return {
                 error: "No sessionId — pass sessionId on agent.invoke or as a tool argument.",
@@ -303,7 +307,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
               typeof q["sessionId"] === "string" && q["sessionId"].trim() !== ""
                 ? q["sessionId"].trim()
                 : getAgentRequestSessionId();
-            const text = typeof q["text"] === "string" ? q["text"].trim() : "";
+            const text = typeof q["text"] === "string" ? clipToolString(q["text"].trim()) : "";
             const roleRaw = typeof q["role"] === "string" ? q["role"].trim() : "";
             if (sid === undefined || sid === "") {
               return {

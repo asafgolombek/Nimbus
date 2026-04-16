@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import type { Agent } from "@mastra/core/agent";
 
 import type { LocalIndex } from "../index/local-index.ts";
@@ -34,17 +35,27 @@ To get started, connect a service and run an initial sync:
 
 Then try your question again, or run nimbus doctor for a health summary.`;
 
+/** Short TTL cache so repeated `runAsk` turns do not each pay `COUNT(*)` on large FTS tables. */
+const INDEX_ITEM_COUNT_CACHE = new WeakMap<Database, { at: number; value: number }>();
+const INDEX_ITEM_COUNT_TTL_MS = 8000;
+
 /** Item count when the DB is reachable; `undefined` if we cannot query (e.g. test stubs without `getDatabase`). */
 function countIndexedItems(localIndex: LocalIndex): number | undefined {
   if (typeof localIndex.getDatabase !== "function") {
     return undefined;
   }
   try {
-    const row = localIndex.getDatabase().query(`SELECT COUNT(*) AS c FROM item`).get() as {
-      c: number;
-    } | null;
+    const db = localIndex.getDatabase();
+    const now = Date.now();
+    const hit = INDEX_ITEM_COUNT_CACHE.get(db);
+    if (hit !== undefined && now - hit.at < INDEX_ITEM_COUNT_TTL_MS) {
+      return hit.value;
+    }
+    const row = db.query(`SELECT COUNT(*) AS c FROM item`).get() as { c: number } | null;
     const c = row?.c;
-    return typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0;
+    const value = typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0;
+    INDEX_ITEM_COUNT_CACHE.set(db, { at: now, value });
+    return value;
   } catch {
     return undefined;
   }

@@ -15,6 +15,7 @@ import {
   normalizeConnectorServiceId,
   oauthProfileForService,
 } from "../connectors/connector-catalog.ts";
+import { clearConnectorVaultSecretKeys } from "../connectors/connector-secrets-manifest.ts";
 import {
   ALL_GOOGLE_OAUTH_VAULT_KEYS,
   clearOAuthVaultIfProviderUnused,
@@ -50,102 +51,6 @@ import {
   resolveConnectorListFilterServiceId,
   sumItemsSiblingServices,
 } from "./connector-rpc-shared.ts";
-
-/** PATs / API keys cleared when removing a connector (OAuth keys use {@link clearOAuthVaultIfProviderUnused}). */
-async function deleteConnectorPatAndTokenKeys(
-  vault: NimbusVault,
-  id: ConnectorServiceId,
-): Promise<string[]> {
-  switch (id) {
-    case "github":
-      await vault.delete("github.pat");
-      return ["github.pat"];
-    case "gitlab":
-      await vault.delete("gitlab.pat");
-      await vault.delete("gitlab.api_base");
-      return ["gitlab.pat", "gitlab.api_base"];
-    case "bitbucket":
-      await vault.delete("bitbucket.username");
-      await vault.delete("bitbucket.app_password");
-      return ["bitbucket.username", "bitbucket.app_password"];
-    case "slack":
-      await vault.delete("slack.oauth");
-      return ["slack.oauth"];
-    case "linear":
-      await vault.delete("linear.api_key");
-      return ["linear.api_key"];
-    case "jira":
-      await vault.delete("jira.api_token");
-      await vault.delete("jira.email");
-      await vault.delete("jira.base_url");
-      return ["jira.api_token", "jira.email", "jira.base_url"];
-    case "notion":
-      await vault.delete("notion.oauth");
-      return ["notion.oauth"];
-    case "confluence":
-      await vault.delete("confluence.api_token");
-      await vault.delete("confluence.email");
-      await vault.delete("confluence.base_url");
-      return ["confluence.api_token", "confluence.email", "confluence.base_url"];
-    case "discord":
-      await vault.delete("discord.bot_token");
-      await vault.delete("discord.enabled");
-      return ["discord.bot_token", "discord.enabled"];
-    case "jenkins":
-      await vault.delete("jenkins.base_url");
-      await vault.delete("jenkins.username");
-      await vault.delete("jenkins.api_token");
-      return ["jenkins.base_url", "jenkins.username", "jenkins.api_token"];
-    case "circleci":
-      await vault.delete("circleci.api_token");
-      return ["circleci.api_token"];
-    case "pagerduty":
-      await vault.delete("pagerduty.api_token");
-      return ["pagerduty.api_token"];
-    case "kubernetes":
-      await vault.delete("kubernetes.kubeconfig");
-      await vault.delete("kubernetes.context");
-      return ["kubernetes.kubeconfig", "kubernetes.context"];
-    case "aws":
-      await vault.delete("aws.access_key_id");
-      await vault.delete("aws.secret_access_key");
-      await vault.delete("aws.default_region");
-      await vault.delete("aws.profile");
-      return ["aws.access_key_id", "aws.secret_access_key", "aws.default_region", "aws.profile"];
-    case "azure":
-      await vault.delete("azure.tenant_id");
-      await vault.delete("azure.client_id");
-      await vault.delete("azure.client_secret");
-      return ["azure.tenant_id", "azure.client_id", "azure.client_secret"];
-    case "gcp":
-      await vault.delete("gcp.credentials_json_path");
-      await vault.delete("gcp.project_id");
-      return ["gcp.credentials_json_path", "gcp.project_id"];
-    case "iac":
-      await vault.delete("iac.enabled");
-      return ["iac.enabled"];
-    case "grafana":
-      await vault.delete("grafana.url");
-      await vault.delete("grafana.api_token");
-      return ["grafana.url", "grafana.api_token"];
-    case "sentry":
-      await vault.delete("sentry.auth_token");
-      await vault.delete("sentry.org_slug");
-      await vault.delete("sentry.url");
-      return ["sentry.auth_token", "sentry.org_slug", "sentry.url"];
-    case "newrelic":
-      await vault.delete("newrelic.api_key");
-      await vault.delete("newrelic.account_id");
-      return ["newrelic.api_key", "newrelic.account_id"];
-    case "datadog":
-      await vault.delete("datadog.api_key");
-      await vault.delete("datadog.app_key");
-      await vault.delete("datadog.site");
-      return ["datadog.api_key", "datadog.app_key", "datadog.site"];
-    default:
-      return [];
-  }
-}
 
 function oauthScopesFromConnectorRequest(
   rec: Record<string, unknown> | undefined,
@@ -375,7 +280,7 @@ export async function handleConnectorRemove(
     vaultKeys = await clearOAuthVaultIfProviderUnused(vault, db, id);
     const normalizedBuiltin = normalizeConnectorServiceId(id);
     if (normalizedBuiltin !== null) {
-      vaultKeys.push(...(await deleteConnectorPatAndTokenKeys(vault, normalizedBuiltin)));
+      vaultKeys.push(...(await clearConnectorVaultSecretKeys(vault, normalizedBuiltin)));
     }
   } catch (removeErr) {
     if (googleOAuthBackup !== null) {
@@ -413,7 +318,7 @@ export async function resumePendingRemovals(
       await clearOAuthVaultIfProviderUnused(vault, db, serviceId);
       const normalizedBuiltin = normalizeConnectorServiceId(serviceId);
       if (normalizedBuiltin !== null) {
-        await deleteConnectorPatAndTokenKeys(vault, normalizedBuiltin);
+        await clearConnectorVaultSecretKeys(vault, normalizedBuiltin);
       }
       clearRemoveIntent(db, serviceId);
       completed.push(serviceId);

@@ -1,0 +1,66 @@
+name: Scorecard supply-chain security
+on:
+  # For Branch-Protection check. Only the default branch is supported. See
+  # https://github.com/ossf/scorecard-action#branch-protection
+  branch_protection_rule:
+  schedule:
+    - cron: '20 7 * * 2'
+  push:
+    branches: [ "main" ]
+
+# Declare default permissions as read only.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to upload the results to code-scanning dashboard.
+      security-events: write
+      # Needed to publish results and get a badge (see publish_results below).
+      id-token: write
+      # Allows actions/checkout to fetch code
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@cb605e52c26070c328af45a28ef5834d603b173d # v2.18.0
+        with:
+          egress-policy: audit
+
+      - name: "Checkout code"
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: "Run analysis"
+        uses: ossf/scorecard-action@62b5ef573b9018d9c3970730e26010a39d530291 # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # (Optional) "write" PAT token. See
+          # https://github.com/ossf/scorecard-action#authentication-with-pat.
+          # repo_token: ${{ secrets.SCORECARD_TOKEN }}
+
+          # Public repositories:
+          #   - Publish results to OpenSSF REST API for easy access by consumers
+          #   - Allows the repository to include the "OpenSSF Scorecard" badge.
+          #   - See https://github.com/ossf/scorecard-action#publishing-results.
+          # For private repositories:
+          #   - publish_results MUST be set to false.
+          publish_results: true
+
+      # Upload the results as artifacts (optional).
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@4043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      # Upload the results to GitHub's code scanning dashboard.
+      - name: "Upload to code-scanning"
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        with:
+          sarif_file: results.sarif

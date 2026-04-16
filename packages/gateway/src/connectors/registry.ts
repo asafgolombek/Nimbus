@@ -1,7 +1,14 @@
+import pino from "pino";
+
 import type { ConnectorDispatcher, PlannedAction } from "../engine/types.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { createLazyConnectorMesh, type LazyConnectorMesh } from "./lazy-mesh.ts";
+
+const registryLog = pino({
+  name: "connector-registry",
+  level: process.env["NIMBUS_LOG_LEVEL"] ?? "info",
+});
 
 export { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
 
@@ -136,10 +143,12 @@ export function createConnectorDispatcher(client: McpToolListingClient): Connect
         typeof fromPayload === "string" && fromPayload.length > 0 ? fromPayload : action.type;
       const tool = map[toolId];
       if (tool === undefined) {
-        const available = Object.keys(map)
-          .sort((a, b) => a.localeCompare(b))
-          .join(", ");
-        throw new Error(`No MCP tool "${toolId}". Available: ${available}`);
+        const available = Object.keys(map).sort((a, b) => a.localeCompare(b));
+        registryLog.warn(
+          { toolId, availableToolCount: available.length, availableTools: available },
+          "Unknown MCP tool",
+        );
+        throw new Error("Tool not found");
       }
       const execute = tool.execute;
       if (execute === undefined) {

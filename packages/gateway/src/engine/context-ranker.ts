@@ -18,6 +18,10 @@ function typeKey(it: RankedIndexItem): string {
   return it.indexedType;
 }
 
+function serviceTypeSortKey(it: RankedIndexItem): string {
+  return `${it.service}\0${typeKey(it)}`;
+}
+
 /**
  * Top-N full items plus a compact summary of remaining matches by service/type.
  */
@@ -32,28 +36,32 @@ export function buildContextWindow(
   }
   const top = results.slice(0, cap);
   const rest = results.slice(cap);
-  const groups = new Map<string, SourceGroup>();
-  for (const it of rest) {
-    const key = `${it.service}\0${typeKey(it)}`;
+  const restSorted = [...rest].sort((a, b) =>
+    serviceTypeSortKey(a).localeCompare(serviceTypeSortKey(b)),
+  );
+  const sourceSummary: SourceGroup[] = [];
+  for (const it of restSorted) {
     const mod = it.modifiedAt ?? 0;
-    const prev = groups.get(key);
-    if (prev === undefined) {
-      groups.set(key, {
+    const ty = typeKey(it);
+    const last = sourceSummary[sourceSummary.length - 1];
+    if (last !== undefined && last.service === it.service && last.type === ty) {
+      last.count += 1;
+      last.oldestModifiedAt = Math.min(last.oldestModifiedAt, mod);
+      last.newestModifiedAt = Math.max(last.newestModifiedAt, mod);
+    } else {
+      sourceSummary.push({
         service: it.service,
-        type: typeKey(it),
+        type: ty,
         count: 1,
         oldestModifiedAt: mod,
         newestModifiedAt: mod,
       });
-    } else {
-      prev.count += 1;
-      prev.oldestModifiedAt = Math.min(prev.oldestModifiedAt, mod);
-      prev.newestModifiedAt = Math.max(prev.newestModifiedAt, mod);
     }
   }
+  sourceSummary.sort((a, b) => b.count - a.count);
   return {
     items: [...top],
-    sourceSummary: [...groups.values()].sort((a, b) => b.count - a.count),
+    sourceSummary,
     totalMatches,
   };
 }

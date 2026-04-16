@@ -1,0 +1,41 @@
+name: Performance Benchmarks
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  deployments: write
+
+jobs:
+  benchmark:
+    name: Run benchmarks
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@cb605e52c26070c328af45a28ef5834d603b173d # v2.18.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Run benchmarks
+        run: bun run scripts/capture-benchmarks.ts > benchmark-result.json
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Nimbus Engine Benchmarks
+          tool: 'customGeneric'
+          output-file-path: benchmark-result.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # Show alert with commit comment on detecting possible performance regression
+          alert-threshold: '200%'
+          comment-on-alert: true
+          fail-on-alert: true

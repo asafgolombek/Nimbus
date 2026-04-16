@@ -23,12 +23,12 @@ runs:
           libsecret-tools gnome-keyring
 
     - name: Setup Rust
-      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      uses: dtolnay/rust-toolchain@a54c88d781973033b767a778018129d66de974a9 # stable
       with:
         components: rustfmt, clippy
 
     - name: Rust cache (Tauri)
-      uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      uses: Swatinem/rust-cache@23bce300709d20229ad7fd30273d93ae57388003 # v2.7.7
       with:
         workspaces: packages/ui/src-tauri
 

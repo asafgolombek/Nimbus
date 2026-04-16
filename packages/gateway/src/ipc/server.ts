@@ -200,7 +200,16 @@ class ClientSession {
         this.writeOutbound(errorResponse(null, -32700, m));
         continue;
       }
-      await this.onRpc(this.clientId, msg);
+      try {
+        await this.onRpc(this.clientId, msg);
+      } catch (e) {
+        try {
+          const m = e instanceof Error ? e.message : "Internal error";
+          this.writeOutbound(errorResponse(null, -32603, m));
+        } catch {
+          this.dispose();
+        }
+      }
     }
   }
 

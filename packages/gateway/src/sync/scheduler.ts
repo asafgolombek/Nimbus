@@ -1,21 +1,18 @@
 import type { Database } from "bun:sqlite";
 
 import {
+  type ConnectorHealthSnapshot,
   type ConnectorHealthState,
+  getAllConnectorHealth,
   getConnectorHealth,
   transitionHealth,
 } from "../connectors/health.ts";
 import { isOnline } from "./connectivity.ts";
+import type { SchedulerStateRow } from "./scheduler-state-repository.ts";
 import {
-  countItemsForService,
-  insertSyncTelemetry,
-  loadSchedulerState,
-  setIntervalMs,
-  setNextSyncAt,
-  setPaused,
-  updateSchedulerState,
-  upsertSchedulerRegistration,
-} from "./scheduler-store.ts";
+  type SchedulerStateRepository,
+  SqliteSchedulerStateRepository,
+} from "./scheduler-state-repository.ts";
 import type {
   Syncable,
   SyncContext,
@@ -91,6 +88,7 @@ function toRejectionError(err: unknown): Error {
 
 export class SyncScheduler {
   private readonly db: Database;
+  private readonly sched: SchedulerStateRepository;
   private readonly ctx: SyncContext;
   private readonly config: SyncSchedulerConfig;
   private readonly notify: ((title: string, body: string) => Promise<void>) | undefined;
@@ -103,6 +101,8 @@ export class SyncScheduler {
   private readonly connectors = new Map<string, Syncable>();
   private readonly inFlight = new Set<string>();
   private queue: Job[] = [];
+  /** Mirrors {@link queue} membership by `serviceId` for O(1) duplicate checks in `tick()`. */
+  private readonly queuedServiceIds = new Set<string>();
   private runningGlobal = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private started = false;
@@ -134,9 +134,13 @@ export class SyncScheduler {
        * starts in offline mode immediately without waiting for the async probe.
        */
       initialOnline?: boolean;
+      /** Injectable scheduler row / telemetry persistence (defaults to SQLite on `syncContext.db`). */
+      schedulerStateRepository?: SchedulerStateRepository;
     },
   ) {
     this.db = syncContext.db;
+    this.sched =
+      options?.schedulerStateRepository ?? new SqliteSchedulerStateRepository(syncContext.db);
     this.ctx = syncContext;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.notify = options?.notify;
@@ -151,13 +155,20 @@ export class SyncScheduler {
 
   register(connector: Syncable, intervalOverrideMs?: number): void {
     const now = Date.now();
-    const existing = loadSchedulerState(this.db, connector.serviceId);
+    const existing = this.sched.loadState(connector.serviceId);
     const interval = intervalOverrideMs ?? existing?.interval_ms ?? connector.defaultIntervalMs;
     const updateInterval = intervalOverrideMs !== undefined;
-    upsertSchedulerRegistration(this.db, connector.serviceId, interval, now, updateInterval);
+    this.sched.upsertRegistration(connector.serviceId, interval, now, updateInterval);
     this.connectors.set(connector.serviceId, connector);
     if (this.started) {
       this.tick();
+    }
+  }
+
+  private rebuildQueuedServiceIds(): void {
+    this.queuedServiceIds.clear();
+    for (const j of this.queue) {
+      this.queuedServiceIds.add(j.serviceId);
     }
   }
 
@@ -165,6 +176,7 @@ export class SyncScheduler {
   unregister(serviceId: string): void {
     this.connectors.delete(serviceId);
     this.queue = this.queue.filter((j) => j.serviceId !== serviceId);
+    this.rebuildQueuedServiceIds();
     this.resolveForceWaiters(serviceId, new Error("Connector removed"));
   }
 
@@ -172,7 +184,7 @@ export class SyncScheduler {
     if (!Number.isFinite(intervalMs) || intervalMs < 1) {
       throw new Error("intervalMs must be a positive finite number");
     }
-    setIntervalMs(this.db, serviceId, intervalMs);
+    this.sched.writeIntervalMs(serviceId, intervalMs);
   }
 
   start(): void {
@@ -183,11 +195,11 @@ export class SyncScheduler {
     const now = Date.now();
     if (!this.config.catchUpOnRestart) {
       for (const id of this.connectors.keys()) {
-        const row = loadSchedulerState(this.db, id);
+        const row = this.sched.loadState(id);
         if (row?.next_sync_at != null && row.next_sync_at < now) {
           const overdueMs = now - row.next_sync_at;
           const nextAt = overdueMs <= STARTUP_NEXT_SYNC_SLACK_MS ? now : now + row.interval_ms;
-          setNextSyncAt(this.db, id, nextAt);
+          this.sched.writeNextSyncAt(id, nextAt);
         }
       }
     }
@@ -212,12 +224,12 @@ export class SyncScheduler {
   }
 
   pause(serviceId: string): void {
-    setPaused(this.db, serviceId, true);
+    this.sched.writePaused(serviceId, true);
     transitionHealth(this.db, serviceId, { type: "paused" });
   }
 
   resume(serviceId: string): void {
-    setPaused(this.db, serviceId, false);
+    this.sched.writePaused(serviceId, false);
     transitionHealth(this.db, serviceId, { type: "resumed" });
     if (this.started) {
       this.tick();
@@ -237,6 +249,7 @@ export class SyncScheduler {
       this.forceWaiters.set(serviceId, list);
       this.queue = this.queue.filter((j) => j.serviceId !== serviceId);
       this.queue.unshift({ serviceId, reason: "force" });
+      this.rebuildQueuedServiceIds();
       this.pump();
     });
   }
@@ -251,11 +264,11 @@ export class SyncScheduler {
         : [...this.connectors.keys()].sort((a, b) => a.localeCompare(b));
     const out: SyncStatus[] = [];
     for (const id of ids) {
-      const row = loadSchedulerState(this.db, id);
+      const row = this.sched.loadState(id);
       if (row === null) {
         continue;
       }
-      const itemCount = countItemsForService(this.db, id);
+      const itemCount = this.sched.countItemsForService(id);
       out.push(this.rowToStatus(id, row, itemCount));
     }
     return out;
@@ -297,11 +310,7 @@ export class SyncScheduler {
 
   // ── Internal scheduling ───────────────────────────────────────────────────
 
-  private rowToStatus(
-    serviceId: string,
-    row: NonNullable<ReturnType<typeof loadSchedulerState>>,
-    itemCount: number,
-  ): SyncStatus {
+  private rowToStatus(serviceId: string, row: SchedulerStateRow, itemCount: number): SyncStatus {
     let status: SyncStatus["status"] = "ok";
     if (row.paused === 1) {
       status = "paused";
@@ -331,12 +340,12 @@ export class SyncScheduler {
    * When true, health state blocks scheduling / dispatch (rate_limited in window, or
    * unauthenticated / paused). Caller chooses whether to log rate_limited skips.
    */
-  private healthGatePreventsDispatch(
+  private healthGatePreventsDispatchSnapshot(
+    health: ConnectorHealthSnapshot,
     connectorId: string,
     now: number,
     opts: { logRateLimited: boolean },
   ): boolean {
-    const health = getConnectorHealth(this.db, connectorId);
     if (!SKIP_HEALTH_STATES.has(health.state)) {
       return false;
     }
@@ -352,9 +361,23 @@ export class SyncScheduler {
     return true;
   }
 
+  private healthGatePreventsDispatch(
+    connectorId: string,
+    now: number,
+    opts: { logRateLimited: boolean },
+    health?: ConnectorHealthSnapshot,
+  ): boolean {
+    const snap = health ?? getConnectorHealth(this.db, connectorId);
+    return this.healthGatePreventsDispatchSnapshot(snap, connectorId, now, opts);
+  }
+
   /** True when this connector should be skipped for the current tick (health gate). */
-  private connectorSkippedForHealth(connectorId: string, now: number): boolean {
-    return this.healthGatePreventsDispatch(connectorId, now, { logRateLimited: true });
+  private connectorSkippedForHealth(
+    connectorId: string,
+    now: number,
+    health?: ConnectorHealthSnapshot,
+  ): boolean {
+    return this.healthGatePreventsDispatch(connectorId, now, { logRateLimited: true }, health);
   }
 
   private tick(): void {
@@ -367,22 +390,39 @@ export class SyncScheduler {
       return;
     }
     const now = Date.now();
+    const healthById = new Map(
+      getAllConnectorHealth(this.db).map((s): [string, ConnectorHealthSnapshot] => [
+        s.connectorId,
+        s,
+      ]),
+    );
+    const rowMap = new Map(
+      this.sched.listAllStates().map((r): [string, SchedulerStateRow] => [r.service_id, r]),
+    );
     for (const id of this.connectors.keys()) {
-      const row = loadSchedulerState(this.db, id);
-      if (row === null || row.paused === 1 || row.status === "error") {
+      const row = rowMap.get(id);
+      if (row === null || row === undefined || row.paused === 1 || row.status === "error") {
         continue;
       }
-      if (this.connectorSkippedForHealth(id, now)) {
+      const health =
+        healthById.get(id) ??
+        ({
+          connectorId: id,
+          state: "healthy",
+          backoffAttempt: 0,
+        } satisfies ConnectorHealthSnapshot);
+      if (this.connectorSkippedForHealth(id, now, health)) {
         continue;
       }
       if (this.inFlight.has(id)) {
         continue;
       }
-      if (this.queue.some((j) => j.serviceId === id)) {
+      if (this.queuedServiceIds.has(id)) {
         continue;
       }
       if (row.next_sync_at != null && now >= row.next_sync_at) {
         this.queue.push({ serviceId: id, reason: "scheduled" });
+        this.queuedServiceIds.add(id);
       }
     }
     this.pump();
@@ -392,7 +432,7 @@ export class SyncScheduler {
     if (this.inFlight.has(job.serviceId)) {
       return false;
     }
-    const row = loadSchedulerState(this.db, job.serviceId);
+    const row = this.sched.loadState(job.serviceId);
     if (row === null) {
       return false;
     }
@@ -433,6 +473,7 @@ export class SyncScheduler {
         break;
       }
       this.queue.splice(idx, 1);
+      this.rebuildQueuedServiceIds();
       this.inFlight.add(job.serviceId);
       this.runningGlobal++;
       void this.runJob(job).finally(() => {
@@ -463,13 +504,13 @@ export class SyncScheduler {
 
   private runJobRecordSyncFailure(
     job: Job,
-    row: NonNullable<ReturnType<typeof loadSchedulerState>>,
+    row: SchedulerStateRow,
     startedAt: number,
     msg: string,
   ): void {
     const failures = row.consecutive_failures + 1;
     const durationMs = Date.now() - startedAt;
-    insertSyncTelemetry(this.db, {
+    this.sched.insertSyncTelemetry({
       service: job.serviceId,
       startedAt,
       durationMs,
@@ -480,7 +521,7 @@ export class SyncScheduler {
       errorMsg: msg,
     });
     if (failures >= 5) {
-      updateSchedulerState(this.db, {
+      this.sched.updateState({
         serviceId: job.serviceId,
         cursor: row.cursor,
         intervalMs: row.interval_ms,
@@ -499,7 +540,7 @@ export class SyncScheduler {
       transitionHealth(this.db, job.serviceId, { type: "persistent_error", error: msg });
     } else {
       const delay = this.backoffDelayMs(failures);
-      updateSchedulerState(this.db, {
+      this.sched.updateState({
         serviceId: job.serviceId,
         cursor: row.cursor,
         intervalMs: row.interval_ms,
@@ -526,7 +567,7 @@ export class SyncScheduler {
 
   private runJobRecordSyncSuccess(
     job: Job,
-    row: NonNullable<ReturnType<typeof loadSchedulerState>>,
+    row: SchedulerStateRow,
     startedAt: number,
     result: SyncResult,
   ): void {
@@ -535,7 +576,7 @@ export class SyncScheduler {
       result.bytesTransferred !== undefined && Number.isFinite(result.bytesTransferred)
         ? Math.floor(result.bytesTransferred)
         : null;
-    insertSyncTelemetry(this.db, {
+    this.sched.insertSyncTelemetry({
       service: job.serviceId,
       startedAt,
       durationMs,
@@ -550,7 +591,7 @@ export class SyncScheduler {
     const nextInterval = now + row.interval_ms;
     const nextSyncAt: number | null = result.hasMore ? now : nextInterval;
 
-    updateSchedulerState(this.db, {
+    this.sched.updateState({
       serviceId: job.serviceId,
       cursor: result.cursor,
       intervalMs: row.interval_ms,
@@ -567,6 +608,7 @@ export class SyncScheduler {
 
     if (result.hasMore) {
       this.queue.unshift({ serviceId: job.serviceId, reason: "continuation" });
+      this.rebuildQueuedServiceIds();
     }
 
     this.resolveForceWaiters(job.serviceId);
@@ -576,7 +618,7 @@ export class SyncScheduler {
   /** Telemetry for sync attempts that end without a successful result payload. */
   private recordAbortedSyncTelemetry(job: Job, startedAt: number, errorMsg: string): void {
     const durationMs = Date.now() - startedAt;
-    insertSyncTelemetry(this.db, {
+    this.sched.insertSyncTelemetry({
       service: job.serviceId,
       startedAt,
       durationMs,
@@ -591,9 +633,7 @@ export class SyncScheduler {
   /**
    * Resolves connector + scheduler row or finishes waiters and returns null.
    */
-  private resolveRunJobContext(
-    job: Job,
-  ): { connector: Syncable; row: NonNullable<ReturnType<typeof loadSchedulerState>> } | null {
+  private resolveRunJobContext(job: Job): { connector: Syncable; row: SchedulerStateRow } | null {
     const connector = this.connectors.get(job.serviceId);
     if (connector === undefined) {
       this.resolveForceWaiters(
@@ -602,7 +642,7 @@ export class SyncScheduler {
       );
       return null;
     }
-    const row = loadSchedulerState(this.db, job.serviceId);
+    const row = this.sched.loadState(job.serviceId);
     if (row === null) {
       this.resolveForceWaiters(
         job.serviceId,

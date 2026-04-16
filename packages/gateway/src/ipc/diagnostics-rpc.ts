@@ -233,7 +233,8 @@ function rpcIndexQuerySql(params: unknown, ctx: DiagnosticsRpcContext): Diagnost
   const rec = asRecord(params);
   const sql = typeof rec?.["sql"] === "string" ? rec["sql"] : "";
   try {
-    const rows = runReadOnlySelect(requireDb(ctx), sql);
+    const dbPath = join(ctx.dataDir, "nimbus.db");
+    const rows = runReadOnlySelect(dbPath, sql);
     return { kind: "hit", value: { rows, meta: { count: rows.length } } };
   } catch (e) {
     if (e instanceof SqlGuardError) {

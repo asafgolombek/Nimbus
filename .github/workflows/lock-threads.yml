@@ -1,0 +1,24 @@
+name: 'Lock Threads'
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@cb605e52c26070c328af45a28ef5834d603b173d # v2.18.0
+        with:
+          egress-policy: audit
+
+      - uses: github/lock-threads@1bf7ec25051fe7c000e502b11ee2aef2b2715590 # v5.0.1
+        with:
+          issue-inactive-days: '30'
+          pr-inactive-days: '30'

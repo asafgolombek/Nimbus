@@ -85,22 +85,7 @@ function classifiedFromObject(o: Record<string, unknown>): ClassifiedIntent {
   return { intent, entities, requiresHITL, confidence };
 }
 
-async function anthropicClassify(
-  userText: string,
-  model: string,
-  apiKey: string,
-): Promise<ClassifiedIntent> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: resolveAnthropicModelId(model),
-      max_tokens: 512,
-      system: `You classify user requests for a local-first assistant. Reply with a single JSON object only, no markdown:
+const CLASSIFIER_SYSTEM_PROMPT_ANTHROPIC = `You classify user requests for a local-first assistant. Reply with a single JSON object only, no markdown:
 {
   "intent": "file_search" | "file_organize" | "unknown",
   "entities": { string: string },
@@ -112,30 +97,52 @@ Rules:
 - file_organize: user wants to move or rename a file/dir. Put entities.source and entities.destination (full or relative paths under the allowed sandbox).
 - unknown: chit-chat, unclear, or unsupported. Keep entities empty or minimal.
 - requiresHITL: true for file_organize (destructive path change), false for file_search.
-- confidence: 0–1.`,
-      messages: [{ role: "user", content: userText.slice(0, 8000) }],
-    }),
-  });
+- confidence: 0–1.`;
 
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    throw new Error(`Anthropic HTTP ${String(res.status)} ${errBody.slice(0, 200)}`);
-  }
-  const body = (await res.json()) as {
-    content?: Array<{ type?: string; text?: string }>;
-  };
-  const block = body.content?.find((c) => c.type === "text");
-  const text = block?.text ?? "";
-  const raw = extractJsonObject(text);
-  const o = parseClassifierJsonObject(raw, "Classifier returned non-JSON");
-  return classifiedFromObject(o);
-}
+const CLASSIFIER_SYSTEM_PROMPT_OPENAI = `Classify the user message. Return JSON only:
+{"intent":"file_search"|"file_organize"|"unknown","entities":{},"requiresHITL":bool,"confidence":0-1}
+file_search: finding files — put pattern in entities.pattern, optional entities.path.
+file_organize: move/rename — entities.source and entities.destination.
+unknown: else.`;
 
-async function openAiClassify(
+type LlmClassifyProvider = "anthropic" | "openai";
+
+async function llmClassify(
+  provider: LlmClassifyProvider,
   userText: string,
   model: string,
   apiKey: string,
 ): Promise<ClassifiedIntent> {
+  const trimmed = userText.slice(0, 8000);
+  if (provider === "anthropic") {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: resolveAnthropicModelId(model),
+        max_tokens: 512,
+        system: CLASSIFIER_SYSTEM_PROMPT_ANTHROPIC,
+        messages: [{ role: "user", content: trimmed }],
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      throw new Error(`Anthropic HTTP ${String(res.status)} ${errBody.slice(0, 200)}`);
+    }
+    const body = (await res.json()) as {
+      content?: Array<{ type?: string; text?: string }>;
+    };
+    const block = body.content?.find((c) => c.type === "text");
+    const text = block?.text ?? "";
+    const raw = extractJsonObject(text);
+    const o = parseClassifierJsonObject(raw, "Classifier returned non-JSON");
+    return classifiedFromObject(o);
+  }
+
   const m = model.replace(/^openai\//, "");
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -148,15 +155,8 @@ async function openAiClassify(
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content: `Classify the user message. Return JSON only:
-{"intent":"file_search"|"file_organize"|"unknown","entities":{},"requiresHITL":bool,"confidence":0-1}
-file_search: finding files — put pattern in entities.pattern, optional entities.path.
-file_organize: move/rename — entities.source and entities.destination.
-unknown: else.`,
-        },
-        { role: "user", content: userText.slice(0, 8000) },
+        { role: "system", content: CLASSIFIER_SYSTEM_PROMPT_OPENAI },
+        { role: "user", content: trimmed },
       ],
     }),
   });
@@ -192,7 +192,7 @@ export async function classifyIntent(userText: string): Promise<ClassifiedIntent
 
   if (anthropicKey !== undefined && anthropicKey.length > 0) {
     try {
-      return await anthropicClassify(trimmed, Config.classifierModel, anthropicKey);
+      return await llmClassify("anthropic", trimmed, Config.classifierModel, anthropicKey);
     } catch {
       throw new GatewayAgentUnavailableError();
     }
@@ -200,7 +200,7 @@ export async function classifyIntent(userText: string): Promise<ClassifiedIntent
 
   if (openAiKey !== undefined && openAiKey.length > 0) {
     try {
-      return await openAiClassify(trimmed, Config.openaiClassifierModel, openAiKey);
+      return await llmClassify("openai", trimmed, Config.openaiClassifierModel, openAiKey);
     } catch {
       throw new GatewayAgentUnavailableError();
     }

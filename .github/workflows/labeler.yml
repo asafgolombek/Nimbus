@@ -1,0 +1,20 @@
+name: Labeller
+on: [pull_request_target]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@cb605e52c26070c328af45a28ef5834d603b173d # v2.18.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/labeler@8558fd74291d67161a8a719307f2590d2995ad4f # v5.0.0
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          sync-labels: true

@@ -76,4 +76,27 @@ describe("runConversationalAgent", () => {
       }),
     ).rejects.toBeInstanceOf(GatewayAgentUnavailableError);
   });
+
+  test("sanitizes other errors before surfacing to callers", async () => {
+    const agent = {
+      generate: mock(async () => {
+        throw new Error("upstream said token: abcdefghijklmnop");
+      }),
+    } as unknown as Agent;
+    try {
+      await runConversationalAgent({
+        agent,
+        input: "q",
+        stream: false,
+        sendChunk: () => {
+          /* noop */
+        },
+      });
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error);
+      expect((e as Error).message).toContain("[REDACTED]");
+      expect((e as Error).message).not.toContain("abcdefghijklmnop");
+    }
+  });
 });
