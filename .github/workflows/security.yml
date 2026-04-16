@@ -53,6 +53,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
+      # Trivy's Bun detector expects node_modules (see INFO in scan logs); matches the audit job and improves
+      # lockfile / dependency graph accuracy. node_modules remains excluded from traversal via skip-dirs.
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+        with:
+          verify-lock: "false"
+
       # setup-trivy's install.sh resolves tags via unauthenticated github.com/.../releases/<tag> JSON, which often
       # fails under rate limits or GitHub instability (misreported as "unable to find 'v0.69.3'"). Use the REST API
       # with GITHUB_TOKEN instead. See https://github.com/aquasecurity/trivy/discussions/10152
@@ -96,6 +103,8 @@ jobs:
           output: "trivy-results.sarif"
           ignore-unfixed: true
           skip-dirs: "node_modules"
+          # Keep SARIF + exit-code aligned with severity filter (avoids failing on lower severities in SARIF build).
+          limit-severities-for-sarif: true
           # v0.35.0 still pins actions/cache@v4 (Node 20); disable until trivy-action upgrades to cache v5.
           cache: false
 
