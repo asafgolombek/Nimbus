@@ -1,9 +1,6 @@
 import { Config } from "../config.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
-import {
-  GOOGLE_OAUTH_CLIENT_ID_HELP,
-  MICROSOFT_OAUTH_CLIENT_ID_HELP,
-} from "./oauth-env-help-messages.ts";
+import { MICROSOFT_OAUTH_CLIENT_ID_HELP } from "./oauth-env-help-messages.ts";
 import { type RefreshAccessTokenContext, refreshAccessToken } from "./pkce.ts";
 
 export type StoredOAuthTokens = {
@@ -72,37 +69,15 @@ export async function getValidVaultOAuthAccessToken(args: {
   if (clientId === "") {
     throw new Error(args.emptyClientIdError);
   }
-  const refreshCtx: RefreshAccessTokenContext = { vault: args.vault };
+  const refreshCtx: RefreshAccessTokenContext = {
+    vault: args.vault,
+    persistVaultKey: args.vaultKey,
+  };
   if (args.provider === "google" && Config.oauthGoogleClientSecret !== "") {
     refreshCtx.clientSecret = Config.oauthGoogleClientSecret;
   }
   const next = await refreshAccessToken(parsed.refreshToken, args.provider, clientId, refreshCtx);
   return next.accessToken;
-}
-
-export function googleOAuthAccessFromConfig(): {
-  vaultKey: string;
-  notConfiguredError: string;
-  parseErrors: ParseStoredOAuthErrors;
-  getClientId: () => string;
-  emptyClientIdError: string;
-  provider: "google";
-} {
-  return {
-    vaultKey: "google.oauth",
-    notConfiguredError:
-      "Google OAuth not configured; run: nimbus connector auth google_drive (or gmail / google_photos)",
-    parseErrors: {
-      invalidJson: "Invalid google.oauth vault payload",
-      invalidPayload: "Invalid google.oauth vault payload",
-      missingAccess: "Missing Google access token",
-      missingRefresh: "Missing Google refresh token",
-      missingExpiry: "Missing token expiry",
-    },
-    getClientId: () => Config.oauthGoogleClientId,
-    emptyClientIdError: GOOGLE_OAUTH_CLIENT_ID_HELP,
-    provider: "google",
-  };
 }
 
 export function microsoftOAuthAccessFromConfig(): {

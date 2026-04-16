@@ -3,7 +3,12 @@ import { fileURLToPath } from "node:url";
 
 import { MCPClient } from "@mastra/mcp";
 
-import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
+import {
+  anyGoogleOAuthVaultPresent,
+  type GoogleConnectorOAuthServiceId,
+  getValidGoogleAccessToken,
+  resolveGoogleOAuthVaultKey,
+} from "../auth/google-access-token.ts";
 import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { readMicrosoftOAuthScopesForOutlookEnv } from "../auth/oauth-vault-tokens.ts";
@@ -983,7 +988,8 @@ export class LazyConnectorMesh {
   }
 
   /**
-   * Starts Google Drive + Gmail + Google Photos MCP subprocesses when `google.oauth` is present (shared token).
+   * Starts Google Drive / Gmail / Google Photos MCP subprocesses for which a vault
+   * token exists (per-service keys or legacy `google.oauth`). Each server gets its own access token.
    */
   async ensureGoogleDriveRunning(): Promise<void> {
     this.clearGoogleIdleTimer();
@@ -991,26 +997,43 @@ export class LazyConnectorMesh {
       this.scheduleGoogleDisconnect();
       return;
     }
-    const token = await getValidGoogleAccessToken(this.vault);
-    this.googleBundleClient = new MCPClient({
-      id: `nimbus-google-${String(Date.now())}`,
-      servers: {
-        google_drive: {
+    const googleServers: Record<
+      string,
+      { command: string; args: string[]; env: Record<string, string> }
+    > = {};
+    const ids: GoogleConnectorOAuthServiceId[] = ["google_drive", "gmail", "google_photos"];
+    for (const id of ids) {
+      const resolved = await resolveGoogleOAuthVaultKey(this.vault, id);
+      if (resolved === null) {
+        continue;
+      }
+      const token = await getValidGoogleAccessToken(this.vault, id);
+      if (id === "google_drive") {
+        googleServers["google_drive"] = {
           command: "bun",
           args: [googleDriveMcpScriptPath()],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
-        },
-        gmail: {
+        };
+      } else if (id === "gmail") {
+        googleServers["gmail"] = {
           command: "bun",
           args: [gmailMcpScriptPath()],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
-        },
-        google_photos: {
+        };
+      } else {
+        googleServers["google_photos"] = {
           command: "bun",
           args: [googlePhotosMcpScriptPath()],
           env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
-        },
-      },
+        };
+      }
+    }
+    if (Object.keys(googleServers).length === 0) {
+      return;
+    }
+    this.googleBundleClient = new MCPClient({
+      id: `nimbus-google-${String(Date.now())}`,
+      servers: googleServers,
     });
     this.bumpToolsEpoch();
     this.scheduleGoogleDisconnect();
@@ -1496,6 +1519,12 @@ export class LazyConnectorMesh {
     }
   }
 
+  private async ensureIfGoogleOAuthPresent(): Promise<void> {
+    if (await anyGoogleOAuthVaultPresent(this.vault)) {
+      await this.ensureGoogleDriveRunning();
+    }
+  }
+
   private async ensureBitbucketIfVaultCreds(): Promise<void> {
     const bbUser = await this.vault.get("bitbucket.username");
     const bbPass = await this.vault.get("bitbucket.app_password");
@@ -1569,7 +1598,7 @@ export class LazyConnectorMesh {
 
   /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
   private async ensureCredentialConnectorsRunning(): Promise<void> {
-    await this.ensureIfVaultKeyNonEmpty("google.oauth", () => this.ensureGoogleDriveRunning());
+    await this.ensureIfGoogleOAuthPresent();
     await this.ensureIfVaultKeyNonEmpty("microsoft.oauth", () =>
       this.ensureMicrosoftBundleRunning(),
     );

@@ -16,6 +16,7 @@ import {
   oauthProfileForService,
 } from "../connectors/connector-catalog.ts";
 import {
+  ALL_GOOGLE_OAUTH_VAULT_KEYS,
   clearOAuthVaultIfProviderUnused,
   writePerServiceOAuthKey,
 } from "../connectors/connector-vault.ts";
@@ -333,7 +334,7 @@ export async function handleConnectorRemove(
   // will detect and complete on the next Gateway startup.
   writeRemoveIntent(db, id);
 
-  let googleOAuthBackup: string | null = null;
+  let googleOAuthBackup: Record<string, string> | null = null;
   let microsoftOAuthBackup: string | null = null;
   const normalizedForFamily = normalizeConnectorServiceId(id);
   if (
@@ -341,7 +342,14 @@ export async function handleConnectorRemove(
     GOOGLE_CONNECTOR_SERVICES.has(normalizedForFamily) &&
     sumItemsSiblingServices(db, normalizedForFamily, GOOGLE_CONNECTOR_SERVICES) === 0
   ) {
-    googleOAuthBackup = await vault.get("google.oauth");
+    const snap: Record<string, string> = {};
+    for (const k of ALL_GOOGLE_OAUTH_VAULT_KEYS) {
+      const v = await vault.get(k);
+      if (v !== null && v !== "") {
+        snap[k] = v;
+      }
+    }
+    googleOAuthBackup = Object.keys(snap).length > 0 ? snap : null;
   }
   if (
     normalizedForFamily !== null &&
@@ -371,7 +379,9 @@ export async function handleConnectorRemove(
     }
   } catch (removeErr) {
     if (googleOAuthBackup !== null) {
-      await vault.set("google.oauth", googleOAuthBackup);
+      for (const [k, v] of Object.entries(googleOAuthBackup)) {
+        await vault.set(k, v);
+      }
     }
     if (microsoftOAuthBackup !== null) {
       await vault.set("microsoft.oauth", microsoftOAuthBackup);

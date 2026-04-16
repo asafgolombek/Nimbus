@@ -323,7 +323,7 @@ export function createGmailSyncable(options: GmailSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       await ensure();
       const startedAt = Date.now();
-      const accessToken = await getValidGoogleAccessToken(ctx.vault);
+      const accessToken = await getValidGoogleAccessToken(ctx.vault, "gmail");
       const now = Date.now();
       let itemsUpserted = 0;
       let itemsDeleted = 0;

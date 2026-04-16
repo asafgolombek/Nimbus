@@ -6,7 +6,7 @@ import { createLazyConnectorMesh, type LazyConnectorMesh } from "./lazy-mesh.ts"
 export { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
 
 /**
- * Filesystem MCP (always) + lazy Google bundle (Drive, Gmail, Photos) when `google.oauth` exists +
+ * Filesystem MCP (always) + lazy Google bundle (Drive, Gmail, Photos) when any Google OAuth vault key exists +
  * lazy Microsoft bundle (OneDrive, Outlook, Teams) when `microsoft.oauth` exists.
  */
 export async function buildConnectorMesh(

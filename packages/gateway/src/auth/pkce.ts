@@ -234,20 +234,28 @@ function scopesFromTokenResponse(scopeField: string | undefined, requested: stri
   return requested;
 }
 
-async function persistTokens(
+async function persistOAuthTokensToVaultKey(
   vault: NimbusVault,
-  provider: OAuthProvider,
+  vaultKey: string,
   result: PKCEResult,
 ): Promise<void> {
-  const key = vaultKeyForProvider(provider);
-  validateVaultKeyOrThrow(key);
+  validateVaultKeyOrThrow(vaultKey);
   const payload = JSON.stringify({
     accessToken: result.accessToken,
     refreshToken: result.refreshToken,
     expiresAt: result.expiresAt,
     scopes: result.scopes,
   });
-  await vault.set(key, payload);
+  await vault.set(vaultKey, payload);
+}
+
+async function persistTokens(
+  vault: NimbusVault,
+  provider: OAuthProvider,
+  result: PKCEResult,
+): Promise<void> {
+  const key = vaultKeyForProvider(provider);
+  await persistOAuthTokensToVaultKey(vault, key, result);
 }
 
 type OAuthCompletion = { code: string } | { error: string };
@@ -766,6 +774,11 @@ export interface RefreshAccessTokenContext {
   fetchImpl?: PKCEFetch;
   /** Google (or other confidential) web clients: include at token refresh when required by the provider. */
   clientSecret?: string;
+  /**
+   * When set, refreshed tokens are written to this vault key instead of the provider default
+   * (`google.oauth` / `microsoft.oauth`). Must match the key used to read the refresh token.
+   */
+  persistVaultKey?: string;
 }
 
 export async function refreshAccessToken(
@@ -794,7 +807,11 @@ export async function refreshAccessToken(
     expiresAt: Date.now() + Math.floor(parsed.expires_in * 1000),
     scopes: scopesFromTokenResponse(parsed.scope, []),
   };
-  await persistTokens(ctx.vault, provider, result);
+  const persistKey =
+    ctx.persistVaultKey !== undefined && ctx.persistVaultKey.trim() !== ""
+      ? ctx.persistVaultKey.trim()
+      : vaultKeyForProvider(provider);
+  await persistOAuthTokensToVaultKey(ctx.vault, persistKey, result);
   return result;
 }
 

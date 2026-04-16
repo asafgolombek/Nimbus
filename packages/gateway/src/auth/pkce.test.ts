@@ -317,4 +317,28 @@ describe("refreshAccessToken", () => {
     });
     expect(body).toContain("client_secret=refresh-secret");
   });
+
+  test("persists refreshed Google tokens to persistVaultKey when set", async () => {
+    const vault = createMemoryVault();
+    await vault.set(
+      "google_drive.oauth",
+      JSON.stringify({
+        accessToken: "expired",
+        refreshToken: "drive-refresh",
+        expiresAt: 0,
+      }),
+    );
+    await refreshAccessToken("drive-refresh", "google", "cid", {
+      vault,
+      persistVaultKey: "google_drive.oauth",
+      fetchImpl: async (_input) =>
+        new Response(JSON.stringify({ access_token: "new-access", expires_in: 3600 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    const driveRaw = await vault.get("google_drive.oauth");
+    expect(driveRaw).toContain("new-access");
+    expect(await vault.get("google.oauth")).toBeNull();
+  });
 });
