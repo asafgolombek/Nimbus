@@ -48,6 +48,8 @@ jobs:
     permissions:
       contents: read
       checks: write
+      # Required by _test-suite.yml (Codecov use_oidc: true on coverage-gates).
+      id-token: write
 
   # Rust/Tauri checks — ubuntu only, runs in parallel with pr-quality-ts
   pr-quality-rust:
@@ -99,33 +101,35 @@ jobs:
   # ── Push: full cross-platform matrix (two parallel matrix jobs) ────────────
 
   # TS/Bun suite — all 3 OSes, runs in parallel with ci-rust
+  # strategy must be declared before `uses` so `matrix.*` is valid for this job (GitHub Actions schema).
   ci-ts:
-    name: CI — TS/Bun (${{ matrix.os }})
     if: github.event_name == 'push'
-    uses: ./.github/workflows/_test-suite.yml
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
+    name: CI — TS/Bun (${{ matrix.os }})
+    uses: ./.github/workflows/_test-suite.yml
     with:
       runner: ${{ matrix.os }}
       run-packaging: ${{ matrix.os == 'ubuntu-22.04' }}
     permissions:
       contents: read
       checks: write
+      id-token: write
 
   # Rust/Tauri checks — all 3 OSes, runs in parallel with ci-ts
   ci-rust:
-    name: CI — Rust/Tauri (${{ matrix.os }})
     if: github.event_name == 'push'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
+    name: CI — Rust/Tauri (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
 
     steps:
       - name: Harden Runner
@@ -206,9 +210,13 @@ jobs:
 
   # E2E Desktop (Playwright + Tauri WebDriver) — push to main only, full OS matrix
   e2e-desktop:
-    name: E2E Desktop — ${{ matrix.os }}
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [ci-ts, ci-rust]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+    name: E2E Desktop — ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
@@ -216,10 +224,6 @@ jobs:
       checks: write
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
 
     steps:
       - name: Harden Runner

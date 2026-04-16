@@ -40,7 +40,7 @@ function readSessionFileState(path: string): SessionFileRead | { kind: "unreadab
   try {
     const raw = readFileSync(path, "utf8").trim().split(/\r?\n/)[0]?.trim() ?? "";
     const parsed = parseStoredTelemetrySessionId(raw);
-    return parsed !== undefined ? { kind: "valid", id: parsed } : { kind: "corrupt" };
+    return parsed === undefined ? { kind: "corrupt" } : { kind: "valid", id: parsed };
   } catch (error_: unknown) {
     return readErrorCode(error_) === "ENOENT" ? { kind: "missing" } : { kind: "unreadable" };
   }
