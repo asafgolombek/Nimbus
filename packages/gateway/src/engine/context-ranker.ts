@@ -43,7 +43,7 @@ export function buildContextWindow(
   for (const it of restSorted) {
     const mod = it.modifiedAt ?? 0;
     const ty = typeKey(it);
-    const last = sourceSummary[sourceSummary.length - 1];
+    const last = sourceSummary.at(-1);
     if (last !== undefined && last.service === it.service && last.type === ty) {
       last.count += 1;
       last.oldestModifiedAt = Math.min(last.oldestModifiedAt, mod);

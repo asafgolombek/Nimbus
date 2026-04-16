@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getCliPlatformPaths } from "../paths.ts";
@@ -56,9 +56,14 @@ function profileCreate(configDir: string, baseToml: string, tail: string[]): voi
   if (existsSync(dest)) {
     throw new Error(`Profile file already exists: ${dest}`);
   }
-  if (existsSync(baseToml)) {
-    writeFileSync(dest, readFileSync(baseToml, "utf8"), "utf8");
-  } else {
+  try {
+    copyFileSync(baseToml, dest);
+  } catch (e: unknown) {
+    const code =
+      e !== null && typeof e === "object" && "code" in e ? (e as { code: unknown }).code : undefined;
+    if (code !== "ENOENT") {
+      throw e;
+    }
     writeFileSync(dest, `schema_version = 1\nprofile_name = "${name}"\n`, "utf8");
   }
   console.log(`Created ${dest}`);

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "pino";
 import { loadNimbusTelemetryFromPath } from "../config/telemetry-toml.ts";
@@ -11,25 +11,60 @@ export type TelemetryFlushHandle = {
   readonly stop: () => void;
 };
 
+/** Matches `crypto.randomUUID()` output (RFC 4122 version 4). */
+const STORED_SESSION_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseStoredTelemetrySessionId(raw: string): string | undefined {
+  const s = raw.trim();
+  if (!STORED_SESSION_UUID_RE.test(s)) {
+    return undefined;
+  }
+  return s.toLowerCase();
+}
+
+function readErrorCode(err: unknown): string | undefined {
+  if (err !== null && typeof err === "object" && "code" in err) {
+    const c = (err as { code: unknown }).code;
+    return typeof c === "string" ? c : undefined;
+  }
+  return undefined;
+}
+
+/** Persists a random session id without echoing arbitrary file bytes into outbound telemetry. */
 function readOrCreateSessionId(dataDir: string): string {
   const p = join(dataDir, ".nimbus-telemetry-session");
-  try {
-    if (existsSync(p)) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
       const raw = readFileSync(p, "utf8").trim().split(/\r?\n/)[0]?.trim() ?? "";
-      if (raw !== "") {
-        return raw;
+      const parsed = parseStoredTelemetrySessionId(raw);
+      if (parsed !== undefined) {
+        return parsed;
       }
+      const id = crypto.randomUUID();
+      try {
+        writeFileSync(p, `${id}\n`, "utf8");
+      } catch {
+        /* non-fatal */
+      }
+      return id;
+    } catch (e: unknown) {
+      if (readErrorCode(e) === "ENOENT") {
+        const id = crypto.randomUUID();
+        try {
+          writeFileSync(p, `${id}\n`, { encoding: "utf8", flag: "wx" });
+          return id;
+        } catch (e2: unknown) {
+          if (readErrorCode(e2) === "EEXIST") {
+            continue;
+          }
+          return id;
+        }
+      }
+      return crypto.randomUUID();
     }
-  } catch {
-    /* fall through */
   }
-  const id = crypto.randomUUID();
-  try {
-    writeFileSync(p, `${id}\n`, "utf8");
-  } catch {
-    /* non-fatal */
-  }
-  return id;
+  return crypto.randomUUID();
 }
 
 /**
@@ -56,8 +91,13 @@ export function startTelemetryFlushScheduler(opts: {
       return;
     }
     try {
-      if (existsSync(join(opts.dataDir, ".nimbus-telemetry-disabled"))) {
+      try {
+        readFileSync(join(opts.dataDir, ".nimbus-telemetry-disabled"));
         return;
+      } catch (e: unknown) {
+        if (readErrorCode(e) !== "ENOENT") {
+          /* ignore unreadable marker */
+        }
       }
       const cfg = loadNimbusTelemetryFromPath(opts.activeTomlPath);
       if (!cfg.enabled) {

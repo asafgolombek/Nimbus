@@ -10,6 +10,7 @@
  */
 
 import { Database as BunDatabase, type Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -60,7 +61,8 @@ export function takeSnapshot(db: Database, dataDir: string): string {
   mkdirSync(dir, { recursive: true });
 
   const timestamp = Date.now();
-  const tmpPath = join(dir, `nimbus-${String(timestamp)}.db`);
+  const uniq = randomUUID();
+  const tmpPath = join(dir, `nimbus-${String(timestamp)}-${uniq}.db`);
   const gzPath = join(dir, `nimbus-${String(timestamp)}.db.gz`);
 
   db.run(`VACUUM INTO ?`, [tmpPath]);

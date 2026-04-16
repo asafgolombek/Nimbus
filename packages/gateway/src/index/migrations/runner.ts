@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
@@ -340,7 +341,10 @@ function writePreMigrationBackup(
   mkdirSync(opts.backupDir, { recursive: true });
 
   const timestamp = Date.now();
-  const tmpPath = join(opts.backupDir, `pre-migration-${String(version)}-${String(timestamp)}.db`);
+  const tmpPath = join(
+    opts.backupDir,
+    `pre-migration-${String(version)}-${String(timestamp)}-${randomUUID()}.db`,
+  );
   const gzPath = `${tmpPath}.gz`;
 
   // VACUUM INTO creates a defragmented, WAL-checkpointed copy without locking

@@ -8,9 +8,9 @@ import {
   transitionHealth,
 } from "../connectors/health.ts";
 import { isOnline } from "./connectivity.ts";
-import type { SchedulerStateRow } from "./scheduler-state-repository.ts";
 import {
   type SchedulerStateRepository,
+  type SchedulerStateRow,
   SqliteSchedulerStateRepository,
 } from "./scheduler-state-repository.ts";
 import type {

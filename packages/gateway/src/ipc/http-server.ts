@@ -166,8 +166,8 @@ export function startReadOnlyHttpServer(dbPath: string, port: number): ReadOnlyH
       const path = url.pathname;
       try {
         return dispatchReadOnlyGet(path, url, db);
-      } catch (e) {
-        return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+      } catch {
+        return json({ error: "internal_error" }, 500);
       }
     },
   });

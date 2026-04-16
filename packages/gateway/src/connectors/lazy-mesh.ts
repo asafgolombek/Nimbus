@@ -219,7 +219,7 @@ export class LazyConnectorMesh {
   private async ensureUserMcpConnectorsRunning(): Promise<void> {
     const rows = this.listUserMcpConnectors();
     const active = new Set(rows.map((r) => r.service_id));
-    for (const key of [...this.lazySlots.keys()]) {
+    for (const key of this.lazySlots.keys()) {
       if (!key.startsWith(USER_MESH_PREFIX)) {
         continue;
       }
@@ -1188,7 +1188,7 @@ export class LazyConnectorMesh {
   }
 
   async disconnect(): Promise<void> {
-    for (const key of [...this.lazySlots.keys()]) {
+    for (const key of this.lazySlots.keys()) {
       await this.stopLazyClient(key);
     }
     try {
