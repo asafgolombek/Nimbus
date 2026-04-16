@@ -14,12 +14,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991d5727e5547e2c1911134d1d762010583fb2 # v2.18.0
+        uses: step-security/harden-runner@4d991eb9b9053564e4732d7058422796b792c346 # v2.18.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci

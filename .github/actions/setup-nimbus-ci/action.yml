@@ -24,7 +24,7 @@ runs:
         bun-version: ${{ inputs.bun-version }}
 
     - name: Cache Bun package download cache
-      uses: actions/cache@d4323d4df104b026a6aa633f9c4b8fdf10c58829 # v4.2.0
+      uses: actions/cache@d4323d4df104b026a6e56905928a8f11545b9c71 # v4.2.0
       with:
         path: ~/.bun/install/cache
         key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
