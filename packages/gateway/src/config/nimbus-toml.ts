@@ -169,13 +169,16 @@ export function resolveNimbusTomlForProfile(configDir: string): string {
 
 export function loadNimbusEmbeddingFromPath(tomlPath: string): NimbusEmbeddingToml {
   if (!existsSync(tomlPath)) {
-    return { ...DEFAULT_NIMBUS_EMBEDDING_TOML };
+    return structuredClone(DEFAULT_NIMBUS_EMBEDDING_TOML);
   }
   try {
     const raw = readFileSync(tomlPath, "utf8");
-    return { ...DEFAULT_NIMBUS_EMBEDDING_TOML, ...parseNimbusTomlEmbeddingSection(raw) };
+    return structuredClone({
+      ...DEFAULT_NIMBUS_EMBEDDING_TOML,
+      ...parseNimbusTomlEmbeddingSection(raw),
+    });
   } catch {
-    return { ...DEFAULT_NIMBUS_EMBEDDING_TOML };
+    return structuredClone(DEFAULT_NIMBUS_EMBEDDING_TOML);
   }
 }
 

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 
 export type TomlKeySource = "file" | "env";
 
@@ -52,11 +53,36 @@ function parseSectionKey(source: string, section: string, key: string): string |
   return undefined;
 }
 
-export function getTomlValueFromFile(tomlPath: string, dotted: string): string | undefined {
-  if (!existsSync(tomlPath)) {
-    return undefined;
+function writeUtf8FileAtomicReplace(path: string, content: string): void {
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, content, "utf8");
+  try {
+    renameSync(tmp, path);
+  } catch {
+    try {
+      unlinkSync(path);
+    } catch {
+      /* ignore */
+    }
+    renameSync(tmp, path);
   }
-  const raw = readFileSync(tomlPath, "utf8");
+}
+
+export function getTomlValueFromFile(tomlPath: string, dotted: string): string | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(tomlPath, "utf8");
+  } catch (e: unknown) {
+    if (
+      e !== null &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e as { code: unknown }).code === "ENOENT"
+    ) {
+      return undefined;
+    }
+    throw e;
+  }
   const dot = dotted.indexOf(".");
   if (dot <= 0) {
     return undefined;
@@ -118,7 +144,10 @@ function writeNewSectionToToml(
   formattedValue: string,
 ): void {
   const sep = full.trim() === "" ? "" : "\n\n";
-  writeFileSync(tomlPath, `${full.trimEnd()}${sep}${header}\n${key} = ${formattedValue}\n`, "utf8");
+  writeUtf8FileAtomicReplace(
+    tomlPath,
+    `${full.trimEnd()}${sep}${header}\n${key} = ${formattedValue}\n`,
+  );
 }
 
 export function setTomlValueInFile(tomlPath: string, dotted: string, value: string): void {
@@ -129,7 +158,21 @@ export function setTomlValueInFile(tomlPath: string, dotted: string, value: stri
   const section = dotted.slice(0, dot);
   const key = dotted.slice(dot + 1);
   const formattedValue = formatTomlValue(value);
-  const full = existsSync(tomlPath) ? readFileSync(tomlPath, "utf8") : "";
+  let full = "";
+  try {
+    full = readFileSync(tomlPath, "utf8");
+  } catch (e: unknown) {
+    if (
+      !(
+        e !== null &&
+        typeof e === "object" &&
+        "code" in e &&
+        (e as { code: unknown }).code === "ENOENT"
+      )
+    ) {
+      throw e;
+    }
+  }
   const lines = full.split(/\r?\n/);
   const header = `[${section}]`;
   const sectionStart = findSectionHeaderLine(lines, header);
@@ -149,7 +192,7 @@ export function setTomlValueInFile(tomlPath: string, dotted: string, value: stri
     newLines.splice(sectionEnd, 0, `${key} = ${formattedValue}`);
   }
   const body = newLines.join("\n").trimEnd();
-  writeFileSync(tomlPath, `${body}\n`, "utf8");
+  writeUtf8FileAtomicReplace(tomlPath, `${body}\n`);
 }
 
 function formatTomlValue(value: string): string {

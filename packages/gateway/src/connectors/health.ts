@@ -61,11 +61,13 @@ function truncate(s: string): string {
 
 // ─── State-transition table ───────────────────────────────────────────────────
 
+type HealthEventWithStateChange = Exclude<HealthEvent, { type: "skipped_offline" }>;
+
 /**
  * Derive the next `ConnectorHealthState` from an incoming event.
  * The `attempt` field on `transient_error` is provided by the caller (scheduler).
  */
-function nextState(event: HealthEvent, maxAttempts: number): ConnectorHealthState {
+function nextState(event: HealthEventWithStateChange, maxAttempts: number): ConnectorHealthState {
   switch (event.type) {
     case "sync_success":
       return "healthy";
@@ -81,9 +83,6 @@ function nextState(event: HealthEvent, maxAttempts: number): ConnectorHealthStat
       return "paused";
     case "resumed":
       return "healthy";
-    case "skipped_offline":
-      // No state change — we record history but leave health_state unchanged.
-      return "__no_change__" as ConnectorHealthState;
   }
 }
 
@@ -184,6 +183,11 @@ export function transitionHealth(
   const current = readHealthRow(db, connectorId);
   const fromState = current?.health_state ?? null;
 
+  if (event.type === "skipped_offline") {
+    appendHistory(db, connectorId, fromState, fromState ?? "healthy", "skipped (offline)", now);
+    return buildSnapshot(connectorId, current);
+  }
+
   const to = nextState(event, maxAttempts);
 
   // Compute updated fields based on event type.
@@ -242,16 +246,10 @@ export function transitionHealth(
       lastError = null;
       reason = "connector resumed";
       break;
-
-    case "skipped_offline":
-      // Record history but do NOT update sync_state — offline skips are informational only.
-      appendHistory(db, connectorId, fromState, fromState ?? "healthy", "skipped (offline)", now);
-      return buildSnapshot(connectorId, current);
   }
 
   // Persist only when the state actually changes (or fields differ).
-  const effectiveState =
-    to === ("__no_change__" as ConnectorHealthState) ? (fromState ?? "healthy") : to;
+  const effectiveState = to;
 
   db.transaction(() => {
     upsertHealthRow(db, connectorId, {

@@ -40,6 +40,19 @@ export async function tryCreateEmbeddingWorkerBridge(
 }
 
 class EmbeddingWorkerBridge implements EmbeddingRuntime {
+  private static isAcceptableEmbeddingWorkerOrigin(ev: MessageEvent): boolean {
+    const o = ev.origin;
+    if (o === "" || o === "null") {
+      return true;
+    }
+    const g = globalThis as typeof globalThis & { origin?: unknown };
+    const selfO = typeof g.origin === "string" ? g.origin : "";
+    if (selfO === "") {
+      return true;
+    }
+    return o === selfO;
+  }
+
   private readonly pending = new Map<string, Pending>();
   private progress: { done: number; total: number } | null = null;
   private gateSettled = false;
@@ -65,6 +78,9 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
     this.rejectGate = rej;
 
     this.worker.onmessage = (ev: MessageEvent) => {
+      if (!EmbeddingWorkerBridge.isAcceptableEmbeddingWorkerOrigin(ev)) {
+        return;
+      }
       this.handleMessage(ev.data);
     };
 

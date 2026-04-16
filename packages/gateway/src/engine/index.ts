@@ -16,6 +16,7 @@ export {
   bindConsentChannel,
   formatConsentPrompt,
   HITL_REQUIRED,
+  redactPayloadForConsentDisplay,
   ToolExecutor,
 } from "./executor.ts";
 export { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";

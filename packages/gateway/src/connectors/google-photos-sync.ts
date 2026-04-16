@@ -140,7 +140,7 @@ export function createGooglePhotosSyncable(options: GooglePhotosSyncableOptions)
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureGoogleMcpRunning();
-      const token = await getValidGoogleAccessToken(ctx.vault);
+      const token = await getValidGoogleAccessToken(ctx.vault, "google_photos");
 
       let pageToken: string | null;
       if (cursor === null || cursor === "") {

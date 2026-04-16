@@ -1,7 +1,14 @@
 import type { Agent } from "@mastra/core/agent";
+import pino from "pino";
 
 import { Config } from "../config.ts";
 import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
+import { sanitizeExternalError } from "./sanitize-external-error.ts";
+
+const conversationalLog = pino({
+  name: "conversational-agent",
+  level: process.env["NIMBUS_LOG_LEVEL"] ?? "info",
+});
 
 export type RunConversationalAgentParams = {
   agent: Agent;
@@ -78,6 +85,7 @@ export async function runConversationalAgent(
     ) {
       throw new GatewayAgentUnavailableError();
     }
-    throw e;
+    conversationalLog.warn({ err: e }, "conversational agent turn failed");
+    throw new Error(sanitizeExternalError(e));
   }
 }

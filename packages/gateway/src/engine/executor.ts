@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+
+import { formatAuditPayload } from "../audit/format-audit-payload.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
 import { ConsentDisconnectedError } from "../ipc/consent.ts";
 import type {
@@ -132,10 +134,27 @@ export const HITL_REQUIRED = Object.freeze({
   },
 }) as ReadonlySet<string>;
 
+const SENSITIVE_PAYLOAD_KEY = /(token|key|secret|password)/i;
+
+/** Deep-redact object keys that may hold credentials before consent UI / IPC. */
+export function redactPayloadForConsentDisplay(value: unknown): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactPayloadForConsentDisplay);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = SENSITIVE_PAYLOAD_KEY.test(k) ? "[REDACTED]" : redactPayloadForConsentDisplay(v);
+  }
+  return out;
+}
+
 export function formatConsentPrompt(action: PlannedAction): string {
   const lines = [`Action requires your approval`, ``, `Type: ${action.type}`];
   if (action.payload !== undefined && Object.keys(action.payload).length > 0) {
-    lines.push("", `Details: ${JSON.stringify(action.payload)}`);
+    lines.push("", `Details: ${JSON.stringify(redactPayloadForConsentDisplay(action.payload))}`);
   }
   return lines.join("\n");
 }
@@ -144,7 +163,7 @@ function auditPayload(
   action: PlannedAction,
   extras: { hitlRejectReason?: string } | undefined,
 ): string {
-  return JSON.stringify(extras === undefined ? { action } : { action, ...extras });
+  return formatAuditPayload(extras === undefined ? { action } : { action, ...extras });
 }
 
 export class ToolExecutor {
@@ -163,10 +182,11 @@ export class ToolExecutor {
 
     try {
       if (requiresHITL) {
-        const approved = await this.consent.requestApproval(
-          formatConsentPrompt(action),
-          action.payload,
-        );
+        const details =
+          action.payload === undefined
+            ? undefined
+            : (redactPayloadForConsentDisplay(action.payload) as Record<string, unknown>);
+        const approved = await this.consent.requestApproval(formatConsentPrompt(action), details);
         hitlStatus = approved ? "approved" : "rejected";
         if (!approved) {
           rejectReason = "User declined consent gate.";

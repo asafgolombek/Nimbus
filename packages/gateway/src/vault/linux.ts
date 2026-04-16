@@ -4,6 +4,7 @@
  */
 
 import { spawn } from "node:child_process";
+import type { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 
 import { compareVaultKeysAlphabetically, validateVaultKeyOrThrow } from "./key-format.ts";
@@ -92,8 +93,10 @@ function spawnSecretTool(
         stderr += c;
       });
     }
-    child.on("error", reject);
-    child.on("close", (code) => {
+    (child as unknown as EventEmitter).on("error", (err: Error) => {
+      reject(err);
+    });
+    (child as unknown as EventEmitter).on("close", (code: number | null) => {
       resolve({ code, stdout, stderr });
     });
     if (options.stdin !== undefined) {

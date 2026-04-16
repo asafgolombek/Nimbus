@@ -332,7 +332,7 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       await ensure();
       const startedAt = Date.now();
-      const accessToken = await getValidGoogleAccessToken(ctx.vault);
+      const accessToken = await getValidGoogleAccessToken(ctx.vault, "google_drive");
 
       const sinceMs = Date.now() - initialSyncDepthDays * 86_400_000;
       const sinceIso = new Date(sinceMs).toISOString();

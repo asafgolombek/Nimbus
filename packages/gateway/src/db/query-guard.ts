@@ -1,9 +1,9 @@
 /**
- * Read-only SQL guard for `nimbus query --sql` and the local HTTP API.
- * Layer 1: keyword blocklist. Layer 2: PRAGMA query_only = 1 on the connection.
+ * Read-only SQL guard for `nimbus query --sql` and diagnostics `index.querySql`.
+ * Layer 1: keyword blocklist. Layer 2: separate SQLite handle opened with `readonly: true`.
  */
 
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 
 const FORBIDDEN =
   /\b(INSERT|UPDATE|DELETE|DROP|ALTER|ATTACH|DETACH|REPLACE|CREATE|TRUNCATE|VACUUM)\b/i;
@@ -33,15 +33,15 @@ export function assertReadOnlySelectSql(sql: string): void {
 }
 
 /**
- * Runs a single SELECT on `db` with `PRAGMA query_only = 1` enforced for the statement.
- * Caller must use a dedicated connection for HTTP read-only mode when stricter isolation is required.
+ * Runs a single SELECT on a **dedicated** read-only SQLite handle (opens `dbPath` with
+ * `readonly: true`). Avoids toggling `PRAGMA query_only` on a shared read/write connection.
  */
-export function runReadOnlySelect(db: Database, sql: string): Record<string, unknown>[] {
+export function runReadOnlySelect(dbPath: string, sql: string): Record<string, unknown>[] {
   assertReadOnlySelectSql(sql);
-  db.run("PRAGMA query_only = ON");
+  const ro = new Database(dbPath, { readonly: true, create: false });
   try {
-    return db.query(sql).all() as Record<string, unknown>[];
+    return ro.query(sql).all() as Record<string, unknown>[];
   } finally {
-    db.run("PRAGMA query_only = OFF");
+    ro.close();
   }
 }

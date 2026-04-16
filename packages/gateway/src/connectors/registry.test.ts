@@ -71,6 +71,6 @@ describe("createConnectorDispatcher", () => {
       },
     };
     const d = createConnectorDispatcher(client);
-    await expect(d.dispatch({ type: "missing_tool" })).rejects.toThrow(/No MCP tool/);
+    await expect(d.dispatch({ type: "missing_tool" })).rejects.toThrow(/Tool not found/);
   });
 });

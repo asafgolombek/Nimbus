@@ -3,7 +3,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { listWatchers } from "../automation/watcher-store.ts";
@@ -116,8 +116,35 @@ function rpcConfigValidate(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
   return { kind: "hit", value: { ok: errors.length === 0, errors, warnings } };
 }
 
+function assertTelemetryDisablePathSafe(path: string): void {
+  try {
+    const st = lstatSync(path);
+    if (st.isSymbolicLink()) {
+      throw new DiagnosticsRpcError(
+        -32603,
+        "Refusing to write telemetry marker: path is a symlink",
+      );
+    }
+  } catch (e: unknown) {
+    if (e instanceof DiagnosticsRpcError) {
+      throw e;
+    }
+    if (
+      e !== null &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e as { code: unknown }).code === "ENOENT"
+    ) {
+      return;
+    }
+    throw e;
+  }
+}
+
 function rpcTelemetryDisableMark(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
-  writeFileSync(join(ctx.dataDir, ".nimbus-telemetry-disabled"), `${String(Date.now())}\n`);
+  const p = join(ctx.dataDir, ".nimbus-telemetry-disabled");
+  assertTelemetryDisablePathSafe(p);
+  writeFileSync(p, `${String(Date.now())}\n`);
   return { kind: "hit", value: { ok: true } };
 }
 
@@ -233,7 +260,8 @@ function rpcIndexQuerySql(params: unknown, ctx: DiagnosticsRpcContext): Diagnost
   const rec = asRecord(params);
   const sql = typeof rec?.["sql"] === "string" ? rec["sql"] : "";
   try {
-    const rows = runReadOnlySelect(requireDb(ctx), sql);
+    const dbPath = join(ctx.dataDir, "nimbus.db");
+    const rows = runReadOnlySelect(dbPath, sql);
     return { kind: "hit", value: { rows, meta: { count: rows.length } } };
   } catch (e) {
     if (e instanceof SqlGuardError) {

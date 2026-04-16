@@ -25,6 +25,23 @@ type EmbedItemMsg = { type: "embed_item"; itemId: string };
 
 type InMsg = InitMsg | EmbedTextsMsg | EmbedItemMsg;
 
+function workerGlobalOrigin(): string {
+  const g = globalThis as typeof globalThis & { origin?: unknown };
+  return typeof g.origin === "string" ? g.origin : "";
+}
+
+function isAcceptableDedicatedWorkerOrigin(ev: MessageEvent): boolean {
+  const o = ev.origin;
+  if (o === "" || o === "null") {
+    return true;
+  }
+  const selfO = workerGlobalOrigin();
+  if (selfO === "") {
+    return true;
+  }
+  return o === selfO;
+}
+
 function sendToMain(data: unknown): void {
   const w = globalThis as unknown as { postMessage?: (d: unknown) => void };
   w.postMessage?.(data);
@@ -51,6 +68,9 @@ function setupDb(dbPath: string): void {
 (globalThis as unknown as { onmessage: ((ev: MessageEvent<InMsg>) => void) | null }).onmessage = (
   ev: MessageEvent<InMsg>,
 ) => {
+  if (!isAcceptableDedicatedWorkerOrigin(ev)) {
+    return;
+  }
   const msg = ev.data;
   if (msg.type === "init") {
     void (async () => {

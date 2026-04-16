@@ -24,6 +24,14 @@ const GOOGLE_SERVICE_VAULT_KEYS: Partial<Record<ConnectorServiceId, string>> = {
   google_photos: "google_photos.oauth",
 };
 
+/** Shared + per-service keys for Google delegated OAuth (backup / restore on remove). */
+export const ALL_GOOGLE_OAUTH_VAULT_KEYS: readonly string[] = [
+  "google.oauth",
+  "google_drive.oauth",
+  "google_gmail.oauth",
+  "google_photos.oauth",
+];
+
 const MICROSOFT_SERVICE_VAULT_KEYS: Partial<Record<ConnectorServiceId, string>> = {
   onedrive: "onedrive.oauth",
   outlook: "outlook.oauth",
@@ -56,21 +64,12 @@ export async function writePerServiceOAuthKey(
 }
 
 /**
- * One-time startup migration: copy `google.oauth` / `microsoft.oauth` to
- * per-service keys for any service whose per-service key is missing.
- * Safe to call repeatedly; only writes when the per-service key is absent.
+ * One-time startup migration: copy `microsoft.oauth` to per-service Microsoft keys
+ * when missing. Google is intentionally omitted: copying shared `google.oauth` into
+ * empty per-service keys can install the wrong scopes (e.g. Gmail-only token on Drive).
+ * Google connectors fall back to `google.oauth` until each service is authed (per-service key).
  */
 export async function migrateToPerServiceOAuthKeys(vault: NimbusVault): Promise<void> {
-  const googleShared = await vault.get("google.oauth");
-  if (googleShared !== null && googleShared !== "") {
-    for (const key of Object.values(GOOGLE_SERVICE_VAULT_KEYS)) {
-      const existing = await vault.get(key);
-      if (existing === null || existing === "") {
-        await vault.set(key, googleShared);
-      }
-    }
-  }
-
   const msShared = await vault.get("microsoft.oauth");
   if (msShared !== null && msShared !== "") {
     for (const key of Object.values(MICROSOFT_SERVICE_VAULT_KEYS)) {

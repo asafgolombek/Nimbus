@@ -12,6 +12,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Filter: detect changes to optimize PR feedback ──────────────────────────
+  filter:
+    name: Detect changes
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ui: ${{ steps.changes.outputs.ui }}
+      rust: ${{ steps.changes.outputs.rust }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1 (Node 24 runtime)
+        id: changes
+        with:
+          filters: |
+            ui:
+              - 'packages/ui/**'
+              - 'packages/sdk/**'
+            rust:
+              - 'packages/ui/src-tauri/**'
+
   # ── PR: fast feedback (three jobs run in parallel) ─────────────────────────
 
   # TS/Bun test suite — ubuntu only, runs in parallel with pr-quality-rust
@@ -25,30 +51,29 @@ jobs:
     permissions:
       contents: read
       checks: write
+      # Required by _test-suite.yml (Codecov use_oidc: true on coverage-gates).
+      id-token: write
 
   # Rust/Tauri checks — ubuntu only, runs in parallel with pr-quality-ts
   pr-quality-rust:
     name: PR quality — Rust/Tauri (ubuntu-22.04)
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.filter.outputs.rust == 'true'
+    needs: filter
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
       contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Detect Rust/Tauri changes
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
-        id: changes
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
         with:
-          filters: |
-            rust:
-              - 'packages/ui/src-tauri/**'
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Rust + Tauri checks
-        if: steps.changes.outputs.rust == 'true'
         uses: ./.github/actions/setup-rust-tauri
 
   # Code duplication scan — runs in parallel with the above two jobs
@@ -61,51 +86,63 @@ jobs:
       contents: read
 
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
+        with:
+          egress-policy: audit
+
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
 
       - name: Detect code duplication (jscpd)
-        # Exclude dependencies: each connector vendors @modelcontextprotocol/sdk, which duplicates
-        # cjs/esm builds and inflates clone metrics without reflecting authored code.
-        run: bunx jscpd --min-lines 10 --min-tokens 50 --threshold 5 --reporters console -i "**/node_modules/**" packages/
+        # Exclude dependencies and tests to avoid false positives.
+        run: bunx jscpd --min-lines 10 --min-tokens 50 --threshold 5 --reporters console -i "**/node_modules/**,**/*.test.ts,**/*.test.tsx,**/*.vitest.tsx" packages/
 
   # ── Push: full cross-platform matrix (two parallel matrix jobs) ────────────
 
   # TS/Bun suite — all 3 OSes, runs in parallel with ci-rust
+  # strategy must be declared before `uses` so `matrix.*` is valid for this job (GitHub Actions schema).
   ci-ts:
-    name: CI — TS/Bun (${{ matrix.os }})
     if: github.event_name == 'push'
-    uses: ./.github/workflows/_test-suite.yml
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
+    name: CI — TS/Bun (${{ matrix.os }})
+    uses: ./.github/workflows/_test-suite.yml
     with:
       runner: ${{ matrix.os }}
       run-packaging: ${{ matrix.os == 'ubuntu-22.04' }}
     permissions:
       contents: read
       checks: write
+      id-token: write
 
   # Rust/Tauri checks — all 3 OSes, runs in parallel with ci-ts
   ci-rust:
-    name: CI — Rust/Tauri (${{ matrix.os }})
     if: github.event_name == 'push'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
+    name: CI — Rust/Tauri (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
 
     steps:
+      - name: Harden Runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
+        with:
+          egress-policy: audit
+
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Rust + Tauri checks
         uses: ./.github/actions/setup-rust-tauri
@@ -115,8 +152,8 @@ jobs:
   # E2E Desktop (PR) — optional: add label ci:e2e-desktop to the PR
   e2e-desktop-pr:
     name: E2E Desktop (PR) — ubuntu-22.04
-    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:e2e-desktop')
-    needs: [pr-quality-ts, pr-quality-rust]
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:e2e-desktop') && needs.filter.outputs.ui == 'true'
+    needs: [filter, pr-quality-ts, pr-quality-rust]
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     permissions:
@@ -126,8 +163,13 @@ jobs:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
 
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
+        with:
+          egress-policy: audit
+
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -138,7 +180,7 @@ jobs:
           run-checks: "false"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5 (Node 24 runtime)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .playwright-browsers
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
@@ -160,7 +202,7 @@ jobs:
           CI: "true"
 
       - name: JUnit test report (E2E desktop)
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
         if: always()
         with:
           name: E2E desktop (PR)
@@ -171,9 +213,13 @@ jobs:
 
   # E2E Desktop (Playwright + Tauri WebDriver) — push to main only, full OS matrix
   e2e-desktop:
-    name: E2E Desktop — ${{ matrix.os }}
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [ci-ts, ci-rust]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+    name: E2E Desktop — ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
@@ -181,14 +227,16 @@ jobs:
       checks: write
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
 
     steps:
+      - name: Harden Runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
+        with:
+          egress-policy: audit
+
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -199,7 +247,7 @@ jobs:
           run-checks: "false"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5 (Node 24 runtime)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .playwright-browsers
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
@@ -221,7 +269,7 @@ jobs:
           CI: "true"
 
       - name: JUnit test report (E2E desktop)
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
         if: always()
         with:
           name: E2E desktop (${{ matrix.os }})

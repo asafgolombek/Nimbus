@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "pino";
 import { loadNimbusTelemetryFromPath } from "../config/telemetry-toml.ts";
@@ -11,25 +11,79 @@ export type TelemetryFlushHandle = {
   readonly stop: () => void;
 };
 
-function readOrCreateSessionId(dataDir: string): string {
-  const p = join(dataDir, ".nimbus-telemetry-session");
-  try {
-    if (existsSync(p)) {
-      const raw = readFileSync(p, "utf8").trim().split(/\r?\n/)[0]?.trim() ?? "";
-      if (raw !== "") {
-        return raw;
-      }
-    }
-  } catch {
-    /* fall through */
+/** Matches `crypto.randomUUID()` output (RFC 4122 version 4). */
+const STORED_SESSION_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseStoredTelemetrySessionId(raw: string): string | undefined {
+  const s = raw.trim();
+  if (!STORED_SESSION_UUID_RE.test(s)) {
+    return undefined;
   }
+  return s.toLowerCase();
+}
+
+function readErrorCode(err: unknown): string | undefined {
+  if (err !== null && typeof err === "object" && "code" in err) {
+    const c = (err as { code: unknown }).code;
+    return typeof c === "string" ? c : undefined;
+  }
+  return undefined;
+}
+
+type SessionFileRead = { kind: "valid"; id: string } | { kind: "corrupt" } | { kind: "missing" };
+
+function readSessionFileState(path: string): SessionFileRead | { kind: "unreadable" } {
+  try {
+    const raw = readFileSync(path, "utf8").trim().split(/\r?\n/)[0]?.trim() ?? "";
+    const parsed = parseStoredTelemetrySessionId(raw);
+    return parsed === undefined ? { kind: "corrupt" } : { kind: "valid", id: parsed };
+  } catch (error_: unknown) {
+    return readErrorCode(error_) === "ENOENT" ? { kind: "missing" } : { kind: "unreadable" };
+  }
+}
+
+function persistCorruptSessionFile(path: string): string {
   const id = crypto.randomUUID();
   try {
-    writeFileSync(p, `${id}\n`, "utf8");
+    writeFileSync(path, `${id}\n`, "utf8");
   } catch {
     /* non-fatal */
   }
   return id;
+}
+
+/** @returns created id, or `retry` if another writer won the race (`wx` + EEXIST). */
+function tryExclusiveCreateSessionFile(path: string): { id: string; retry: boolean } {
+  const id = crypto.randomUUID();
+  try {
+    writeFileSync(path, `${id}\n`, { encoding: "utf8", flag: "wx" });
+    return { id, retry: false };
+  } catch (error_: unknown) {
+    return readErrorCode(error_) === "EEXIST" ? { id, retry: true } : { id, retry: false };
+  }
+}
+
+/** Persists a random session id without echoing arbitrary file bytes into outbound telemetry. */
+function readOrCreateSessionId(dataDir: string): string {
+  const p = join(dataDir, ".nimbus-telemetry-session");
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const state = readSessionFileState(p);
+    if (state.kind === "valid") {
+      return state.id;
+    }
+    if (state.kind === "corrupt") {
+      return persistCorruptSessionFile(p);
+    }
+    if (state.kind === "unreadable") {
+      return crypto.randomUUID();
+    }
+    const created = tryExclusiveCreateSessionFile(p);
+    if (!created.retry) {
+      return created.id;
+    }
+  }
+  return crypto.randomUUID();
 }
 
 /**
@@ -56,8 +110,13 @@ export function startTelemetryFlushScheduler(opts: {
       return;
     }
     try {
-      if (existsSync(join(opts.dataDir, ".nimbus-telemetry-disabled"))) {
+      try {
+        readFileSync(join(opts.dataDir, ".nimbus-telemetry-disabled"));
         return;
+      } catch (e: unknown) {
+        if (readErrorCode(e) !== "ENOENT") {
+          /* ignore unreadable marker */
+        }
       }
       const cfg = loadNimbusTelemetryFromPath(opts.activeTomlPath);
       if (!cfg.enabled) {

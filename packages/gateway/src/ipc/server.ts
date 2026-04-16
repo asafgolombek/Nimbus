@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { EventEmitter } from "node:events";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
@@ -200,7 +201,16 @@ class ClientSession {
         this.writeOutbound(errorResponse(null, -32700, m));
         continue;
       }
-      await this.onRpc(this.clientId, msg);
+      try {
+        await this.onRpc(this.clientId, msg);
+      } catch (e) {
+        try {
+          const m = e instanceof Error ? e.message : "Internal error";
+          this.writeOutbound(errorResponse(null, -32603, m));
+        } catch {
+          this.dispose();
+        }
+      }
     }
   }
 
@@ -800,7 +810,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       server.listen(options.listenPath, () => {
         resolve();
       });
-      server.on("error", (err) => {
+      (server as unknown as EventEmitter).on("error", (err: Error) => {
         reject(err);
       });
     });
