@@ -5,6 +5,8 @@ on:
     tags:
       - "client-v*"
 
+permissions: {}
+
 jobs:
   publish:
     runs-on: ubuntu-22.04
