@@ -83,8 +83,10 @@ describe("SyncScheduler", () => {
     sched.register(c);
     try {
       await sched.forceSync("fail");
-    } catch {
-      /* force rejects when sync throws */
+      throw new Error("expected forceSync to reject");
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error);
+      expect((e as Error).message).toBe("boom");
     }
     sched.stop();
     const row = loadSchedulerState(db, "fail");

@@ -60,14 +60,33 @@ function genericSyncErrorMessage(): string {
   return "Sync failed";
 }
 
+/** User-visible / persisted sync failure text (no stack; bounded length). */
+const MAX_SYNC_FAILURE_MSG = 2048;
+
+function syncFailureUserMessage(err: unknown): string {
+  let raw: string;
+  if (err instanceof Error) {
+    raw = err.message.trim() !== "" ? err.message : err.name;
+  } else if (typeof err === "string") {
+    raw = err;
+  } else {
+    raw = String(err);
+    if (raw === "[object Object]") {
+      return genericSyncErrorMessage();
+    }
+  }
+  const t = raw.trim();
+  if (t === "") {
+    return genericSyncErrorMessage();
+  }
+  return t.length > MAX_SYNC_FAILURE_MSG ? `${t.slice(0, MAX_SYNC_FAILURE_MSG)}…` : t;
+}
+
 function toRejectionError(err: unknown): Error {
   if (err instanceof Error) {
     return err;
   }
-  if (typeof err === "string") {
-    return new Error(err);
-  }
-  return new Error(genericSyncErrorMessage());
+  return new Error(syncFailureUserMessage(err));
 }
 
 export class SyncScheduler {
@@ -641,7 +660,7 @@ export class SyncScheduler {
         return;
       }
       // ── Generic / transient error ─────────────────────────────────────────
-      this.runJobRecordSyncFailure(job, row, startedAt, genericSyncErrorMessage());
+      this.runJobRecordSyncFailure(job, row, startedAt, syncFailureUserMessage(err));
       return;
     }
 
