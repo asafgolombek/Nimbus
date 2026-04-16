@@ -1,6 +1,14 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
@@ -350,12 +358,17 @@ function writePreMigrationBackup(
   // VACUUM INTO creates a defragmented, WAL-checkpointed copy without locking
   // the source for longer than a read transaction.
   db.run(`VACUUM INTO ?`, [tmpPath]);
+  try {
+    chmodSync(tmpPath, 0o600);
+  } catch {
+    /* best-effort */
+  }
 
   // readFileSync / Bun.gzipSync / writeFileSync are all synchronous —
   // safe to call from the migration runner without async plumbing.
   const raw = readFileSync(tmpPath);
   const compressed = Bun.gzipSync(raw);
-  writeFileSync(gzPath, compressed);
+  writeFileSync(gzPath, compressed, { mode: 0o600 });
 
   // Remove the uncompressed temp copy
   try {

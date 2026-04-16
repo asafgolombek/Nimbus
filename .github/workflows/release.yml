@@ -49,7 +49,7 @@ jobs:
       run-packaging: false
     permissions:
       contents: read
-      checks: write
+      id-token: write
 
   build-gateway:
     name: Build Gateway — ${{ matrix.target.os }}
@@ -223,6 +223,9 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - name: Require release PAT
         env:
           RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
@@ -231,9 +234,6 @@ jobs:
             echo "Missing repository secret RELEASE_PAT (fine-grained PAT: Contents read/write for this repo)." >&2
             exit 1
           fi
-
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Bun and install dependencies (packaging)
         uses: ./.github/actions/setup-nimbus-ci

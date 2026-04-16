@@ -121,7 +121,6 @@ jobs:
       run-packaging: ${{ matrix.os == 'ubuntu-22.04' }}
     permissions:
       contents: read
-      checks: write
       id-token: write
 
   # Rust/Tauri checks — all 3 OSes, runs in parallel with ci-ts
@@ -208,6 +207,7 @@ jobs:
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0 (Node 24)
         if: always()
         with:
+          token: ${{ secrets.NIMBUS_CHECKS_TOKEN || github.token }}
           name: E2E desktop (PR)
           path: junit-reports/junit-*.xml
           reporter: java-junit
@@ -227,7 +227,6 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
-      checks: write
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
 
@@ -275,6 +274,7 @@ jobs:
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0 (Node 24)
         if: always()
         with:
+          token: ${{ secrets.NIMBUS_CHECKS_TOKEN || github.token }}
           name: E2E desktop (${{ matrix.os }})
           path: junit-reports/junit-*.xml
           reporter: java-junit

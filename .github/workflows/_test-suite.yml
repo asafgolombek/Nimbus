@@ -24,7 +24,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-      checks: write
       id-token: write
 
     steps:
@@ -135,6 +134,7 @@ jobs:
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0 (Node 24)
         if: always()
         with:
+          token: ${{ secrets.NIMBUS_CHECKS_TOKEN || github.token }}
           name: Tests (${{ inputs.runner }})
           path: junit-reports/junit-*.xml
           reporter: java-junit

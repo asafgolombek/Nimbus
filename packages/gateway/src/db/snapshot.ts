@@ -11,7 +11,15 @@
 
 import { Database as BunDatabase, type Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -66,10 +74,15 @@ export function takeSnapshot(db: Database, dataDir: string): string {
   const gzPath = join(dir, `nimbus-${String(timestamp)}.db.gz`);
 
   db.run(`VACUUM INTO ?`, [tmpPath]);
+  try {
+    chmodSync(tmpPath, 0o600);
+  } catch {
+    /* best-effort — snapshot still proceeds */
+  }
 
   const raw = readFileSync(tmpPath);
   const compressed = Bun.gzipSync(raw);
-  writeFileSync(gzPath, compressed);
+  writeFileSync(gzPath, compressed, { mode: 0o600 });
 
   try {
     rmSync(tmpPath);

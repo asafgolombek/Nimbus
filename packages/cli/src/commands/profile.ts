@@ -1,4 +1,5 @@
 import {
+  constants as fsConstants,
   copyFileSync,
   existsSync,
   readdirSync,
@@ -64,7 +65,7 @@ function profileCreate(configDir: string, baseToml: string, tail: string[]): voi
     throw new Error(`Profile file already exists: ${dest}`);
   }
   try {
-    copyFileSync(baseToml, dest);
+    copyFileSync(baseToml, dest, fsConstants.COPYFILE_EXCL);
   } catch (e: unknown) {
     const code =
       e !== null && typeof e === "object" && "code" in e
@@ -73,7 +74,10 @@ function profileCreate(configDir: string, baseToml: string, tail: string[]): voi
     if (code !== "ENOENT") {
       throw e;
     }
-    writeFileSync(dest, `schema_version = 1\nprofile_name = "${name}"\n`, "utf8");
+    writeFileSync(dest, `schema_version = 1\nprofile_name = "${name}"\n`, {
+      encoding: "utf8",
+      flag: "wx",
+    });
   }
   console.log(`Created ${dest}`);
 }
