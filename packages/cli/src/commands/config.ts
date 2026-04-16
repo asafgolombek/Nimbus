@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { EventEmitter } from "node:events";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -83,8 +84,10 @@ async function configEdit(tomlPath: string): Promise<void> {
       stdio: "inherit",
       shell: process.platform === "win32",
     });
-    child.on("error", reject);
-    child.on("close", (code) => {
+    (child as unknown as EventEmitter).on("error", (err: Error) => {
+      reject(err);
+    });
+    (child as unknown as EventEmitter).on("close", (code: number | null) => {
       if (code === 0) {
         resolve();
       } else {

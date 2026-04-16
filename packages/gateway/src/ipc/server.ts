@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { EventEmitter } from "node:events";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
@@ -809,7 +810,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       server.listen(options.listenPath, () => {
         resolve();
       });
-      server.on("error", (err) => {
+      (server as unknown as EventEmitter).on("error", (err: Error) => {
         reject(err);
       });
     });

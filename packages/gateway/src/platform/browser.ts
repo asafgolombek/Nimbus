@@ -1,4 +1,5 @@
 import { type SpawnOptions, spawn } from "node:child_process";
+import type { EventEmitter } from "node:events";
 import { win32 as pathWin32 } from "node:path";
 
 /**
@@ -28,7 +29,9 @@ export async function openUrlInDefaultBrowser(url: string): Promise<void> {
     } else {
       child = spawn("/usr/bin/xdg-open", [url], detachedIgnore);
     }
-    child.on("error", reject);
+    (child as unknown as EventEmitter).on("error", (err: Error) => {
+      reject(err);
+    });
     child.unref();
     resolve();
   });
