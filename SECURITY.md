@@ -20,7 +20,7 @@ Some Scorecard findings are enforced in-repo (workflows, CodeQL, dependency scan
 | Finding | What fixes it |
 |--------|----------------|
 | **Security-Policy** | This file (`SECURITY.md`) on the default branch. |
-| **Branch-Protection** / **Code-Review** | Branch protection rules: required reviews, required status checks, optional CODEOWNERS. See [`.github/BRANCH_PROTECTION.md`](.github/BRANCH_PROTECTION.md). |
+| **Branch-Protection** / **Code-Review** | Branch protection **rulesets** (or classic rules): required PRs, approvals, required status checks; optional **code owner** review using [`.github/CODEOWNERS`](.github/CODEOWNERS). Step-by-step: [`.github/BRANCH_PROTECTION.md`](.github/BRANCH_PROTECTION.md). |
 | **Maintained** | Ongoing commits, releases, and issue/PR handling (project activity). |
 | **Fuzzing** | Typically [OSS-Fuzz](https://google.github.io/oss-fuzz/) (or another continuous fuzzing program) integrated with the project; not covered by this file alone. |
 | **CII-Best-Practices** | [OpenSSF Best Practices badge](https://www.bestpractices.dev/) — self-certification questionnaire for the repository. |

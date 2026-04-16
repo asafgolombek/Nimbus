@@ -1,0 +1,3 @@
+# When branch protection enables "Require code owner review", these owners are used.
+# Adjust handles if the core maintainer list changes.
+* @asafgolombek
