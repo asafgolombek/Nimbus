@@ -5,13 +5,16 @@ on:
       - main
 
 permissions:
-  contents: write
-  deployments: write
+  contents: read
 
 jobs:
   benchmark:
     name: Run benchmarks
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      deployments: write
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
@@ -28,7 +31,7 @@ jobs:
         run: bun run scripts/capture-benchmarks.ts > benchmark-result.json
 
       - name: Store benchmark result
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@a60cea5bc7b49e15c1f58f411161f99e0df48372 # v1.22.0
         with:
           name: Nimbus Engine Benchmarks
           tool: 'customGeneric'

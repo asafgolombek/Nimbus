@@ -5,6 +5,10 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # Single typecheck pass — no need to repeat across all build platforms
   validate:
@@ -78,6 +82,7 @@ jobs:
 
     steps:
       - name: Harden Runner
+        if: runner.os == 'Linux'
         uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
         with:
           egress-policy: audit
@@ -129,7 +134,7 @@ jobs:
           retention-days: 30
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
 
@@ -166,6 +171,7 @@ jobs:
 
     steps:
       - name: Harden Runner
+        if: runner.os == 'Linux'
         uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
         with:
           egress-policy: audit
@@ -192,7 +198,7 @@ jobs:
           retention-days: 30
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
 
