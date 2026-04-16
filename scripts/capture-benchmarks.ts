@@ -41,13 +41,13 @@ async function run() {
       name: "Structured Item Query Latency",
       unit: "ms",
       value: avg,
-    }
+    },
   ];
 
   console.log(JSON.stringify(results, null, 2));
 }
 
-run().catch(err => {
+run().catch((err) => {
   console.error(err);
   process.exit(1);
 });

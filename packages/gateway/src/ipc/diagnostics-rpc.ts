@@ -120,13 +120,21 @@ function assertTelemetryDisablePathSafe(path: string): void {
   try {
     const st = lstatSync(path);
     if (st.isSymbolicLink()) {
-      throw new DiagnosticsRpcError(-32603, "Refusing to write telemetry marker: path is a symlink");
+      throw new DiagnosticsRpcError(
+        -32603,
+        "Refusing to write telemetry marker: path is a symlink",
+      );
     }
   } catch (e: unknown) {
     if (e instanceof DiagnosticsRpcError) {
       throw e;
     }
-    if (e !== null && typeof e === "object" && "code" in e && (e as { code: unknown }).code === "ENOENT") {
+    if (
+      e !== null &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e as { code: unknown }).code === "ENOENT"
+    ) {
       return;
     }
     throw e;

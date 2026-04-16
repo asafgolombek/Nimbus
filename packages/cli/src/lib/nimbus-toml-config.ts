@@ -73,7 +73,12 @@ export function getTomlValueFromFile(tomlPath: string, dotted: string): string |
   try {
     raw = readFileSync(tomlPath, "utf8");
   } catch (e: unknown) {
-    if (e !== null && typeof e === "object" && "code" in e && (e as { code: unknown }).code === "ENOENT") {
+    if (
+      e !== null &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e as { code: unknown }).code === "ENOENT"
+    ) {
       return undefined;
     }
     throw e;
@@ -139,7 +144,10 @@ function writeNewSectionToToml(
   formattedValue: string,
 ): void {
   const sep = full.trim() === "" ? "" : "\n\n";
-  writeUtf8FileAtomicReplace(tomlPath, `${full.trimEnd()}${sep}${header}\n${key} = ${formattedValue}\n`);
+  writeUtf8FileAtomicReplace(
+    tomlPath,
+    `${full.trimEnd()}${sep}${header}\n${key} = ${formattedValue}\n`,
+  );
 }
 
 export function setTomlValueInFile(tomlPath: string, dotted: string, value: string): void {
@@ -154,7 +162,14 @@ export function setTomlValueInFile(tomlPath: string, dotted: string, value: stri
   try {
     full = readFileSync(tomlPath, "utf8");
   } catch (e: unknown) {
-    if (!(e !== null && typeof e === "object" && "code" in e && (e as { code: unknown }).code === "ENOENT")) {
+    if (
+      !(
+        e !== null &&
+        typeof e === "object" &&
+        "code" in e &&
+        (e as { code: unknown }).code === "ENOENT"
+      )
+    ) {
       throw e;
     }
   }

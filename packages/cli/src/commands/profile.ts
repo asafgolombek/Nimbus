@@ -1,4 +1,11 @@
-import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getCliPlatformPaths } from "../paths.ts";
@@ -60,7 +67,9 @@ function profileCreate(configDir: string, baseToml: string, tail: string[]): voi
     copyFileSync(baseToml, dest);
   } catch (e: unknown) {
     const code =
-      e !== null && typeof e === "object" && "code" in e ? (e as { code: unknown }).code : undefined;
+      e !== null && typeof e === "object" && "code" in e
+        ? (e as { code: unknown }).code
+        : undefined;
     if (code !== "ENOENT") {
       throw e;
     }

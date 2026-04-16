@@ -31,10 +31,7 @@ function readErrorCode(err: unknown): string | undefined {
   return undefined;
 }
 
-type SessionFileRead =
-  | { kind: "valid"; id: string }
-  | { kind: "corrupt" }
-  | { kind: "missing" };
+type SessionFileRead = { kind: "valid"; id: string } | { kind: "corrupt" } | { kind: "missing" };
 
 function readSessionFileState(path: string): SessionFileRead | { kind: "unreadable" } {
   try {
