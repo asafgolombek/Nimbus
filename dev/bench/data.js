@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776395804144,
+  "lastUpdate": 1776396242525,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -86,6 +86,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4424153800000028,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "9885183d4e4da0cf6e2075ec4b4a5e404c069dee",
+          "message": "Update lock-threads action in GitHub workflow to use dessant repository for improved functionality",
+          "timestamp": "2026-04-17T06:23:28+03:00",
+          "tree_id": "20f6df3f806a66000701664a216dd6e67fa597b3",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/9885183d4e4da0cf6e2075ec4b4a5e404c069dee"
+        },
+        "date": 1776396242048,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5343725200000011,
             "unit": "ms"
           }
         ]
