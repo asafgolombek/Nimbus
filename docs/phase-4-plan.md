@@ -12,8 +12,9 @@
 Dependencies drive the sequence. Each pillar unlocks the next:
 
 ```
-1. Local LLM & Multi-Agent           (engine backbone — all UI and TUI surfaces depend on local model routing)
-2. Voice Interface                   (depends on local STT/TTS; self-contained after LLM pillar)
+1. Local LLM & Multi-Agent           (engine backbone — all UI and TUI surfaces depend on local model routing;
+                                      includes engine.askStream (1.6) which Voice and TUI both depend on)
+2. Voice Interface                   (depends on local STT/TTS and engine.askStream from pillar 1)
 3. Data Sovereignty                  (export/import/GDPR/audit chain — release prerequisite; no UI dependency)
 4. Release Infrastructure            (signing + auto-update + Plugin API v1; gates v0.1.0 tag)
 5. Tauri Desktop UI                  (scaffold exists; depends on Gateway IPC stability from pillars 1–4)
@@ -171,6 +172,14 @@ The router selects the provider and model for each inference call based on task 
 
 **"Fastest available local model" definition:** Fastest is determined by a static heuristic — the loaded model with the lowest estimated parameter count (derived from the model name or GGUF header) is selected first, as smaller models have lower per-token latency. No background benchmark is run at startup. An optional benchmark can be triggered via `NIMBUS_RUN_LLM_BENCH=1` (similar to the query bench gate) which measures tokens/sec for each loaded model and stores the result in `llm_models.bench_tps`; if `bench_tps` is populated it is used instead of the static heuristic.
 
+**Capability floor for task routing:** Not all task types can be routed to arbitrarily small models. The router enforces a minimum parameter count before assigning `reasoning` or `agent_step` tasks to a local model:
+
+- Config key: `[llm] min_reasoning_params = "3b"` (default). Parsed from the model name or GGUF header `n_params` field.
+- Models below this floor are eligible only for `classification` and `summarisation` tasks.
+- If no loaded local model meets the floor for `reasoning` or `agent_step`, the router falls back to the remote model unconditionally — even if `prefer_local = true`.
+- `llm.getRouterStatus` response includes a `capabilityFloor` field: `{ reasoning: "3b", classification: "any" }` so the Settings panel can surface it.
+- `nimbus doctor` prints a warning when `prefer_local = true` but no loaded model meets `min_reasoning_params`.
+
 #### 1.3.2 Config keys
 
 New TOML section:
@@ -181,6 +190,7 @@ prefer_local = false          # true → use local models for all tasks where ca
 remote_model = "claude-sonnet-4-6"  # fallback model identifier
 local_model = ""              # explicit local model override; empty = auto-select from loaded models
 llamacpp_server_path = ""     # override binary path
+min_reasoning_params = "3b"  # minimum parameter count for reasoning/agent_step task routing
 
 [llm.task_overrides]
 classification = "ollama:qwen2.5:0.5b"    # example: pin a specific model for a task
@@ -198,7 +208,22 @@ classification = "ollama:qwen2.5:0.5b"    # example: pin a specific model for a 
 | `llm.getRouterStatus` | Returns current routing decisions for each task type |
 | `llm.listLocalModels` | Scans `<modelDir>` for GGUF files |
 
-**Test:** `packages/gateway/test/unit/llm/router.test.ts` — assert routing decisions for each task type under all combinations of: Ollama available/unavailable, llama.cpp loaded/not loaded, `prefer_local` true/false.
+**Test:** `packages/gateway/test/unit/llm/router.test.ts` — assert routing decisions for each task type under all combinations of: Ollama available/unavailable, llama.cpp loaded/not loaded, `prefer_local` true/false; assert a model below `min_reasoning_params` is never assigned `reasoning` or `agent_step` tasks; assert `llm.getRouterStatus` returns the correct `capabilityFloor`.
+
+#### 1.3.5 Context Window Overflow Handling
+
+Before dispatching each inference call the router performs a pre-flight context check:
+
+1. Read `contextWindowTokens` from `llm_models` (populated from `GET /api/show` for Ollama or the GGUF header `n_ctx` field for llama.cpp; stored at model load/discovery time).
+2. Estimate prompt token count using a fast character-based heuristic (prompt length ÷ 4 — acceptable ceiling for routing decisions; no external tokenizer required).
+3. If estimated tokens exceed `contextWindowTokens × 0.85` (15% headroom reserved for the response), apply a truncation strategy per task type:
+   - `classification` / `summarisation`: truncate the middle of the prompt, preserving the system prompt + first 25% and last 25% of user content (the "lost in the middle" pattern — beginning and end carry the most relevant context for these task types).
+   - `reasoning` / `agent_step`: do **not** truncate — fall back to the remote model instead, since truncating reasoning context produces unusable output.
+4. If the remote fallback is also unavailable and `enforce_air_gap = true`, surface a user-visible error: `"Query too long for the loaded local model (<model>) — reduce the scope or load a model with a larger context window."`
+
+The `contextWindowTokens` column is added to `llm_models` in migration N+1 (schema migration ordering below updated accordingly).
+
+**Test addition to `router.test.ts`:** assert middle-truncation fires when prompt exceeds 85% of context window; assert `reasoning` tasks fall back to remote (not truncate) on overflow; assert air-gap mode surfaces a user-visible error when both local and remote are unavailable.
 
 #### 1.3.4 GPU Arbitration
 
@@ -330,6 +355,28 @@ When the coordinator collects HITL-required sub-tasks:
 
 ---
 
+### 1.6 `engine.askStream` IPC Method
+
+**Modify:** `packages/gateway/src/ipc/handlers/engine.ts`
+
+> **Why here:** `engine.askStream` is specced in Workstream 1 because it is a property of the LLM generation layer — not the TUI. Both Voice (Workstream 2) and the Rich TUI (Workstream 6) depend on it; placing it in WS 6 would make WS 2 impossible to build in sequence. Workstream 6 references this section but does not re-specify it.
+
+Existing `engine.ask` returns a complete string result. The voice query flow and TUI require a streaming variant:
+
+`engine.askStream` is a JSON-RPC method that streams token notifications:
+- Returns immediately with `{ streamId: string }`
+- Emits `engine.streamToken { streamId, token, meta }` notifications as the LLM produces tokens
+- Emits `engine.streamDone { streamId, result, meta }` when the stream is complete
+- Emits `engine.streamError { streamId, error }` on failure
+
+The `meta` field on each notification carries routing metadata: `{ modelUsed: string, isLocal: boolean, provider: "ollama" | "llamacpp" | "remote" }`. Clients use this to show a local-vs-remote indicator without a separate IPC call.
+
+The existing `engine.ask` path is unchanged — it continues to collect all tokens internally before returning, and its response shape gains the same `meta` field.
+
+**Test:** `packages/gateway/test/unit/ipc/engine-stream.test.ts` — mock the LLM router to emit 5 tokens; assert 5 `streamToken` notifications followed by 1 `streamDone`; assert `streamId` is consistent; assert `meta.isLocal` is `true` when a local model is mocked; assert `meta.isLocal` is `false` for the remote provider.
+
+---
+
 ### Workstream 1 Acceptance Criteria
 
 - [ ] `nimbus ask "summarize everything across my projects this week"` runs fully locally via Ollama — no API key, no network call — in under 30 s on a mid-range laptop (`NIMBUS_RUN_LOCAL_BENCH=1` gate)
@@ -341,7 +388,10 @@ When the coordinator collects HITL-required sub-tasks:
 - [ ] **Decomposition quality gate (manual):** a local 3B model and a local 7B model must each produce a syntactically valid `SubTaskPlan` JSON object (parseable, all required fields present, `dependsOn` references only real sub-task IDs) for at least these three prompts: (1) "find all my open PRs and post a summary to Slack", (2) "create a Linear ticket for each failing CI job on main", (3) "export all emails from Alice this week to a markdown file". Verified by running `nimbus ask <prompt>` with `NIMBUS_LOG_SUBTASK_PLAN=1` and inspecting the printed plan.
 - [ ] Air-gap mode (`enforce_air_gap = true`) prevents any outbound HTTP during an `ask` round-trip when a local model is loaded
 - [ ] `llm.listModels` returns correct merged list when both Ollama and llama.cpp models are present; GGUF files in subdirectories and symlinks are included
-- [ ] Coverage: `packages/gateway/src/llm/` ≥ 85%
+- [ ] Context window overflow: a prompt exceeding 85% of the local model's context window is middle-truncated for `summarisation`; falls back to remote for `reasoning`; surfaces user-visible error in air-gap mode — verified by `router.test.ts`
+- [ ] Capability floor: a model below `min_reasoning_params` is never routed `reasoning` or `agent_step` tasks; `nimbus doctor` warns when `prefer_local = true` but no qualifying model is loaded
+- [ ] `engine.askStream` streams tokens with correct `streamId` and `meta.isLocal` field — verified by `engine-stream.test.ts`
+- [ ] Coverage: `packages/gateway/src/llm/` ≥ 85%; `packages/gateway/src/engine/coordinator.ts` + `sub-agent.ts` ≥ 85%; `packages/gateway/src/ipc/handlers/engine.ts` streaming path ≥ 80%
 
 ---
 
@@ -364,6 +414,12 @@ Resolution order for the binary (same pattern as llama.cpp):
 4. `<appDir>/bin/whisper-cli[.exe]`
 
 Default model: `whisper-base.en` (~142 MB). Model path: `<dataDir>/models/whisper-base.en.bin`.
+
+**Multi-language support:** Whisper.cpp natively supports 99 languages via the multilingual model variants (`whisper-base.bin`, `whisper-small.bin`, etc.). Two new config keys:
+- `config.voice.stt_language` — IETF BCP 47 language tag (e.g. `"en"`, `"fr"`, `"de"`); default `"en"`. Passed to `whisper-cli` as `--language <lang>`.
+- `config.voice.stt_model` — model filename; default `"whisper-base.en.bin"`. For non-English, the user sets a multilingual model (e.g. `"whisper-base.bin"`).
+
+`nimbus doctor` prints a hint if `stt_language` is non-English but only the `.en` model is installed.
 
 New IPC methods:
 - `voice.listSttModels` — scans `<dataDir>/models/` for `whisper-*.bin`
@@ -421,7 +477,14 @@ The `speak()` call is fire-and-forget for the UI layer (IPC method `voice.speak`
 
 **Modify:** `packages/gateway/src/ipc/handlers/voice.ts` (new file)
 
-End-to-end flow for a push-to-talk voice query:
+#### Audio capture scope (v0.1.0)
+
+The Gateway receives audio as PCM chunks — it never captures the microphone directly (except for wake word, which uses a bundled runner binary). The client is responsible for capture:
+
+- **Tauri app (supported):** Uses `navigator.mediaDevices.getUserMedia` + the Web Audio API inside the webview to capture 16 kHz / 16-bit mono PCM. Audio chunks are passed to the Rust bridge via `tauri::invoke`, which forwards them to the Gateway socket. A `voice.capturingAudio { active: boolean }` IPC notification is emitted when the mic opens or closes. Tauri's microphone permission prompt handles OS-level consent on all three platforms.
+- **TUI and headless CLI (out of scope for v0.1.0):** Audio capture via the terminal is not implemented in v0.1.0. The `voice.startQuery` IPC remains available for any future client that can deliver PCM. This limitation is documented in `docs/cli-reference.md`.
+
+#### End-to-end flow for a push-to-talk voice query:
 
 ```
 Client sends: voice.startQuery { audioChunks: Buffer[] }
@@ -493,6 +556,8 @@ Microphone is only active when `wake_word_enabled = true` AND the Gateway is run
 - [ ] Audio never leaves the machine — verified by network intercept in `voice-air-gap.e2e.test.ts`
 - [ ] TTS works on macOS (`say`), Windows (SAPI), and Linux (pyttsx3); graceful no-op when unavailable
 - [ ] Wake word does not start until explicitly enabled; `voice.microphoneActive` notification fires on every mic state change
+- [ ] Tauri app captures microphone audio via Web Audio API and delivers PCM chunks to `voice.startQuery`; `voice.capturingAudio` notification fires on mic open and close
+- [ ] Non-English STT: setting `stt_language = "fr"` and a multilingual model produces a French transcript; `nimbus doctor` warns when language is non-English but only the `.en` model is installed
 - [ ] Coverage: `packages/gateway/src/voice/` ≥ 80%
 
 ---
@@ -550,16 +615,20 @@ nimbus-backup-<timestamp>/
 
 #### 3.1.2 Vault credential manifest
 
-The Vault manifest contains connector credential identifiers only — not raw secret values. The format:
+The Vault manifest contains the **actual credential values** for each connector, encrypted by the DEK. This allows PAT and API key credentials to be restored on the target machine without re-authentication. OAuth tokens are also included but may be expired by the time of import — the import report distinguishes between credentials that re-sealed successfully and those where the connector will need re-auth on next sync.
+
+The manifest format (plaintext before encryption):
 
 ```json
 [
-  { "key": "google.drive.oauth", "service": "google", "connector": "drive", "type": "oauth_token" },
-  { "key": "github.pat", "service": "github", "connector": "github", "type": "pat" }
+  { "key": "google.drive.oauth", "service": "google", "connector": "drive", "type": "oauth_token", "value": "<token>" },
+  { "key": "github.pat", "service": "github", "connector": "github", "type": "pat", "value": "<pat>" }
 ]
 ```
 
-On export the vault manifest is encrypted using **envelope encryption** so that both the user passphrase and the recovery seed (3.1.2) can independently decrypt it:
+**The `value` field is never written to any log, IPC response, or unencrypted file.** It exists only inside the DEK-encrypted ciphertext of `vault-manifest.json.enc`.
+
+On export the vault manifest is encrypted using **envelope encryption** so that both the user passphrase and the recovery seed can independently decrypt it:
 
 1. Generate a random 256-bit **Data Encryption Key (DEK)**
 2. Encrypt the vault manifest JSON with the DEK (AES-256-GCM; random 96-bit IV)
@@ -571,9 +640,7 @@ On import, the user supplies either the passphrase or `--recovery-seed`; the cor
 
 **Recovery seed:** On the first `nimbus data export`, the Gateway generates a BIP39 24-word mnemonic recovery seed and stores it in the Vault under `backup.recovery_seed`. The seed is derived independently from the Vault master key and can decrypt `vault-manifest.json.enc` if the user's passphrase is lost. The recovery seed is displayed once in the terminal after the first export (`nimbus data export` prints: `"Recovery seed (store offline): word1 word2 ... word24"`) and is never re-displayed automatically. `nimbus data import --recovery-seed "<mnemonic>"` accepts the seed in place of a passphrase.
 
-On a machine that already has the credentials, the vault manifest is used to verify which connectors need re-authentication after import.
-
-**Test:** `packages/gateway/test/unit/data/export.test.ts` — run export to a temp dir; assert all expected files exist; verify BLAKE3 hashes in manifest match actual content; verify vault manifest contains only key names, not raw secrets.
+**Test:** `packages/gateway/test/unit/data/export.test.ts` — run export to a temp dir; assert all expected files exist; verify BLAKE3 hashes in manifest match actual content; verify `vault-manifest.json.enc` decrypts correctly; verify the decrypted JSON contains `value` fields for each credential; verify the raw plaintext manifest is never written to disk or emitted over IPC.
 
 ---
 
@@ -584,16 +651,22 @@ On a machine that already has the credentials, the vault manifest is used to ver
 Import flow:
 1. Validate tarball structure — all expected files present; reject if any required file is missing
 2. Verify BLAKE3 hashes from `manifest.json` for each content file — reject on mismatch
-3. Prompt for vault passphrase (interactive; `--passphrase` flag for non-interactive)
-4. Decrypt `vault-manifest.json.enc` → for each entry, attempt to re-seal the credential into the target machine's native Vault via `NimbusVault.set(key, decryptedValue)`
-5. Restore SQLite index from `index.db.gz` (decompress + copy to `<dataDir>/nimbus.db`, overwriting existing after backup)
-6. Re-register extensions from `extensions.json` — `ExtensionRegistry.install(source)` for each entry; skip if already installed at same version
-7. Restore profile configs from `profiles.json`
-8. Restore watcher definitions and workflow pipelines
-9. Emit structured import report (counts restored per category, credential re-seal results, extensions skipped/installed)
-10. Instruct user to run `nimbus connector auth <name>` for any credential entry that could not be re-sealed (e.g. OAuth tokens that expired during export)
+3. Prompt for vault passphrase (interactive; `--passphrase` flag for non-interactive; `--recovery-seed` for seed-based decryption)
+4. Decrypt `vault-manifest.json.enc` → for each entry, re-seal the credential into the target machine's native Vault via `NimbusVault.set(key, entry.value)`. Track each successfully written key for rollback. OAuth tokens that re-seal but are later found expired will cause the connector to transition to `unauthenticated` on first sync (normal flow); the import report flags these as "may require re-auth."
+5. Create a pre-import backup of the existing database: `<dataDir>/backups/pre-import-<timestamp>.db`
+6. Restore SQLite index from `index.db.gz` (decompress + copy to `<dataDir>/nimbus.db`, overwriting existing)
+7. Re-register extensions from `extensions.json` — `ExtensionRegistry.install(source)` for each entry; skip if already installed at same version
+8. Restore profile configs from `profiles.json`
+9. Restore watcher definitions and workflow pipelines
+10. Emit structured import report (counts restored per category, credential re-seal results, extensions skipped/installed; OAuth entries flagged as "may require re-auth")
 
-**Test:** `packages/gateway/test/integration/data/import.test.ts` — export from a seeded test Gateway; clear the Gateway state; import; assert item counts match, watcher definitions restored, extensions re-registered; use the real SQLite layer (no mocks at the DB layer per testing philosophy).
+**Rollback on failure:** If any step 6–9 fails, the import command automatically:
+1. Restores the pre-import backup (`pre-import-<timestamp>.db`) to `<dataDir>/nimbus.db`
+2. Deletes each vault entry that was successfully written in step 4 via `NimbusVault.delete(key)` (using the tracked key list)
+3. Prints: `"Import failed at step <N>: <error>. Your previous state has been restored. Run 'nimbus db verify' to confirm integrity."`
+4. Exits with code `2` (distinct from `1` = validation/hash error, `0` = success)
+
+**Test:** `packages/gateway/test/integration/data/import.test.ts` — export from a seeded test Gateway; clear the Gateway state; import; assert item counts match, watcher definitions restored, extensions re-registered; use the real SQLite layer (no mocks at the DB layer per testing philosophy). **Additional test:** inject a failure at step 7 (extension re-registration); assert the pre-import DB is restored and all vault entries written in step 4 are deleted.
 
 ---
 
@@ -682,16 +755,43 @@ Exit codes: `0` = intact, `1` = break detected.
 
 ---
 
+### 3.5 Data Minimization Re-Indexing
+
+**Modify:** `packages/cli/src/commands/connector.ts` (add `reindex` subcommand)
+
+The roadmap specifies per-connector `indexing_depth` settings (`metadata_only`, `summary`, `full`). When this setting changes for an existing connector, the following behavior applies:
+
+**Deepening** (e.g. `metadata_only` → `full`):
+- Triggers a background re-sync pass that fetches missing content fields and fills the index
+- No items are deleted; existing items are enriched in place
+- Progress tracked in `sync_state` (resumable on restart)
+
+**Shallowing** (e.g. `full` → `metadata_only`):
+- Triggers a background prune pass that `NULL`s the `body` and `content_preview` columns for affected items and deletes their embedding chunks from `vec_items_384`
+- Does not delete the items themselves — only the content fields excluded by the new depth setting
+- Writes one audit log entry: `{ action: "data.minimization.prune", connector, items_affected, depth }`
+
+**New CLI command:** `nimbus connector reindex <name> [--depth <metadata_only|summary|full>]`
+- Without `--depth`: re-indexes at the connector's current configured depth (useful after changing the config key manually)
+- With `--depth`: overrides the config for this run only; does not persist the change
+- The re-index pass is interruptible; runs in the background and emits progress via `connector.reindexProgress` IPC notifications
+
+**Test:** `packages/gateway/test/unit/connectors/reindex.test.ts` — seed a connector with `full` depth items; change to `metadata_only`; assert `body` and embedding rows are pruned; assert item rows remain; assert audit log entry written. Reverse: seed `metadata_only` items; trigger deepening; assert `body` is populated after re-sync.
+
+---
+
 ### Workstream 3 Acceptance Criteria
 
-- [ ] `nimbus data export` → wipe index and Vault → `nimbus data import` restores full functionality on a fresh machine with all connectors re-authenticated — verified in `import.test.ts` integration test
+- [ ] `nimbus data export` → wipe index and Vault → `nimbus data import` restores full functionality on a fresh machine; PAT credentials re-seal without re-auth; OAuth connectors flagged as "may require re-auth" in the import report — verified in `import.test.ts` integration test
 - [ ] `nimbus data export --no-index` produces a valid bundle accepted by `nimbus data import` (index restore skipped, sync can rebuild the index)
 - [ ] Recovery seed: `nimbus data import --recovery-seed "<mnemonic>"` decrypts vault-manifest without the original passphrase — verified in `export.test.ts`
 - [ ] Export bundle BLAKE3 hashes verified; a tampered archive is rejected on import
+- [ ] Import rollback: a simulated failure at step 7 (extension re-registration) restores the pre-import DB and removes all vault entries written in step 4 — verified in `import.test.ts`
 - [ ] `nimbus data delete --dry-run --service github` prints a pre-flight summary and exits without modifying any data
 - [ ] `nimbus data delete --service github` removes all items, vec rows, vault entries for GitHub and writes a signed deletion record; verified on all three platforms
+- [ ] `nimbus connector reindex <name> --depth metadata_only` prunes `body` and embedding rows for the connector; audit log entry written
 - [ ] `nimbus audit verify` detects a manually-introduced chain break at any row position; incremental mode on startup verifies only new rows
-- [ ] Vault passphrase is never written to any file, log, or IPC payload during export or import
+- [ ] Vault credential values are never written to any log, IPC payload, or unencrypted file during export or import
 - [ ] Coverage: `packages/gateway/src/commands/data-*.ts` + `packages/gateway/src/db/audit.ts` chain paths ≥ 85%
 
 ---
@@ -814,6 +914,22 @@ check_on_startup = true
 
 **Test:** `packages/gateway/test/unit/updater/updater.test.ts` — mock the update server; assert `updateAvailable` notification fires when version is newer; assert no notification when version matches; assert `applyUpdate` downloads and verifies before executing.
 
+#### 4.2.3 `nimbus update` CLI command (headless users)
+
+**New file:** `packages/cli/src/commands/update.ts`
+
+Users running the headless bundle (no Tauri app) need a CLI update path. The `nimbus update` command shares the same update manifest URL as the Tauri updater.
+
+- `nimbus update --check` — fetches the update manifest, prints current vs. latest version, exits `0` if up to date, exits `1` if an update is available
+- `nimbus update` — downloads the platform installer to a temp dir, verifies the Ed25519 signature, then:
+  - **Linux:** replaces the binary in-place (tarball install) or invokes the `.deb` installer
+  - **macOS:** opens the `.pkg` installer (user confirms in the OS dialog); or replaces in-place for tarball installs
+  - **Windows:** launches the NSIS installer silently
+- `nimbus update --yes` — skips the confirmation prompt (for unattended / scripted use)
+- On Gateway startup in headless mode (no Tauri connection detected), the `updater.updateAvailable` notification is emitted over IPC and the CLI prints a one-line hint to stdout: `"A new version of Nimbus is available (X.Y.Z). Run 'nimbus update' to install."`
+
+**Test addition to `updater.test.ts`:** assert `nimbus update --check` exits `1` when a newer version is available; assert download + Ed25519 verification runs before any installer is invoked; assert `--yes` flag suppresses the confirmation prompt.
+
 ---
 
 ### 4.3 Plugin API v1
@@ -896,6 +1012,27 @@ port = 7475
 
 **Test:** `packages/gateway/test/integration/lan/lan-rpc.test.ts` — start two Gateway instances in-process with loopback; pair them; verify read methods succeed; verify write method is rejected without `grant-write`; verify a tampered ciphertext is rejected.
 
+#### 4.4.3 mDNS Host Discovery
+
+IP-based pairing (`nimbus lan pair <host-ip> <pairing-code>`) breaks when the host's IP changes via DHCP. mDNS/Bonjour/Avahi allows clients to discover the host by name.
+
+The Gateway advertises `_nimbus._tcp.local` via platform-native mDNS when the LAN server is enabled:
+- **macOS:** `dns_sd` (built-in, no dependency)
+- **Linux:** `avahi-daemon` (runtime dependency; `nimbus doctor` checks for and warns if unavailable when `[lan] enabled = true`)
+- **Windows:** `dns-sd.exe` bundled from Apple's Bonjour SDK (included in the headless bundle under `<appDir>/bin/`)
+
+`nimbus lan pair` gains an alternative discovery form:
+```
+nimbus lan pair --discover
+```
+Lists reachable Nimbus hosts on the LAN by mDNS name and IP; user selects the host and enters the pairing code. Falls back to manual `<host-ip>` form if mDNS discovery returns no results.
+
+The `lan_peers` table gains a `host_name TEXT` column. On reconnect, the client resolves the mDNS name first, then falls back to the stored IP.
+
+Config: no new keys — mDNS advertisement is active whenever `[lan] enabled = true`.
+
+**Test addition to `lan-rpc.test.ts`:** assert that after a host IP change (simulated by binding to a new loopback address), the client can reconnect using the stored `host_name` resolved via mDNS (mock the mDNS resolver).
+
 ---
 
 ### Workstream 4 Acceptance Criteria
@@ -904,8 +1041,12 @@ port = 7475
 - [ ] `v0.1.0` installer passes SmartScreen on Windows (no user override) — verified on Windows CI runner
 - [ ] Linux `.deb` and AppImage ship with detached GPG signatures; `gpg --verify` passes
 - [ ] `updater.updateAvailable` notification fires when a mock update server reports a newer version; `applyUpdate` verifies the Ed25519 signature before executing; a simulated corrupted binary triggers automatic rollback and `updater.rolledBack` notification
+- [ ] `nimbus update --check` exits `1` when an update is available; `nimbus update` downloads, verifies signature, and invokes the platform installer
+- [ ] Headless Gateway startup prints `"A new version is available"` hint when update manifest reports a newer version
 - [ ] Plugin API v1 is documented in `packages/sdk/CHANGELOG.md`; `runContractTests()` passes against a test extension using all v1 stable exports
 - [ ] LAN server: `--allow-pairing` window closes after 5 minutes; 3 failed attempts per 60 s triggers lockout; paired peer can read index; write is rejected without explicit `grant-write`; tampered ciphertext rejected — `lan-rpc.test.ts`
+- [ ] `nimbus lan pair --discover` lists reachable hosts by mDNS name; client reconnects after host IP change using stored `host_name`
+- [ ] Coverage: `packages/gateway/src/updater/` ≥ 80%; `packages/gateway/src/ipc/lan-server.ts` ≥ 80%
 
 ---
 
@@ -967,6 +1108,20 @@ Settings
 ──────────────
 Quit
 ```
+
+#### macOS menu bar distinction
+
+On macOS, Nimbus is a **menu bar app** — it lives in the menu bar, not the Dock. This matches user expectations for always-on background tools (1Password mini, Bartender, Raycast).
+
+**`packages/ui/src-tauri/src/lib.rs`:** set `app.set_activation_policy(tauri::ActivationPolicy::Accessory)` at startup to suppress the Dock icon.
+
+**`packages/ui/src-tauri/Info.plist`:** add `<key>LSUIElement</key><true/>` so the app does not appear in the Dock or the Cmd+Tab switcher.
+
+**macOS icon:** use a template image (black/white PNG at 16×16 + 32×32 @2x) so the menu bar icon automatically adapts to light and dark mode. Windows and Linux use the full-colour icon.
+
+**Dashboard and Settings windows** on macOS are spawned on demand (menu bar click → Open Dashboard) and closed when the user closes them — they do not persist as background windows. The app itself remains running as a menu bar agent.
+
+**Acceptance criterion:** on macOS, the Nimbus app does not appear in the Dock after launch; the menu bar icon adapts correctly in both light and dark mode.
 
 **Test:** Tauri system tray is not unit-testable in isolation — covered by manual smoke test checklist in the acceptance criteria section.
 
@@ -1113,6 +1268,49 @@ Sections:
 
 ---
 
+### 5.9 First-Run Onboarding
+
+**New file:** `packages/ui/src/pages/Onboarding.tsx`
+
+Shown when `diag.snapshot` returns `index_total_items = 0` AND `connector_count = 0` — i.e. the user has no connectors and no indexed data. The `GatewayConnectionProvider` checks this condition on startup and routes to `Onboarding` instead of `Dashboard`.
+
+Three-step wizard:
+
+1. **Welcome** — brief explainer: what Nimbus does, local-first pitch, no data leaves the machine.
+2. **Connect your first service** — cards for the most common connectors (Google Drive, GitHub, Slack, Linear, Notion). Clicking a card calls `connector.startAuth` IPC, which triggers the OAuth PKCE flow. Multiple connectors can be authenticated before proceeding.
+3. **You're set** — polls `diag.snapshot` every 5 s; displays item count as the first sync runs; "Open Dashboard" button navigates to the main app.
+
+After onboarding completes, a `_meta` row (`key = 'onboarding_completed', value = '<ISO8601>'`) is written via `db.setMeta` IPC. The `Onboarding` page is never shown again once this row exists.
+
+**Test:** `packages/ui/test/Onboarding.test.tsx` (Vitest + Testing Library) — render with `diag.snapshot` mocked to return zero items and zero connectors; assert wizard renders step 1; simulate advancing through all 3 steps; assert `db.setMeta` called with `onboarding_completed` on completion; assert Dashboard is rendered after `onboarding_completed` exists in meta.
+
+---
+
+### 5.10 OS-Level Notifications for HITL
+
+**New file:** `packages/gateway/src/platform/notifications.ts` (PAL addition)
+
+When a background workflow triggers `agent.hitlBatch` and the Tauri app is not the foreground window (or is not open), the user needs an OS-native push notification so they know consent is required.
+
+**Implementation:**
+- The Tauri app emits a `ui.focusState { focused: boolean }` IPC notification on window focus and blur. The Gateway tracks this state.
+- When `agent.hitlBatch` fires and `focused = false` (or the IPC connection has no active Tauri client), the Gateway dispatches an OS notification via the PAL:
+  - **macOS:** `osascript -e 'display notification "<action summary>" with title "Nimbus — Action Required"'`
+  - **Windows:** WinRT `ToastNotification` via a PowerShell one-liner (no additional binary required)
+  - **Linux:** `notify-send "Nimbus — Action Required" "<action summary>"` (checked by `nimbus doctor`; silently skipped if `notify-send` is absent)
+- Notification text: `"<action summary> — open Nimbus to approve or reject."`
+- Clicking the notification on macOS and Windows activates the Tauri app and opens the HITL dialog (deep link: `nimbus://hitl`; handled by the Tauri `deep_link` plugin).
+
+Config:
+```toml
+[notifications]
+enabled = true   # false disables OS notifications globally; default true on macOS/Windows, false on Linux
+```
+
+**Test:** `packages/gateway/test/unit/platform/notifications.test.ts` — mock the platform subprocess; assert correct command construction per platform; assert notification is not sent when `ui.focusState { focused: true }` is active; assert notification is sent when `focused = false` and `agent.hitlBatch` fires.
+
+---
+
 ### Workstream 5 Acceptance Criteria
 
 - [ ] System tray icon changes to amber/red when a connector transitions to degraded/error — verified manually on all three platforms
@@ -1124,9 +1322,13 @@ Sections:
 - [ ] Extension Marketplace installs an extension from the manifest and shows "Installed" state without a page reload; sandboxing level badge shows correct text
 - [ ] Watcher condition builder creates a valid watcher that fires in the next sync cycle after creation
 - [ ] Workflow dry-run executes without dispatching any real tool calls — verified via Gateway audit log showing zero non-dry-run entries
-- [ ] Settings → Model: switching to a local Ollama model and running a query confirms the router used the local model (`llm.getRouterStatus`)
+- [ ] Settings → Model: switching to a local Ollama model and running a query confirms the router used the local model (`llm.getRouterStatus`); `meta.isLocal` field in the result stream confirms local routing
+- [ ] First-run onboarding wizard is shown when no connectors are configured; completing it writes `onboarding_completed` to `_meta` and navigates to Dashboard
+- [ ] macOS: app does not appear in the Dock after launch; menu bar icon adapts to light and dark mode
+- [ ] OS notification fires when `agent.hitlBatch` triggers while the Tauri app is not focused; clicking the notification opens the HITL dialog
 - [ ] All Vitest UI component tests pass (`cd packages/ui && bunx vitest run`)
 - [ ] `v0.1.0` installer launches without Terminal prompt on macOS and without SmartScreen block on Windows
+- [ ] Coverage: `packages/gateway/src/platform/notifications.ts` ≥ 80%
 
 ---
 
@@ -1172,7 +1374,7 @@ Keyboard navigation:
 
 - Single-line text input (Ink `TextInput`)
 - Enter submits to `engine.ask` via IPC
-- Results stream token-by-token into the Result Stream pane via `engine.askStream` (new streaming IPC method — see 6.5)
+- Results stream token-by-token into the Result Stream pane via `engine.askStream` (specced in Workstream 1.6)
 - History: `↑` / `↓` in an empty input field scrolls through query history (stored in `<dataDir>/query_history.json`, last 100 entries)
 - Real-time inline HITL: if a `agent.hitlBatch` notification arrives during streaming, the result stream pauses and a consent panel overlays the query input; user approves/rejects with `y`/`n` per action; streaming resumes after response
 
@@ -1186,19 +1388,7 @@ Keyboard navigation:
 
 ### 6.5 `engine.askStream` IPC Method
 
-**Modify:** `packages/gateway/src/ipc/handlers/engine.ts`
-
-Existing `engine.ask` returns a complete string result. The TUI and voice query flow require a streaming variant:
-
-`engine.askStream` is a JSON-RPC method that streams token notifications:
-- Returns immediately with `{ streamId: string }`
-- Emits `engine.streamToken { streamId, token }` notifications as the LLM produces tokens
-- Emits `engine.streamDone { streamId, result }` when the stream is complete
-- Emits `engine.streamError { streamId, error }` on failure
-
-The existing `engine.ask` path is unchanged — it continues to collect all tokens internally before returning.
-
-**Test:** `packages/gateway/test/unit/ipc/engine-stream.test.ts` — mock the LLM router to emit 5 tokens; assert 5 `streamToken` notifications followed by 1 `streamDone`; assert `streamId` is consistent across all notifications.
+> **Implemented in Workstream 1.6.** See that section for the full spec including the `meta` field, streaming protocol, and test requirements. This section is a reference only — do not re-implement here.
 
 ### 6.6 Active Watchers Pane and Sub-Task Progress Pane
 
@@ -1294,7 +1484,7 @@ On `activate()`:
 `Nimbus: Ask` command:
 1. Opens a VS Code Quick Pick input box
 2. Opens a new read-only virtual document (`vscode.workspace.openTextDocument({ content: '', language: 'markdown' })`) and shows it in the editor
-3. Subscribes to `engine.askStream` (6.5) for the query
+3. Subscribes to `engine.askStream` (specced in Workstream 1.6) for the query
 4. On each `engine.streamToken` notification, appends the token via `WorkspaceEdit.insert(endOfDocumentPosition, token)` — an O(1) delta append. Full-document replacement on every token is **not used** because replacing a growing buffer 10–20 times per second causes measurable CPU overhead and UI stutter in the VS Code extension host for long responses. `endOfDocumentPosition` is resolved once per notification by reading `document.lineCount` and `document.lineAt(last).range.end`.
 5. On `engine.streamDone`, marks the document as finalised (title changes from `"Nimbus: Answering..."` to `"Nimbus: <first 50 chars of query>"`)
 
@@ -1310,6 +1500,17 @@ The virtual document approach avoids the limitations of VS Code's `OutputChannel
 2. Prompts for any parameter overrides
 3. Calls `workflow.run` IPC
 4. Progress shown in VS Code's Progress API (bottom-right notification)
+
+`Nimbus: Switch Profile` command:
+
+**New file:** `packages/vscode-extension/src/commands/switch-profile.ts`
+
+1. Fetches `profile.list` IPC and shows profile names in a Quick Pick
+2. Calls `profile.switch { name }` IPC on selection
+3. Status bar label updates immediately to reflect the new active profile name
+4. Registered in `package.json` `contributes.commands` alongside the existing commands
+
+**Test addition to `extension.test.ts`:** assert Quick Pick shows two profiles from a mocked `profile.list`; selecting one calls `profile.switch` with the correct name; status bar label updates to the selected profile name.
 
 ### 7.4 Inline HITL Consent UI
 
@@ -1361,12 +1562,14 @@ Steps:
 
 ### Workstream 7 Acceptance Criteria
 
-- [ ] `Nimbus: Ask` opens a streaming Markdown tab and returns a result from the running Gateway
+- [ ] `Nimbus: Ask` opens a streaming Markdown tab and returns a result from the running Gateway; result footer shows `[local: <model>]` or `[remote: <model>]` from `meta.isLocal`
 - [ ] `Nimbus: Search` returns results from the local index in a Quick Pick list
+- [ ] `Nimbus: Switch Profile` shows all profiles in a Quick Pick; selecting one updates the status bar label immediately
 - [ ] Inline HITL consent appears as a VS Code notification; approving sends the correct response to the Gateway
 - [ ] Status bar shows active profile name and updates health dot when a connector transitions
 - [ ] Extension installs from Open VSX without any manual configuration and connects to a running Gateway — verified on VS Code 1.90+ and Cursor
 - [ ] Published to both VS Code Marketplace and Open VSX Registry via the `vscode-v*` tag workflow
+- [ ] Coverage: `packages/vscode-extension/src/` ≥ 75%
 
 ---
 
@@ -1445,17 +1648,69 @@ Migration strategy:
 
 ---
 
+### A.4 Meeting Preparation Built-In Workflow
+
+**New file:** `packages/gateway/src/agents/meeting-prep.ts`  
+**New CLI command:** `nimbus prep "<event title or time>"`  
+**New IPC methods:** `prep.start { eventRef: string }`, `prep.briefReady` (notification)
+
+#### Flow
+
+1. Resolve the calendar event via the authenticated Calendar connector (Google Calendar or Outlook Calendar; whichever is connected). Match by title substring or ISO 8601 time string. If neither Calendar connector is authenticated, surface a user-visible error listing which connector to auth.
+2. Extract attendees from the event. Resolve each attendee via the people graph to their GitHub login, Linear member handle, Slack user ID.
+3. Decompose into three parallel sub-agents (uses the multi-agent orchestration from WS 1.5):
+   - **Sub-agent A:** recent PRs (last 14 days), open issues, and CI status for each resolved GitHub/GitLab attendee
+   - **Sub-agent B:** Drive / OneDrive / Notion documents modified by attendees in the last 14 days (uses the existing `searchLocalIndex` with `modified_by` + `since` filters)
+   - **Sub-agent C:** Slack threads mentioning the event title or attendee display names in the last 7 days
+4. Coordinator assembles results into a structured Markdown brief with four sections: **Attendees** (people graph summary), **Recent Work** (PRs / issues / CI), **Relevant Docs**, **Open Questions** (LLM-generated from context gaps).
+5. Output:
+   - CLI: renders the brief to stdout (Markdown, respects `NO_COLOR`)
+   - TUI: rendered in the Result Stream pane
+   - Tauri app: opens a new modal panel on `prep.briefReady { sessionId, brief: string }` notification
+
+This is a **read-only workflow** — no HITL is triggered. If the coordinator encounters a HITL-required tool, it skips that tool and notes the omission in the brief.
+
+#### Acceptance criterion
+
+`nimbus prep "standup"` resolves the next calendar event matching "standup," surfaces attendee context, and outputs a Markdown brief in under 15 s on a mid-range laptop using local LLM routing.
+
+**Test:** `packages/gateway/test/e2e/scenarios/meeting-prep.e2e.test.ts` — mock Calendar + Drive + Slack connectors; assert brief contains attendee section, recent work section, and doc section; assert zero HITL actions fired; assert `prep.briefReady` notification emitted with a non-empty `brief` field.
+
+**Coverage:** `packages/gateway/src/agents/meeting-prep.ts` ≥ 80%
+
+---
+
+### A.5 LLM Inference Telemetry
+
+**Modify:** `packages/gateway/src/telemetry/collector.ts`
+
+Phase 3.5 added telemetry for sync duration, query latency, and connector health transitions. Phase 4 adds aggregate-only LLM inference counters to the same collector — no prompt content, no model outputs, no user data.
+
+New counters (all aggregate, no PII):
+
+| Counter | Description |
+|---|---|
+| `llm_requests_total` | Total inference calls, bucketed by `{ provider, task_type, is_local }` |
+| `llm_tokens_per_second_p50` | Median generation speed in tokens/sec (populated only when `bench_tps` is measured via `NIMBUS_RUN_LLM_BENCH=1`) |
+| `llm_oom_events_total` | Count of OOM failures per model (model name only, not prompts) |
+| `llm_fallback_total` | Count of times the router fell back from local to remote (bucketed by `task_type`) |
+| `llm_context_overflow_total` | Count of context window overflow events (bucketed by `task_type`, `action` = `truncated` or `fallback`) |
+
+All counters are included in `nimbus telemetry show` output and the `telemetry.preview` IPC payload. They pass through the existing payload safety gate test in `packages/gateway/test/unit/telemetry/payload-safety.test.ts` — add assertions that no LLM counter payload contains prompt text or model output.
+
+---
+
 ## Schema Migration Ordering
 
 All Phase 4 schema changes are append-only to the `_schema_migrations` ledger. The migrations must be applied in this order (continuing from the last Phase 3.5 migration number, denoted here as N):
 
 | Migration | New objects | Workstream |
 |---|---|---|
-| N+1 | `llm_models` table; add `last_error`, `bench_tps` columns | 1.1.4 |
+| N+1 | `llm_models` table; add `last_error`, `bench_tps`, `context_window_tokens` columns | 1.1.4, 1.3.5 |
 | N+2 | `sub_task_results` table | 1.5.3 |
 | N+3 | `ALTER TABLE audit_log ADD COLUMN row_hash TEXT`; `ALTER TABLE audit_log ADD COLUMN prev_hash TEXT`; backfill existing rows | 3.4.1 |
-| N+4 | `lan_peers` table | 4.4.1 |
-| N+5 | `_meta` table row `audit_verified_through_id` (initial value: null) | 3.4.2 |
+| N+4 | `lan_peers` table; add `host_name TEXT` column | 4.4.1, 4.4.3 |
+| N+5 | `_meta` table row `audit_verified_through_id` (initial value: null); row `onboarding_completed` (written after first-run wizard) | 3.4.2, 5.9 |
 
 **Migration N+3 (audit chain backfill)** is the only migration with a non-trivial runtime cost. For large existing audit logs it processes rows in batches of 1,000 inside the single migration transaction. The migration runner's pre-migration backup (Phase 3.5) applies before this runs.
 
@@ -1506,16 +1761,32 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 
 ### Cross-Platform (automated tests)
 
-- [ ] `multi-agent-hitl.e2e.test.ts` — 3 parallel sub-agents; no HITL bypass
+- [ ] `multi-agent-hitl.e2e.test.ts` — 3 parallel sub-agents; no HITL bypass; rejected sub-task's transitive dependents marked `skipped`
 - [ ] `air-gap-local-llm.e2e.test.ts` — zero outbound calls with local model + `enforce_air_gap = true`
 - [ ] `voice-air-gap.e2e.test.ts` — audio never leaves localhost
-- [ ] `import.test.ts` — export → wipe → import round-trip (integration, real SQLite)
+- [ ] `import.test.ts` — export → wipe → import round-trip (integration, real SQLite); rollback on mid-import failure restores previous state
 - [ ] `audit-chain.test.ts` — tampered row detected by `nimbus audit verify`
-- [ ] `lan-rpc.test.ts` — read allowed, write rejected without grant, tampered ciphertext rejected
+- [ ] `lan-rpc.test.ts` — read allowed, write rejected without grant, tampered ciphertext rejected; client reconnects after IP change via mDNS
+- [ ] `meeting-prep.e2e.test.ts` — brief contains attendee + doc sections; zero HITL actions fired
 - [ ] `multi-agent-hitl.e2e.test.ts` passes on all three CI platform runners
 - [ ] `bun audit --audit-level high` clean for all Phase 4 packages
 - [ ] Five community extensions available in the Marketplace at launch
 - [ ] VS Code extension listed on Open VSX Registry and VS Code Marketplace
+
+### Coverage Gates (Phase 4 additions to `.github/workflows/_test-suite.yml`)
+
+| Subsystem | Gate |
+|---|---|
+| `packages/gateway/src/llm/` | ≥ 85% |
+| `packages/gateway/src/engine/coordinator.ts` + `sub-agent.ts` | ≥ 85% |
+| `packages/gateway/src/ipc/handlers/engine.ts` (streaming path) | ≥ 80% |
+| `packages/gateway/src/voice/` | ≥ 80% |
+| `packages/gateway/src/updater/` | ≥ 80% |
+| `packages/gateway/src/ipc/lan-server.ts` | ≥ 80% |
+| `packages/gateway/src/platform/notifications.ts` | ≥ 80% |
+| `packages/gateway/src/agents/meeting-prep.ts` | ≥ 80% |
+| `packages/gateway/src/commands/data-*.ts` + audit chain | ≥ 85% |
+| `packages/vscode-extension/src/` | ≥ 75% |
 
 ---
 
@@ -1529,14 +1800,18 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 | `packages/gateway/src/llm/gpu-arbiter.ts` | 1.3.4 |
 | `packages/gateway/src/engine/coordinator.ts` | 1.5 |
 | `packages/gateway/src/engine/sub-agent.ts` | 1.5 |
+| `packages/gateway/src/ipc/handlers/engine.ts` (modify — streaming path) | 1.6 |
 | `packages/gateway/src/voice/stt.ts` | 2.1 |
 | `packages/gateway/src/voice/tts.ts` | 2.2 |
 | `packages/gateway/src/ipc/handlers/voice.ts` | 2.3 |
 | `packages/gateway/src/voice/wake-word.ts` | 2.4 |
 | `packages/gateway/src/commands/data-export.ts` | 3.1 |
+| `packages/gateway/src/commands/data-import.ts` (modify) | 3.2 |
 | `packages/gateway/src/db/audit.ts` (modify) | 3.4 |
 | `packages/gateway/src/updater/index.ts` | 4.2 |
+| `packages/cli/src/commands/update.ts` | 4.2.3 |
 | `packages/gateway/src/ipc/lan-server.ts` | 4.4 |
+| `packages/gateway/src/platform/notifications.ts` | 5.10 |
 | `packages/ui/src/ipc/client.ts` | 5.1 |
 | `packages/ui/src-tauri/src/gateway_bridge.rs` | 5.1 |
 | `packages/ui/src/pages/Dashboard.tsx` | 5.3 |
@@ -1545,11 +1820,14 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 | `packages/ui/src/pages/Watchers.tsx` | 5.6 |
 | `packages/ui/src/pages/Workflows.tsx` | 5.7 |
 | `packages/ui/src/pages/Settings.tsx` | 5.8 |
+| `packages/ui/src/pages/Onboarding.tsx` | 5.9 |
 | `packages/cli/src/tui/App.tsx` | 6.2 |
 | `packages/cli/src/tui/QueryInput.tsx` | 6.3 |
 | `packages/cli/src/tui/ConnectorHealth.tsx` | 6.4 |
 | `packages/cli/src/tui/WatcherPane.tsx` | 6.6 |
 | `packages/cli/src/tui/SubTaskPane.tsx` | 6.6 |
 | `packages/vscode-extension/` (new package) | 7.1–7.7 |
+| `packages/vscode-extension/src/commands/switch-profile.ts` | 7.3 |
+| `packages/gateway/src/agents/meeting-prep.ts` | A.4 |
 | `.github/workflows/release.yml` | 4.1 |
 | `.github/workflows/publish-vscode.yml` | 7.7 |
