@@ -14,6 +14,18 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 
+/** Windows PATH often lists Git's GNU tar before the inbox BSD tar; GNU tar mishandles Win32 paths here. */
+export function resolveSystemTarCommand(): string {
+  if (process.platform !== "win32") {
+    return "tar";
+  }
+  const root = process.env.SystemRoot ?? process.env.windir;
+  if (root !== undefined && root !== "") {
+    return join(root, "System32", "tar.exe");
+  }
+  return join("C:", "Windows", "System32", "tar.exe");
+}
+
 import { insertExtensionRow } from "../automation/extension-store.ts";
 import {
   type ExtensionManifest,
@@ -104,7 +116,7 @@ function completeExtensionInstallAfterCopy(options: {
 }
 
 function extractTarGzToDirectory(archivePath: string, destDir: string): void {
-  const cmd = process.platform === "win32" ? "tar.exe" : "tar";
+  const cmd = resolveSystemTarCommand();
   const r = spawnSync(cmd, ["-xzf", archivePath, "-C", destDir], {
     encoding: "utf8",
     windowsHide: true,

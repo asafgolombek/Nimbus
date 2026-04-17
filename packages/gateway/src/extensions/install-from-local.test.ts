@@ -11,6 +11,7 @@ import {
   assertSafeExtensionId,
   extensionInstallDirectory,
   installExtensionFromLocalDirectory,
+  resolveSystemTarCommand,
 } from "./install-from-local.ts";
 
 function createExtensionInstallFixture(
@@ -107,7 +108,7 @@ describe("install-from-local", () => {
     // Write the archive outside the tree being packed — creating a .tgz next to the
     // source folder can make Windows tar exit non-zero while the archive grows in the same directory.
     const archive = join(tmpdir(), `nimbus-ext-test-${process.pid}-${Date.now()}.tgz`);
-    const tarBin = process.platform === "win32" ? "tar.exe" : "tar";
+    const tarBin = resolveSystemTarCommand();
     try {
       const pack = spawnSync(tarBin, ["-czf", archive, "-C", dirname(src), basename(src)], {
         windowsHide: true,
