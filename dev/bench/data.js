@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776395467777,
+  "lastUpdate": 1776395804144,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -57,6 +57,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.441821079999999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "87072662313eed7c8d7895beaaef2ea22878cc5e",
+          "message": "Fix environment variable access for Windows tar command resolution in local extension installation\n\n- Updated the way environment variables are accessed in the `resolveSystemTarCommand` function to use bracket notation for improved compatibility and clarity.",
+          "timestamp": "2026-04-17T06:16:12+03:00",
+          "tree_id": "d06929e49f2ebf8aeb62470f58eda70e3d28cf39",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/87072662313eed7c8d7895beaaef2ea22878cc5e"
+        },
+        "date": 1776395803549,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4424153800000028,
             "unit": "ms"
           }
         ]
