@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776396242525,
+  "lastUpdate": 1776409271512,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -115,6 +115,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5343725200000011,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "2d150ce71d77a8d331d3c2db6aa6af6366912b8b",
+          "message": "Update documentation and restructure architecture references\n\n- Renamed `architecture.md` to `docs/architecture.md` and updated all references accordingly in various documentation files.\n- Added new `CODE_OF_CONDUCT.md` and `CONTRIBUTING.md` files to establish community standards and contribution guidelines.\n- Removed the obsolete `SECURITY.md` file and updated references to the new location in `docs/SECURITY.md`.\n- Enhanced clarity in documentation by ensuring consistent file paths and improving the overall structure of the documentation.",
+          "timestamp": "2026-04-17T10:00:43+03:00",
+          "tree_id": "48a1c25bc62edb46d98e24f3cbafc14110f12540",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/2d150ce71d77a8d331d3c2db6aa6af6366912b8b"
+        },
+        "date": 1776409271193,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4284623599999982,
             "unit": "ms"
           }
         ]
