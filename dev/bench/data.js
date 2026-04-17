@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776409271512,
+  "lastUpdate": 1776409634054,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -144,6 +144,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4284623599999982,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "376afc87920e14fc44d71cbdc2a68800a7a8c46f",
+          "message": "Update protobufjs version in package.json and bun.lock\n\n- Upgraded protobufjs from version 6.11.4 to 7.5.5 in both package.json and bun.lock files.\n- Added protobufjs override in package.json for consistent dependency management.",
+          "timestamp": "2026-04-17T10:06:45+03:00",
+          "tree_id": "02dc55331802a35519a8e60bab80190596f87214",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/376afc87920e14fc44d71cbdc2a68800a7a8c46f"
+        },
+        "date": 1776409633482,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4507588599999992,
             "unit": "ms"
           }
         ]
