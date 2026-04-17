@@ -5,7 +5,7 @@ Use this to confirm **`nimbus search`** sees **exported symbols** from local roo
 ## Prerequisites
 
 - Gateway running (`nimbus start`).
-- Config lists at least one filesystem root with **`code_index = true`** (see `architecture.md` / `[[filesystem.roots]]` in your TOML).
+- Config lists at least one filesystem root with **`code_index = true`** (see `docs/architecture.md` / `[[filesystem.roots]]` in your TOML).
 - Optional: sqlite-vec loaded (default on supported builds) so `--semantic` uses hybrid RRF.
 
 ## Steps

@@ -56,7 +56,7 @@ Scorecard uploads SARIF to **Security → Code scanning**. Findings such as **Br
 | **Fuzzing** | Continuous fuzzing Scorecard recognizes includes **[OSS-Fuzz](https://google.github.io/oss-fuzz/)** (separate application repo), **[ClusterFuzzLite](https://github.com/google/clusterfuzzlite)**, or **[OneFuzz](https://github.com/microsoft/onefuzz)** wiring — not a one-line repo change. |
 | **CII-Best-Practices** | Complete the [OpenSSF Best Practices](https://www.bestpractices.dev/) questionnaire for this repository (badge is optional). |
 
-**Security-Policy** is satisfied by [`SECURITY.md`](../SECURITY.md) on the default branch (separate from the rows above).
+**Security-Policy** is satisfied by [`docs/SECURITY.md`](../docs/SECURITY.md) on the default branch (separate from the rows above).
 
 ## Recommended required status checks
 
@@ -91,7 +91,7 @@ Scorecard’s **Branch-Protection** and **Code-Review** checks reflect **default
    - Enable **Do not allow bypassing the above settings** for administrators when your governance model allows it.
 2. **Code-Review** in Scorecard also considers review policy depth (e.g. dismiss stale reviews, required review on last push) — configure those in the same branch rule UI.
 
-See [`SECURITY.md`](../SECURITY.md) for other Scorecard items (fuzzing, CII badge) that need separate enrollment.
+See [`docs/SECURITY.md`](../docs/SECURITY.md) for other Scorecard items (fuzzing, CII badge) that need separate enrollment.
 
 ## Why both PR quality and CI matrix?
 

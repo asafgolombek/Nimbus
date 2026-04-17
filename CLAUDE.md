@@ -69,7 +69,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
-| `architecture.md` | Full subsystem design — read before modifying any subsystem |
+| `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
 

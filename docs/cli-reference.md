@@ -1,6 +1,6 @@
 # Nimbus CLI Reference
 
-Complete reference for all `nimbus` commands. For installation see [`README.md`](./README.md). For architecture context see [`architecture.md`](../architecture.md).
+Complete reference for all `nimbus` commands. For installation see [`README.md`](./README.md). For architecture context see [`architecture.md`](./architecture.md).
 
 ---
 
@@ -833,7 +833,7 @@ nimbus audit --json
 ## See Also
 
 - [`README.md`](./README.md) — Quick start and overview
-- [`architecture.md`](../architecture.md) — Subsystem design and data flow
+- [`architecture.md`](./architecture.md) — Subsystem design and data flow
 - [`roadmap.md`](./roadmap.md) — Phase acceptance criteria and sequencing
 - [`SECURITY.md`](./SECURITY.md) — Security model and vulnerability reporting
 - [`docs/contributors/extension-author-walkthrough.md`](./contributors/extension-author-walkthrough.md) — Writing a connector extension

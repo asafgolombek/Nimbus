@@ -1089,7 +1089,9 @@ nimbus/
 │   ├── mission.md
 │   ├── SECURITY.md
 │   ├── roadmap.md
-│   └── phase-3.5-plan.md      ← detailed Phase 3.5 implementation plan
+│   ├── CONTRIBUTING.md
+│   ├── CODE_OF_CONDUCT.md
+│   └── phase-4-plan.md         ← Phase 4 implementation plan
 │
 ├── bunfig.toml
 └── package.json                ← Bun workspace root

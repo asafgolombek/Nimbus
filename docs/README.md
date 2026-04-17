@@ -388,7 +388,9 @@ nimbus/
 │   ├── mission.md            # design philosophy and principles
 │   ├── SECURITY.md           # security model + vulnerability reporting
 │   ├── roadmap.md            # acceptance-criteria-driven roadmap
-│   ├── phase-3.5-plan.md     # detailed Phase 3.5 implementation plan
+│   ├── CONTRIBUTING.md       # contributor workflow and constraints
+│   ├── CODE_OF_CONDUCT.md    # community standards
+│   ├── phase-4-plan.md       # Phase 4 implementation plan
 │   ├── templates/            # copy-paste CI (e.g. extension authors)
 │   └── contributors/         # author walkthroughs
 ├── .github/
@@ -436,10 +438,12 @@ git push origin v0.1.0
 
 Architecture is stabilizing; not all interfaces are frozen.
 
-1. Read [`architecture.md`](../architecture.md) — understand the four subsystems and their contracts.
+1. Read [`architecture.md`](./architecture.md) — understand the four subsystems and their contracts.
 2. Read [`mission.md`](./mission.md) — understand the non-negotiables.
 3. Check issues tagged `good first issue`.
 4. Open a discussion before large PRs.
+
+For workflow, verification commands, and PR expectations, see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Community standards are in [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
 
 **Non-negotiables** — PRs violating these will not be merged:
 
@@ -464,6 +468,6 @@ Commercial license available for embedding Nimbus in a product without AGPL obli
 
 <div align="center">
 
-**[Mission](./mission.md) · [Architecture](../architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
+**[Mission](./mission.md) · [Architecture](./architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
 
 </div>

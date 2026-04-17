@@ -1,6 +1,6 @@
 # Extension author walkthrough
 
-This is a short path from zero to a locally installed Nimbus extension. For the full contract, see `architecture.md` (Extension Registry) and `packages/gateway/src/extensions/manifest.ts`.
+This is a short path from zero to a locally installed Nimbus extension. For the full contract, see `docs/architecture.md` (Extension Registry) and `packages/gateway/src/extensions/manifest.ts`.
 
 ## 1. Create `nimbus.extension.json`
 

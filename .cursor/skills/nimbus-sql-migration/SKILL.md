@@ -13,7 +13,7 @@ description: >-
 
 ## Schema source of truth
 
-- Initial schema is embedded in `packages/gateway/src/index/schema-sql.ts` as `INITIAL_SCHEMA_SQL` (bundled with `bun build --compile`). Align changes with **`architecture.md`** (Local Database Schema / index sections).
+- Initial schema is embedded in `packages/gateway/src/index/schema-sql.ts` as `INITIAL_SCHEMA_SQL` (bundled with `bun build --compile`). Align changes with **`docs/architecture.md`** (Local Database Schema / index sections).
 - If the repo introduces numbered SQL migration files (e.g. `001_initial.sql`, `002_add_sync_state.sql`), treat them as **append-only**: new files get the next number; **do not** rewrite shipped migration history.
 
 ## Queries from TypeScript

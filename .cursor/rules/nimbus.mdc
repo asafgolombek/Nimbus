@@ -1,6 +1,6 @@
 ---
 description: Nimbus project rules — local-first AI agent framework. Apply to all TypeScript, config, and workflow files.
-globs: ["**/*.ts", "**/*.tsx", "**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml", "docs/**/*.md", "CLAUDE.md", "GEMINI.md", "architecture.md"]
+globs: ["**/*.ts", "**/*.tsx", "**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml", "docs/**/*.md", "CLAUDE.md", "GEMINI.md", "docs/architecture.md"]
 alwaysApply: true
 ---
 

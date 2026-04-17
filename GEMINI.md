@@ -45,7 +45,7 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
-| `architecture.md` | Full subsystem design — read before modifying any subsystem |
+| `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
 
