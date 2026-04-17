@@ -234,7 +234,7 @@ export const nimbusAgent = new Agent({
   instructions: SYSTEM_PROMPT,
   model: {
     provider: "ANTHROPIC",
-    name: "claude-sonnet-4-20250514",
+    name: "claude-sonnet-4-6",
   },
   tools: {
     searchLocalIndex:     createSearchLocalIndexTool(),
@@ -765,6 +765,67 @@ The Tauri desktop application ships an Extension Marketplace panel. It is not a 
 
 ---
 
+## Phase 4 Subsystems
+
+These subsystems are active development in Phase 4 (Presence). They extend the existing architecture without replacing it — all Phase 4 clients connect over the existing IPC socket; no new Gateway protocol is required.
+
+### Model Router (Local LLM)
+
+The Model Router sits between the IPC layer and the Engine. It selects the inference backend for each invocation based on task type and available models.
+
+| Task | Default backend | Air-gapped mode |
+|---|---|---|
+| Intent classification | Local (Ollama/llama.cpp) if loaded; remote otherwise | Local only |
+| Task planning + multi-step reasoning | Remote (`claude-sonnet-4-6`) | Local (degraded) |
+| Response summarization | Remote | Local |
+
+**Supported backends:**
+
+| Backend | Discovery | `nimbus.toml` key |
+|---|---|---|
+| Ollama | `OLLAMA_HOST` env or `localhost:11434` | `[llm.ollama_host]` |
+| llama.cpp (GGUF) | Direct file path | `[llm.gguf_path]` |
+| Anthropic (remote) | `ANTHROPIC_API_KEY` in Vault | `[llm.provider] = "anthropic"` |
+
+Model lifecycle (pull, load, unload, status) is managed via the `model.*` IPC method namespace. The router dispatches to a loaded backend or falls back per the table above; it never calls an LLM provider API directly.
+
+### Multi-Agent Orchestration
+
+The multi-agent system extends the single-agent cognitive loop with a **Coordinator** layer. The Coordinator decomposes complex tasks into independent sub-tasks and dispatches each to a **Worker** agent with an isolated tool scope.
+
+```
+[Coordinator Agent]
+    ├── Decomposes intent into parallel sub-tasks
+    ├── Assigns each sub-task a scoped tool set
+    └── Collects + merges results
+          │
+          ├── [Worker A] — isolated tool scope (e.g. search, file.get)
+          ├── [Worker B] — isolated tool scope (e.g. calendar.query)
+          └── [Worker C] — isolated tool scope (e.g. repo.list, pr.get)
+                │
+                Each Worker has its own HITL gate instance.
+                The Coordinator CANNOT approve on behalf of the user.
+```
+
+**Loop guard invariants — structural, not configurable via IPC or extension API:**
+
+| Guard | Environment variable | Default |
+|---|---|---|
+| Max sub-agent recursion depth | `NIMBUS_MAX_AGENT_DEPTH` | `3` |
+| Max total tool calls per session | `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` | `20` |
+
+Exceeding either limit emits the `agent.gasLimitReached` IPC notification and halts further decomposition. In-flight sub-agents complete their current step before halting.
+
+### Voice Interface and Rich TUI
+
+Both Phase 4 clients use the **existing JSON-RPC 2.0 IPC socket** — no new Gateway API surface is introduced.
+
+**Voice interface** — Whisper.cpp runs inside the Tauri desktop process. Transcribed text is forwarded to the Gateway as a standard `agent.invoke` call. TTS playback (`say` on macOS, SAPI on Windows, `pyttsx3` on Linux) is handled by the desktop process on the streamed response. Audio never leaves the machine.
+
+**Rich TUI** (`nimbus tui`) — an Ink-based terminal layout using `@nimbus-dev/client` IPC transport. HITL consent is surfaced inline in the terminal pane, identical in behaviour to the existing CLI consent prompt.
+
+---
+
 ## Nimbus Gateway: Process Lifecycle
 
 ### Startup Sequence and Failure Modes
@@ -1049,6 +1110,12 @@ nimbus/
 │   │       ├── ipc/            ← Gateway IPC client for WebView
 │   │       └── pages/          ← Dashboard, Search, Marketplace, Settings, AuditLog
 │   │
+│   ├── vscode-extension/       ← VS Code extension (Phase 4)
+│   │   └── src/
+│   │       ├── extension.ts    ← activation, command registration
+│   │       ├── gateway-client.ts ← @nimbus-dev/client IPC wrapper
+│   │       └── hitl-provider.ts  ← HITL consent via VS Code notification API
+│   │
 │   ├── mcp-connectors/         ← First-party MCP servers (workspace packages)
 │   │   ├── google-drive/
 │   │   ├── gmail/
@@ -1099,4 +1166,4 @@ nimbus/
 
 ---
 
-*Nimbus Architecture v0.5 — Cross-platform. Security-hardened. DevOps-aware. Extension-ready.*
+*Nimbus Architecture v0.7 — Cross-platform. Security-hardened. DevOps-aware. Extension-ready.*

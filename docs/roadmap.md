@@ -119,7 +119,7 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 | Full document content extraction (PDF/DOCX body text in FTS5) | Phase 3 — embedding pipeline + Filesystem connector v2 |
 | Generic user-defined MCP connector (`nimbus connector add --mcp`) | Phase 3 — Extension Registry v1 (adds sandboxing + manifest verification) |
 | Vault credential portability between machines | Phase 4 — `nimbus data export/import` |
-| SQLite encryption at rest (SQLCipher) | Post-Phase 4 — OS filesystem encryption (BitLocker/FileVault/LUKS) covers the threat model; revisit if a formal security audit identifies a gap |
+| SQLite encryption at rest (SQLCipher) | Phase 4 — opt-in AES-256 via SQLCipher; key in OS Vault; `[db.encrypt] = true`; see Data Sovereignty section |
 | Per-connector OAuth vault keys vs shared family key (`google.oauth`, `microsoft.oauth`) | Phase 3/4 consideration — shared key kept for simplicity; revisit if scope-collision UX proves painful |
 
 ---
@@ -273,6 +273,8 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 > Full implementation plan with task breakdown, file locations, and per-workstream acceptance criteria: [`docs/phase-4-plan.md`](./phase-4-plan.md)
 
+> **Release gate:** `v0.1.0` is tagged only after all Phase 4 acceptance criteria pass on all three platforms. This phase owns the `v0.1.0` milestone.
+
 ### Dependencies
 
 - **Phase 3.5 complete** — all Phase 3.5 acceptance criteria must pass before Phase 4 begins; the docs site, onboarding, and data integrity work are release prerequisites
@@ -297,6 +299,12 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 
 - [ ] **Local LLM support** — Ollama integration (model discovery, pull, load, unload via Gateway IPC); llama.cpp fallback (GGUF model files, no Ollama required); per-task model routing (fast local model for classification; remote for multi-step reasoning; configurable); fully air-gapped operation when a local model is loaded
 - [ ] **Multi-agent orchestration** — coordinator agent decomposes complex tasks into independent sub-tasks; sub-agents run in parallel in isolated tool scopes; all sub-agent write operations remain HITL-gated; coordinator cannot approve on behalf of the user *(loop-guard config stubs in place: `NIMBUS_MAX_AGENT_DEPTH` default 3, `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` default 20; `agent.gasLimitReached` notification reserved)*
+
+### Built-in Agent Workflows
+
+First-party demonstrations of multi-agent orchestration and multi-connector context assembly that ship with Phase 4.
+
+- [ ] **Meeting preparation** — `nimbus prep "<event title or time>"` resolves the calendar event, surfaces attendees via the people graph (recent PRs, open issues, Slack threads), and pulls related documents from Drive/OneDrive/Notion; output is a structured brief rendered in the TUI or Tauri UI; triggered on demand, not scheduled; no new connectors required — uses the full Phase 2 index
 
 ### VS Code Extension
 
@@ -324,6 +332,8 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 - [ ] **Full import** — `nimbus data import nimbus-backup.tar.gz`: decrypts manifest, re-seals credentials into target machine's native Vault, restores index, re-registers extensions, restores profiles
 - [ ] **GDPR deletion** — `nimbus data delete --service <name>`: removes all index rows and Vault entries for a service; writes a signed deletion record to the audit log
 - [ ] **Tamper-evident audit log** — each audit log row is BLAKE3-chained to the previous; log export includes the chain; `nimbus audit verify` checks integrity
+- [ ] **Data minimization** — per-connector indexing depth config in `nimbus.toml`: `metadata_only` (name, timestamps, URL — no content), `summary` (body preview truncated to 512 chars), or `full` (default); applies at ingest — content excluded never enters the index or embedding pipeline; important for shared-machine and compliance scenarios
+- [ ] **SQLite encryption at rest (SQLCipher)** — opt-in AES-256 encryption of the local index; key derived from OS Vault (DPAPI/Keychain/libsecret — same trust boundary as credential storage); enabled via `[db.encrypt] = true`; resolves the Phase 2 deferral (OS filesystem encryption covers the baseline threat model; SQLCipher closes the gap for shared-machine and compliance scenarios)
 
 ### Automation & Graph Enhancements
 
@@ -333,12 +343,15 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Workflow branching and conditionals** — extend the workflow DSL with `if` / `else` / `switch` step types; condition expressions can reference step outputs and index query results; independent branches execute in parallel where possible; DSL remains backwards-compatible with Phase 3 linear pipelines; dry-run and HITL safety apply to all branch variants
 - [x] **Per-connector OAuth vault keys** — per-service keys implemented: `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth` for Google; `onedrive.oauth`, `outlook.oauth`, `teams.oauth` for Microsoft; `nimbus connector auth` writes per-service key on each PKCE flow; Microsoft keys back-filled from `microsoft.oauth` on Gateway startup; legacy shared keys kept as fallback for Google until each service re-auths; eliminates scope-collision between Google connectors
 
+### Remote Access
+
+- [ ] **Optional encrypted LAN remote access** — E2E encrypted (NaCl box), no relay server; Gateway advertises on the local network; connecting client must present a pairing token issued at setup time; read-only by default; write requires a separate HITL approval on the host machine; disabled by default (`[remote_access.enabled] = false`)
+
 ### Release Infrastructure
 
 - [ ] Signed + notarized release binaries: macOS (Gatekeeper notarized), Windows (Authenticode signed), Linux (GPG-signed `.deb` + AppImage)
 - [ ] Auto-update via self-hosted `tauri-update-server`; update checked on Gateway startup; user approves before applying
 - [ ] Plugin API v1 — third-party connector registration stable and documented; breaking changes require a major version bump
-- [ ] Optional encrypted LAN remote access — E2E encrypted (NaCl box), no relay server; read-only by default; write requires separate HITL approval on the host machine
 
 ### Acceptance Criteria
 
@@ -346,8 +359,9 @@ These items resolve deferred decisions from Phase 3.
 - `nimbus ask "summarize everything that happened across my projects this week"` runs fully locally via Ollama — no API key, no network call — in under 30 seconds on a mid-range laptop
 - Multi-agent orchestration: a task decomposed into 3 parallel sub-agents cannot bypass HITL on any write step — verified by automated test
 - `nimbus data export` → wipe index and Vault → `nimbus data import` restores full functionality on a fresh machine with all connectors re-authenticated
-- Five community extensions available in the Marketplace at `v0.1.0` launch
+- Five community extensions available in the Marketplace at `v0.1.0` launch *(seed plan: publish first-party connectors as community packages and engage early adopters via `docs/contributors/extension-author-walkthrough.md`)*
 - VS Code extension installs from Open VSX and connects to a running Gateway without any manual configuration
+- Voice query completes end-to-end (speech → Whisper.cpp transcription → Gateway → TTS playback) on all three platforms; audio never leaves the machine — verified by network inspection in CI
 
 ---
 
@@ -368,12 +382,20 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Pocket / Readwise / Raindrop** — saved articles, highlights, reading lists, tags; read-only index
 - [ ] **Browser history connector** — local browser extension (Chrome/Firefox/Safari) pushes visited URLs + page titles to Gateway over local HTTP; no cloud relay; opt-in; history stored locally only
 - [ ] **Web clipper** — browser extension saves a page into the Nimbus index with a tag; surfaced in `nimbus search` alongside Drive files and emails
+- [ ] **Obsidian vault connector** — indexes local Markdown vaults with frontmatter metadata, backlinks, and daily notes; uses `[[filesystem.roots]]` as the discovery mechanism; `obsidian_note` item type; backlinks surfaced in the relationship graph; append to daily note behind HITL; no network call required — fully local
 
 #### Email via IMAP/SMTP
 
 - [ ] **Generic IMAP connector** — any IMAP server (Fastmail, ProtonMail, self-hosted); credentials in Vault; `body_preview` indexing; `email.send` behind HITL via SMTP
 - [ ] **Fastmail MCP connector** — JMAP native (faster and more efficient than IMAP)
 - [ ] **ProtonMail MCP connector** — ProtonMail Bridge integration; local IMAP interface; read-only (E2EE precludes server-side access)
+- [ ] **Apple Mail + macOS Calendar** — Apple Mail via local IMAP (no Bridge required); macOS Calendar via CalDAV (`caldav.apple.com`); macOS only; credentials in Vault; calendar events indexed as `event` items; mail indexed as `email` items with body preview; create/delete calendar event and draft send behind HITL
+
+#### Meetings & Async Video
+
+- [ ] **Zoom** — meeting metadata, recordings index, AI-generated transcripts (Zoom AI Companion); OAuth; read-only; `meeting.summary` and `meeting.transcript` item types; linked to calendar events via meeting URL
+- [ ] **Google Meet** — meeting metadata and auto-generated transcripts via Google Workspace; OAuth (extends existing Google connector auth); read-only; indexed alongside Google Calendar events
+- [ ] **Loom** — async video index: title, description, transcript, viewer stats; OAuth; read-only; `loom_video` item type
 
 #### Finance & Expenses
 
@@ -404,6 +426,7 @@ These items resolve deferred decisions from Phase 3.
 
 The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data source for CI pipelines and external tooling. This section makes that story explicit with first-class integration points.
 
+- [ ] **Published OpenAPI spec** — machine-readable OpenAPI 3.1 schema for all `GET /v1/*` endpoints; versioned at `/v1/openapi.json` and served by `nimbus serve`; prerequisite for the CI/CD action integrations below; enables auto-completion, contract testing, and third-party tooling without bespoke client code
 - [ ] **Pre-deploy index check** — official GitHub Actions action (`nimbus-dev/query-action`) that queries the local index via the HTTP API for: active P1 incidents on the target service, failing CI runs on the target branch, open PRs with merge conflicts; can block or warn a deploy based on results
 - [ ] **Post-deploy annotation** — GitHub Actions action that writes a deployment event into the Nimbus index so the agent can correlate future alerts against this specific deploy; no extra credentials required beyond the HTTP API
 - [ ] **Pre-commit hook template** — `nimbus-dev/hooks` package providing a pre-commit hook that checks whether files being committed have related open Jira/Linear tickets, active incidents, or a failing pipeline on the current branch; reports findings without blocking (configurable to block)
