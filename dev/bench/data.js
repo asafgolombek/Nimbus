@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776409634054,
+  "lastUpdate": 1776410950945,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -173,6 +173,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4507588599999992,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "9f1f3f641f69ea94675afbdfc2992c512dfbf191",
+          "message": "Update architecture and roadmap documentation for Phase 4 enhancements\n\n- Updated the model name in the architecture documentation to reflect the latest version.\n- Added detailed descriptions of new subsystems including Model Router and Multi-Agent Orchestration.\n- Introduced built-in agent workflows and clarified SQLite encryption options in the roadmap.\n- Enhanced overall structure and clarity of documentation to support Phase 4 development.",
+          "timestamp": "2026-04-17T10:28:39+03:00",
+          "tree_id": "b3d88a0d51723b5c571923d4f67b86e0882e22ad",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/9f1f3f641f69ea94675afbdfc2992c512dfbf191"
+        },
+        "date": 1776410950313,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4836202599999995,
             "unit": "ms"
           }
         ]
