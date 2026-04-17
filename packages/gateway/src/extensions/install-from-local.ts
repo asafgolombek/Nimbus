@@ -19,7 +19,7 @@ export function resolveSystemTarCommand(): string {
   if (process.platform !== "win32") {
     return "tar";
   }
-  const root = process.env.SystemRoot ?? process.env.windir;
+  const root = process.env["SystemRoot"] ?? process.env["windir"];
   if (root !== undefined && root !== "") {
     return join(root, "System32", "tar.exe");
   }
