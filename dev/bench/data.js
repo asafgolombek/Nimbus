@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776373790201,
+  "lastUpdate": 1776395467777,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -28,6 +28,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.514434720000001,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "8a126afb23b7093b08aafd68f2e8db4f26a9e376",
+          "message": "Refactor tar command resolution for Windows compatibility in local extension installation\n\n- Introduced `resolveSystemTarCommand` function to determine the appropriate tar command based on the operating system, ensuring compatibility with Windows paths.\n- Updated instances in `install-from-local.ts` and `install-from-local.test.ts` to utilize the new function for improved reliability in extracting and packing archives.",
+          "timestamp": "2026-04-17T06:10:31+03:00",
+          "tree_id": "d45a791c535737709e81316c48982dcef1fe4db4",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/8a126afb23b7093b08aafd68f2e8db4f26a9e376"
+        },
+        "date": 1776395467004,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.441821079999999,
             "unit": "ms"
           }
         ]
