@@ -958,7 +958,9 @@ CREATE TABLE sync_state (
     retry_after     INTEGER,        -- unix ms; non-null when health_state = 'rate_limited'
     backoff_until   INTEGER,        -- unix ms; non-null when in exponential backoff
     backoff_attempt INTEGER NOT NULL DEFAULT 0,
-    last_error      TEXT            -- last error message, truncated to 512 chars
+    last_error      TEXT,           -- last error message, truncated to 512 chars
+    -- Phase 4 WS1: LLM context window discovered during model sync
+    context_window_tokens INTEGER
 );
 
 -- Connector health transition history (Phase 3.5) — last 7 days retained
@@ -989,6 +991,40 @@ CREATE TABLE slow_query_log (
     query_type  TEXT NOT NULL,
     recorded_at INTEGER NOT NULL
 );
+
+-- Local LLM model registry (Phase 4 WS1 — V16 migration)
+CREATE TABLE llm_models (
+    id               TEXT PRIMARY KEY,   -- "<provider>:<model_name>"
+    provider         TEXT NOT NULL       CHECK(provider IN ('ollama','llamacpp','remote')),
+    model_name       TEXT NOT NULL,
+    parameter_count  TEXT,               -- "3B" | "7B" | "13B" etc.
+    context_window   INTEGER,
+    quantization     TEXT,               -- "Q4_K_M" etc.
+    vram_estimate_mb INTEGER,
+    last_error       TEXT,
+    bench_tps        REAL,               -- tokens/sec from last benchmark
+    last_seen_at     INTEGER NOT NULL    -- unix ms
+);
+
+-- Multi-agent sub-task results (Phase 4 WS1 — V17 migration)
+CREATE TABLE sub_task_results (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL,
+    parent_id    TEXT,                  -- references sub_task_results(id); null for root
+    task_index   INTEGER NOT NULL,
+    task_type    TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending'
+                 CHECK(status IN ('pending','running','done','rejected','error')),
+    result_json  TEXT,
+    error_text   TEXT,
+    model_used   TEXT,
+    tokens_in    INTEGER,
+    tokens_out   INTEGER,
+    started_at   INTEGER,               -- unix ms
+    completed_at INTEGER,               -- unix ms
+    created_at   INTEGER NOT NULL
+);
+CREATE INDEX idx_str_session ON sub_task_results(session_id, task_index);
 
 -- Extension registry (mirrors the extensions SQLite schema in Subsystem 4)
 CREATE TABLE extensions (

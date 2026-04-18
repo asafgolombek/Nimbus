@@ -35,12 +35,23 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/gateway/src/platform/darwin.ts` | macOS platform implementation |
 | `packages/gateway/src/platform/linux.ts` | Linux platform implementation |
 | `packages/gateway/src/vault/index.ts` | `NimbusVault` interface |
-| `packages/gateway/src/auth/google-access-token.ts` | Google per-service OAuth token resolution — `resolveGoogleOAuthVaultKey()` |
-| `packages/gateway/src/auth/oauth-vault-tokens.ts` | Generic OAuth token storage/refresh helpers |
-| `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh.ts` — Phase 3 bundle for infra/obs MCPs when vault keys exist) |
-| `packages/gateway/src/connectors/connector-vault.ts` | Per-service OAuth vault key helpers + Microsoft startup migration (Phase 4) |
+| `packages/gateway/src/auth/google-access-token.ts` | Google per-service OAuth token resolution — `resolveGoogleOAuthVaultKey()`, `anyGoogleOAuthVaultPresent()` |
+| `packages/gateway/src/auth/oauth-vault-tokens.ts` | Generic OAuth token storage/refresh helpers — `getValidVaultOAuthAccessToken()`, `microsoftOAuthAccessFromConfig()` |
+| `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh.ts` — Phase 3 bundle spawns AWS/Azure/GCP/IaC/observability MCPs when vault keys exist) |
+| `packages/gateway/src/connectors/health.ts` | Connector health state machine — `transitionHealth()`, `ConnectorHealthSnapshot` |
+| `packages/gateway/src/connectors/connector-vault.ts` | Per-service OAuth vault key helpers — `perServiceOAuthVaultKey()`, `writePerServiceOAuthKey()`, `migrateToPerServiceOAuthKeys()` (Phase 4) |
 | `packages/gateway/src/connectors/connector-secrets-manifest.ts` | `CONNECTOR_VAULT_SECRET_KEYS` per-connector vault manifest; `clearConnectorVaultSecretKeys()` |
-| `packages/gateway/src/connectors/remove-intent.ts` | Connector removal — cascade vault + index cleanup |
+| `packages/gateway/src/connectors/remove-intent.ts` | Connector removal — cascade vault + index cleanup via `executeRemoveIntent()` |
+| `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
+| `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
+| `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
+| `packages/gateway/src/db/health.ts` | Disk space monitoring — polling + reactive `SQLITE_FULL` path; `DiskFullError` |
+| `packages/gateway/src/db/snapshot.ts` | Manual and scheduled snapshot management |
+| `packages/gateway/src/db/metrics.ts` | `IndexMetrics` — item counts, embedding coverage, query latency percentiles |
+| `packages/gateway/src/db/latency-ring-buffer.ts` | In-memory ring buffer for query latency samples; async batch flush to `query_latency_log` |
+| `packages/gateway/src/db/write.ts` | Central DB write wrapper — catches `SQLITE_FULL`, re-throws `DiskFullError` |
+| `packages/gateway/src/telemetry/collector.ts` | Opt-in telemetry — aggregate counters only, no content, configurable endpoint |
+| `packages/gateway/src/config/profiles.ts` | Named configuration profiles (`work`, `personal`); Vault key prefixing |
 | `packages/gateway/src/llm/types.ts` | LLM provider interfaces — `LlmProvider`, `LlmTaskType`, `LlmModelInfo`, `LlmGenerateOptions/Result` |
 | `packages/gateway/src/llm/gpu-arbiter.ts` | `GpuArbiter` — single-slot GPU VRAM mutex with activity-aware timeout |
 | `packages/gateway/src/llm/ollama-provider.ts` | `OllamaProvider` — Ollama HTTP API wrapper (batch + streaming) |
@@ -52,10 +63,19 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/gateway/src/engine/sub-agent.ts` | `runSubAgent` — single sub-task executor with `sub_task_results` DB lifecycle |
 | `packages/gateway/src/index/llm-models-v16-sql.ts` | V16 migration SQL — `llm_models` table + `sync_state.context_window_tokens` |
 | `packages/gateway/src/index/sub-task-results-v17-sql.ts` | V17 migration SQL — `sub_task_results` table for multi-agent persistence |
+| `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY` connection) |
+| `packages/gateway/src/ipc/metrics-server.ts` | Prometheus-compatible metrics endpoint (`localhost` only, off by default) |
 | `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
+| `packages/cli/src/commands/query.ts` | `nimbus query` — structured index query with `--sql` guard |
+| `packages/cli/src/commands/config.ts` | `nimbus config get/set/list/validate/edit` |
+| `packages/cli/src/commands/profile.ts` | `nimbus profile create/list/switch/delete` |
+| `packages/cli/src/commands/diag.ts` | `nimbus diag` — full diagnostic snapshot; `slow-queries` subcommand |
+| `packages/cli/src/commands/doctor.ts` | `nimbus doctor` — environment health checks, actionable remediation output |
+| `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
+| `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
@@ -92,6 +112,8 @@ bun run test:coverage:config       # ≥80% threshold (config loader, profiles, 
 bun run test:coverage:client       # ≥80% threshold (@nimbus-dev/client)
 bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — payload safety gate)
 bun run test:coverage:db           # ≥85% threshold (verify, repair, migrations, metrics, latency buffer)
+bun run test:coverage:health       # ≥85% threshold (connectors/health.ts)
+bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
 
 # Integration tests
 bun run test:integration
@@ -117,6 +139,31 @@ bun run clean
 # Security audit
 bun audit --audit-level high
 bun run audit:high                 # same (root script)
+
+# Phase 3.5 CLI commands (reference — not bun scripts)
+# nimbus query --service github --type pr --since 7d --json
+# nimbus query --sql "SELECT title FROM items WHERE pinned = 1" --pretty
+# nimbus config get <key> / set <key> <value> / list / validate / edit
+# nimbus profile create <name> / list / switch <name> / delete <name>
+# nimbus diag [--json]
+# nimbus diag slow-queries [--limit N] [--since <duration>]
+# nimbus doctor
+# nimbus db verify
+# nimbus db repair [--yes]
+# nimbus db snapshot
+# nimbus db restore <snapshot>
+# nimbus db snapshots list / backups list
+# nimbus db prune [--yes]
+# nimbus telemetry show
+# nimbus telemetry disable
+# nimbus serve [--port 7474]
+# nimbus docs [topic]
+# nimbus connector history <name>
+
+# Phase 4 env-var overrides (multi-agent loop guards)
+# NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)
+# NIMBUS_MAX_TOOL_CALLS_PER_SESSION=20  hard cap on tool calls per session (1–200; default 20)
+# Exceeding either fires agent.gasLimitReached and halts new decomposition.
 
 # Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
 # Optional: NIMBUS_EMBEDDING_MODEL_DIR or bun run package:headless -- --embedding-model-dir <path>
