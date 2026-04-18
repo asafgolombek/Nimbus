@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LlmRouter, type LlmRouterConfig } from "./router.ts";
+import { LlmRouter, type LlmRouterConfig, midTruncate } from "./router.ts";
 import type { LlmProvider } from "./types.ts";
 
 function makeFakeProvider(id: "ollama" | "llamacpp" | "remote", available: boolean): LlmProvider {
@@ -91,5 +91,125 @@ describe("LlmRouter.generate", () => {
     await expect(router.generate({ task: "classification", prompt: "test" })).rejects.toThrow(
       "No LLM provider available",
     );
+  });
+});
+
+describe("LlmRouter capability floor", () => {
+  test("skips provider below minReasoningParams for reasoning task", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG); // minReasoningParams: 7
+    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 3 });
+    router.registerProvider(makeFakeProvider("remote", true));
+    const provider = await router.selectProvider("reasoning");
+    expect(provider?.providerId).toBe("remote");
+  });
+
+  test("selects provider at or above minReasoningParams for reasoning task", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 13 });
+    const provider = await router.selectProvider("reasoning");
+    expect(provider?.providerId).toBe("ollama");
+  });
+
+  test("does not apply capability floor to classification task", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 1 });
+    const provider = await router.selectProvider("classification");
+    expect(provider?.providerId).toBe("ollama");
+  });
+
+  test("skips small provider for agent_step, falls back to remote", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 3 });
+    router.registerProvider(makeFakeProvider("remote", true));
+    const provider = await router.selectProvider("agent_step");
+    expect(provider?.providerId).toBe("remote");
+  });
+});
+
+describe("LlmRouter context window overflow", () => {
+  function makeCaptureProvider(
+    id: "ollama" | "llamacpp" | "remote",
+    available: boolean,
+    captured: { prompt: string },
+  ): LlmProvider {
+    return {
+      providerId: id,
+      isAvailable: async () => available,
+      listModels: async () => [],
+      generate: async (opts) => {
+        captured.prompt = opts.prompt;
+        return {
+          text: `response from ${id}`,
+          tokensIn: 1,
+          tokensOut: 1,
+          modelUsed: id,
+          isLocal: id !== "remote",
+          provider: id,
+        };
+      },
+    };
+  }
+
+  test("mid-truncates prompt for summarisation when it exceeds context window", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    const captured = { prompt: "" };
+    // contextWindow: 100 tokens → limit = 85 tokens = 340 chars
+    router.registerProvider(makeCaptureProvider("ollama", true, captured), { contextWindow: 100 });
+    const longPrompt = "x".repeat(500); // ~125 tokens > 85 limit
+    await router.generate({ task: "summarisation", prompt: longPrompt });
+    expect(captured.prompt).toContain("[...truncated...]");
+    expect(captured.prompt.length).toBeLessThan(longPrompt.length);
+  });
+
+  test("falls back to remote for reasoning when local context window overflows", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    const captured = { prompt: "" };
+    router.registerProvider(makeCaptureProvider("ollama", true, { prompt: "" }), {
+      contextWindow: 100,
+    });
+    router.registerProvider(makeCaptureProvider("remote", true, captured));
+    const longPrompt = "x".repeat(500);
+    await router.generate({ task: "reasoning", prompt: longPrompt });
+    expect(captured.prompt).toBe(longPrompt); // remote receives full prompt
+  });
+
+  test("throws for reasoning overflow when air-gap is enforced", async () => {
+    const config: LlmRouterConfig = { ...DEFAULT_CONFIG, enforceAirGap: true };
+    const router = new LlmRouter(config);
+    router.registerProvider(makeFakeProvider("ollama", true), { contextWindow: 100 });
+    const longPrompt = "x".repeat(500);
+    await expect(router.generate({ task: "reasoning", prompt: longPrompt })).rejects.toThrow(
+      "air-gap mode prevents remote fallback",
+    );
+  });
+
+  test("short prompt within context window is not truncated", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    const captured = { prompt: "" };
+    router.registerProvider(makeCaptureProvider("ollama", true, captured), {
+      contextWindow: 1000,
+    });
+    const shortPrompt = "hello world";
+    await router.generate({ task: "summarisation", prompt: shortPrompt });
+    expect(captured.prompt).toBe(shortPrompt);
+  });
+});
+
+describe("midTruncate", () => {
+  test("returns string unchanged when shorter than maxChars", () => {
+    expect(midTruncate("hello", 100)).toBe("hello");
+  });
+
+  test("returns string unchanged at exactly maxChars", () => {
+    const text = "a".repeat(10);
+    expect(midTruncate(text, 10)).toBe(text);
+  });
+
+  test("inserts truncation marker and keeps first and last halves", () => {
+    const text = "A".repeat(20) + "B".repeat(20);
+    const result = midTruncate(text, 20);
+    expect(result).toContain("[...truncated...]");
+    expect(result.startsWith("A".repeat(10))).toBe(true);
+    expect(result.endsWith("B".repeat(10))).toBe(true);
   });
 });
