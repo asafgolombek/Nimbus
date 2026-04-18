@@ -25,6 +25,7 @@ import {
 } from "../extension-session-v10-sql.ts";
 import { GRAPH_RELATION_TYPES_V12_SQL } from "../graph-relation-types-v12-sql.ts";
 import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
+import { LLM_CONTEXT_WINDOW_V16_ALTER_SQL, LLM_MODELS_V16_SQL } from "../llm-models-v16-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
@@ -221,6 +222,22 @@ function migrateIndexedV14ToV15(db: Database, now: number): void {
   })();
 }
 
+function llmModelsSyncStateHasContextWindowColumn(db: Database): boolean {
+  const cols = db.query("PRAGMA table_info(sync_state)").all() as Array<{ name: string }>;
+  return cols.some((c) => c.name === "context_window_tokens");
+}
+
+function migrateIndexedV15ToV16(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(LLM_MODELS_V16_SQL);
+    if (!llmModelsSyncStateHasContextWindowColumn(db)) {
+      db.exec(LLM_CONTEXT_WINDOW_V16_ALTER_SQL.trim());
+    }
+    db.exec("PRAGMA user_version = 16");
+    recordMigration(db, 16, "llm_models table + sync_state.context_window_tokens", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -237,6 +254,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 12, toVersion: 13, apply: migrateIndexedV12ToV13 },
   { fromVersion: 13, toVersion: 14, apply: migrateIndexedV13ToV14 },
   { fromVersion: 14, toVersion: 15, apply: migrateIndexedV14ToV15 },
+  { fromVersion: 15, toVersion: 16, apply: migrateIndexedV15ToV16 },
 ];
 
 /**
@@ -300,6 +318,14 @@ function backfillMigrationsLedger(db: Database): void {
     }
     if (uv >= 15) {
       recordMigration(db, 15, "connector_remove_intent (backfilled)", now);
+    }
+    if (uv >= 16) {
+      recordMigration(
+        db,
+        16,
+        "llm_models table + sync_state.context_window_tokens (backfilled)",
+        now,
+      );
     }
   })();
 }
@@ -488,7 +514,11 @@ export function runIndexedSchemaMigrations(
     }
   }
 
-  if (ver !== targetVersion) {
+  const maxKnownVersion = INDEXED_SCHEMA_STEPS.reduce(
+    (max, s) => (s.toVersion > max ? s.toVersion : max),
+    0,
+  );
+  if (ver !== targetVersion && targetVersion <= maxKnownVersion) {
     throw new Error(
       `Unsupported local index schema version: ${String(ver)} (expected 0–${String(targetVersion)})`,
     );
