@@ -62,11 +62,12 @@ function createStubNotifications(): NotificationService {
 
 type EmbeddingRuntime = Awaited<ReturnType<typeof createEmbeddingRuntime>>;
 
-function openGatewaySqlite(dataDir: string): Database {
+function openGatewaySqlite(dataDir: string, sidecarStops: Array<() => void>): Database {
   const dbPath = join(dataDir, "nimbus.db");
   const db = new Database(dbPath);
   LocalIndex.ensureSchema(db, { backupDir: join(dataDir, "backups"), dbPath });
-  startLatencyFlushScheduler(db);
+  const stopLatency = startLatencyFlushScheduler(db);
+  sidecarStops.push(() => stopLatency.stop());
   db.run("PRAGMA busy_timeout = 8000");
   return db;
 }
@@ -137,6 +138,7 @@ function maybeAttachSessionMemoryStore(
   db: Database,
   rt: EmbeddingRuntime,
   sessionToml: ReturnType<typeof loadNimbusSessionFromPath>,
+  sidecarStops: Array<() => void>,
 ): SessionMemoryStore | undefined {
   if (rt == null || readIndexedUserVersion(db) < 10) {
     return undefined;
@@ -148,13 +150,14 @@ function maybeAttachSessionMemoryStore(
     embedText: (t) => embeddingRt.embedQuery(t),
   });
   const ttlMs = Math.max(1, sessionToml.memoryTtlHours) * 3_600_000;
-  setInterval(() => {
+  const timer = setInterval(() => {
     try {
       sessionMemoryStore.pruneExpired(ttlMs, Date.now());
     } catch {
       /* ignore */
     }
   }, 3_600_000);
+  sidecarStops.push(() => clearInterval(timer));
   return sessionMemoryStore;
 }
 
@@ -203,8 +206,11 @@ async function createSchedulerWithMesh(
   return { syncScheduler, connectorMesh };
 }
 
-function collectSidecarsFromEnv(db: Database, paths: PlatformPaths): Array<() => void> {
-  const sidecarStops: Array<() => void> = [];
+function collectSidecarsFromEnv(
+  db: Database,
+  paths: PlatformPaths,
+  sidecarStops: Array<() => void>,
+): void {
   const httpPortRaw = processEnvGet("NIMBUS_HTTP_PORT");
   if (httpPortRaw !== undefined && httpPortRaw.trim() !== "") {
     const hp = Number.parseInt(httpPortRaw.trim(), 10);
@@ -219,14 +225,14 @@ function collectSidecarsFromEnv(db: Database, paths: PlatformPaths): Array<() =>
       sidecarStops.push(startMetricsServer(() => db, mp).stop);
     }
   }
-  return sidecarStops;
 }
 
 export async function assemblePlatformServices(paths: PlatformPaths): Promise<PlatformServices> {
   const assemblyStartedMs = performance.now();
+  const sidecarStops: Array<() => void> = [];
   await ensurePlatformDirectories(paths);
   const vault = await createNimbusVault(paths);
-  const db = openGatewaySqlite(paths.dataDir);
+  const db = openGatewaySqlite(paths.dataDir, sidecarStops);
   const notifications = createStubNotifications();
   const syncLogger: Logger = createGatewayPinoLogger(paths.logDir);
   const rateLimiter = new ProviderRateLimiter();
@@ -254,7 +260,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     ? { ...syncBase, scheduleItemEmbedding }
     : syncBase;
 
-  const sessionMemoryStore = maybeAttachSessionMemoryStore(db, rt, sessionToml);
+  const sessionMemoryStore = maybeAttachSessionMemoryStore(db, rt, sessionToml, sidecarStops);
 
   verifyExtensionsBestEffort(db, syncLogger);
 
@@ -289,7 +295,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     });
   }
 
-  const sidecarStops = collectSidecarsFromEnv(db, paths);
+  collectSidecarsFromEnv(db, paths, sidecarStops);
   const gatewayAssemblyMs = Math.max(0, Math.round(performance.now() - assemblyStartedMs));
   const telemetryStop = startTelemetryFlushScheduler({
     dataDir: paths.dataDir,
@@ -312,18 +318,14 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     notifications,
     openUrl: openUrlInDefaultBrowser,
     ...(sessionMemoryStore === undefined ? {} : { sessionMemoryStore }),
-    ...(sidecarStops.length === 0
-      ? {}
-      : {
-          disposeSidecars(): void {
-            for (const s of sidecarStops) {
-              try {
-                s();
-              } catch {
-                /* ignore */
-              }
-            }
-          },
-        }),
+    disposeSidecars(): void {
+      for (const s of sidecarStops) {
+        try {
+          s();
+        } catch {
+          /* ignore */
+        }
+      }
+    },
   };
 }

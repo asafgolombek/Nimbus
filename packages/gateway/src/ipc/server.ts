@@ -15,6 +15,7 @@ import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import type { VoiceService } from "../voice/service.ts";
 import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
@@ -32,6 +33,7 @@ import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import { ClientSession, type SessionWrite } from "./session.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
 import type { IPCServer } from "./types.ts";
+import { dispatchVoiceRpc, VoiceRpcError } from "./voice-rpc.ts";
 import type { WorkflowRunContext, WorkflowRunHandler } from "./workflow-invoke.ts";
 
 class RpcMethodError extends Error {
@@ -157,6 +159,8 @@ export type CreateIpcServerOptions = {
   onClientConnected?: (clientId: string) => void;
   /** LLM model registry for llm.* RPCs (Phase 4 WS1). */
   llmRegistry?: LlmRegistry;
+  /** Voice service for voice.* RPCs (Phase 4 WS2). */
+  voiceService?: VoiceService;
 };
 
 function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key: string): string {
@@ -210,6 +214,18 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   let bunListener: ReturnType<typeof Bun.listen<BunSessionData>> | undefined;
   let netServer: net.Server | undefined;
   const winSockets = new Set<net.Socket>();
+
+  function broadcastNotification(method: string, params: Record<string, unknown>): void {
+    for (const session of sessions.values()) {
+      session.writeNotification({ jsonrpc: "2.0", method, params });
+    }
+  }
+
+  if (options.voiceService !== undefined) {
+    options.voiceService.onMicrophoneStateChange = (e) => {
+      broadcastNotification("voice.microphoneActive", { active: e.active, source: e.source });
+    };
+  }
 
   async function handleRpc(
     clientId: string,
@@ -308,11 +324,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   const peopleRpcSkipped = Symbol("peopleRpcSkipped");
   const sessionRpcSkipped = Symbol("sessionRpcSkipped");
   const automationRpcSkipped = Symbol("automationRpcSkipped");
-  const llmRpcSkipped = Symbol("llmRpcSkipped");
+  const phase4RpcSkipped = Symbol("phase4RpcSkipped");
 
   async function tryDispatchLlmRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("llm.") || options.llmRegistry === undefined) {
-      return llmRpcSkipped;
+      return phase4RpcSkipped;
     }
     try {
       const out = await dispatchLlmRpc(method, params, { registry: options.llmRegistry });
@@ -324,6 +340,28 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       throw e;
     }
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
+
+  async function tryDispatchVoiceRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("voice.") || options.voiceService === undefined) {
+      return phase4RpcSkipped;
+    }
+    try {
+      const out = await dispatchVoiceRpc(method, params, { voiceService: options.voiceService });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof VoiceRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+    throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
+
+  async function tryDispatchPhase4Rpc(method: string, params: unknown): Promise<unknown> {
+    const llmOutcome = await tryDispatchLlmRpc(method, params);
+    if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
+    return tryDispatchVoiceRpc(method, params);
   }
 
   async function tryDispatchSessionRpc(method: string, params: unknown): Promise<unknown> {
@@ -665,9 +703,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return peopleOutcome;
     }
 
-    const llmOutcome = await tryDispatchLlmRpc(method, params);
-    if (llmOutcome !== llmRpcSkipped) {
-      return llmOutcome;
+    const phase4Outcome = await tryDispatchPhase4Rpc(method, params);
+    if (phase4Outcome !== phase4RpcSkipped) {
+      return phase4Outcome;
     }
 
     switch (method) {

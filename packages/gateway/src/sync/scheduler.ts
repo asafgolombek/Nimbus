@@ -210,8 +210,7 @@ export class SyncScheduler {
     }, 25);
     this.tick();
   }
-
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true;
     if (this.tickHandle !== null) {
       clearInterval(this.tickHandle);
@@ -220,6 +219,10 @@ export class SyncScheduler {
     if (this._connectivityRecheckHandle !== null) {
       clearTimeout(this._connectivityRecheckHandle);
       this._connectivityRecheckHandle = null;
+    }
+    // Wait for in-flight jobs to drain.
+    while (this.runningGlobal > 0) {
+      await new Promise((r) => setTimeout(r, 10));
     }
   }
 
