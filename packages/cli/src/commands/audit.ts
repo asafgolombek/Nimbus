@@ -28,7 +28,7 @@ function parseAuditListLimit(args: string[]): number {
   return limit;
 }
 
-export async function runAudit(args: string[]): Promise<void> {
+async function runAuditList(args: string[]): Promise<void> {
   const limit = parseAuditListLimit(args);
 
   const paths = getCliPlatformPaths();
@@ -63,4 +63,58 @@ export async function runAudit(args: string[]): Promise<void> {
   } finally {
     await client.disconnect();
   }
+}
+
+async function runAuditVerify(args: string[]): Promise<void> {
+  const full = args.includes("--full");
+  const paths = getCliPlatformPaths();
+  const state = await readGatewayState(paths);
+  if (state === undefined) throw new Error("Gateway is not running. Start with: nimbus start");
+  const client = new IPCClient(state.socketPath);
+  await client.connect();
+  try {
+    const out = await client.call<{
+      ok: boolean;
+      verifiedRows: number;
+      firstBreakAtId?: number;
+      reason?: string;
+    }>("audit.verify", { full });
+    if (out.ok) {
+      console.log(`[ok]   chain integrity — ${String(out.verifiedRows)} rows verified`);
+      process.exitCode = 0;
+    } else {
+      console.log(
+        `[FAIL] chain break at row ${String(out.firstBreakAtId)}: ${out.reason ?? "unknown"}`,
+      );
+      process.exitCode = 1;
+    }
+  } finally {
+    await client.disconnect();
+  }
+}
+
+async function runAuditExport(args: string[]): Promise<void> {
+  const outIdx = args.indexOf("--output");
+  const outPath = outIdx >= 0 ? args[outIdx + 1] : undefined;
+  if (outPath === undefined || outPath === "")
+    throw new Error("Usage: nimbus audit export --output <path>");
+  const paths = getCliPlatformPaths();
+  const state = await readGatewayState(paths);
+  if (state === undefined) throw new Error("Gateway is not running. Start with: nimbus start");
+  const client = new IPCClient(state.socketPath);
+  await client.connect();
+  try {
+    const rows = await client.call<unknown[]>("audit.exportAll", {});
+    await Bun.write(outPath, JSON.stringify(rows, null, 2));
+    console.log(`[ok] wrote ${String(rows.length)} audit rows to ${outPath}`);
+  } finally {
+    await client.disconnect();
+  }
+}
+
+export async function runAudit(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  if (sub === "verify") return runAuditVerify(rest);
+  if (sub === "export") return runAuditExport(rest);
+  return runAuditList(args);
 }

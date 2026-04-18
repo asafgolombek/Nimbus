@@ -17,6 +17,7 @@ import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { VoiceService } from "../voice/service.ts";
 import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
+import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
@@ -358,10 +359,24 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
   }
 
+  async function tryDispatchAuditRpc(method: string, params: unknown): Promise<unknown> {
+    if (method !== "audit.verify" && method !== "audit.exportAll") return phase4RpcSkipped;
+    try {
+      const out = await dispatchAuditRpc(method, params, { index: options.localIndex });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof AuditRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      throw e;
+    }
+    return phase4RpcSkipped;
+  }
+
   async function tryDispatchPhase4Rpc(method: string, params: unknown): Promise<unknown> {
     const llmOutcome = await tryDispatchLlmRpc(method, params);
     if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
-    return tryDispatchVoiceRpc(method, params);
+    const voiceOutcome = await tryDispatchVoiceRpc(method, params);
+    if (voiceOutcome !== phase4RpcSkipped) return voiceOutcome;
+    return tryDispatchAuditRpc(method, params);
   }
 
   async function tryDispatchSessionRpc(method: string, params: unknown): Promise<unknown> {
