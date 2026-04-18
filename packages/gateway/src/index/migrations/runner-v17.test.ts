@@ -5,7 +5,7 @@ import { runIndexedSchemaMigrations } from "./runner.ts";
 describe("migration V17 — sub_task_results", () => {
   test("creates sub_task_results table", () => {
     const db = new Database(":memory:");
-    runIndexedSchemaMigrations(db, Date.now());
+    runIndexedSchemaMigrations(db, 17);
 
     const tables = db
       .query(`SELECT name FROM sqlite_master WHERE type='table' AND name='sub_task_results'`)
@@ -18,7 +18,7 @@ describe("migration V17 — sub_task_results", () => {
 
   test("can insert a sub_task_results row", () => {
     const db = new Database(":memory:");
-    runIndexedSchemaMigrations(db, Date.now());
+    runIndexedSchemaMigrations(db, 17);
 
     const now = Date.now();
     db.run(
@@ -35,7 +35,7 @@ describe("migration V17 — sub_task_results", () => {
 
   test("enforces status CHECK constraint", () => {
     const db = new Database(":memory:");
-    runIndexedSchemaMigrations(db, Date.now());
+    runIndexedSchemaMigrations(db, 17);
 
     expect(() => {
       db.run(

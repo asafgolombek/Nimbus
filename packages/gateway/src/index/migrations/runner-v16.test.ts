@@ -5,7 +5,7 @@ import { runIndexedSchemaMigrations } from "./runner.ts";
 describe("migration V16 — llm_models", () => {
   test("creates llm_models table and context_window_tokens column", () => {
     const db = new Database(":memory:");
-    runIndexedSchemaMigrations(db, Date.now());
+    runIndexedSchemaMigrations(db, 17);
 
     const tables = db
       .query(`SELECT name FROM sqlite_master WHERE type='table' AND name='llm_models'`)
@@ -21,7 +21,7 @@ describe("migration V16 — llm_models", () => {
 
   test("can insert and retrieve an llm_models row", () => {
     const db = new Database(":memory:");
-    runIndexedSchemaMigrations(db, Date.now());
+    runIndexedSchemaMigrations(db, 17);
 
     db.run(
       `INSERT INTO llm_models (provider, model_name, parameter_count, context_window, last_seen_at)
@@ -36,7 +36,7 @@ describe("migration V16 — llm_models", () => {
 
   test("enforces unique(provider, model_name) constraint", () => {
     const db = new Database(":memory:");
-    runIndexedSchemaMigrations(db, Date.now());
+    runIndexedSchemaMigrations(db, 17);
 
     const now = Date.now();
     db.run(
