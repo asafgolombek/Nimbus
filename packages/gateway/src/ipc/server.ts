@@ -324,12 +324,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   const peopleRpcSkipped = Symbol("peopleRpcSkipped");
   const sessionRpcSkipped = Symbol("sessionRpcSkipped");
   const automationRpcSkipped = Symbol("automationRpcSkipped");
-  const llmRpcSkipped = Symbol("llmRpcSkipped");
-  const voiceRpcSkipped = Symbol("voiceRpcSkipped");
+  const phase4RpcSkipped = Symbol("phase4RpcSkipped");
 
   async function tryDispatchLlmRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("llm.") || options.llmRegistry === undefined) {
-      return llmRpcSkipped;
+      return phase4RpcSkipped;
     }
     try {
       const out = await dispatchLlmRpc(method, params, { registry: options.llmRegistry });
@@ -345,7 +344,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
   async function tryDispatchVoiceRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("voice.") || options.voiceService === undefined) {
-      return voiceRpcSkipped;
+      return phase4RpcSkipped;
     }
     try {
       const out = await dispatchVoiceRpc(method, params, { voiceService: options.voiceService });
@@ -357,6 +356,12 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       throw e;
     }
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
+
+  async function tryDispatchPhase4Rpc(method: string, params: unknown): Promise<unknown> {
+    const llmOutcome = await tryDispatchLlmRpc(method, params);
+    if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
+    return tryDispatchVoiceRpc(method, params);
   }
 
   async function tryDispatchSessionRpc(method: string, params: unknown): Promise<unknown> {
@@ -698,14 +703,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return peopleOutcome;
     }
 
-    const llmOutcome = await tryDispatchLlmRpc(method, params);
-    if (llmOutcome !== llmRpcSkipped) {
-      return llmOutcome;
-    }
-
-    const voiceOutcome = await tryDispatchVoiceRpc(method, params);
-    if (voiceOutcome !== voiceRpcSkipped) {
-      return voiceOutcome;
+    const phase4Outcome = await tryDispatchPhase4Rpc(method, params);
+    if (phase4Outcome !== phase4RpcSkipped) {
+      return phase4Outcome;
     }
 
     switch (method) {

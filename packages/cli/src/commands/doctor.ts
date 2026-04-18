@@ -214,6 +214,22 @@ export type DoctorEnv = {
   platform: "win32" | "darwin" | "linux";
 };
 
+function doctorPiperLines(cfg: DoctorVoiceConfig, env: DoctorEnv): string[] {
+  if (cfg.piperPath === "" && cfg.piperModel === "") return [];
+  const lines: string[] = [];
+  const hasAbsPath = cfg.piperPath.includes("/") || cfg.piperPath.includes("\\");
+  const piperBinOk = cfg.piperPath !== "" && (hasAbsPath || env.which(cfg.piperPath) !== null);
+  if (!piperBinOk) {
+    lines.push(`[warn] Voice: piper_path is set but the binary was not found: ${cfg.piperPath}`);
+  }
+  if (cfg.piperModel === "") {
+    lines.push(
+      "[warn] Voice: piper_path is set but piper_model is empty — Piper TTS will not run.",
+    );
+  }
+  return lines;
+}
+
 export function doctorVoiceLines(cfg: DoctorVoiceConfig, env: DoctorEnv): string[] {
   if (!cfg.enabled) return [];
   const lines: string[] = [];
@@ -251,23 +267,37 @@ export function doctorVoiceLines(cfg: DoctorVoiceConfig, env: DoctorEnv): string
     }
   }
 
-  if (cfg.piperPath !== "" || cfg.piperModel !== "") {
-    const piperBinOk =
-      cfg.piperPath !== "" &&
-      (cfg.piperPath.includes("/") ||
-        cfg.piperPath.includes("\\") ||
-        env.which(cfg.piperPath) !== null);
-    if (!piperBinOk) {
-      lines.push(`[warn] Voice: piper_path is set but the binary was not found: ${cfg.piperPath}`);
-    }
-    if (cfg.piperModel === "") {
-      lines.push(
-        "[warn] Voice: piper_path is set but piper_model is empty — Piper TTS will not run.",
-      );
-    }
-  }
-
+  lines.push(...doctorPiperLines(cfg, env));
   return lines;
+}
+
+function applyVoiceKey(out: Partial<DoctorVoiceConfig>, key: string, val: string): void {
+  if (key === "enabled") out.enabled = val === "true";
+  else if (key === "whisper_path") out.whisperPath = val;
+  else if (key === "piper_path") out.piperPath = val;
+  else if (key === "piper_model") out.piperModel = val;
+}
+
+function parseVoiceTomlLines(lines: string[]): Partial<DoctorVoiceConfig> {
+  let inVoice = false;
+  const out: Partial<DoctorVoiceConfig> = {};
+  for (const line of lines) {
+    const hashIdx = line.indexOf("#");
+    const trimmed = (hashIdx >= 0 ? line.slice(0, hashIdx) : line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inVoice = trimmed === "[voice]";
+      continue;
+    }
+    if (!inVoice) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    const val = valRaw.startsWith('"') && valRaw.endsWith('"') ? valRaw.slice(1, -1) : valRaw;
+    applyVoiceKey(out, key, val);
+  }
+  return out;
 }
 
 function loadVoiceConfigFromDir(configDir: string): DoctorVoiceConfig {
@@ -281,29 +311,7 @@ function loadVoiceConfigFromDir(configDir: string): DoctorVoiceConfig {
   if (!existsSync(tomlPath)) return defaults;
   try {
     const src = readFileSync(tomlPath, "utf8");
-    const lines = src.split(/\r?\n/);
-    let inVoice = false;
-    const out: Partial<DoctorVoiceConfig> = {};
-    for (const line of lines) {
-      const hashIdx = line.indexOf("#");
-      const trimmed = (hashIdx >= 0 ? line.slice(0, hashIdx) : line).trim();
-      if (trimmed === "") continue;
-      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-        inVoice = trimmed === "[voice]";
-        continue;
-      }
-      if (!inVoice) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq <= 0) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const valRaw = trimmed.slice(eq + 1).trim();
-      const val = valRaw.startsWith('"') && valRaw.endsWith('"') ? valRaw.slice(1, -1) : valRaw;
-      if (key === "enabled") out.enabled = val === "true";
-      else if (key === "whisper_path") out.whisperPath = val;
-      else if (key === "piper_path") out.piperPath = val;
-      else if (key === "piper_model") out.piperModel = val;
-    }
-    return { ...defaults, ...out };
+    return { ...defaults, ...parseVoiceTomlLines(src.split(/\r?\n/)) };
   } catch {
     return defaults;
   }
