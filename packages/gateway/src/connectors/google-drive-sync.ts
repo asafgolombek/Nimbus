@@ -2,6 +2,7 @@ import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { formatGoogleHttpError } from "./google-sync-shared.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -37,7 +38,6 @@ type DriveChangesListResponse = {
   nextPageToken?: string;
   newStartPageToken?: string;
   changes?: DriveChange[];
-  incompleteSearch?: boolean;
 };
 
 type DriveStartTokenResponse = {
@@ -47,7 +47,7 @@ type DriveStartTokenResponse = {
 export type DriveSyncCursorV1 =
   | { v: 1; phase: "init_list"; t0: string; listToken: string | null }
   | { v: 1; phase: "drain"; changePage: string }
-  | { v: 1; phase: "delta"; pageToken: string };
+  | { v: 1; phase: "delta"; pageToken: string; deltaPage?: number };
 
 const CURSOR_PREFIX = "nimbus-gdrv1:";
 const LIST_PAGE_SIZE = 100;
@@ -95,7 +95,9 @@ function decodeDriveDeltaPayload(r: Record<string, unknown>): DriveSyncCursorV1 
   if (typeof pageToken !== "string" || pageToken === "") {
     return undefined;
   }
-  return { v: 1, phase: "delta", pageToken };
+  const rawDeltaPage = r["deltaPage"];
+  const deltaPage = typeof rawDeltaPage === "number" ? rawDeltaPage : undefined;
+  return { v: 1, phase: "delta", pageToken, ...(deltaPage !== undefined ? { deltaPage } : {}) };
 }
 
 /** Exported for unit tests (cursor round-trip and migration). */
@@ -241,7 +243,7 @@ async function driveFetchJson(
   const text = await res.text();
   const bytes = Buffer.byteLength(text, "utf8");
   if (!res.ok) {
-    throw new Error(`Google Drive sync failed: ${String(res.status)}`);
+    throw new Error(formatGoogleHttpError(res.status, text, "Google Drive"));
   }
   let json: unknown;
   try {
@@ -254,6 +256,7 @@ async function driveFetchJson(
 
 async function getStartPageToken(ctx: SyncContext, accessToken: string): Promise<string> {
   const url = new URL("https://www.googleapis.com/drive/v3/changes/startPageToken");
+  url.searchParams.set("supportsAllDrives", "true");
   url.searchParams.set("fields", "startPageToken");
   const { json } = await driveFetchJson(ctx, accessToken, url.toString());
   const t = parseStartToken(json)["startPageToken"];
@@ -270,6 +273,8 @@ async function listFilesPage(
   pageToken: string | undefined,
 ): Promise<{ data: DriveListResponse; bytes: number }> {
   const url = new URL("https://www.googleapis.com/drive/v3/files");
+  url.searchParams.set("supportsAllDrives", "true");
+  url.searchParams.set("includeItemsFromAllDrives", "true");
   url.searchParams.set("pageSize", String(LIST_PAGE_SIZE));
   url.searchParams.set(
     "fields",
@@ -289,11 +294,13 @@ async function listChangesPage(
   pageToken: string,
 ): Promise<{ data: DriveChangesListResponse; bytes: number }> {
   const url = new URL("https://www.googleapis.com/drive/v3/changes");
+  url.searchParams.set("supportsAllDrives", "true");
+  url.searchParams.set("includeItemsFromAllDrives", "true");
   url.searchParams.set("pageSize", String(CHANGES_PAGE_SIZE));
   url.searchParams.set("pageToken", pageToken);
   url.searchParams.set(
     "fields",
-    "nextPageToken,newStartPageToken,incompleteSearch,changes(removed,fileId,file(id,name,mimeType,modifiedTime,webViewLink,size,description,trashed,owners(emailAddress,displayName)))",
+    "nextPageToken,newStartPageToken,changes(removed,fileId,file(id,name,mimeType,modifiedTime,webViewLink,size,description,trashed,owners(emailAddress,displayName)))",
   );
   const { json, bytes } = await driveFetchJson(ctx, accessToken, url.toString());
   return { data: parseDriveChanges(json), bytes };
@@ -399,9 +406,6 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
         if (v1.phase === "drain") {
           const { data, bytes } = await listChangesPage(ctx, accessToken, v1.changePage);
           bytesTransferred += bytes;
-          if (data.incompleteSearch === true) {
-            ctx.logger.warn({ service: SERVICE_ID }, "Drive changes.list incompleteSearch=true");
-          }
           const changes = data.changes ?? [];
           const drainCounts = countAppliedDriveChanges(ctx, changes, now);
           itemsUpserted += drainCounts.itemsUpserted;
@@ -431,11 +435,15 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
           };
         }
 
+        const DELTA_PAGE_LIMIT = 10_000;
+        const currentDeltaPage = (v1.deltaPage ?? 0) + 1;
+        if (currentDeltaPage > DELTA_PAGE_LIMIT) {
+          throw new Error(
+            "Google Drive delta sync exceeded page limit — aborting to prevent infinite loop",
+          );
+        }
         const { data, bytes } = await listChangesPage(ctx, accessToken, v1.pageToken);
         bytesTransferred += bytes;
-        if (data.incompleteSearch === true) {
-          ctx.logger.warn({ service: SERVICE_ID }, "Drive changes.list incompleteSearch=true");
-        }
         const changes = data.changes ?? [];
         const deltaCounts = countAppliedDriveChanges(ctx, changes, now);
         itemsUpserted += deltaCounts.itemsUpserted;
@@ -443,7 +451,12 @@ export function createGoogleDriveSyncable(options: GoogleDriveSyncableOptions): 
         const next = data.nextPageToken;
         if (next !== undefined && next !== "") {
           return {
-            cursor: encodeDriveSyncCursor({ v: 1, phase: "delta", pageToken: next }),
+            cursor: encodeDriveSyncCursor({
+              v: 1,
+              phase: "delta",
+              pageToken: next,
+              deltaPage: currentDeltaPage,
+            }),
             itemsUpserted,
             itemsDeleted,
             hasMore: true,

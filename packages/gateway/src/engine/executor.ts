@@ -134,7 +134,7 @@ export const HITL_REQUIRED = Object.freeze({
   },
 }) as ReadonlySet<string>;
 
-const SENSITIVE_PAYLOAD_KEY = /(token|key|secret|password)/i;
+const SENSITIVE_PAYLOAD_KEY = /(token|key|secret|password|credential|bearer|auth)/i;
 
 /** Deep-redact object keys that may hold credentials before consent UI / IPC. */
 export function redactPayloadForConsentDisplay(value: unknown): unknown {

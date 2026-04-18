@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { itemPrimaryKey } from "../index/item-store.ts";
+import { UnauthenticatedError } from "../sync/types.ts";
 import {
   createOAuthConnectorTestSetup,
   expectPrefixedCursorCodecRoundTrip,
@@ -68,5 +69,44 @@ describe("createGooglePhotosSyncable", () => {
       | undefined;
     expect(row?.service).toBe("google_photos");
     expect(row?.external_id).toBe("p1");
+  });
+
+  test("search request uses ALL_MEDIA filter for library-wide listing", async () => {
+    const { ctx } = await createOAuthConnectorTestSetup("google");
+    const syncable = createGooglePhotosSyncable({ ensureGoogleMcpRunning: async () => {} });
+
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      const raw = init?.body;
+      expect(typeof raw).toBe("string");
+      const body = JSON.parse(raw as string) as Record<string, unknown>;
+      expect(body["pageSize"]).toBe(50);
+      expect(body["filters"]).toEqual({
+        mediaTypeFilter: { mediaTypes: ["ALL_MEDIA"] },
+      });
+      return new Response(JSON.stringify({ mediaItems: [], nextPageToken: undefined }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+
+    await syncable.sync(ctx, null);
+  });
+
+  test("401 throws UnauthenticatedError with API message", async () => {
+    const { ctx } = await createOAuthConnectorTestSetup("google");
+    const syncable = createGooglePhotosSyncable({ ensureGoogleMcpRunning: async () => {} });
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: { message: "Invalid Credentials" } }), {
+        status: 401,
+      })) as unknown as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await syncable.sync(ctx, null);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(UnauthenticatedError);
+    expect((caught as Error).message).toMatch(/Invalid Credentials/);
   });
 });

@@ -209,7 +209,7 @@ function parseFlags(args: string[]): ConnectorFlags {
       username = v;
       continue;
     }
-    if (a === "--full") {
+    if (a === "--full" || a === "--force") {
       full = true;
       continue;
     }
@@ -1180,7 +1180,7 @@ async function runConnectorSync(tail: string[]): Promise<void> {
   const { rest, full } = parseFlags(tail);
   const service = rest[0];
   if (service === undefined) {
-    throw new Error("Usage: nimbus connector sync <service> [--full]");
+    throw new Error("Usage: nimbus connector sync <service> [--full | --force]");
   }
   let syncParams: { serviceId: string; full?: boolean };
   if (full === true) {
@@ -1305,7 +1305,7 @@ Usage:
   nimbus connector list
   nimbus connector history <service> [--limit N]
   nimbus connector status <service> [--stats]
-  nimbus connector sync <service> [--full]
+  nimbus connector sync <service> [--full | --force]
   nimbus connector pause <service>
   nimbus connector resume <service>
   nimbus connector set-interval <service> <duration>

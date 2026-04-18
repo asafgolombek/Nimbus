@@ -1,6 +1,12 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
-import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import {
+  type Syncable,
+  type SyncContext,
+  type SyncResult,
+  UnauthenticatedError,
+} from "../sync/types.ts";
+import { formatGoogleHttpError } from "./google-sync-shared.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -102,7 +108,14 @@ async function photosSearch(
   pageToken: string | null,
 ): Promise<{ json: unknown; bytes: number }> {
   await ctx.rateLimiter.acquire("google");
-  const body: Record<string, unknown> = { pageSize: PAGE_SIZE };
+  const body: Record<string, unknown> = {
+    pageSize: PAGE_SIZE,
+    filters: {
+      mediaTypeFilter: {
+        mediaTypes: ["ALL_MEDIA"],
+      },
+    },
+  };
   if (pageToken !== null && pageToken !== "") {
     body["pageToken"] = pageToken;
   }
@@ -117,7 +130,11 @@ async function photosSearch(
   const text = await res.text();
   const bytes = Buffer.byteLength(text, "utf8");
   if (!res.ok) {
-    throw new Error(`Google Photos sync failed: ${String(res.status)}`);
+    const msg = formatGoogleHttpError(res.status, text, "Google Photos");
+    if (res.status === 401) {
+      throw new UnauthenticatedError(msg);
+    }
+    throw new Error(msg);
   }
   let json: unknown;
   try {

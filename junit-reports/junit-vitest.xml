@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.0184399">
-    <testsuite name="src/shell.vitest.tsx" timestamp="2026-04-15T19:21:27.607Z" hostname="AsafGolombek" tests="1" failures="0" errors="0" skipped="0" time="0.0184399">
-        <testcase classname="src/shell.vitest.tsx" name="UI shell &gt; renders placeholder copy" time="0.0167614">
+<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.0184894">
+    <testsuite name="src/shell.vitest.tsx" timestamp="2026-04-17T21:38:23.142Z" hostname="AsafGolombek" tests="1" failures="0" errors="0" skipped="0" time="0.0184894">
+        <testcase classname="src/shell.vitest.tsx" name="UI shell &gt; renders placeholder copy" time="0.0167322">
         </testcase>
     </testsuite>
 </testsuites>

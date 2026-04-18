@@ -167,4 +167,22 @@ describe("createGoogleDriveSyncable", () => {
 
     await expect(syncable.sync(ctx, "nimbus-gdrv1:!!!")).rejects.toThrow(/corrupt cursor/);
   });
+
+  test("HTTP error includes Google API message when present", async () => {
+    const { ctx } = await createOAuthConnectorTestSetup("google");
+    const syncable = createGoogleDriveSyncable({ ensureGoogleDriveRunning: async () => {} });
+
+    globalThis.fetch = (async (input: FetchMockInput) => {
+      const url = requestUrlString(input);
+      if (url.includes("startPageToken")) {
+        return new Response(
+          JSON.stringify({ error: { code: 400, message: "Invalid foo token" } }),
+          { status: 400 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(syncable.sync(ctx, null)).rejects.toThrow(/Invalid foo token/);
+  });
 });

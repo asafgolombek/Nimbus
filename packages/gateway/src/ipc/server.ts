@@ -157,7 +157,11 @@ class ClientSession {
       this.sendParseFailure(e);
       return;
     }
-    void this.dispatchLines(lines);
+    void this.dispatchLines(lines).catch((e: unknown) => {
+      const m = e instanceof Error ? e.message : "dispatch error";
+      this.write(encodeLine(errorResponse(null, -32603, m)));
+      this.dispose();
+    });
   }
 
   endInput(): void {
@@ -171,7 +175,11 @@ class ClientSession {
       this.sendParseFailure(e);
       return;
     }
-    void this.dispatchLines(lines);
+    void this.dispatchLines(lines).catch((e: unknown) => {
+      const m = e instanceof Error ? e.message : "dispatch error";
+      this.write(encodeLine(errorResponse(null, -32603, m)));
+      this.dispose();
+    });
   }
 
   writeOutbound(msg: JsonRpcOutbound): void {
