@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776410950945,
+  "lastUpdate": 1776485895138,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -202,6 +202,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4836202599999995,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "2cfa9c5ba595c83915930a02702a30b4e8fa7a5a",
+          "message": "docs(plans): add WS1 Local LLM & Multi-Agent implementation plan\n\n14-task TDD plan covering Ollama provider, llama.cpp provider, GPU\narbitrator, LLM router, DB migrations V16+V17, LLM IPC dispatcher,\nengine.askStream, AgentCoordinator, and sub-agent executor.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-18T01:09:16+03:00",
+          "tree_id": "7cd28af9d8eff7cd48068178a1746024f7a51327",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/2cfa9c5ba595c83915930a02702a30b4e8fa7a5a"
+        },
+        "date": 1776485894408,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.098447700000001,
             "unit": "ms"
           }
         ]
