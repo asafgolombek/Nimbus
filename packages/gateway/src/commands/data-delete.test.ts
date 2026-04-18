@@ -1,23 +1,7 @@
-import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { LocalIndex } from "../index/local-index.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
+import type { LocalIndex } from "../index/local-index.ts";
 import { runDataDelete } from "./data-delete.ts";
-
-function memVault(): NimbusVault {
-  const m = new Map<string, string>();
-  return {
-    get: async (k) => m.get(k) ?? null,
-    set: async (k, v) => {
-      m.set(k, v);
-    },
-    delete: async (k) => {
-      m.delete(k);
-    },
-    listKeys: async (prefix) =>
-      [...m.keys()].filter((k) => (prefix === undefined ? true : k.startsWith(prefix))),
-  };
-}
 
 function seed(idx: LocalIndex, service: string, count: number): void {
   const now = Date.now();
@@ -44,9 +28,7 @@ describe("data delete", () => {
   let idx: LocalIndex;
   beforeEach(() => {
     vault = memVault();
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    idx = new LocalIndex(db);
+    idx = newIndex();
   });
 
   test("--dry-run reports counts and does not delete", async () => {

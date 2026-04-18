@@ -1,32 +1,9 @@
-import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalIndex } from "../index/local-index.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
 import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
-
-function newIndex(): LocalIndex {
-  const db = new Database(":memory:");
-  LocalIndex.ensureSchema(db);
-  return new LocalIndex(db);
-}
-
-function memVault(): NimbusVault {
-  const m = new Map<string, string>();
-  return {
-    get: async (k) => m.get(k) ?? null,
-    set: async (k, v) => {
-      m.set(k, v);
-    },
-    delete: async (k) => {
-      m.delete(k);
-    },
-    listKeys: async (prefix) =>
-      [...m.keys()].filter((k) => (prefix === undefined ? true : k.startsWith(prefix))),
-  };
-}
 
 const testKdf = { t: 1, m: 1024, p: 1 } as const;
 

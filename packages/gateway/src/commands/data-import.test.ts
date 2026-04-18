@@ -1,27 +1,10 @@
-import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalIndex } from "../index/local-index.ts";
-import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
 import { runDataExport } from "./data-export.ts";
 import { runDataImport } from "./data-import.ts";
-
-function memVault(): NimbusVault {
-  const m = new Map<string, string>();
-  return {
-    get: async (k) => m.get(k) ?? null,
-    set: async (k, v) => {
-      m.set(k, v);
-    },
-    delete: async (k) => {
-      m.delete(k);
-    },
-    listKeys: async (prefix) =>
-      [...m.keys()].filter((k) => (prefix === undefined ? true : k.startsWith(prefix))),
-  };
-}
 
 describe("data import", () => {
   const kdfParams = { t: 1, m: 1024, p: 1 } as const;
@@ -29,9 +12,7 @@ describe("data import", () => {
   test("round-trips vault credentials when passphrase matches", async () => {
     const sourceVault = memVault();
     await sourceVault.set("github.pat", "value_xyz");
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const idx = new LocalIndex(db);
+    const idx = newIndex();
     const outPath = join(mkdtempSync(join(tmpdir(), "nimbus-import-")), "b.tar.gz");
     await runDataExport({
       output: outPath,
@@ -49,7 +30,7 @@ describe("data import", () => {
       bundlePath: outPath,
       passphrase: "pw",
       vault: targetVault,
-      index: new LocalIndex(new Database(":memory:")),
+      index: newIndex(),
     });
     expect(result.credentialsRestored).toBe(1);
     expect(await targetVault.get("github.pat")).toBe("value_xyz");
@@ -58,9 +39,7 @@ describe("data import", () => {
   test("rollback deletes vault entries written in step 4 when a later step fails", async () => {
     const sourceVault = memVault();
     await sourceVault.set("github.pat", "value_xyz");
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const idx = new LocalIndex(db);
+    const idx = newIndex();
     const outPath = join(mkdtempSync(join(tmpdir(), "nimbus-import-rollback-")), "b.tar.gz");
     await runDataExport({
       output: outPath,
@@ -79,7 +58,7 @@ describe("data import", () => {
         bundlePath: outPath,
         passphrase: "pw",
         vault: targetVault,
-        index: new LocalIndex(new Database(":memory:")),
+        index: newIndex(),
         injectFailureAfterVault: true,
       }),
     ).rejects.toThrow("injected failure");
@@ -90,9 +69,7 @@ describe("data import", () => {
   test("rejects bundle with tampered manifest hash", async () => {
     const sourceVault = memVault();
     await sourceVault.set("github.pat", "value_xyz");
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const idx = new LocalIndex(db);
+    const idx = newIndex();
     const outDir = mkdtempSync(join(tmpdir(), "nimbus-import-tamper-"));
     const outPath = join(outDir, "b.tar.gz");
     await runDataExport({
@@ -120,7 +97,7 @@ describe("data import", () => {
         bundlePath: tamperedPath,
         passphrase: "pw",
         vault: memVault(),
-        index: new LocalIndex(new Database(":memory:")),
+        index: newIndex(),
       }),
     ).rejects.toThrow(/integrity check failed/);
   });

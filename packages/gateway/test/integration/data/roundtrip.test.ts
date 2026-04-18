@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,29 +5,8 @@ import { join } from "node:path";
 import { runDataExport } from "../../../src/commands/data-export.ts";
 import { runDataImport } from "../../../src/commands/data-import.ts";
 import { verifyAuditChain } from "../../../src/db/audit-verify.ts";
-import { LocalIndex } from "../../../src/index/local-index.ts";
-import type { NimbusVault } from "../../../src/vault/nimbus-vault.ts";
-
-function memVault(): NimbusVault {
-  const m = new Map<string, string>();
-  return {
-    get: async (k) => m.get(k) ?? null,
-    set: async (k, v) => {
-      m.set(k, v);
-    },
-    delete: async (k) => {
-      m.delete(k);
-    },
-    listKeys: async (prefix) =>
-      [...m.keys()].filter((k) => (prefix === undefined ? true : k.startsWith(prefix))),
-  };
-}
-
-function newIndex(): LocalIndex {
-  const db = new Database(":memory:");
-  LocalIndex.ensureSchema(db);
-  return new LocalIndex(db);
-}
+import type { LocalIndex } from "../../../src/index/local-index.ts";
+import { memVault, newIndex } from "../../fixtures/data-test-helpers.ts";
 
 function seed(idx: LocalIndex, service: string, count: number): void {
   for (let i = 0; i < count; i++) {
