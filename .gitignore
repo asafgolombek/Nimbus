@@ -111,6 +111,9 @@ blob-report/
 playwright/.cache/
 *.snap
 
+# --- Git worktrees ---
+.worktrees/
+
 # --- Release binaries ---
 nimbus-*.exe
 nimbus-*.dmg

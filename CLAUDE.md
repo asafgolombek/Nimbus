@@ -75,6 +75,14 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 
 ---
 
+## Development Workflow
+
+**Worktree directory:** `.worktrees/` (project-local, git-ignored)
+
+When setting up isolated workspaces for feature branches, use `.worktrees/<branch-name>`.
+
+---
+
 ## Commands
 
 ```bash
