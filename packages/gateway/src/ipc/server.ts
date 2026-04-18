@@ -10,6 +10,7 @@ import { type AgentRequestContext, agentRequestContext } from "../engine/agent-r
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import { driftHintsFromIndex } from "../index/drift-hints.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
+import type { LlmRegistry } from "../llm/registry.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
@@ -26,6 +27,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
 } from "./jsonrpc.ts";
+import { dispatchLlmRpc, LlmRpcError } from "./llm-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import { ClientSession, type SessionWrite } from "./session.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
@@ -153,6 +155,8 @@ export type CreateIpcServerOptions = {
    * Not part of the JSON-RPC surface.
    */
   onClientConnected?: (clientId: string) => void;
+  /** LLM model registry for llm.* RPCs (Phase 4 WS1). */
+  llmRegistry?: LlmRegistry;
 };
 
 function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key: string): string {
@@ -304,6 +308,23 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   const peopleRpcSkipped = Symbol("peopleRpcSkipped");
   const sessionRpcSkipped = Symbol("sessionRpcSkipped");
   const automationRpcSkipped = Symbol("automationRpcSkipped");
+  const llmRpcSkipped = Symbol("llmRpcSkipped");
+
+  async function tryDispatchLlmRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("llm.") || options.llmRegistry === undefined) {
+      return llmRpcSkipped;
+    }
+    try {
+      const out = await dispatchLlmRpc(method, params, { registry: options.llmRegistry });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof LlmRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+    throw new RpcMethodError(-32601, `Method not found: ${method}`);
+  }
 
   async function tryDispatchSessionRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("session.")) {
@@ -642,6 +663,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const peopleOutcome = tryDispatchPeopleRpc(method, params);
     if (peopleOutcome !== peopleRpcSkipped) {
       return peopleOutcome;
+    }
+
+    const llmOutcome = await tryDispatchLlmRpc(method, params);
+    if (llmOutcome !== llmRpcSkipped) {
+      return llmOutcome;
     }
 
     switch (method) {
