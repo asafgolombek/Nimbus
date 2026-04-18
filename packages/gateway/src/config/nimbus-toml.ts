@@ -291,3 +291,105 @@ export function loadNimbusLlmFromPath(tomlPath: string): NimbusLlmToml {
 export function loadNimbusLlmFromConfigDir(configDir: string): NimbusLlmToml {
   return loadNimbusLlmFromPath(join(configDir, "nimbus.toml"));
 }
+
+// ─── [voice] section ────────────────────────────────────────────────────────
+
+export type NimbusVoiceToml = {
+  enabled: boolean;
+  /** Absolute path to the whisper-cli binary. Falls back to NIMBUS_WHISPER_PATH env var, then PATH. */
+  whisperPath: string;
+  /** Whisper model for full STT transcription, e.g. "base.en", "small", "medium". */
+  whisperModel: string;
+  /**
+   * Whisper model used exclusively by the wake word detector loop.
+   * Defaults to "tiny.en" to keep CPU load low — independent of `whisperModel`.
+   */
+  wakeWordWhisperModel: string;
+  /** Wake word phrase. Case-insensitive substring match against Whisper transcript. */
+  wakeWord: string;
+  /** Optional path to piper TTS binary for higher-quality output. */
+  piperPath: string;
+  /** Optional path to piper voice model (.onnx file). */
+  piperModel: string;
+};
+
+export const DEFAULT_NIMBUS_VOICE_TOML: NimbusVoiceToml = {
+  enabled: false,
+  whisperPath: "",
+  whisperModel: "base.en",
+  wakeWordWhisperModel: "tiny.en",
+  wakeWord: "hey nimbus",
+  piperPath: "",
+  piperModel: "",
+};
+
+function applyNimbusVoiceKey(out: Partial<NimbusVoiceToml>, key: string, valRaw: string): void {
+  switch (key) {
+    case "enabled": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.enabled = b;
+      break;
+    }
+    case "whisper_path":
+      out.whisperPath = parseString(valRaw);
+      break;
+    case "whisper_model":
+      out.whisperModel = parseString(valRaw);
+      break;
+    case "wake_word_whisper_model":
+      out.wakeWordWhisperModel = parseString(valRaw);
+      break;
+    case "wake_word":
+      out.wakeWord = parseString(valRaw);
+      break;
+    case "piper_path":
+      out.piperPath = parseString(valRaw);
+      break;
+    case "piper_model":
+      out.piperModel = parseString(valRaw);
+      break;
+    default:
+      break;
+  }
+}
+
+export function parseNimbusTomlVoiceSection(source: string): Partial<NimbusVoiceToml> {
+  const lines = source.split(/\r?\n/);
+  let inVoice = false;
+  const out: Partial<NimbusVoiceToml> = {};
+
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inVoice = trimmed === "[voice]";
+      continue;
+    }
+    if (!inVoice) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    applyNimbusVoiceKey(out, key, valRaw);
+  }
+  return out;
+}
+
+export function loadNimbusVoiceFromPath(tomlPath: string): NimbusVoiceToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_VOICE_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return structuredClone({
+      ...DEFAULT_NIMBUS_VOICE_TOML,
+      ...parseNimbusTomlVoiceSection(raw),
+    });
+  } catch {
+    return structuredClone(DEFAULT_NIMBUS_VOICE_TOML);
+  }
+}
+
+export function loadNimbusVoiceFromConfigDir(configDir: string): NimbusVoiceToml {
+  return loadNimbusVoiceFromPath(join(configDir, "nimbus.toml"));
+}
