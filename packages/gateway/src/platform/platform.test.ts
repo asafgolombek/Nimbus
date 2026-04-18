@@ -77,7 +77,7 @@ describe("Platform Abstraction Layer", () => {
         expect(paths[key].length).toBeGreaterThan(0);
       }
     } finally {
-      services.syncScheduler?.stop();
+      await services.syncScheduler?.stop().catch(() => {});
       await services.connectorMesh?.disconnect().catch(() => {});
       (services as any).disposeSidecars?.();
       services.localIndex?.close();
@@ -100,7 +100,7 @@ describe("Platform Abstraction Layer", () => {
         expect(paths.socketPath).toContain("nimbus-gateway.sock");
       }
     } finally {
-      services.syncScheduler?.stop();
+      await services.syncScheduler?.stop().catch(() => {});
       await services.connectorMesh?.disconnect().catch(() => {});
       (services as any).disposeSidecars?.();
       services.localIndex?.close();

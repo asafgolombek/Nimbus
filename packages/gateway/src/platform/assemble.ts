@@ -60,12 +60,14 @@ function createStubNotifications(): NotificationService {
   };
 }
 
+type EmbeddingRuntime = Awaited<ReturnType<typeof createEmbeddingRuntime>>;
+
 function openGatewaySqlite(dataDir: string, sidecarStops: Array<() => void>): Database {
   const dbPath = join(dataDir, "nimbus.db");
   const db = new Database(dbPath);
   LocalIndex.ensureSchema(db, { backupDir: join(dataDir, "backups"), dbPath });
   const stopLatency = startLatencyFlushScheduler(db);
-  sidecarStops.push(stopLatency);
+  sidecarStops.push(() => stopLatency.stop());
   db.run("PRAGMA busy_timeout = 8000");
   return db;
 }

@@ -210,7 +210,7 @@ export class SyncScheduler {
     }, 25);
     this.tick();
   }
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true;
     if (this.tickHandle !== null) {
       clearInterval(this.tickHandle);
@@ -219,6 +219,10 @@ export class SyncScheduler {
     if (this._connectivityRecheckHandle !== null) {
       clearTimeout(this._connectivityRecheckHandle);
       this._connectivityRecheckHandle = null;
+    }
+    // Wait for in-flight jobs to drain.
+    while (this.runningGlobal > 0) {
+      await new Promise((r) => setTimeout(r, 10));
     }
   }
 
@@ -395,7 +399,60 @@ export class SyncScheduler {
         s,
       ]),
     );
-    // ... rest of method
+    const rowMap = new Map(
+      this.sched.listAllStates().map((r): [string, SchedulerStateRow] => [r.service_id, r]),
+    );
+    for (const id of this.connectors.keys()) {
+      const row = rowMap.get(id);
+      if (row === null || row === undefined || row.paused === 1 || row.status === "error") {
+        continue;
+      }
+      const health =
+        healthById.get(id) ??
+        ({
+          connectorId: id,
+          state: "healthy",
+          backoffAttempt: 0,
+        } satisfies ConnectorHealthSnapshot);
+      if (this.connectorSkippedForHealth(id, now, health)) {
+        continue;
+      }
+      if (this.inFlight.has(id)) {
+        continue;
+      }
+      if (this.queuedServiceIds.has(id)) {
+        continue;
+      }
+      if (row.next_sync_at != null && now >= row.next_sync_at) {
+        this.queue.push({ serviceId: id, reason: "scheduled" });
+        this.queuedServiceIds.add(id);
+      }
+    }
+    this.pump();
+  }
+
+  private canStartJob(job: Job): boolean {
+    if (this.inFlight.has(job.serviceId)) {
+      return false;
+    }
+    const row = this.sched.loadState(job.serviceId);
+    if (row === null) {
+      return false;
+    }
+    if (row.paused === 1 && job.reason !== "force") {
+      return false;
+    }
+    if (row.status === "error" && job.reason !== "force") {
+      return false;
+    }
+    // Health-state gate (non-force jobs only).
+    if (
+      job.reason !== "force" &&
+      this.healthGatePreventsDispatch(job.serviceId, Date.now(), { logRateLimited: false })
+    ) {
+      return false;
+    }
+    return true;
   }
 
   private pump(): void {
@@ -403,7 +460,31 @@ export class SyncScheduler {
       return;
     }
     while (this.runningGlobal < this.config.maxConcurrentSyncs && this.queue.length > 0) {
-      // ... rest of method
+      let idx = -1;
+      for (let i = 0; i < this.queue.length; i++) {
+        const j = this.queue[i];
+        if (j !== undefined && this.canStartJob(j)) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx === -1) {
+        break;
+      }
+      const job = this.queue[idx];
+      if (job === undefined) {
+        break;
+      }
+      this.queue.splice(idx, 1);
+      this.rebuildQueuedServiceIds();
+      this.inFlight.add(job.serviceId);
+      this.runningGlobal++;
+      void this.runJob(job).finally(() => {
+        this.inFlight.delete(job.serviceId);
+        this.runningGlobal--;
+        this.pump();
+        this.tick();
+      });
     }
   }
 
