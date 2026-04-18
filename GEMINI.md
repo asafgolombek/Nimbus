@@ -41,6 +41,17 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/gateway/src/connectors/connector-vault.ts` | Per-service OAuth vault key helpers + Microsoft startup migration (Phase 4) |
 | `packages/gateway/src/connectors/connector-secrets-manifest.ts` | `CONNECTOR_VAULT_SECRET_KEYS` per-connector vault manifest; `clearConnectorVaultSecretKeys()` |
 | `packages/gateway/src/connectors/remove-intent.ts` | Connector removal — cascade vault + index cleanup |
+| `packages/gateway/src/llm/types.ts` | LLM provider interfaces — `LlmProvider`, `LlmTaskType`, `LlmModelInfo`, `LlmGenerateOptions/Result` |
+| `packages/gateway/src/llm/gpu-arbiter.ts` | `GpuArbiter` — single-slot GPU VRAM mutex with activity-aware timeout |
+| `packages/gateway/src/llm/ollama-provider.ts` | `OllamaProvider` — Ollama HTTP API wrapper (batch + streaming) |
+| `packages/gateway/src/llm/llamacpp-provider.ts` | `LlamaCppProvider` — llama-server HTTP API wrapper |
+| `packages/gateway/src/llm/router.ts` | `LlmRouter` — task-to-provider routing, air-gap enforcement, local/remote preference |
+| `packages/gateway/src/llm/registry.ts` | `LlmRegistry` — model discovery, `llm_models` DB sync, availability checks |
+| `packages/gateway/src/ipc/llm-rpc.ts` | `dispatchLlmRpc` — `llm.listModels` / `llm.getStatus` IPC handlers |
+| `packages/gateway/src/engine/coordinator.ts` | `AgentCoordinator` — multi-agent sub-task orchestration, depth + tool-call guards |
+| `packages/gateway/src/engine/sub-agent.ts` | `runSubAgent` — single sub-task executor with `sub_task_results` DB lifecycle |
+| `packages/gateway/src/index/llm-models-v16-sql.ts` | V16 migration SQL — `llm_models` table + `sync_state.context_window_tokens` |
+| `packages/gateway/src/index/sub-task-results-v17-sql.ts` | V17 migration SQL — `sub_task_results` table for multi-agent persistence |
 | `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
