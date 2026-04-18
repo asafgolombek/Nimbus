@@ -41,8 +41,8 @@ export async function runDataImport(input: RunDataImportInput): Promise<RunDataI
     readFileSync(join(stage, "vault-manifest.json.enc"), "utf8"),
   ) as VaultManifestBlob;
   const plaintext = await decryptVaultManifest(encrypted, {
-    passphrase: input.passphrase,
-    seed: input.recoverySeed,
+    ...(input.passphrase !== undefined ? { passphrase: input.passphrase } : {}),
+    ...(input.recoverySeed !== undefined ? { seed: input.recoverySeed } : {}),
   });
   const entries = JSON.parse(plaintext) as VaultEntry[];
 

@@ -49,7 +49,7 @@ export async function runDataExport(input: RunDataExportInput): Promise<RunDataE
     plaintext: vaultPlaintext,
     passphrase: input.passphrase,
     seed: seed.mnemonic,
-    kdfParams: input.kdfParams,
+    ...(input.kdfParams !== undefined ? { kdfParams: input.kdfParams } : {}),
   });
   const vaultPath = join(stage, "vault-manifest.json.enc");
   writeFileSync(vaultPath, JSON.stringify(encrypted));
