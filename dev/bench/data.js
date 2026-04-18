@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776495544951,
+  "lastUpdate": 1776522243749,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -260,6 +260,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4959961999999978,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b43f5ca135319c5ac037e0109605acf66876610",
+          "message": "Merge pull request #49 from asafgolombek/dev/asafgolombek/phase_4_workstream_1\n\nfeat(phase4): WS1 — Local LLM routing, GPU arbitration, multi-agent coordinator, engine.askStream",
+          "timestamp": "2026-04-18T17:23:32+03:00",
+          "tree_id": "fc0f4dc63e792862274cf90e23bc7245103c332e",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/3b43f5ca135319c5ac037e0109605acf66876610"
+        },
+        "date": 1776522242910,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4892394800000022,
             "unit": "ms"
           }
         ]
