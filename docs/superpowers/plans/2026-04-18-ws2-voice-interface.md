@@ -4,7 +4,7 @@
 
 **Goal:** Implement a local voice pipeline — Whisper.cpp STT, platform-native TTS, wake word detection, and IPC handlers — enabling a complete push-to-talk query round-trip on all three platforms without any cloud calls.
 
-**Architecture:** A thin `VoiceService` wires three independent providers (`WhisperSttProvider`, `NativeTtsProvider`, `WakeWordDetector`) behind IPC-facing handlers. All audio stays local. Wake word uses Whisper-based polling (record 2-second chunks, transcribe, match keyword). TTS uses OS-native speech synthesis (no external binaries required), with a `piperPath` escape hatch for higher-quality output.
+**Architecture:** A thin `VoiceService` wires three independent providers (`WhisperSttProvider`, `NativeTtsProvider`, `WakeWordDetector`) behind IPC-facing handlers. All audio stays local. Wake word uses Whisper-based polling (record 2-second chunks with `-ar 16000 -ac 1` format, VAD silence-skip, then `tiny.en` transcription) — a separate `wakeWordWhisperModel` config key keeps the detection loop lightweight regardless of the user's primary STT model. The `WakeWordDetector` interface is intentionally provider-agnostic so a dedicated engine (Porcupine, openWakeWord) can be slotted in later without touching `VoiceService`. TTS uses OS-native speech synthesis (no external binaries required), with a `piperPath` escape hatch for higher-quality output. `VoiceService.transcribe()` acts as the microphone arbiter — it automatically pauses the wake word detector for the duration of a manual query to avoid audio-device contention. A `voice.microphoneActive` IPC notification fires whenever the microphone opens or closes so the UI can render a privacy indicator (continuous wake-word recording is sensitive; users must always be able to see when the mic is hot). `voice.enabled` defaults to `false` — the feature is opt-in.
 
 **Depends on:** WS1 complete — `LlmRouter` and `LlmProvider` interfaces must exist (used in the push-to-talk integration test).
 
@@ -25,11 +25,14 @@
 | Create | `packages/gateway/src/voice/tts.test.ts` | TTS unit tests (mocked Bun.spawn) |
 | Create | `packages/gateway/src/voice/wake-word.ts` | `WakeWordDetector` — Whisper-polling keyword detection |
 | Create | `packages/gateway/src/voice/wake-word.test.ts` | Wake word detector unit tests |
-| Create | `packages/gateway/src/voice/service.ts` | `VoiceService` — wires STT + TTS + wake word + LLM |
-| Create | `packages/gateway/src/ipc/handlers/voice.ts` | `dispatchVoiceRpc` — IPC handler dispatch |
+| Create | `packages/gateway/src/voice/service.ts` | `VoiceService` — wires STT + TTS + wake word + LLM; microphone arbiter |
+| Create | `packages/gateway/src/voice/service.test.ts` | `VoiceService` unit tests (arbiter, mic-state forwarding) |
+| Create | `packages/gateway/src/ipc/handlers/voice.ts` | `dispatchVoiceRpc` + `VoiceRpcError` class |
 | Create | `packages/gateway/src/ipc/handlers/voice.test.ts` | Voice RPC handler unit tests |
-| Modify | `packages/gateway/src/ipc/server.ts` | Wire `voice.*` handlers into the IPC server |
+| Modify | `packages/gateway/src/ipc/server.ts` | Wire `voice.*` handlers and `voice.microphoneActive` notification into the IPC server |
 | Create | `packages/gateway/src/voice/push-to-talk.test.ts` | Integration: full STT → LLM → TTS round-trip |
+| Modify | `packages/cli/src/commands/doctor.ts` | `doctorVoiceLines` — check whisper-cli, ffmpeg, native TTS when `voice.enabled` |
+| Create | `packages/cli/src/commands/doctor-voice.test.ts` | `doctorVoiceLines` unit tests |
 
 ---
 
@@ -79,12 +82,27 @@ export type WakeWordEvent = {
   detectedAt: number;
 };
 
+export type MicrophoneStateEvent = {
+  /** True when the microphone is being recorded; false when released. */
+  active: boolean;
+  /** Why the microphone is hot: wake-word polling, or a caller-initiated transcription. */
+  source: "wake-word" | "transcribe";
+  changedAt: number;
+};
+
+/**
+ * The interface is provider-agnostic: today implemented by `WakeWordDetectorImpl`
+ * (Whisper + VAD polling), but can be swapped for a dedicated engine
+ * (Porcupine, openWakeWord) without any change to `VoiceService` or IPC handlers.
+ */
 export interface WakeWordDetector {
   /** Start polling for the wake word. No-op if already running. */
   start(): void;
   /** Stop polling and release audio resources. No-op if already stopped. */
   stop(): void;
   onDetected: ((event: WakeWordEvent) => void) | undefined;
+  /** Fires whenever the microphone opens or closes inside the detector loop. */
+  onMicrophoneStateChange: ((event: MicrophoneStateEvent) => void) | undefined;
   readonly isRunning: boolean;
 }
 ```
@@ -153,6 +171,11 @@ describe("parseNimbusTomlVoiceSection", () => {
     expect(parseNimbusTomlVoiceSection(src)).toEqual({ whisperModel: "base.en" });
   });
 
+  test("parses wake_word_whisper_model string", () => {
+    const src = `[voice]\nwake_word_whisper_model = "tiny.en"\n`;
+    expect(parseNimbusTomlVoiceSection(src)).toEqual({ wakeWordWhisperModel: "tiny.en" });
+  });
+
   test("parses wake_word string", () => {
     const src = `[voice]\nwake_word = "hey nimbus"\n`;
     expect(parseNimbusTomlVoiceSection(src)).toEqual({ wakeWord: "hey nimbus" });
@@ -191,6 +214,7 @@ describe("DEFAULT_NIMBUS_VOICE_TOML", () => {
     expect(DEFAULT_NIMBUS_VOICE_TOML.enabled).toBe(false);
     expect(DEFAULT_NIMBUS_VOICE_TOML.whisperPath).toBe("");
     expect(DEFAULT_NIMBUS_VOICE_TOML.whisperModel).toBe("base.en");
+    expect(DEFAULT_NIMBUS_VOICE_TOML.wakeWordWhisperModel).toBe("tiny.en");
     expect(DEFAULT_NIMBUS_VOICE_TOML.wakeWord).toBe("hey nimbus");
     expect(DEFAULT_NIMBUS_VOICE_TOML.piperPath).toBe("");
     expect(DEFAULT_NIMBUS_VOICE_TOML.piperModel).toBe("");
@@ -234,8 +258,13 @@ export type NimbusVoiceToml = {
   enabled: boolean;
   /** Absolute path to the whisper-cli binary. Falls back to NIMBUS_WHISPER_PATH env var, then PATH. */
   whisperPath: string;
-  /** Whisper model name, e.g. "base.en", "small", "medium". */
+  /** Whisper model for full STT transcription, e.g. "base.en", "small", "medium". */
   whisperModel: string;
+  /**
+   * Whisper model used exclusively by the wake word detector loop.
+   * Defaults to "tiny.en" to keep CPU load low — independent of `whisperModel`.
+   */
+  wakeWordWhisperModel: string;
   /** Wake word phrase. Case-insensitive substring match against Whisper transcript. */
   wakeWord: string;
   /** Optional path to piper TTS binary for higher-quality output. */
@@ -248,6 +277,7 @@ export const DEFAULT_NIMBUS_VOICE_TOML: NimbusVoiceToml = {
   enabled: false,
   whisperPath: "",
   whisperModel: "base.en",
+  wakeWordWhisperModel: "tiny.en",
   wakeWord: "hey nimbus",
   piperPath: "",
   piperModel: "",
@@ -265,6 +295,9 @@ function applyNimbusVoiceKey(out: Partial<NimbusVoiceToml>, key: string, valRaw:
       break;
     case "whisper_model":
       out.whisperModel = parseString(valRaw);
+      break;
+    case "wake_word_whisper_model":
+      out.wakeWordWhisperModel = parseString(valRaw);
       break;
     case "wake_word":
       out.wakeWord = parseString(valRaw);
@@ -360,6 +393,8 @@ Whisper.cpp binary discovery order:
 3. `whisper-cli` on PATH
 4. `main` on PATH (older Whisper.cpp build name)
 
+**Important:** Do **not** pass `--output-txt` — that flag writes a `.txt` file to disk, not stdout. Read the transcript directly from `proc.stdout`. Use `-nt` (no timestamps) to get clean text output. Input audio must be 16kHz 16-bit mono WAV — the caller (ffmpeg recorder) is responsible for this format.
+
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
@@ -449,6 +484,11 @@ describe("WhisperSttProvider", () => {
     await expect(provider.transcribe("/tmp/audio.wav")).rejects.toThrow("Whisper exited");
   });
 
+  test("transcribe throws when audio file does not exist", async () => {
+    const provider = new WhisperSttProvider({ whisperBin: "/usr/local/bin/whisper-cli" });
+    await expect(provider.transcribe("/nonexistent/audio.wav")).rejects.toThrow("not found");
+  });
+
   test("transcribe passes model flag when modelName is configured", async () => {
     const captured: string[][] = [];
     Bun.spawn = mock((cmd: string[], _opts?: SpawnOptions.OptionsObject) => {
@@ -535,7 +575,12 @@ export class WhisperSttProvider implements SttProvider {
   }
 
   async transcribe(audioPath: string): Promise<SttResult> {
-    const cmd: string[] = [this.whisperBin, "-f", audioPath, "--output-txt", "-nt"];
+    if (!(await Bun.file(audioPath).exists())) {
+      throw new Error(`Audio file not found: ${audioPath}`);
+    }
+
+    // -nt suppresses timestamps; do NOT add --output-txt (that writes a .txt file, not stdout)
+    const cmd: string[] = [this.whisperBin, "-f", audioPath, "-nt"];
     if (this.modelName !== undefined && this.modelName !== "") {
       cmd.push("-m", this.modelName);
     }
@@ -828,6 +873,7 @@ export class PiperTtsProvider implements TtsProvider {
       stderr: "ignore",
     });
 
+    // TODO: streaming playback — resolve as soon as player starts for lower perceived latency
     const [piperCode, playerCode] = await Promise.all([proc.exited, player.exited]);
     if (piperCode !== 0) throw new Error(`Piper exited with code ${piperCode}`);
     if (playerCode !== 0) throw new Error(`Audio player exited with code ${playerCode}`);
@@ -881,9 +927,11 @@ git commit -m "feat(voice): add NativeTtsProvider and PiperTtsProvider with shel
 - Create: `packages/gateway/src/voice/wake-word.ts`
 - Create: `packages/gateway/src/voice/wake-word.test.ts`
 
-Strategy: Whisper-based polling. Every `pollIntervalMs` (default 2000), record `chunkDurationMs` of audio via `ffmpeg -f alsa`/`avfoundation`/`dshow`, transcribe the chunk, check for wake word keyword. If detected, fire `onDetected` and pause polling for `cooldownMs` to avoid repeated triggers.
+Strategy: Whisper-based polling. Every `pollIntervalMs` (default 2000), record `chunkDurationMs` of audio via `ffmpeg -f alsa`/`avfoundation`/`dshow` **with `-ar 16000 -ac 1`** (Whisper requires 16kHz mono WAV), run a lightweight VAD silence check, and only call Whisper if the chunk is non-silent. Uses `wakeWordWhisperModel` (default `"tiny.en"`) — always the smallest model, regardless of the user's full STT model. If detected, fire `onDetected` and pause polling for `cooldownMs` to avoid repeated triggers. An `onMicrophoneStateChange` callback fires with `active=true` before every recording and `active=false` after, so the IPC layer can forward `voice.microphoneActive` notifications to clients for privacy UI.
 
 Audio capture requires `ffmpeg` on PATH. If unavailable, `isAvailable()` returns false and the detector is a no-op.
+
+**Bun-native imports:** All Node helpers (`node:os`, `node:path`, `node:crypto`) are imported at the top of the file; `Bun.spawn` is used in-place. Do **not** use dynamic `require()` inside functions — Bun supports native ESM imports without that legacy escape hatch.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -972,6 +1020,26 @@ describe("WakeWordDetectorImpl", () => {
     det.stop();
     expect(events).toHaveLength(0);
   });
+
+  test("onMicrophoneStateChange fires active=true before recording and active=false after", async () => {
+    const states: Array<{ active: boolean; source: string }> = [];
+    const det = new WakeWordDetectorImpl({
+      stt: makeFakeStt([""]),
+      wakeWord: "hey nimbus",
+      pollIntervalMs: 10,
+      maxPolls: 1,
+      recordAudio: async () => "/tmp/chunk.wav",
+      isChunkSilent: async () => true, // skip Whisper entirely
+    });
+    det.onMicrophoneStateChange = (evt) =>
+      states.push({ active: evt.active, source: evt.source });
+    det.start();
+    await new Promise((r) => setTimeout(r, 100));
+    det.stop();
+    expect(states.length).toBeGreaterThanOrEqual(2);
+    expect(states[0]).toEqual({ active: true, source: "wake-word" });
+    expect(states.at(-1)).toEqual({ active: false, source: "wake-word" });
+  });
 });
 ```
 
@@ -987,7 +1055,15 @@ Expected: FAIL — module not found.
 
 ```typescript
 // packages/gateway/src/voice/wake-word.ts
-import type { SttProvider, WakeWordDetector, WakeWordEvent } from "./types.ts";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import type {
+  MicrophoneStateEvent,
+  SttProvider,
+  WakeWordDetector,
+  WakeWordEvent,
+} from "./types.ts";
 
 type WakeWordDetectorOptions = {
   stt: SttProvider;
@@ -1003,33 +1079,50 @@ type WakeWordDetectorOptions = {
   /**
    * Inject an audio recorder for testing.
    * Default implementation uses ffmpeg to capture from the default audio input.
+   * Output must be 16kHz 16-bit mono WAV (Whisper requirement).
    */
   recordAudio?: (durationMs: number) => Promise<string>;
+  /**
+   * Inject a silence checker for testing.
+   * Default uses ffmpeg silencedetect filter.
+   * Returns true if the chunk contains only silence (skip Whisper).
+   */
+  isChunkSilent?: (audioPath: string) => Promise<boolean>;
 };
 
+async function defaultIsChunkSilent(audioPath: string): Promise<boolean> {
+  // ffmpeg silencedetect: noise floor -50dBFS, minimum silence 0.5s
+  // If no "silence_end" appears, the entire chunk was silent
+  const proc = Bun.spawn(
+    ["ffmpeg", "-i", audioPath, "-af", "silencedetect=noise=-50dB:d=0.5", "-f", "null", "-"],
+    { stdout: "ignore", stderr: "pipe" },
+  );
+  const stderr = await new Response(proc.stderr).text();
+  await proc.exited;
+  return !stderr.includes("silence_end");
+}
+
 function defaultRecordAudio(durationMs: number): Promise<string> {
-  const { tmpdir } = require("node:os") as typeof import("node:os");
-  const { join } = require("node:path") as typeof import("node:path");
-  const { randomUUID } = require("node:crypto") as typeof import("node:crypto");
   const outPath = join(tmpdir(), `nimbus-wake-${randomUUID()}.wav`);
   const durationSec = Math.ceil(durationMs / 1000).toString();
 
+  // -ar 16000 -ac 1: Whisper.cpp requires 16kHz mono WAV
   const platform = process.platform;
   let cmd: string[];
   if (platform === "darwin") {
     cmd = [
       "ffmpeg", "-y", "-f", "avfoundation", "-i", ":0",
-      "-t", durationSec, outPath,
+      "-ar", "16000", "-ac", "1", "-t", durationSec, outPath,
     ];
   } else if (platform === "win32") {
     cmd = [
       "ffmpeg", "-y", "-f", "dshow", "-i", "audio=default",
-      "-t", durationSec, outPath,
+      "-ar", "16000", "-ac", "1", "-t", durationSec, outPath,
     ];
   } else {
     cmd = [
       "ffmpeg", "-y", "-f", "alsa", "-i", "default",
-      "-t", durationSec, outPath,
+      "-ar", "16000", "-ac", "1", "-t", durationSec, outPath,
     ];
   }
 
@@ -1043,6 +1136,7 @@ function defaultRecordAudio(durationMs: number): Promise<string> {
 
 export class WakeWordDetectorImpl implements WakeWordDetector {
   onDetected: ((event: WakeWordEvent) => void) | undefined;
+  onMicrophoneStateChange: ((event: MicrophoneStateEvent) => void) | undefined;
 
   private readonly stt: SttProvider;
   private readonly wakeWordLower: string;
@@ -1051,8 +1145,17 @@ export class WakeWordDetectorImpl implements WakeWordDetector {
   private readonly cooldownMs: number;
   private readonly maxPolls: number | undefined;
   private readonly recordAudioFn: (durationMs: number) => Promise<string>;
+  private readonly isChunkSilentFn: (audioPath: string) => Promise<boolean>;
   private running = false;
   private pollCount = 0;
+
+  private emitMicState(active: boolean): void {
+    this.onMicrophoneStateChange?.({
+      active,
+      source: "wake-word",
+      changedAt: Date.now(),
+    });
+  }
 
   constructor(opts: WakeWordDetectorOptions) {
     this.stt = opts.stt;
@@ -1062,6 +1165,7 @@ export class WakeWordDetectorImpl implements WakeWordDetector {
     this.cooldownMs = opts.cooldownMs ?? 3000;
     this.maxPolls = opts.maxPolls;
     this.recordAudioFn = opts.recordAudio ?? defaultRecordAudio;
+    this.isChunkSilentFn = opts.isChunkSilent ?? defaultIsChunkSilent;
   }
 
   get isRunning(): boolean {
@@ -1088,12 +1192,24 @@ export class WakeWordDetectorImpl implements WakeWordDetector {
       this.pollCount++;
 
       try {
-        const audioPath = await this.recordAudioFn(this.chunkDurationMs);
-        const result = await this.stt.transcribe(audioPath);
-        if (result.text.toLowerCase().includes(this.wakeWordLower)) {
-          this.onDetected?.({ transcript: result.text, detectedAt: Date.now() });
-          // Cooldown — pause to avoid immediate re-trigger
-          await new Promise((r) => setTimeout(r, this.cooldownMs));
+        // Emit active=true before opening the mic; active=false in a finally-style
+        // block so the UI indicator always clears even if recording/transcription throws.
+        this.emitMicState(true);
+        let audioPath: string;
+        try {
+          audioPath = await this.recordAudioFn(this.chunkDurationMs);
+        } finally {
+          this.emitMicState(false);
+        }
+        // VAD: skip Whisper entirely on silent chunks to reduce CPU load
+        const silent = await this.isChunkSilentFn(audioPath);
+        if (!silent) {
+          const result = await this.stt.transcribe(audioPath);
+          if (result.text.toLowerCase().includes(this.wakeWordLower)) {
+            this.onDetected?.({ transcript: result.text, detectedAt: Date.now() });
+            // Cooldown — pause to avoid immediate re-trigger
+            await new Promise((r) => setTimeout(r, this.cooldownMs));
+          }
         }
       } catch {
         /* audio or transcription error — skip this chunk */
@@ -1135,20 +1251,160 @@ git commit -m "feat(voice): add WakeWordDetectorImpl with Whisper-polling keywor
 
 **Files:**
 - Create: `packages/gateway/src/voice/service.ts`
+- Create: `packages/gateway/src/voice/service.test.ts`
 
-`VoiceService` wires the three providers and exposes `transcribe`, `speak`, and `getStatus`. No tests at this layer — covered by integration test in Task 8.
+`VoiceService` wires the three providers and exposes `transcribe`, `speak`, and `getStatus`. It also acts as the **microphone arbiter**: a manual `transcribe()` call pauses the wake word detector for the duration of the call so the two loops cannot contend for the audio device, and resumes polling afterwards (only if the detector was active before). Microphone state events from the wake-word loop **and** from `transcribe()` are forwarded through a single `onMicrophoneStateChange` callback so the IPC layer can emit a unified `voice.microphoneActive` notification.
 
-- [ ] **Step 1: Implement `service.ts`**
+- [ ] **Step 1: Write the failing test**
+
+```typescript
+// packages/gateway/src/voice/service.test.ts
+import { describe, expect, test } from "bun:test";
+import { VoiceService } from "./service.ts";
+import type { MicrophoneStateEvent, SttProvider, TtsProvider, WakeWordDetector } from "./types.ts";
+
+function makeFakeStt(): SttProvider {
+  return {
+    isAvailable: async () => true,
+    transcribe: async (_p) => ({ text: "hello", durationMs: 1 }),
+  };
+}
+
+function makeFakeTts(): TtsProvider {
+  return { isAvailable: async () => true, speak: async (_t) => undefined };
+}
+
+function makeFakeDetector(): WakeWordDetector & {
+  startCalls: number;
+  stopCalls: number;
+} {
+  let running = false;
+  const det = {
+    startCalls: 0,
+    stopCalls: 0,
+    onDetected: undefined,
+    onMicrophoneStateChange: undefined,
+    get isRunning() {
+      return running;
+    },
+    start() {
+      running = true;
+      this.startCalls++;
+    },
+    stop() {
+      running = false;
+      this.stopCalls++;
+    },
+  } as WakeWordDetector & { startCalls: number; stopCalls: number };
+  return det;
+}
+
+describe("VoiceService microphone arbiter", () => {
+  test("transcribe pauses wake word when running and resumes after", async () => {
+    const det = makeFakeDetector();
+    det.start();
+    expect(det.isRunning).toBe(true);
+
+    const svc = new VoiceService({
+      enabled: true,
+      stt: makeFakeStt(),
+      tts: makeFakeTts(),
+      wakeWord: det,
+    });
+
+    await svc.transcribe("/tmp/x.wav");
+    expect(det.stopCalls).toBe(1);
+    expect(det.startCalls).toBe(2); // initial + resume
+    expect(det.isRunning).toBe(true);
+  });
+
+  test("transcribe does NOT start wake word if it was not running before", async () => {
+    const det = makeFakeDetector();
+    const svc = new VoiceService({
+      enabled: true,
+      stt: makeFakeStt(),
+      tts: makeFakeTts(),
+      wakeWord: det,
+    });
+
+    await svc.transcribe("/tmp/x.wav");
+    expect(det.startCalls).toBe(0);
+    expect(det.stopCalls).toBe(0);
+  });
+
+  test("onMicrophoneStateChange fires active=true/false around transcribe", async () => {
+    const states: MicrophoneStateEvent[] = [];
+    const svc = new VoiceService({
+      enabled: true,
+      stt: makeFakeStt(),
+      tts: makeFakeTts(),
+      onMicrophoneStateChange: (e) => states.push(e),
+    });
+    await svc.transcribe("/tmp/x.wav");
+    expect(states.map((s) => ({ active: s.active, source: s.source }))).toEqual([
+      { active: true, source: "transcribe" },
+      { active: false, source: "transcribe" },
+    ]);
+  });
+
+  test("forwards wake-word mic state events through the service callback", () => {
+    const states: MicrophoneStateEvent[] = [];
+    const det = makeFakeDetector();
+    const _svc = new VoiceService({
+      enabled: true,
+      stt: makeFakeStt(),
+      tts: makeFakeTts(),
+      wakeWord: det,
+      onMicrophoneStateChange: (e) => states.push(e),
+    });
+    // VoiceService wires its callback onto the detector
+    det.onMicrophoneStateChange?.({ active: true, source: "wake-word", changedAt: 1 });
+    expect(states).toHaveLength(1);
+    expect(states[0]?.source).toBe("wake-word");
+  });
+
+  test("transcribe/speak throw when voice is disabled", async () => {
+    const svc = new VoiceService({
+      enabled: false,
+      stt: makeFakeStt(),
+      tts: makeFakeTts(),
+    });
+    await expect(svc.transcribe("/x")).rejects.toThrow("not enabled");
+    await expect(svc.speak("hi")).rejects.toThrow("not enabled");
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+cd packages/gateway && bun test src/voice/service.test.ts 2>&1 | tail -10
+```
+
+Expected: FAIL — module not found / missing behavior.
+
+- [ ] **Step 3: Implement `service.ts`**
 
 ```typescript
 // packages/gateway/src/voice/service.ts
-import type { SttProvider, TtsProvider, WakeWordDetector } from "./types.ts";
+import type {
+  MicrophoneStateEvent,
+  SttProvider,
+  TtsProvider,
+  WakeWordDetector,
+} from "./types.ts";
 
 export type VoiceServiceConfig = {
   enabled: boolean;
   stt: SttProvider;
   tts: TtsProvider;
   wakeWord?: WakeWordDetector;
+  /**
+   * Called whenever the microphone opens or closes — from either the wake-word
+   * loop or a caller-initiated `transcribe()`. IPC layer forwards these as
+   * `voice.microphoneActive` notifications.
+   */
+  onMicrophoneStateChange?: (event: MicrophoneStateEvent) => void;
 };
 
 export type VoiceStatus = {
@@ -1162,6 +1418,7 @@ export class VoiceService {
   private readonly stt: SttProvider;
   private readonly tts: TtsProvider;
   private readonly wakeWordDet: WakeWordDetector | undefined;
+  private readonly micListener: ((event: MicrophoneStateEvent) => void) | undefined;
   readonly enabled: boolean;
 
   constructor(cfg: VoiceServiceConfig) {
@@ -1169,11 +1426,36 @@ export class VoiceService {
     this.stt = cfg.stt;
     this.tts = cfg.tts;
     this.wakeWordDet = cfg.wakeWord;
+    this.micListener = cfg.onMicrophoneStateChange;
+    if (this.wakeWordDet !== undefined && this.micListener !== undefined) {
+      this.wakeWordDet.onMicrophoneStateChange = (e) => this.micListener?.(e);
+    }
+  }
+
+  private emitMicState(active: boolean): void {
+    this.micListener?.({ active, source: "transcribe", changedAt: Date.now() });
   }
 
   async transcribe(audioPath: string): Promise<{ text: string; durationMs: number }> {
     if (!this.enabled) throw new Error("Voice is not enabled in configuration");
-    return this.stt.transcribe(audioPath);
+
+    // Microphone arbiter: pause wake word so the two audio loops cannot contend
+    // for the input device. Only resume if it was running before we stopped it.
+    const resumeWakeWord =
+      this.wakeWordDet !== undefined && this.wakeWordDet.isRunning;
+    if (resumeWakeWord) {
+      this.wakeWordDet?.stop();
+    }
+
+    this.emitMicState(true);
+    try {
+      return await this.stt.transcribe(audioPath);
+    } finally {
+      this.emitMicState(false);
+      if (resumeWakeWord) {
+        this.wakeWordDet?.start();
+      }
+    }
   }
 
   async speak(text: string): Promise<void> {
@@ -1205,7 +1487,15 @@ export class VoiceService {
 }
 ```
 
-- [ ] **Step 2: Run type check**
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+cd packages/gateway && bun test src/voice/service.test.ts 2>&1 | tail -10
+```
+
+Expected: All tests PASS.
+
+- [ ] **Step 5: Run type check**
 
 ```bash
 cd packages/gateway && bun run typecheck 2>&1 | tail -5
@@ -1213,11 +1503,12 @@ cd packages/gateway && bun run typecheck 2>&1 | tail -5
 
 Expected: 0 errors.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/gateway/src/voice/service.ts
-git commit -m "feat(voice): add VoiceService wiring STT + TTS + wake word detection"
+git add packages/gateway/src/voice/service.ts \
+        packages/gateway/src/voice/service.test.ts
+git commit -m "feat(voice): add VoiceService with microphone arbiter and mic-state callback"
 ```
 
 ---
@@ -1238,12 +1529,19 @@ IPC methods exposed:
 | `voice.startWakeWord` | — | `{}` |
 | `voice.stopWakeWord` | — | `{}` |
 
+IPC notifications emitted (broadcast to all connected clients):
+| Notification | Params | Trigger |
+|--------------|--------|---------|
+| `voice.microphoneActive` | `{ active: boolean; source: "wake-word" \| "transcribe" }` | Fires on every mic open/close so the UI can render a privacy indicator |
+
+**Error handling:** Errors are thrown as `VoiceRpcError` instances — a dedicated class mirroring the existing `LlmRpcError` / `ConnectorRpcError` pattern (`extends Error`, carries `rpcCode`). This keeps error shape consistent across namespaces so the server's central `dispatchMethod` can translate them via `RpcMethodError` without special-casing voice.
+
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
 // packages/gateway/src/ipc/handlers/voice.test.ts
 import { describe, expect, test } from "bun:test";
-import { dispatchVoiceRpc } from "./voice.ts";
+import { dispatchVoiceRpc, VoiceRpcError } from "./voice.ts";
 import type { VoiceRpcContext } from "./voice.ts";
 import type { VoiceStatus } from "../../voice/service.ts";
 
@@ -1297,8 +1595,20 @@ describe("dispatchVoiceRpc", () => {
 
   test("voice.transcribe throws VoiceRpcError for missing audioPath param", async () => {
     const ctx: VoiceRpcContext = { voiceService: makeFakeService() };
-    const result = await dispatchVoiceRpc("voice.transcribe", {}, ctx);
-    expect(result.kind).toBe("error");
+    await expect(dispatchVoiceRpc("voice.transcribe", {}, ctx)).rejects.toBeInstanceOf(
+      VoiceRpcError,
+    );
+  });
+
+  test("VoiceRpcError carries rpcCode -32602 for invalid params", async () => {
+    const ctx: VoiceRpcContext = { voiceService: makeFakeService() };
+    try {
+      await dispatchVoiceRpc("voice.transcribe", {}, ctx);
+      throw new Error("expected VoiceRpcError to be thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(VoiceRpcError);
+      expect((e as VoiceRpcError).rpcCode).toBe(-32602);
+    }
   });
 
   test("voice.speak returns empty result", async () => {
@@ -1309,8 +1619,9 @@ describe("dispatchVoiceRpc", () => {
 
   test("voice.speak throws VoiceRpcError for missing text param", async () => {
     const ctx: VoiceRpcContext = { voiceService: makeFakeService() };
-    const result = await dispatchVoiceRpc("voice.speak", {}, ctx);
-    expect(result.kind).toBe("error");
+    await expect(dispatchVoiceRpc("voice.speak", {}, ctx)).rejects.toBeInstanceOf(
+      VoiceRpcError,
+    );
   });
 
   test("voice.startWakeWord and voice.stopWakeWord return empty hit", async () => {
@@ -1335,14 +1646,25 @@ Expected: FAIL — module not found.
 // packages/gateway/src/ipc/handlers/voice.ts
 import type { VoiceService } from "../../voice/service.ts";
 
+/**
+ * Mirrors `LlmRpcError` / `ConnectorRpcError`: a named Error subclass carrying
+ * the JSON-RPC error code. The central server dispatcher catches these and
+ * translates them into wire-format RPC errors without special-casing voice.
+ */
+export class VoiceRpcError extends Error {
+  readonly rpcCode: number;
+  constructor(rpcCode: number, message: string) {
+    super(message);
+    this.rpcCode = rpcCode;
+    this.name = "VoiceRpcError";
+  }
+}
+
 export type VoiceRpcContext = {
   voiceService: VoiceService;
 };
 
-type RpcResult =
-  | { kind: "hit"; value: unknown }
-  | { kind: "miss" }
-  | { kind: "error"; message: string; code: number };
+type RpcResult = { kind: "hit"; value: unknown } | { kind: "miss" };
 
 function expectString(params: unknown, key: string): string {
   if (
@@ -1351,7 +1673,7 @@ function expectString(params: unknown, key: string): string {
     !(key in (params as Record<string, unknown>)) ||
     typeof (params as Record<string, unknown>)[key] !== "string"
   ) {
-    throw { code: -32602, message: `Missing or invalid param: ${key}` };
+    throw new VoiceRpcError(-32602, `Missing or invalid param: ${key}`);
   }
   return (params as Record<string, string>)[key]!;
 }
@@ -1363,59 +1685,57 @@ export async function dispatchVoiceRpc(
 ): Promise<RpcResult> {
   if (!method.startsWith("voice.")) return { kind: "miss" };
 
-  try {
-    switch (method) {
-      case "voice.getStatus": {
-        const status = await ctx.voiceService.getStatus();
-        return { kind: "hit", value: status };
-      }
-      case "voice.transcribe": {
-        const audioPath = expectString(params, "audioPath");
+  switch (method) {
+    case "voice.getStatus": {
+      const status = await ctx.voiceService.getStatus();
+      return { kind: "hit", value: status };
+    }
+    case "voice.transcribe": {
+      const audioPath = expectString(params, "audioPath");
+      try {
         const result = await ctx.voiceService.transcribe(audioPath);
         return { kind: "hit", value: result };
+      } catch (e) {
+        throw new VoiceRpcError(-32603, e instanceof Error ? e.message : String(e));
       }
-      case "voice.speak": {
-        const text = expectString(params, "text");
+    }
+    case "voice.speak": {
+      const text = expectString(params, "text");
+      try {
         await ctx.voiceService.speak(text);
         return { kind: "hit", value: {} };
+      } catch (e) {
+        throw new VoiceRpcError(-32603, e instanceof Error ? e.message : String(e));
       }
-      case "voice.startWakeWord": {
-        ctx.voiceService.startWakeWord();
-        return { kind: "hit", value: {} };
-      }
-      case "voice.stopWakeWord": {
-        ctx.voiceService.stopWakeWord();
-        return { kind: "hit", value: {} };
-      }
-      default:
-        return { kind: "miss" };
     }
-  } catch (e) {
-    if (e !== null && typeof e === "object" && "code" in e && "message" in e) {
-      const err = e as { code: number; message: string };
-      return { kind: "error", code: err.code, message: err.message };
+    case "voice.startWakeWord": {
+      ctx.voiceService.startWakeWord();
+      return { kind: "hit", value: {} };
     }
-    return {
-      kind: "error",
-      code: -32603,
-      message: e instanceof Error ? e.message : String(e),
-    };
+    case "voice.stopWakeWord": {
+      ctx.voiceService.stopWakeWord();
+      return { kind: "hit", value: {} };
+    }
+    default:
+      return { kind: "miss" };
   }
 }
 ```
 
 - [ ] **Step 4: Wire into `server.ts`**
 
-**a)** Add import near the top of `server.ts`:
+**a)** Add imports near the top of `server.ts`:
 
 ```typescript
-import { dispatchVoiceRpc } from "./handlers/voice.ts";
+import { dispatchVoiceRpc, VoiceRpcError } from "./handlers/voice.ts";
 import type { VoiceService } from "../voice/service.ts";
 ```
 
 **b)** Add `voiceService?: VoiceService` to `CreateIpcServerOptions`.
 
-**c)** Add a `tryDispatchVoiceRpc` helper and call it in `dispatchMethod`, following the same pattern as `tryDispatchLlmRpc`. Return `voiceRpcSkipped` sentinel for non-voice methods or when `voiceService` is undefined. When `result.kind === "error"`, throw `new RpcMethodError(result.code, result.message)`.
+**c)** Add a `tryDispatchVoiceRpc` helper and call it in `dispatchMethod`, following the same pattern as `tryDispatchLlmRpc`. Return `voiceRpcSkipped` sentinel for non-voice methods or when `voiceService` is undefined. Because `dispatchVoiceRpc` now throws `VoiceRpcError` directly, catch `VoiceRpcError` in the server's central error handler (next to the existing `LlmRpcError` branch) and translate it into `new RpcMethodError(err.rpcCode, err.message)`.
+
+**d)** Wire the `voice.microphoneActive` notification. When constructing the `VoiceService` in the Gateway startup path (outside this file — wherever `createIpcServer` is called), pass an `onMicrophoneStateChange` callback that calls the IPC server's existing notification-broadcast helper with method `voice.microphoneActive` and params `{ active, source }`. If the server does not yet have a notification broadcast helper, add a minimal `broadcastNotification(method, params)` that sends a JSON-RPC notification object (no `id`) to every connected session.
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -1592,12 +1912,194 @@ git commit -m "test(voice): add push-to-talk integration test (STT → LLM → T
 
 ---
 
+## Task 9: `nimbus doctor` — Voice Binary Checks
+
+**Files:**
+- Modify: `packages/cli/src/commands/doctor.ts`
+- Create: `packages/cli/src/commands/doctor-voice.test.ts`
+
+`WhisperSttProvider.isAvailable()` and `NativeTtsProvider.isAvailable()` return a boolean, but surfacing **why** a binary is missing (and on which platform) belongs in `nimbus doctor` alongside the existing Bun / Vault / index checks. This task only runs voice checks when `config.voice.enabled === true` — disabled voice means zero friction for users who never opt in.
+
+Each check prints one line using the existing `[ok] / [warn] / [fail]` prefix convention already used in `doctor.ts`. Missing binaries are `[warn]` (not `[fail]`) because voice is an opt-in feature — the Gateway still starts without it.
+
+- [ ] **Step 1: Write the failing test**
+
+```typescript
+// packages/cli/src/commands/doctor-voice.test.ts
+import { describe, expect, test } from "bun:test";
+import { doctorVoiceLines } from "./doctor.ts";
+
+describe("doctorVoiceLines", () => {
+  test("returns empty array when voice is disabled", () => {
+    const lines = doctorVoiceLines(
+      { enabled: false, whisperPath: "", piperPath: "", piperModel: "" },
+      { which: () => null, platform: "linux" },
+    );
+    expect(lines).toEqual([]);
+  });
+
+  test("reports whisper-cli missing on PATH when not configured", () => {
+    const lines = doctorVoiceLines(
+      { enabled: true, whisperPath: "", piperPath: "", piperModel: "" },
+      { which: () => null, platform: "linux" },
+    );
+    expect(lines.some((l) => l.includes("[warn]") && l.includes("whisper-cli"))).toBe(true);
+  });
+
+  test("reports ffmpeg missing for wake-word capture", () => {
+    const lines = doctorVoiceLines(
+      { enabled: true, whisperPath: "", piperPath: "", piperModel: "" },
+      { which: () => null, platform: "linux" },
+    );
+    expect(lines.some((l) => l.includes("[warn]") && l.includes("ffmpeg"))).toBe(true);
+  });
+
+  test("reports Linux TTS missing when neither espeak-ng nor spd-say is present", () => {
+    const lines = doctorVoiceLines(
+      { enabled: true, whisperPath: "", piperPath: "", piperModel: "" },
+      { which: () => null, platform: "linux" },
+    );
+    expect(lines.some((l) => l.includes("[warn]") && l.includes("espeak-ng"))).toBe(true);
+  });
+
+  test("reports Linux TTS ok when espeak-ng is on PATH", () => {
+    const lines = doctorVoiceLines(
+      { enabled: true, whisperPath: "", piperPath: "", piperModel: "" },
+      { which: (n) => (n === "espeak-ng" ? "/usr/bin/espeak-ng" : null), platform: "linux" },
+    );
+    expect(lines.some((l) => l.includes("[ok]") && l.includes("espeak-ng"))).toBe(true);
+  });
+
+  test("skips Linux TTS check on darwin/win32 (always available)", () => {
+    const darwin = doctorVoiceLines(
+      { enabled: true, whisperPath: "", piperPath: "", piperModel: "" },
+      { which: () => null, platform: "darwin" },
+    );
+    expect(darwin.some((l) => l.includes("say"))).toBe(true);
+    const win = doctorVoiceLines(
+      { enabled: true, whisperPath: "", piperPath: "", piperModel: "" },
+      { which: () => null, platform: "win32" },
+    );
+    expect(win.some((l) => l.includes("SAPI") || l.includes("PowerShell"))).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+cd packages/cli && bun test src/commands/doctor-voice.test.ts 2>&1 | tail -10
+```
+
+Expected: FAIL — `doctorVoiceLines is not a function`.
+
+- [ ] **Step 3: Add `doctorVoiceLines` to `doctor.ts`**
+
+Append this exported helper to `packages/cli/src/commands/doctor.ts`. Keep the function pure and dependency-injected (takes `which` + `platform` as options) so the test does not shell out:
+
+```typescript
+export type DoctorVoiceConfig = {
+  enabled: boolean;
+  whisperPath: string;
+  piperPath: string;
+  piperModel: string;
+};
+
+export type DoctorEnv = {
+  which: (name: string) => string | null;
+  platform: "win32" | "darwin" | "linux";
+};
+
+export function doctorVoiceLines(cfg: DoctorVoiceConfig, env: DoctorEnv): string[] {
+  if (!cfg.enabled) return [];
+  const lines: string[] = [];
+
+  // Whisper binary
+  const whisperOk =
+    cfg.whisperPath !== "" || env.which("whisper-cli") !== null || env.which("main") !== null;
+  lines.push(
+    whisperOk
+      ? "[ok] Voice: whisper-cli is available."
+      : "[warn] Voice: whisper-cli not found on PATH and voice.whisper_path is unset — STT will not work.",
+  );
+
+  // ffmpeg (required for wake-word recording)
+  const ffmpegOk = env.which("ffmpeg") !== null;
+  lines.push(
+    ffmpegOk
+      ? "[ok] Voice: ffmpeg is on PATH."
+      : "[warn] Voice: ffmpeg not found on PATH — wake word detection requires ffmpeg for audio capture.",
+  );
+
+  // Platform TTS
+  if (env.platform === "darwin") {
+    lines.push("[ok] Voice: macOS `say` is always available.");
+  } else if (env.platform === "win32") {
+    lines.push("[ok] Voice: Windows SAPI via PowerShell is always available.");
+  } else {
+    const espeakOk = env.which("espeak-ng") !== null;
+    const spdSayOk = env.which("spd-say") !== null;
+    if (espeakOk) {
+      lines.push("[ok] Voice: Linux TTS via espeak-ng.");
+    } else if (spdSayOk) {
+      lines.push("[ok] Voice: Linux TTS via spd-say (espeak-ng preferred).");
+    } else {
+      lines.push(
+        "[warn] Voice: neither espeak-ng nor spd-say found on PATH — install one to enable TTS on Linux.",
+      );
+    }
+  }
+
+  // Optional Piper
+  if (cfg.piperPath !== "" || cfg.piperModel !== "") {
+    const piperBinOk =
+      cfg.piperPath !== "" &&
+      (cfg.piperPath.includes("/") || cfg.piperPath.includes("\\") || env.which(cfg.piperPath) !== null);
+    if (!piperBinOk) {
+      lines.push(`[warn] Voice: piper_path is set but the binary was not found: ${cfg.piperPath}`);
+    }
+    if (cfg.piperModel === "") {
+      lines.push("[warn] Voice: piper_path is set but piper_model is empty — Piper TTS will not run.");
+    }
+  }
+
+  return lines;
+}
+```
+
+Then update `runDoctor` to call `doctorVoiceLines` with the loaded `[voice]` TOML config and `{ which: Bun.which, platform: process.platform as "win32" | "darwin" | "linux" }`, printing each returned line. Keep exit code calculation additive: any `[fail]` promotes to 2, any `[warn]` promotes to 1, same as existing checks.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+cd packages/cli && bun test src/commands/doctor-voice.test.ts 2>&1 | tail -10
+```
+
+Expected: All tests PASS.
+
+- [ ] **Step 5: Run type check**
+
+```bash
+bun run typecheck 2>&1 | tail -5
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/cli/src/commands/doctor.ts \
+        packages/cli/src/commands/doctor-voice.test.ts
+git commit -m "feat(cli): add nimbus doctor voice-binary checks (whisper-cli, ffmpeg, native TTS)"
+```
+
+---
+
 ## Final Verification
 
 - [ ] **Run all new WS2 tests**
 
 ```bash
-cd packages/gateway && bun test src/voice/ src/config/nimbus-toml-voice.test.ts src/ipc/handlers/ 2>&1 | tail -20
+cd packages/gateway && bun test src/voice/ src/config/nimbus-toml-voice.test.ts src/ipc/handlers/voice.test.ts 2>&1 | tail -20
+cd ../cli && bun test src/commands/doctor-voice.test.ts 2>&1 | tail -10
 ```
 
 Expected: All PASS.
@@ -1632,14 +2134,16 @@ The `push-to-talk.test.ts` integration test satisfies this criterion with mock p
 
 ## Acceptance Criteria Checklist
 
-- [ ] `packages/gateway/src/voice/types.ts` — `SttProvider`, `TtsProvider`, `WakeWordDetector` interfaces
-- [ ] `packages/gateway/src/config/nimbus-toml.ts` — `[voice]` section parser; `DEFAULT_NIMBUS_VOICE_TOML` exports
-- [ ] `packages/gateway/src/voice/stt.ts` — `WhisperSttProvider` with binary discovery + transcript parsing
-- [ ] `packages/gateway/src/voice/tts.ts` — `NativeTtsProvider` (macOS/Windows/Linux) + `PiperTtsProvider`
-- [ ] `packages/gateway/src/voice/wake-word.ts` — `WakeWordDetectorImpl` with Whisper-polling
-- [ ] `packages/gateway/src/voice/service.ts` — `VoiceService` wiring all three providers
-- [ ] `packages/gateway/src/ipc/handlers/voice.ts` — `dispatchVoiceRpc` with 5 methods
-- [ ] `voice.*` methods wired into `server.ts`
+- [ ] `packages/gateway/src/voice/types.ts` — `SttProvider`, `TtsProvider`, `WakeWordDetector`, `MicrophoneStateEvent` interfaces
+- [ ] `packages/gateway/src/config/nimbus-toml.ts` — `[voice]` section parser; `DEFAULT_NIMBUS_VOICE_TOML` with `enabled = false` default
+- [ ] `packages/gateway/src/voice/stt.ts` — `WhisperSttProvider` with binary discovery, `-nt` stdout parsing (no `--output-txt`), and audio-file existence check
+- [ ] `packages/gateway/src/voice/tts.ts` — `NativeTtsProvider` (macOS/Windows/Linux) + `PiperTtsProvider` with streaming-TTS TODO
+- [ ] `packages/gateway/src/voice/wake-word.ts` — `WakeWordDetectorImpl` with VAD silence-skip, `-ar 16000 -ac 1` ffmpeg flags, dedicated `wakeWordWhisperModel` (default `tiny.en`), mic-state callback, and pluggable interface for future engines (Porcupine/openWakeWord)
+- [ ] `packages/gateway/src/voice/service.ts` — `VoiceService` wiring all three providers; microphone arbiter pauses wake word during `transcribe()`; forwards mic-state events
+- [ ] `packages/gateway/src/ipc/handlers/voice.ts` — `dispatchVoiceRpc` with 5 methods + `VoiceRpcError` class matching `LlmRpcError` pattern
+- [ ] `voice.*` methods wired into `server.ts`; `voice.microphoneActive` notification broadcast on mic open/close
+- [ ] `packages/cli/src/commands/doctor.ts` — `doctorVoiceLines` checks whisper-cli, ffmpeg, platform TTS, and Piper (only when `voice.enabled`)
 - [ ] Integration test: push-to-talk round-trip passes with mock providers
 - [ ] No shell injection: text always passed as argv, never interpolated
+- [ ] No `require()` in voice code — Bun-native ESM imports only
 - [ ] All tests pass; 0 typecheck errors
