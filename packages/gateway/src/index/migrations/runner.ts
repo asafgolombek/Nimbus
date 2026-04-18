@@ -32,6 +32,7 @@ import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import { tryLoadSqliteVec } from "../sqlite-vec-load.ts";
+import { SUB_TASK_RESULTS_V17_SQL } from "../sub-task-results-v17-sql.ts";
 import {
   UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL,
   UNIFIED_ITEM_V3_SCHEMA_SQL,
@@ -238,6 +239,14 @@ function migrateIndexedV15ToV16(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV16ToV17(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(SUB_TASK_RESULTS_V17_SQL);
+    db.exec("PRAGMA user_version = 17");
+    recordMigration(db, 17, "sub_task_results (multi-agent sub-task persistence)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -255,6 +264,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 13, toVersion: 14, apply: migrateIndexedV13ToV14 },
   { fromVersion: 14, toVersion: 15, apply: migrateIndexedV14ToV15 },
   { fromVersion: 15, toVersion: 16, apply: migrateIndexedV15ToV16 },
+  { fromVersion: 16, toVersion: 17, apply: migrateIndexedV16ToV17 },
 ];
 
 /**
@@ -326,6 +336,9 @@ function backfillMigrationsLedger(db: Database): void {
         "llm_models table + sync_state.context_window_tokens (backfilled)",
         now,
       );
+    }
+    if (uv >= 17) {
+      recordMigration(db, 17, "sub_task_results (backfilled)", now);
     }
   })();
 }
