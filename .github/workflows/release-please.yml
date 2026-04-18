@@ -1,9 +1,7 @@
 name: release-please
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch: # disabled auto-release; trigger manually when a phase is complete
 
 permissions:
   contents: read
