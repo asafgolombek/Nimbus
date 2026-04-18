@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776529046311,
+  "lastUpdate": 1776536423094,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -434,6 +434,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.1421170599999995,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "37b6b8242900ce656916b563a21a07acfe63dae7",
+          "message": "Merge pull request #52 from asafgolombek/dev/asafgolombek/phase_4_ws_2\n\nfeat(voice): implement local voice pipeline (Phase 4 WS2)",
+          "timestamp": "2026-04-18T21:19:58+03:00",
+          "tree_id": "d825120876a726dfbc96f1dce788c068b2a4e7d1",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/37b6b8242900ce656916b563a21a07acfe63dae7"
+        },
+        "date": 1776536422652,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.10025424,
             "unit": "ms"
           }
         ]
