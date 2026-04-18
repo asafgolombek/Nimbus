@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776526491931,
+  "lastUpdate": 1776528182681,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -376,6 +376,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.7773300399999965,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "6affa303b3c6223511bcb68c0acf79a6389227cc",
+          "message": "feat(voice): enhance local voice pipeline with microphone state management and configuration updates\n\n- Improved the `VoiceService` to include a microphone arbiter that manages audio device contention during manual queries.\n- Added `MicrophoneStateEvent` type to notify UI of microphone activity, ensuring user awareness of recording status.\n- Introduced `wakeWordWhisperModel` configuration to optimize CPU usage for wake word detection.\n- Updated IPC server to handle new microphone state notifications and integrated unit tests for the `VoiceService` and related components.",
+          "timestamp": "2026-04-18T19:02:16+03:00",
+          "tree_id": "442f79cb42ede9c5cdcedcdfc0ed6ab0c8f772f8",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/6affa303b3c6223511bcb68c0acf79a6389227cc"
+        },
+        "date": 1776528181779,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4976804600000013,
             "unit": "ms"
           }
         ]
