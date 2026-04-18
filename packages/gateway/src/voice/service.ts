@@ -24,7 +24,8 @@ export class VoiceService {
   private readonly stt: SttProvider;
   private readonly tts: TtsProvider;
   private readonly wakeWordDet: WakeWordDetector | undefined;
-  private readonly micListener: ((event: MicrophoneStateEvent) => void) | undefined;
+  /** Set by the IPC server to forward mic-state events as voice.microphoneActive notifications. */
+  onMicrophoneStateChange: ((event: MicrophoneStateEvent) => void) | undefined;
   readonly enabled: boolean;
 
   constructor(cfg: VoiceServiceConfig) {
@@ -32,14 +33,14 @@ export class VoiceService {
     this.stt = cfg.stt;
     this.tts = cfg.tts;
     this.wakeWordDet = cfg.wakeWord;
-    this.micListener = cfg.onMicrophoneStateChange;
-    if (this.wakeWordDet !== undefined && this.micListener !== undefined) {
-      this.wakeWordDet.onMicrophoneStateChange = (e) => this.micListener?.(e);
+    this.onMicrophoneStateChange = cfg.onMicrophoneStateChange;
+    if (this.wakeWordDet !== undefined) {
+      this.wakeWordDet.onMicrophoneStateChange = (e) => this.onMicrophoneStateChange?.(e);
     }
   }
 
   private emitMicState(active: boolean): void {
-    this.micListener?.({ active, source: "transcribe", changedAt: Date.now() });
+    this.onMicrophoneStateChange?.({ active, source: "transcribe", changedAt: Date.now() });
   }
 
   async transcribe(audioPath: string): Promise<{ text: string; durationMs: number }> {
