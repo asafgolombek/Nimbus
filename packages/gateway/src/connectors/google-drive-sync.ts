@@ -2,7 +2,7 @@ import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { deleteItemByServiceExternal, upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
-import { formatGoogleHttpError } from "./google-sync-shared.ts";
+import { fetchGoogleJson } from "./google-sync-shared.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -231,27 +231,12 @@ function countAppliedDriveChanges(
   return { itemsUpserted, itemsDeleted };
 }
 
-async function driveFetchJson(
+function driveFetchJson(
   ctx: SyncContext,
   accessToken: string,
   url: string,
 ): Promise<{ json: unknown; bytes: number }> {
-  await ctx.rateLimiter.acquire("google");
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const text = await res.text();
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (!res.ok) {
-    throw new Error(formatGoogleHttpError(res.status, text, "Google Drive"));
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("Google Drive sync failed: invalid JSON");
-  }
-  return { json, bytes };
+  return fetchGoogleJson(ctx, accessToken, url, "Google Drive");
 }
 
 async function getStartPageToken(ctx: SyncContext, accessToken: string): Promise<string> {

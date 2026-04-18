@@ -3,6 +3,7 @@ import { deleteItemByServiceExternal, upsertIndexedItemForSync } from "../index/
 import { resolvePersonForSync } from "../people/linker.ts";
 import { parseFromHeaderForPerson } from "../people/parse-from-header.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { fetchGoogleJson } from "./google-sync-shared.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -174,36 +175,13 @@ function upsertGmailMessage(ctx: SyncContext, m: GmailMessageResource, now: numb
   });
 }
 
-async function gmailFetchJson(
+function gmailFetchJson(
   ctx: SyncContext,
   token: string,
   url: string,
   init?: RequestInit,
 ): Promise<{ json: unknown; bytes: number }> {
-  await ctx.rateLimiter.acquire("google");
-  const mergedHeaders = new Headers({ Authorization: `Bearer ${token}` });
-  if (init?.headers !== undefined) {
-    const extra = new Headers(init.headers);
-    for (const [k, v] of extra) {
-      mergedHeaders.set(k, v);
-    }
-  }
-  const res = await fetch(url, {
-    ...init,
-    headers: mergedHeaders,
-  });
-  const text = await res.text();
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (!res.ok) {
-    throw new Error(`Gmail sync failed: ${String(res.status)}`);
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("Gmail sync failed: invalid JSON");
-  }
-  return { json, bytes };
+  return fetchGoogleJson(ctx, token, url, "Gmail", init);
 }
 
 function listQueryForInitial(days: number): string {
