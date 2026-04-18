@@ -70,11 +70,15 @@ function assertValidPort(p: number): void {
 }
 
 function isAddrInUse(err: unknown): boolean {
-  if (typeof err === "object" && err !== null) {
-    const code = (err as { code?: string }).code;
-    return code === "EADDRINUSE";
+  if (typeof err !== "object" || err === null) {
+    return false;
   }
-  return false;
+  const o = err as { code?: string; message?: string };
+  if (o.code === "EADDRINUSE") {
+    return true;
+  }
+  const msg = typeof o.message === "string" ? o.message.toLowerCase() : "";
+  return msg.includes("eaddrinuse") || msg.includes("address already in use");
 }
 
 function randomUrlSafeString(byteLength: number): string {
