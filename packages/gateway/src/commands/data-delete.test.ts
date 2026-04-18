@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
 import type { LocalIndex } from "../index/local-index.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { runDataDelete } from "./data-delete.ts";
 
 function seed(idx: LocalIndex, service: string, count: number): void {
