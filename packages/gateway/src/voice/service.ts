@@ -48,7 +48,7 @@ export class VoiceService {
 
     // Microphone arbiter: pause wake word so the two audio loops cannot contend
     // for the input device. Only resume if it was running before we stopped it.
-    const resumeWakeWord = this.wakeWordDet !== undefined && this.wakeWordDet.isRunning;
+    const resumeWakeWord = this.wakeWordDet?.isRunning === true;
     if (resumeWakeWord) {
       this.wakeWordDet?.stop();
     }

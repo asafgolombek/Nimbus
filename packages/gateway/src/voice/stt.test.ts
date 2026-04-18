@@ -92,7 +92,7 @@ describe("WhisperSttProvider", () => {
   test("transcribe passes model flag when modelName is configured", async () => {
     const captured: string[][] = [];
     Bun.spawn = mock((cmd: string[], _opts?: unknown) => {
-      captured.push(cmd as string[]);
+      captured.push(cmd);
       return makeSpawnMock(WHISPER_STDOUT);
     }) as unknown as typeof Bun.spawn;
 

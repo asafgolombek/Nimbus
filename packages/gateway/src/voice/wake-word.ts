@@ -102,8 +102,8 @@ function defaultRecordAudio(durationMs: number): Promise<string> {
 
   return new Promise<string>((resolve, reject) => {
     Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited.then((code) => {
-      if (code !== 0) reject(new Error(`ffmpeg exited with ${code}`));
-      else resolve(outPath);
+      if (code === 0) resolve(outPath);
+      else reject(new Error(`ffmpeg exited with ${code}`));
     });
   });
 }

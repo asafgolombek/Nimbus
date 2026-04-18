@@ -89,13 +89,14 @@ describe("VoiceService microphone arbiter", () => {
   test("forwards wake-word mic state events through the service callback", () => {
     const states: MicrophoneStateEvent[] = [];
     const det = makeFakeDetector();
-    new VoiceService({
+    const svc = new VoiceService({
       enabled: true,
       stt: makeFakeStt(),
       tts: makeFakeTts(),
       wakeWord: det,
       onMicrophoneStateChange: (e) => states.push(e),
     });
+    expect(svc.enabled).toBe(true);
     det.onMicrophoneStateChange?.({ active: true, source: "wake-word", changedAt: 1 });
     expect(states).toHaveLength(1);
     expect(states[0]?.source).toBe("wake-word");

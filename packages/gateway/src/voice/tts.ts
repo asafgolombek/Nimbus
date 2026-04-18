@@ -19,7 +19,7 @@ function buildTtsCommand(platform: "win32" | "darwin" | "linux", text: string): 
         text,
       ];
     case "linux": {
-      const bin = Bun.which("espeak-ng") !== null ? "espeak-ng" : "spd-say";
+      const bin = Bun.which("espeak-ng") === null ? "spd-say" : "espeak-ng";
       return [bin, text];
     }
   }
