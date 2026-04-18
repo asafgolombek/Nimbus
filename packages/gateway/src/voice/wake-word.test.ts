@@ -19,7 +19,7 @@ describe("WakeWordDetectorImpl", () => {
     const det = new WakeWordDetectorImpl({
       stt: makeFakeStt([]),
       wakeWord: "hey nimbus",
-      recordAudio: async () => "/tmp/chunk.wav",
+      recordAudio: async () => import.meta.path,
     });
     expect(det.isRunning).toBe(false);
   });
@@ -28,7 +28,7 @@ describe("WakeWordDetectorImpl", () => {
     const det = new WakeWordDetectorImpl({
       stt: makeFakeStt([]),
       wakeWord: "hey nimbus",
-      recordAudio: async () => "/tmp/chunk.wav",
+      recordAudio: async () => import.meta.path,
     });
     det.start();
     expect(det.isRunning).toBe(true);
@@ -40,7 +40,7 @@ describe("WakeWordDetectorImpl", () => {
     const det = new WakeWordDetectorImpl({
       stt: makeFakeStt([]),
       wakeWord: "hey nimbus",
-      recordAudio: async () => "/tmp/chunk.wav",
+      recordAudio: async () => import.meta.path,
     });
     det.start();
     det.start();
@@ -54,7 +54,7 @@ describe("WakeWordDetectorImpl", () => {
       stt: makeFakeStt(["Hey Nimbus, what time is it?"]),
       wakeWord: "hey nimbus",
       pollIntervalMs: 10,
-      recordAudio: async () => "/tmp/chunk.wav",
+      recordAudio: async () => import.meta.path,
       isChunkSilent: async () => false,
     });
     det.onDetected = (evt) => {
@@ -74,7 +74,7 @@ describe("WakeWordDetectorImpl", () => {
       wakeWord: "hey nimbus",
       pollIntervalMs: 10,
       maxPolls: 3,
-      recordAudio: async () => "/tmp/chunk.wav",
+      recordAudio: async () => import.meta.path,
       isChunkSilent: async () => false,
     });
     det.onDetected = (evt) => events.push(evt.transcript);
@@ -91,7 +91,7 @@ describe("WakeWordDetectorImpl", () => {
       wakeWord: "hey nimbus",
       pollIntervalMs: 10,
       maxPolls: 1,
-      recordAudio: async () => "/tmp/chunk.wav",
+      recordAudio: async () => import.meta.path,
       isChunkSilent: async () => true,
     });
     det.onMicrophoneStateChange = (evt) => states.push({ active: evt.active, source: evt.source });

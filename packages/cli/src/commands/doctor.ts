@@ -285,7 +285,8 @@ function loadVoiceConfigFromDir(configDir: string): DoctorVoiceConfig {
     let inVoice = false;
     const out: Partial<DoctorVoiceConfig> = {};
     for (const line of lines) {
-      const trimmed = line.replace(/#.*$/, "").trim();
+      const hashIdx = line.indexOf("#");
+      const trimmed = (hashIdx >= 0 ? line.slice(0, hashIdx) : line).trim();
       if (trimmed === "") continue;
       if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
         inVoice = trimmed === "[voice]";
