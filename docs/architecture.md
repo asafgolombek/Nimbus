@@ -820,7 +820,7 @@ Exceeding either limit emits the `agent.gasLimitReached` IPC notification and ha
 
 Both Phase 4 clients use the **existing JSON-RPC 2.0 IPC socket** — no new Gateway API surface is introduced.
 
-**Voice interface** — Whisper.cpp runs inside the Tauri desktop process. Transcribed text is forwarded to the Gateway as a standard `agent.invoke` call. TTS playback (`say` on macOS, SAPI on Windows, `pyttsx3` on Linux) is handled by the desktop process on the streamed response. Audio never leaves the machine.
+**Voice interface** — implemented as a Gateway service (`packages/gateway/src/voice/`). STT calls `whisper-cli` as a subprocess on the recorded audio file; transcribed text is dispatched to the engine as a standard prompt. TTS uses `NativeTtsProvider`: `say` on macOS, PowerShell SAPI on Windows, `espeak-ng` or `spd-say` on Linux. Wake-word detection runs as an opt-in background loop inside the Gateway. IPC methods (`voice.transcribe`, `voice.speak`, `voice.startWakeWord`, `voice.stopWakeWord`, `voice.getStatus`) are dispatched via `packages/gateway/src/ipc/voice-rpc.ts`. Audio never leaves the machine.
 
 **Rich TUI** (`nimbus tui`) — an Ink-based terminal layout using `@nimbus-dev/client` IPC transport. HITL consent is surfaced inline in the terminal pane, identical in behaviour to the existing CLI consent prompt.
 

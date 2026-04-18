@@ -63,6 +63,9 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/gateway/src/llm/router.ts` | `LlmRouter` — task-to-provider routing, air-gap enforcement, local/remote preference |
 | `packages/gateway/src/llm/registry.ts` | `LlmRegistry` — model discovery, `llm_models` DB sync, availability checks |
 | `packages/gateway/src/ipc/llm-rpc.ts` | `dispatchLlmRpc` — `llm.listModels` / `llm.getStatus` IPC handlers |
+| `packages/gateway/src/voice/service.ts` | `VoiceService` — STT (`whisper-cli`), TTS, wake-word loop |
+| `packages/gateway/src/voice/tts.ts` | `NativeTtsProvider` — `say` (macOS), PowerShell SAPI (Windows), `espeak-ng`/`spd-say` (Linux) |
+| `packages/gateway/src/ipc/voice-rpc.ts` | `dispatchVoiceRpc` — `voice.*` IPC handlers |
 | `packages/gateway/src/engine/coordinator.ts` | `AgentCoordinator` — multi-agent sub-task orchestration, depth + tool-call guards |
 | `packages/gateway/src/engine/sub-agent.ts` | `runSubAgent` — single sub-task executor with `sub_task_results` DB lifecycle |
 | `packages/gateway/src/index/llm-models-v16-sql.ts` | V16 migration SQL — `llm_models` table + `sync_state.context_window_tokens` |

@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-18 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is now active. Per-connector OAuth vault keys landed (Google + Microsoft per-service keys; `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth`, `onedrive.oauth`, `outlook.oauth`, `teams.oauth`). **Phase 4 Workstream 1 in progress on `dev/asafgolombek/phase_4_workstream_1`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher (`llm.listModels`, `llm.getStatus`), multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming are implemented; E2E acceptance criteria pending.
+> **Last updated:** 2026-04-18 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) in PR #52:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) plan written:** implementation pending.
 
 ---
 
@@ -310,8 +310,8 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ### Local LLM & Multi-Agent
 
-- [ ] **Local LLM support** — Ollama integration (model discovery, pull, load, unload via Gateway IPC); llama.cpp fallback (GGUF model files, no Ollama required); per-task model routing (fast local model for classification; remote for multi-step reasoning; configurable); fully air-gapped operation when a local model is loaded
-- [ ] **Multi-agent orchestration** — coordinator agent decomposes complex tasks into independent sub-tasks; sub-agents run in parallel in isolated tool scopes; all sub-agent write operations remain HITL-gated; coordinator cannot approve on behalf of the user *(loop-guard config stubs in place: `NIMBUS_MAX_AGENT_DEPTH` default 3, `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` default 20; `agent.gasLimitReached` notification reserved)*
+- [x] **Local LLM support** — Ollama integration (model discovery, pull, load, unload via Gateway IPC); llama.cpp fallback (GGUF model files, no Ollama required); per-task model routing (fast local model for classification; remote for multi-step reasoning; configurable); fully air-gapped operation when a local model is loaded
+- [x] **Multi-agent orchestration** — coordinator agent decomposes complex tasks into independent sub-tasks; sub-agents run in parallel in isolated tool scopes; all sub-agent write operations remain HITL-gated; coordinator cannot approve on behalf of the user *(loop-guard config stubs in place: `NIMBUS_MAX_AGENT_DEPTH` default 3, `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` default 20; `agent.gasLimitReached` notification reserved)*
 
 ### Built-in Agent Workflows
 
@@ -335,9 +335,9 @@ First-party demonstrations of multi-agent orchestration and multi-connector cont
 
 ### Voice Interface
 
-- [ ] **Local STT** — Whisper.cpp bundled in the desktop app; model: `whisper-base.en` (default) / user-selectable; audio never leaves the machine
-- [ ] **Voice queries** — push-to-talk in desktop app; result summary spoken via local TTS (`pyttsx3` on Linux, `say` on macOS, SAPI on Windows)
-- [ ] **Wake word** (opt-in, disabled by default)
+- [x] **Local STT** — `whisper-cli` subprocess called by the Gateway voice service; model: `whisper-base.en` (default) / user-selectable via config; audio never leaves the machine
+- [x] **Voice queries** — `voice.transcribe` + `voice.speak` IPC methods; TTS via `NativeTtsProvider` (`say` on macOS, PowerShell SAPI on Windows, `espeak-ng`/`spd-say` on Linux)
+- [x] **Wake word** (opt-in, disabled by default) — background loop in Gateway voice service; `voice.startWakeWord` / `voice.stopWakeWord` IPC
 
 ### Data Sovereignty
 

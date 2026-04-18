@@ -444,6 +444,7 @@ nimbus doctor
 - Configuration file validates
 - Index total item count (warns if zero — suggests connecting a service)
 - Per-connector health table
+- Voice (when `voice.enabled = true` in config): `whisper-cli` on PATH, `ffmpeg` on PATH, platform TTS available (`espeak-ng` on Linux, `say` on macOS, PowerShell SAPI on Windows)
 
 **Exit codes:** `0` = all healthy, `1` = warnings, `2` = hard failures.
 

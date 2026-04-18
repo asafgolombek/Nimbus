@@ -403,6 +403,8 @@ nimbus/
 │   │       ├── extensions/   # Extension Registry, manifest validator
 │   │       ├── telemetry/    # Opt-in aggregate telemetry collector
 │   │       ├── config/       # Config loader, profiles, env-var overrides
+│   │       ├── llm/          # Ollama + llama.cpp providers, router, registry, GPU arbiter
+│   │       ├── voice/        # STT (whisper-cli), TTS (NativeTtsProvider), wake-word
 │   │       └── ipc/          # JSON-RPC 2.0 server, HTTP API, Prometheus endpoint
 │   ├── cli/                  # nimbus CLI
 │   │   └── src/commands/     # ask, search, query, config, profile, diag, doctor,
