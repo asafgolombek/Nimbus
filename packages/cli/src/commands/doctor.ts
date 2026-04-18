@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
 import { platform } from "node:os";
+import { join } from "node:path";
 
 import { IPCClient } from "../ipc-client/index.ts";
 import { gatewayStatePath, isProcessAlive, readGatewayState } from "../lib/gateway-process.ts";
@@ -161,6 +163,17 @@ export async function runDoctor(_args: string[]): Promise<void> {
 
   exit = Math.max(exit, doctorPrintVaultCheck());
 
+  const voiceCfg = loadVoiceConfigFromDir(paths.configDir);
+  const voiceLines = doctorVoiceLines(voiceCfg, {
+    which: (n) => Bun.which(n),
+    platform: platform() as "win32" | "darwin" | "linux",
+  });
+  for (const line of voiceLines) {
+    console.log(line);
+    if (line.startsWith("[fail]")) exit = Math.max(exit, 2);
+    else if (line.startsWith("[warn]")) exit = Math.max(exit, 1);
+  }
+
   const state = await readGatewayState(paths);
   if (state !== undefined && isProcessAlive(state.pid)) {
     const client = new IPCClient(state.socketPath);
@@ -185,4 +198,112 @@ export async function runDoctor(_args: string[]): Promise<void> {
   }
 
   process.exitCode = exit;
+}
+
+// ─── Voice doctor helpers ────────────────────────────────────────────────────
+
+export type DoctorVoiceConfig = {
+  enabled: boolean;
+  whisperPath: string;
+  piperPath: string;
+  piperModel: string;
+};
+
+export type DoctorEnv = {
+  which: (name: string) => string | null;
+  platform: "win32" | "darwin" | "linux";
+};
+
+export function doctorVoiceLines(cfg: DoctorVoiceConfig, env: DoctorEnv): string[] {
+  if (!cfg.enabled) return [];
+  const lines: string[] = [];
+
+  const whisperOk =
+    cfg.whisperPath !== "" || env.which("whisper-cli") !== null || env.which("main") !== null;
+  lines.push(
+    whisperOk
+      ? "[ok] Voice: whisper-cli is available."
+      : "[warn] Voice: whisper-cli not found on PATH and voice.whisper_path is unset — STT will not work.",
+  );
+
+  const ffmpegOk = env.which("ffmpeg") !== null;
+  lines.push(
+    ffmpegOk
+      ? "[ok] Voice: ffmpeg is on PATH."
+      : "[warn] Voice: ffmpeg not found on PATH — wake word detection requires ffmpeg for audio capture.",
+  );
+
+  if (env.platform === "darwin") {
+    lines.push("[ok] Voice: macOS `say` is always available.");
+  } else if (env.platform === "win32") {
+    lines.push("[ok] Voice: Windows SAPI via PowerShell is always available.");
+  } else {
+    const espeakOk = env.which("espeak-ng") !== null;
+    const spdSayOk = env.which("spd-say") !== null;
+    if (espeakOk) {
+      lines.push("[ok] Voice: Linux TTS via espeak-ng.");
+    } else if (spdSayOk) {
+      lines.push("[ok] Voice: Linux TTS via spd-say (espeak-ng preferred).");
+    } else {
+      lines.push(
+        "[warn] Voice: neither espeak-ng nor spd-say found on PATH — install one to enable TTS on Linux.",
+      );
+    }
+  }
+
+  if (cfg.piperPath !== "" || cfg.piperModel !== "") {
+    const piperBinOk =
+      cfg.piperPath !== "" &&
+      (cfg.piperPath.includes("/") ||
+        cfg.piperPath.includes("\\") ||
+        env.which(cfg.piperPath) !== null);
+    if (!piperBinOk) {
+      lines.push(`[warn] Voice: piper_path is set but the binary was not found: ${cfg.piperPath}`);
+    }
+    if (cfg.piperModel === "") {
+      lines.push(
+        "[warn] Voice: piper_path is set but piper_model is empty — Piper TTS will not run.",
+      );
+    }
+  }
+
+  return lines;
+}
+
+function loadVoiceConfigFromDir(configDir: string): DoctorVoiceConfig {
+  const tomlPath = join(configDir, "nimbus.toml");
+  const defaults: DoctorVoiceConfig = {
+    enabled: false,
+    whisperPath: "",
+    piperPath: "",
+    piperModel: "",
+  };
+  if (!existsSync(tomlPath)) return defaults;
+  try {
+    const src = readFileSync(tomlPath, "utf8");
+    const lines = src.split(/\r?\n/);
+    let inVoice = false;
+    const out: Partial<DoctorVoiceConfig> = {};
+    for (const line of lines) {
+      const trimmed = line.replace(/#.*$/, "").trim();
+      if (trimmed === "") continue;
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        inVoice = trimmed === "[voice]";
+        continue;
+      }
+      if (!inVoice) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const valRaw = trimmed.slice(eq + 1).trim();
+      const val = valRaw.startsWith('"') && valRaw.endsWith('"') ? valRaw.slice(1, -1) : valRaw;
+      if (key === "enabled") out.enabled = val === "true";
+      else if (key === "whisper_path") out.whisperPath = val;
+      else if (key === "piper_path") out.piperPath = val;
+      else if (key === "piper_model") out.piperModel = val;
+    }
+    return { ...defaults, ...out };
+  } catch {
+    return defaults;
+  }
 }
