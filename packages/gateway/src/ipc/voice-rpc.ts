@@ -24,7 +24,7 @@ function expectString(params: unknown, key: string): string {
   ) {
     throw new VoiceRpcError(-32602, `Missing or invalid param: ${key}`);
   }
-  return (params as Record<string, string>)[key]!;
+  return (params as Record<string, string>)[key] as string;
 }
 
 export async function dispatchVoiceRpc(

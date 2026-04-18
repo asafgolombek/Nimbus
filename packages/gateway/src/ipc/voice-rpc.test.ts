@@ -39,11 +39,11 @@ describe("dispatchVoiceRpc", () => {
 
   test("voice.transcribe returns text from STT", async () => {
     const ctx: VoiceRpcContext = { voiceService: makeFakeService() };
-    const result = await dispatchVoiceRpc("voice.transcribe", { audioPath: "/tmp/test.wav" }, ctx);
+    const result = await dispatchVoiceRpc("voice.transcribe", { audioPath: import.meta.path }, ctx);
     expect(result.kind).toBe("hit");
     if (result.kind === "hit") {
       const value = result.value as { text: string };
-      expect(value.text).toBe("transcribed:/tmp/test.wav");
+      expect(value.text).toBe(`transcribed:${import.meta.path}`);
     }
   });
 
