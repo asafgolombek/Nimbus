@@ -305,7 +305,13 @@ function backfillMigrationsLedger(db: Database): void {
   const now = Date.now();
   db.transaction(() => {
     for (let v = 1; v <= uv; v++) {
-      recordMigration(db, v, BACKFILL_LABELS[v - 1]!, now);
+      const label = BACKFILL_LABELS[v - 1];
+      if (label === undefined) {
+        throw new Error(
+          `Backfill migration label missing for schema v${String(v)} (extend BACKFILL_LABELS in runner.ts)`,
+        );
+      }
+      recordMigration(db, v, label, now);
     }
   })();
 }

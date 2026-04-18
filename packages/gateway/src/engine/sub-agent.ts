@@ -60,16 +60,16 @@ function tryPersistError(db: Database, rowId: number, e: unknown): void {
 
 export async function runSubAgent(opts: SubAgentRunOptions): Promise<SubAgentRunResult> {
   const now = Date.now();
-  const rowId = opts.db !== undefined ? tryPersistStart(opts.db, opts, now) : undefined;
+  const rowId = opts.db ? tryPersistStart(opts.db, opts, now) : undefined;
 
   try {
     const result = await opts.execute();
-    if (opts.db !== undefined && rowId !== undefined) {
+    if (opts.db && typeof rowId === "number") {
       tryPersistDone(opts.db, rowId, result);
     }
     return result;
   } catch (e) {
-    if (opts.db !== undefined && rowId !== undefined) {
+    if (opts.db && typeof rowId === "number") {
       tryPersistError(opts.db, rowId, e);
     }
     throw e;
