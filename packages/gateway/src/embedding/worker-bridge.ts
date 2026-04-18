@@ -180,6 +180,12 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
       return;
     }
     if (t === "backfill_done") {
+      if (rec["success"] === false) {
+        this.logger.warn(
+          { msg: "embedding_backfill_failed" },
+          "embedding backfill did not complete successfully",
+        );
+      }
       return;
     }
     if (t === "embed_texts_result") {

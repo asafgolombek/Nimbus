@@ -90,14 +90,16 @@ function setupDb(dbPath: string): void {
         ready = true;
         sendToMain({ type: "ready" });
         void (async () => {
+          let success = false;
           try {
             await pl.backfillAll((done, total) => {
               sendToMain({ type: "backfill_progress", done, total });
             });
+            success = true;
           } catch {
             /* best-effort */
           }
-          sendToMain({ type: "backfill_done" });
+          sendToMain({ type: "backfill_done", success });
         })();
       } catch (err) {
         const m = err instanceof Error ? err.message : String(err);

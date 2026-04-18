@@ -144,6 +144,8 @@ function repairForeignKeys(db: Database): RepairOutcome {
       byTable.set(v.table, list);
     }
 
+    const escapeIdentifier = (id: string): string => `"${id.replaceAll('"', '""')}"`;
+
     let totalDeleted = 0;
     db.transaction(() => {
       for (const [table, rowids] of byTable) {
@@ -152,7 +154,7 @@ function repairForeignKeys(db: Database): RepairOutcome {
           const slice = rowids.slice(i, i + BATCH);
           const placeholders = slice.map(() => "?").join(",");
           const res = db.run(
-            `DELETE FROM "${table}" WHERE rowid IN (${placeholders})`,
+            `DELETE FROM ${escapeIdentifier(table)} WHERE rowid IN (${placeholders})`,
             slice as Parameters<Database["run"]>[1],
           );
           totalDeleted += (res as unknown as { changes: number }).changes ?? 0;

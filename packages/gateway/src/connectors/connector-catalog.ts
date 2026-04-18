@@ -125,7 +125,10 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
     case "google_photos":
       return {
         provider: "google",
-        defaultScopes: ["https://www.googleapis.com/auth/photoslibrary.readonly"],
+        defaultScopes: [
+          "https://www.googleapis.com/auth/photoslibrary.readonly",
+          "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+        ],
       };
     case "onedrive":
       return {

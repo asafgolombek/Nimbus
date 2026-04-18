@@ -18,6 +18,19 @@ Every roadmap decision is evaluated against the project's non-negotiables:
 4. **MCP as connector standard** — the Engine never calls cloud APIs directly
 5. **Platform equality** — Windows, macOS, and Linux are equally supported in every phase
 6. **No feature creep across phases** — do not implement Phase N+1 features while Phase N is active
+7. **Built for professionals** — every feature is evaluated through the lens of an on-call engineer, platform engineer, or security practitioner running systems in production; consumer-oriented affordances are out of scope
+
+## Commercial Roadmap
+
+Nimbus is open source (AGPL-3.0) for individual engineers. Commercial tiers fund continued development:
+
+| Tier | Phase | Key additions |
+|---|---|---|
+| **Open Source** | Now | Full single-user Gateway, all connectors, CLI, local LLM, VS Code extension |
+| **Team** | Phase 6 | Team Vault, shared index namespaces, LAN federation, multi-user HITL, SSO/OIDC |
+| **Enterprise** | Phase 9 | SCIM provisioning, audit log shipping (SIEM), Helm/Docker, compliance tooling, SLA support |
+
+Commercial license also available now for organizations that need to embed Nimbus in a product or require compliance guarantees before Phase 9 ships — contact the maintainers.
 
 ---
 
@@ -422,6 +435,24 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Miro** — boards, cards, sticky notes, comments; OAuth; write behind HITL
 - [ ] **Canva** — designs, folders, shared projects; OAuth; read-only index
 
+#### Feature Flags
+
+- [ ] **LaunchDarkly** — flags, environments, targeting rules, flag evaluation history; API key; flag toggle behind HITL; `feature_flag` item type indexed with name, state, environments, last modified; critical for incident correlation ("was this flag enabled when the alert fired?")
+- [ ] **Flagsmith** — flags, segments, environments; API key; read-only index + toggle behind HITL; self-hosted `flagsmith.api_base` support for on-premise deployments
+
+#### GitOps & Deployment
+
+- [ ] **ArgoCD** — applications, sync status, rollout history, health state, manifests; API token or kubeconfig; sync/rollback behind HITL; `gitops_app` item type indexed with repo, target revision, sync status, health; enables deployment correlation without Jenkins for k8s-first teams
+- [ ] **Flux** — kustomizations, helm releases, sources, image automations; kubeconfig; reconcile behind HITL; read-only health and history index; complements ArgoCD coverage for teams mixing both
+
+#### Security & Vulnerability Tooling
+
+- [ ] **Snyk** — open source vulnerabilities, licence issues, container scan results, IaC misconfigs; API token; `vulnerability` item type indexed with severity, CVE ID, affected package, fix availability; enables CVE-to-repo-to-open-PR correlation queries from the local index
+- [ ] **SonarQube / SonarCloud** — code quality issues, security hotspots, coverage, technical debt; API token; self-hosted `sonar.host_url` support; `code_issue` item type; read-only index
+- [ ] **Semgrep** — SAST findings, rule matches, triage status; API token or CI output parsing; `sast_finding` item type indexed with rule ID, severity, file, line; read-only
+- [ ] **Wiz** — cloud security posture findings, misconfigurations, toxic combinations, asset inventory; API token; read-only index; `cloud_finding` item type; enables "show me all critical Wiz findings for the services that paged last week" queries
+- [ ] **SBOM / supply chain tracking** — ingests CycloneDX or SPDX SBOMs from CI artefacts or GitHub Dependency Graph; indexes component → repo → version relationships; enables queries like "which of my services ship lodash <4.17.21?" without touching each repo; no auth required beyond existing GitHub/GitLab connectors
+
 ### Nimbus as a CI/CD Data Layer
 
 The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data source for CI pipelines and external tooling. This section makes that story explicit with first-class integration points.
@@ -431,6 +462,7 @@ The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data 
 - [ ] **Post-deploy annotation** — GitHub Actions action that writes a deployment event into the Nimbus index so the agent can correlate future alerts against this specific deploy; no extra credentials required beyond the HTTP API
 - [ ] **Pre-commit hook template** — `nimbus-dev/hooks` package providing a pre-commit hook that checks whether files being committed have related open Jira/Linear tickets, active incidents, or a failing pipeline on the current branch; reports findings without blocking (configurable to block)
 - [ ] **`nimbus query` in CI** — documented pattern for using `nimbus query --json` inside CI pipelines (GitHub Actions, Jenkins, GitLab CI) to gate deployments, generate release notes from indexed PRs, or surface incident context in PR comments; requires Gateway running on a self-hosted runner or accessible over LAN
+- [ ] **DORA Metrics** — compute the four key DORA metrics directly from already-indexed data with no new connectors required: *deployment frequency* (GitHub/GitLab releases + CI deploy runs), *lead time for changes* (PR open → merge → deploy correlation), *change failure rate* (deploy events correlated with PagerDuty/Datadog incidents within a configurable window), *mean time to restore* (incident open → resolve timestamps); exposed via `nimbus metrics dora [--service <name>] [--since 30d]` and the local HTTP API; renders in the Tauri dashboard alongside connector health
 
 ### Semantic Layer Enhancements
 
@@ -454,6 +486,9 @@ These items resolve deferred decisions from Phase 3.
 - The `nimbus-dev/query-action` GitHub Actions action successfully queries a running Gateway's HTTP API and blocks a deploy when an active P1 incident is detected for the target service
 - Browser history connector indexes visited pages locally; verified by network inspection in CI that no data leaves `localhost`
 - A community extension published via the Marketplace can be installed, enabled, and used without the author having access to Nimbus core source
+- `nimbus ask "which repos have critical Snyk vulnerabilities with open PRs touching the affected packages?"` returns results from the local index without any live API call
+- `nimbus metrics dora --service payment-service --since 30d` returns all four DORA metrics computed from indexed GitHub and PagerDuty data
+- An ArgoCD application sync failure is indexed and correlatable with the triggering Git commit within one sync cycle
 
 ---
 
@@ -488,6 +523,13 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Org-level policy engine** — `nimbus.policy.toml` enforces: connector allowlists, `retentionDays` floor, HITL threshold overrides, audit log shipping destination; interacts with per-user profile config from Phase 3.5
 - [ ] **Policy enforcement at the Gateway** — policy loaded on startup; connectors not in the allowlist disabled before the mesh starts; violations logged to audit trail
 
+### ChatOps
+
+- [ ] **Bidirectional Slack/Teams bot** — team members interact with the shared Nimbus Gateway via `@nimbus` in a channel; read queries (`@nimbus who's on call for payment-service?`) answered from the shared index; write commands (`@nimbus rollback payment-service to v1.4`) route to the HITL queue of the appropriate team member before executing — the bot never bypasses the consent gate
+- [ ] **HITL via Slack/Teams** — pending HITL approvals surfaced as interactive Slack/Teams messages; approver clicks Approve/Reject in-channel; decision recorded in audit log with approver identity; deep link to the full approval context
+- [ ] **Notification routing** — watcher alerts and incident summaries optionally routed to a designated Slack/Teams channel; configurable per watcher rule and per team namespace
+- [ ] **Bot security model** — bot token stored in Team Vault; bot can only act on behalf of the requesting user's authorised scope; channel-to-namespace mapping enforced in policy; no bot command can exceed the requesting user's permission level
+
 ### Admin & Observability
 
 - [ ] **Admin console** — web UI served locally by the Gateway: user list, namespace health, connector status across the team, audit log viewer, policy editor
@@ -500,6 +542,7 @@ These items resolve deferred decisions from Phase 3.
 - A team member's HITL approval on a shared workflow is recorded in both the approver's and the workspace owner's local audit log
 - Revoking a peer's federation access removes their read access within one sync cycle; no data retained on their machine after revocation
 - An org policy disallowing the Slack connector prevents `nimbus connector auth slack` from succeeding on any member's machine while the policy is active
+- A `@nimbus rollback` command issued in Slack routes to the on-call engineer's HITL queue and does not execute until they approve; the approval is recorded in the audit log with their identity
 
 ---
 
@@ -532,6 +575,8 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Automatic incident assembly** — when a monitoring alert fires, agent automatically queries the local index for: last deployment before the alert, associated PR, triggering commit, CI run result, Slack/Teams threads mentioning the affected service; assembles a structured incident summary without any user query
 - [ ] **Incident timeline** — structured Markdown timeline (alert → deploy → commit → PR → CI); exported via `nimbus incident show <alert-id>` or surfaced in the Tauri dashboard
 - [ ] **Suggested remediation** — agent proposes a remediation action (rollback, restart, scale-up) based on indexed history of similar incidents; always HITL-gated before execution
+- [ ] **Post-mortem generation** — after incident resolution, agent drafts a structured post-mortem (timeline, root cause, contributing factors, action items) from the assembled incident record and HITL decision log; user reviews and edits before HITL-gated push to Notion or Confluence; template is configurable
+- [ ] **On-call schedule awareness** — indexes PagerDuty/OpsGenie on-call schedules; answers `nimbus ask "who's on call for payment-service right now?"` from the local index; feeds on-call context into the morning briefing and incident assembly so the agent can route notifications to the right engineer without an additional API call
 
 ### Core — Agent Memory & Personalization
 
@@ -561,6 +606,8 @@ These items resolve deferred decisions from Phase 3.
 - A standing approval rule for "archive read Gmail threads older than 60 days" executes its next scheduled run without any user prompt; every archived thread appears in the audit log under the rule ID
 - When a PagerDuty P1 fires, the incident summary (deploy, PR, commit, CI result, Slack thread) is assembled and available via `nimbus incident show` within 30 seconds of the alert being indexed — no user query required
 - A morning briefing workflow runs fully unattended; any write step without a standing rule sends a notification and blocks rather than executing silently
+- `nimbus ask "who's on call for payment-service right now?"` returns the correct engineer from the indexed PagerDuty schedule without a live API call
+- A post-mortem draft for a resolved incident is generated from the incident record and surfaced for review; the HITL-gated push to Notion succeeds only after the user explicitly approves
 
 ---
 

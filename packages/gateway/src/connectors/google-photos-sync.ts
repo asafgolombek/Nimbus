@@ -1,6 +1,7 @@
 import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
+import { fetchGoogleJson } from "./google-sync-shared.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -96,36 +97,29 @@ function upsertPhoto(ctx: SyncContext, item: MediaItem, now: number): void {
   });
 }
 
-async function photosSearch(
+function photosSearch(
   ctx: SyncContext,
   token: string,
   pageToken: string | null,
 ): Promise<{ json: unknown; bytes: number }> {
-  await ctx.rateLimiter.acquire("google");
-  const body: Record<string, unknown> = { pageSize: PAGE_SIZE };
+  const body: Record<string, unknown> = {
+    pageSize: PAGE_SIZE,
+    filters: { mediaTypeFilter: { mediaTypes: ["ALL_MEDIA"] } },
+  };
   if (pageToken !== null && pageToken !== "") {
     body["pageToken"] = pageToken;
   }
-  const res = await fetch("https://photoslibrary.googleapis.com/v1/mediaItems:search", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  return fetchGoogleJson(
+    ctx,
+    token,
+    "https://photoslibrary.googleapis.com/v1/mediaItems:search",
+    "Google Photos",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (!res.ok) {
-    throw new Error(`Google Photos sync failed: ${String(res.status)}`);
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("Google Photos sync failed: invalid JSON");
-  }
-  return { json, bytes };
+  );
 }
 
 export type GooglePhotosSyncableOptions = {

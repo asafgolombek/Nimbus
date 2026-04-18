@@ -36,7 +36,7 @@ You will receive acknowledgement within **72 hours** and a status update within 
 
 ## Security Model
 
-Nimbus's security guarantees are structural — enforced by code, not by policy or configuration. This section describes what Nimbus protects, what it does not, and why.
+Nimbus is built for engineers who run systems in production and security practitioners who need provable guarantees, not security theatre. The guarantees below are structural — enforced by code, not by policy or configuration. This section describes what Nimbus protects, what it does not, and why.
 
 ---
 
@@ -146,6 +146,22 @@ Phase 5 will introduce standing approvals: pre-authorized patterns that allow re
 - Standing rules are stored in SQLite, not in config files — they are subject to the same integrity checks as the rest of the local index.
 - No standing rule may cover `vault.*` or `db.*` tool calls.
 - The rule editor in the UI must show a diff preview of the scope before saving.
+
+---
+
+## SecDevOps and Compliance Use
+
+Nimbus is designed to support security-sensitive operational environments. The properties relevant to SecDevOps and compliance teams:
+
+**Audit trail.** Every action the agent takes — including every HITL approval, rejection, and "not required" decision — is recorded in a local SQLite `action_log` table before the action executes. The log is append-only. Phase 4 adds BLAKE3 chain hashing (`row_hash`, `prev_hash`) verifiable with `nimbus audit verify`. Phase 9 adds shipping to SIEM targets (Splunk, Elastic, Datadog Logs, S3/GCS/Azure Blob) with local retention as fallback.
+
+**No data exfiltration surface.** The local index stores metadata only — names, timestamps, URLs, body previews. Full document content never enters the index or embedding pipeline unless explicitly configured (`[indexing.depth] = "full"`). The index is protected by OS file permissions; it is never transmitted to a Nimbus server because there is no Nimbus server.
+
+**Consent-gated remediation.** Incident response actions (rollback, restart, IaC apply, alert acknowledge) go through the same structural HITL gate as all other write actions. An agent under incident pressure cannot bypass the gate — there is no code path to do so.
+
+**Credential isolation.** Connector credentials are injected at MCP server spawn time via environment variables scoped to that child process. They are never present in IPC messages, in the local index, in log output, or in the Engine's context. The `redact` configuration on the structured logger automatically censors any field matching `*.token`, `*.secret`, or `oauth.*`.
+
+**Compliance tooling roadmap.** `nimbus compliance check` (Phase 9) will produce a machine-readable JSON report covering: credential storage status, audit log integrity, plaintext credential scan, connector scope minimization, and data residency posture. Structured for auditor consumption.
 
 ---
 
