@@ -9,10 +9,10 @@ const FAKE_COMPLETION_RESPONSE = {
 describe("LlamaCppProvider", () => {
   beforeEach(() => {
     globalThis.fetch = mock(async (url: string) => {
-      if ((url as string).endsWith("/health")) {
+      if (url.endsWith("/health")) {
         return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
       }
-      if ((url as string).endsWith("/completion")) {
+      if (url.endsWith("/completion")) {
         return new Response(JSON.stringify(FAKE_COMPLETION_RESPONSE), { status: 200 });
       }
       return new Response("not found", { status: 404 });

@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-16 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is now active. Per-connector OAuth vault keys landed (Google + Microsoft per-service keys; `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth`, `onedrive.oauth`, `outlook.oauth`, `teams.oauth`). Multi-agent loop-guard config stubs in place (`maxAgentDepth`, `maxToolCallsPerSession`).
+> **Last updated:** 2026-04-18 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is now active. Per-connector OAuth vault keys landed (Google + Microsoft per-service keys; `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth`, `onedrive.oauth`, `outlook.oauth`, `teams.oauth`). **Phase 4 Workstream 1 in progress on `dev/asafgolombek/phase_4_workstream_1`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher (`llm.listModels`, `llm.getStatus`), multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming are implemented; E2E acceptance criteria pending.
 
 ---
 

@@ -21,7 +21,7 @@ function parseBillions(raw: unknown): number | undefined {
   if (typeof raw !== "string") return undefined;
   const m = /^([\d.]+)B$/i.exec(raw.trim());
   if (m === null) return undefined;
-  const n = Number.parseFloat(m[1]!);
+  const n = Number.parseFloat(m[1] ?? "");
   return Number.isFinite(n) ? n : undefined;
 }
 

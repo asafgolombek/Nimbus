@@ -5,6 +5,8 @@
 > **Constraint:** Solo developer — workstreams are sequential unless explicitly noted as parallelisable.  
 > **Release gate:** `v0.1.0` does not ship until every acceptance criterion in this document passes on Windows, macOS, and Linux. Release timeline is intentionally unconstrained — ship when complete, not by a date.
 
+> **Status (2026-04-18):** Workstream 1 implementation in progress on `dev/asafgolombek/phase_4_workstream_1`. Implemented: `OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`, `AgentCoordinator`, `runSubAgent`, `engine.askStream` IPC streaming, `llm.listModels`/`llm.getStatus` dispatchers, V16 (`llm_models`) and V17 (`sub_task_results`) schema migrations. Unit tests for all implemented modules pass. E2E acceptance criteria (air-gap bench, multi-agent HITL, loop-protection, GPU arbitration) pending.
+
 ---
 
 ## Execution Order

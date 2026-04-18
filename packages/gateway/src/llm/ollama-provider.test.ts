@@ -90,7 +90,7 @@ describe("OllamaProvider", () => {
     const calls = fetchMock.mock.calls as Array<[string, RequestInit]>;
     const generateCall = calls.find(([url]) => url.endsWith("/api/generate"));
     expect(generateCall).toBeDefined();
-    const body = JSON.parse(generateCall![1].body as string) as { model: string };
+    const body = JSON.parse(generateCall?.[1].body as string) as { model: string };
     expect(body.model).toBe("llama3.2");
   });
 
@@ -104,7 +104,7 @@ describe("OllamaProvider", () => {
     const stream = new ReadableStream({
       start(controller) {
         for (const chunk of chunks) {
-          controller.enqueue(encoder.encode(JSON.stringify(chunk) + "\n"));
+          controller.enqueue(encoder.encode(`${JSON.stringify(chunk)}\n`));
         }
         controller.close();
       },

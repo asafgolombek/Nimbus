@@ -267,6 +267,26 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 16, toVersion: 17, apply: migrateIndexedV16ToV17 },
 ];
 
+const BACKFILL_LABELS: readonly string[] = [
+  "initial filesystem schema (backfilled)",
+  "scheduler_state + sync_telemetry (backfilled)",
+  "unified item + item_fts + person (backfilled)",
+  "person.linked (backfilled)",
+  "person extra handles (backfilled)",
+  "embedding_chunk + vec_items_384 (backfilled)",
+  "graph_entity + graph_relation (backfilled)",
+  "watcher + watcher_event (backfilled)",
+  "workflow + workflow_run + workflow_run_step (backfilled)",
+  "extension + session_memory (backfilled)",
+  "user_mcp_connector (backfilled)",
+  "graph_relation_type filesystem edges (backfilled)",
+  "connector health state + history (backfilled)",
+  "query_latency_log + slow_query_log (backfilled)",
+  "connector_remove_intent (backfilled)",
+  "llm_models table + sync_state.context_window_tokens (backfilled)",
+  "sub_task_results (backfilled)",
+];
+
 /**
  * Backfill the ledger on existing databases that already reached `user_version` before the ledger existed.
  */
@@ -284,61 +304,8 @@ function backfillMigrationsLedger(db: Database): void {
   }
   const now = Date.now();
   db.transaction(() => {
-    if (uv >= 1) {
-      recordMigration(db, 1, "initial filesystem schema (backfilled)", now);
-    }
-    if (uv >= 2) {
-      recordMigration(db, 2, "scheduler_state + sync_telemetry (backfilled)", now);
-    }
-    if (uv >= 3) {
-      recordMigration(db, 3, "unified item + item_fts + person (backfilled)", now);
-    }
-    if (uv >= 4) {
-      recordMigration(db, 4, "person.linked (backfilled)", now);
-    }
-    if (uv >= 5) {
-      recordMigration(db, 5, "person extra handles (backfilled)", now);
-    }
-    if (uv >= 6) {
-      recordMigration(db, 6, "embedding_chunk + vec_items_384 (backfilled)", now);
-    }
-    if (uv >= 7) {
-      recordMigration(db, 7, "graph_entity + graph_relation (backfilled)", now);
-    }
-    if (uv >= 8) {
-      recordMigration(db, 8, "watcher + watcher_event (backfilled)", now);
-    }
-    if (uv >= 9) {
-      recordMigration(db, 9, "workflow + workflow_run + workflow_run_step (backfilled)", now);
-    }
-    if (uv >= 10) {
-      recordMigration(db, 10, "extension + session_memory (backfilled)", now);
-    }
-    if (uv >= 11) {
-      recordMigration(db, 11, "user_mcp_connector (backfilled)", now);
-    }
-    if (uv >= 12) {
-      recordMigration(db, 12, "graph_relation_type filesystem edges (backfilled)", now);
-    }
-    if (uv >= 13) {
-      recordMigration(db, 13, "connector health state + history (backfilled)", now);
-    }
-    if (uv >= 14) {
-      recordMigration(db, 14, "query_latency_log + slow_query_log (backfilled)", now);
-    }
-    if (uv >= 15) {
-      recordMigration(db, 15, "connector_remove_intent (backfilled)", now);
-    }
-    if (uv >= 16) {
-      recordMigration(
-        db,
-        16,
-        "llm_models table + sync_state.context_window_tokens (backfilled)",
-        now,
-      );
-    }
-    if (uv >= 17) {
-      recordMigration(db, 17, "sub_task_results (backfilled)", now);
+    for (let v = 1; v <= uv; v++) {
+      recordMigration(db, v, BACKFILL_LABELS[v - 1]!, now);
     }
   })();
 }

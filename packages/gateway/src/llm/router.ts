@@ -48,13 +48,12 @@ export class LlmRouter {
   async generate(opts: LlmGenerateOptions): Promise<LlmGenerateResult> {
     const provider = await this.selectProvider(opts.task);
     if (provider === undefined) {
-      throw new Error("No LLM provider available for task: " + opts.task);
+      throw new Error(`No LLM provider available for task: ${opts.task}`);
     }
     return provider.generate(opts);
   }
 
-  private providerPriority(task: LlmTaskType): LlmProviderKind[] {
-    void task;
+  private providerPriority(_task: LlmTaskType): LlmProviderKind[] {
     if (this.config.preferLocal) {
       return ["ollama", "llamacpp", "remote"];
     }

@@ -58,11 +58,11 @@ export class GpuArbiter {
 
   private freeSlot(): void {
     const next = this.queue.shift();
-    if (next !== undefined) {
-      next();
-    } else {
+    if (next === undefined) {
       this.locked = false;
       this._currentProvider = null;
+    } else {
+      next();
     }
   }
 
