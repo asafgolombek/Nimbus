@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776536423094,
+  "lastUpdate": 1776537137830,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -463,6 +463,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.10025424,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "074303317dfcd665be2a7f537c8c9081140f6562",
+          "message": "feat(voice): enhance voice interface with new service and IPC handlers\n\n- Added `VoiceService` for speech-to-text (STT) and text-to-speech (TTS) functionalities, integrating `whisper-cli` and `NativeTtsProvider`.\n- Implemented `dispatchVoiceRpc` for handling voice-related IPC methods.\n- Updated documentation to reflect the new voice service architecture and configuration requirements.\n- Included checks in the CLI for voice-related dependencies when enabled.",
+          "timestamp": "2026-04-18T21:31:47+03:00",
+          "tree_id": "593e6f3eadc128b0449fb4f210b74eac1f0d365a",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/074303317dfcd665be2a7f537c8c9081140f6562"
+        },
+        "date": 1776537137499,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4242888999999996,
             "unit": "ms"
           }
         ]
