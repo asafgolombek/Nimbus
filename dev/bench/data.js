@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776522970508,
+  "lastUpdate": 1776526127533,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -318,6 +318,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4360673199999996,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "3879cca7628d3d8e30366332e7ff5d1ae9f5e4f3",
+          "message": "feat(voice): implement voice interface with STT, TTS, and wake word detection\n\n- Added a new voice interface implementation plan, including a local voice pipeline with Whisper.cpp for speech-to-text, platform-native text-to-speech, and wake word detection.\n- Created necessary types and interfaces for voice providers, along with unit tests for the new functionality.\n- Modified the configuration to include a new `[voice]` section for voice-related settings.\n- Integrated voice handlers into the existing IPC server for seamless communication.",
+          "timestamp": "2026-04-18T18:28:18+03:00",
+          "tree_id": "1f4337fb5305392dafd78b187010b509e5db950b",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/3879cca7628d3d8e30366332e7ff5d1ae9f5e4f3"
+        },
+        "date": 1776526127200,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4236627600000025,
             "unit": "ms"
           }
         ]
