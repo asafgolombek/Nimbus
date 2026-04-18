@@ -686,6 +686,63 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       case "audit.list":
         return rpcAuditList(params);
 
+      case "engine.askStream": {
+        const rec = asRecord(params);
+        const input = rec !== undefined && typeof rec["input"] === "string" ? rec["input"] : "";
+        const sessionIdRaw = rec?.["sessionId"];
+        const sessionId =
+          typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
+            ? sessionIdRaw.trim()
+            : undefined;
+        const streamId = randomUUID();
+
+        const handler = agentInvokeHandler;
+        if (handler === undefined) {
+          throw new RpcMethodError(-32603, "No agent handler configured for engine.askStream");
+        }
+
+        // Return streamId immediately so caller can track this stream
+        void (async () => {
+          try {
+            const requestStore: AgentRequestContext = {};
+            if (sessionId !== undefined) requestStore.sessionId = sessionId;
+            await agentRequestContext.run(requestStore, async () => {
+              const payload: AgentInvokeContext = {
+                clientId,
+                input,
+                stream: true,
+                sendChunk: (text: string) => {
+                  session.writeNotification({
+                    jsonrpc: "2.0",
+                    method: "engine.streamToken",
+                    params: { streamId, text },
+                  });
+                },
+              };
+              if (sessionId !== undefined) payload.sessionId = sessionId;
+              await handler(payload);
+            });
+            session.writeNotification({
+              jsonrpc: "2.0",
+              method: "engine.streamDone",
+              params: {
+                streamId,
+                meta: { modelUsed: "default", isLocal: false, provider: "remote" },
+              },
+            });
+          } catch (e) {
+            const message = e instanceof Error ? e.message : "Stream error";
+            session.writeNotification({
+              jsonrpc: "2.0",
+              method: "engine.streamError",
+              params: { streamId, error: message },
+            });
+          }
+        })();
+
+        return { streamId };
+      }
+
       default:
         return await rpcVaultOrMethodNotFound(method, params);
     }
