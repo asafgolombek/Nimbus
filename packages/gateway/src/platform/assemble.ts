@@ -206,7 +206,11 @@ async function createSchedulerWithMesh(
   return { syncScheduler, connectorMesh };
 }
 
-function collectSidecarsFromEnv(db: Database, paths: PlatformPaths, sidecarStops: Array<() => void>): void {
+function collectSidecarsFromEnv(
+  db: Database,
+  paths: PlatformPaths,
+  sidecarStops: Array<() => void>,
+): void {
   const httpPortRaw = processEnvGet("NIMBUS_HTTP_PORT");
   if (httpPortRaw !== undefined && httpPortRaw.trim() !== "") {
     const hp = Number.parseInt(httpPortRaw.trim(), 10);

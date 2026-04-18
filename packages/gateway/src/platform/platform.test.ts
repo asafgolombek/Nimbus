@@ -79,10 +79,10 @@ describe("Platform Abstraction Layer", () => {
     } finally {
       await services.syncScheduler?.stop().catch(() => {});
       await services.connectorMesh?.disconnect().catch(() => {});
-      (services as any).disposeSidecars?.();
+      services.disposeSidecars?.();
       services.localIndex?.close();
       // Small delay to let async scheduler tasks finish before the DB is completely yanked
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
     }
   }, 15000); // 15s timeout to allow for migrations on fresh DB
 
@@ -102,9 +102,9 @@ describe("Platform Abstraction Layer", () => {
     } finally {
       await services.syncScheduler?.stop().catch(() => {});
       await services.connectorMesh?.disconnect().catch(() => {});
-      (services as any).disposeSidecars?.();
+      services.disposeSidecars?.();
       services.localIndex?.close();
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
     }
   });
 
