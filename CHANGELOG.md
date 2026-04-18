@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/asafgolombek/Nimbus/compare/v1.0.0...v1.1.0) (2026-04-18)
+
+
+### Features
+
+* **voice:** enhance local voice pipeline with microphone state management and configuration updates ([6affa30](https://github.com/asafgolombek/Nimbus/commit/6affa303b3c6223511bcb68c0acf79a6389227cc))
+
 ## 1.0.0 (2026-04-18)
 
 
