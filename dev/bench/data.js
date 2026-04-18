@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776522243749,
+  "lastUpdate": 1776522970508,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -289,6 +289,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4892394800000022,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "8f7a9fc08ff1a4a0dfeae4b80220826519ac1749",
+          "message": "feat: enhance GEMINI and architecture documentation with Phase 4 updates\n\n- Updated GEMINI.md to include new OAuth token resolution methods, connector health state machine, and database management features.\n- Expanded architecture.md with new tables for LLM model registry and multi-agent sub-task results, along with additional fields for error handling and context window tracking.",
+          "timestamp": "2026-04-18T17:35:36+03:00",
+          "tree_id": "5870eda8a4010375d785b6fb7e57a332c48611fd",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/8f7a9fc08ff1a4a0dfeae4b80220826519ac1749"
+        },
+        "date": 1776522969637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4360673199999996,
             "unit": "ms"
           }
         ]
