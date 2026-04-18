@@ -1,12 +1,12 @@
 # The Nimbus Mission
 
-**Nimbus is a local-first AI agent that runs on your machine, maintains a private index of your data across every connected service, and executes multi-step tasks on your behalf — with your explicit consent before any action that writes, sends, or deletes.** No cloud server holds your data; no API key is required for local queries; every credential lives in your OS keystore.
+**Nimbus is a local-first AI agent built for DevOps engineers, security practitioners, and senior developers who run systems in production.** It runs on your machine, maintains a private index across your entire toolchain — source control, CI/CD, cloud infrastructure, monitoring, and incident management — and executes multi-step tasks on your behalf, with your explicit consent before any write, send, or delete. No cloud server holds your data. No API key is required for local queries. Every credential lives in your OS keystore.
 
 ---
 
-Nimbus exists because the modern developer and knowledge worker have no coherent way to reason across the services they depend on. Your pull requests are in GitHub. Your pipeline is in Jenkins. Your tickets are in Jira. Your alerts are in PagerDuty. Your team's discussion of the incident is in Slack. Understanding any single situation requires seven browser tabs, four logins, and constant context-switching.
+Nimbus exists because engineers who run systems in production have no coherent way to reason across the tools they depend on. When an alert fires at 2am, the relevant context is split: the PR is in GitHub, the pipeline in Jenkins, the alert history in PagerDuty, the deployment in AWS, the metrics in Datadog, and the previous incident diagnosis in a Slack thread from three weeks ago. Assembling that picture requires seven browser tabs, four logins, and ten minutes you don't have.
 
-That fragmentation is not accidental — it is the natural result of excellent tools that were never designed to talk to each other. Nimbus adds the missing composition layer: local, secure, and extensible.
+That fragmentation is not accidental — it is the natural result of excellent tools that were never designed to talk to each other. Nimbus adds the missing composition layer: local, secure, and built for the professionals who pay the cost of that fragmentation every time they're on call.
 
 ---
 
@@ -87,6 +87,22 @@ If your organisation runs an internal GitLab instance, a bespoke deployment syst
 
 ---
 
+## The SecDevOps Dimension
+
+Security engineers face the same fragmentation problem, with higher stakes: the signal is split across five systems, the context needed to triage it is in five more, and by the time the picture is assembled the window to act has narrowed.
+
+**Vulnerability triage without tab-switching.** When a CVE drops, Nimbus answers in one query: which of your indexed repos depend on the affected package? Which open PRs are touching those files? Who owns the services at risk? The answer comes from the local index — no new API calls, no rate limits.
+
+**Alert-to-commit in seconds.** A PagerDuty P1 becomes an incident timeline: last deployment before the alert, the PR that introduced the change, the CI run that approved it, the Slack thread where a similar issue was discussed last quarter. Nimbus assembles this from indexed data — no additional API calls required.
+
+**Consent-gated remediation.** When the agent proposes a rollback, a restart, or an infrastructure change in response to an incident, it goes through the same structural HITL gate as every other write action. The security model that protects you during normal operation applies equally under incident pressure.
+
+**Compliance-grade audit trail.** Every action the agent takes — including every approval and rejection decision — is written to a local SQLite audit log before the action executes. The log is append-only and locally controlled. Phase 4 adds BLAKE3 tamper-evidence; Phase 9 adds shipping to SIEM targets (Splunk, Elastic, Datadog Logs).
+
+**Local credential model for sensitive environments.** Your PagerDuty token, AWS access key, GitHub PAT — none of them leave your machine. They live in the OS-native keystore (DPAPI on Windows, Keychain on macOS, libsecret on Linux). There is no Nimbus cloud that could be breached to expose them.
+
+---
+
 ## The Security Compact
 
 Sovereignty requires responsibility. When your machine is the source of truth, the perimeter of trust is the machine itself — not a remote server with a dedicated security team.
@@ -109,7 +125,9 @@ This is the direct consequence of local sovereignty. The cloud model outsources 
 
 **Not a SaaS product.** There is no Nimbus cloud, no Nimbus account, no Nimbus server.
 
-**Not a consumer app.** Nimbus is built for technically literate users — engineers, DevOps practitioners, knowledge workers — who want to understand and control the systems that operate on their behalf.
+**Not a consumer app.** Nimbus is built for engineers, DevOps practitioners, and security professionals who want to understand and control the systems operating on their behalf. It is production software built to production standards — there is no onboarding wizard designed for non-technical users.
+
+**Not a tool that phones home.** Your OAuth tokens, API keys, cloud credentials, and indexed data never leave your machine. There is no Nimbus cloud service. There is no telemetry without explicit opt-in. There is no Nimbus server that could be breached to expose your credentials.
 
 **Not a CI/CD platform.** Nimbus does not run your pipelines. It reasons about them, acts on them on your behalf, and connects them to everything else you care about.
 
@@ -123,11 +141,13 @@ This is the direct consequence of local sovereignty. The cloud model outsources 
 
 ## License Rationale
 
-Nimbus is AGPL-3.0. MIT would allow any vendor to take the Gateway, strip the privacy guarantees, and ship a hosted "Nimbus Cloud" service — extracting value from a project that exists precisely to resist that pattern. AGPL-3.0 closes the network service loophole: anyone who runs Nimbus as a service must publish their modifications under the same terms.
+Nimbus is AGPL-3.0 because it exists to protect users, not to be extracted by vendors. MIT would allow any company to take the Gateway, strip the privacy guarantees, and ship a hosted "Nimbus Cloud" — extracting value from a project built precisely to resist that model. AGPL-3.0 closes the network service loophole: anyone running Nimbus as a service must publish their modifications under the same terms.
 
-The `@nimbus-dev/sdk` extension SDK is MIT-licensed separately so extension authors are not burdened by copyleft obligations.
+The `@nimbus-dev/sdk` extension SDK is MIT-licensed so extension authors are not burdened by copyleft.
 
-Commercial license available for embedding Nimbus in a product without AGPL obligations — contact the maintainers.
+**Commercial license:** Teams that need to embed Nimbus in a product, or organizations with compliance requirements that preclude AGPL, can purchase a commercial license. This also unlocks the planned Team tier (shared namespaces, Team Vault, multi-user HITL — Phase 6) and Enterprise tier (SSO/SCIM, audit log shipping to SIEM, Helm/Docker, SLA support — Phase 9) before those phases complete. Contact the maintainers.
+
+Nimbus is sustainable only if the people and organizations who depend on it in production contribute to its development. The commercial license is how that works.
 
 ---
 

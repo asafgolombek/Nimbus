@@ -97,7 +97,7 @@ function decodeDriveDeltaPayload(r: Record<string, unknown>): DriveSyncCursorV1 
   }
   const rawDeltaPage = r["deltaPage"];
   const deltaPage = typeof rawDeltaPage === "number" ? rawDeltaPage : undefined;
-  return { v: 1, phase: "delta", pageToken, ...(deltaPage !== undefined ? { deltaPage } : {}) };
+  return { v: 1, phase: "delta", pageToken, ...(deltaPage === undefined ? {} : { deltaPage }) };
 }
 
 /** Exported for unit tests (cursor round-trip and migration). */

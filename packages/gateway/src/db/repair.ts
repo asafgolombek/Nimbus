@@ -144,7 +144,7 @@ function repairForeignKeys(db: Database): RepairOutcome {
       byTable.set(v.table, list);
     }
 
-    const escapeIdentifier = (id: string): string => `"${id.replace(/"/g, '""')}"`;
+    const escapeIdentifier = (id: string): string => `"${id.replaceAll('"', '""')}"`;
 
     let totalDeleted = 0;
     db.transaction(() => {

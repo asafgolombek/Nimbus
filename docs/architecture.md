@@ -8,7 +8,7 @@
 
 ## Overview
 
-Nimbus is composed of four primary subsystems, all hosted inside a single headless **Nimbus Gateway** process. Clients — the CLI or the Tauri 2.0 desktop app — communicate with the Gateway exclusively over a local IPC socket. No subsystem is directly accessible from the client tier.
+Nimbus is a local-first AI agent for DevOps engineers, security practitioners, and senior developers who run systems in production. It is composed of four primary subsystems, all hosted inside a single headless **Nimbus Gateway** process. Clients — the CLI or the Tauri 2.0 desktop app — communicate with the Gateway exclusively over a local IPC socket. No subsystem is directly accessible from the client tier.
 
 | Subsystem | Responsibility |
 |---|---|
@@ -1166,4 +1166,4 @@ nimbus/
 
 ---
 
-*Nimbus Architecture v0.7 — Cross-platform. Security-hardened. DevOps-aware. Extension-ready.*
+*Nimbus Architecture v0.7 — Built for engineers who run systems in production. Cross-platform. Security-hardened. DevOps and SecDevOps ready. Extension-ready.*

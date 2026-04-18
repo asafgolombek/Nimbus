@@ -2,6 +2,10 @@ import type { SyncContext } from "../sync/types.ts";
 import { UnauthenticatedError } from "../sync/types.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
 
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
 /** Best-effort summary from Google API JSON error bodies (never log raw tokens). */
 export function formatGoogleHttpError(status: number, bodyText: string, service: string): string {
   const base = `${service} sync failed: ${String(status)}`;
@@ -13,25 +17,21 @@ export function formatGoogleHttpError(status: number, bodyText: string, service:
     if (trimmed === "") {
       return base;
     }
-    const oneLine = trimmed.replace(/\s+/g, " ");
-    const max = 160;
-    return `${base} — ${oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine}`;
+    const oneLine = trimmed.replaceAll(/\s+/g, " ");
+    return `${base} — ${truncate(oneLine, 160)}`;
   }
   const top = asUnknownObjectRecord(parsed);
   const errObj = top["error"];
   if (typeof errObj !== "object" || errObj === null || Array.isArray(errObj)) {
-    const oneLine = trimmed.replace(/\s+/g, " ");
-    const max = 160;
-    return oneLine !== ""
-      ? `${base} — ${oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine}`
-      : base;
+    const oneLine = trimmed.replaceAll(/\s+/g, " ");
+    if (oneLine === "") return base;
+    return `${base} — ${truncate(oneLine, 160)}`;
   }
   const er = errObj as Record<string, unknown>;
   const msg = er["message"];
   if (typeof msg === "string" && msg.trim() !== "") {
-    const oneLine = msg.trim().replace(/\s+/g, " ");
-    const max = 240;
-    return `${base} — ${oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine}`;
+    const oneLine = msg.trim().replaceAll(/\s+/g, " ");
+    return `${base} — ${truncate(oneLine, 240)}`;
   }
   return base;
 }

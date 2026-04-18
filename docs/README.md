@@ -2,9 +2,9 @@
 
 # ☁️ Nimbus
 
-### Local-First AI Orchestration Across Your Entire Stack.
+### On-Call Intelligence for DevOps, SecDevOps, and Platform Engineering Teams.
 
-*One agent. Every service. Your machine stays the source of truth.*
+*Cross-service incident context in under 100ms. Consent-gated automation. Your credentials never leave the machine.*
 
 [![Built with Bun](https://img.shields.io/badge/runtime-Bun_1.2+-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript_6.x-3178C6?logo=typescript)](https://typescriptlang.org)
@@ -17,7 +17,7 @@
 
 ---
 
-Nimbus is an open-source, local-first AI agent framework. A headless **Nimbus Gateway** runs on your machine, maintains a private SQLite index of metadata across your connected services, and executes multi-step tasks on your behalf. Every destructive or outgoing action requires your explicit approval before it runs.
+Nimbus is an open-source, local-first AI agent built for engineers who run systems in production. A headless **Nimbus Gateway** runs on your machine, maintains a private SQLite index across your entire developer toolchain — source control, CI/CD, cloud infrastructure, monitoring, and incident management — and executes multi-step tasks on your behalf. Every write, send, or delete requires your explicit approval before it runs.
 
 **Your credentials never leave your machine. There is no Nimbus server.**
 
@@ -26,15 +26,20 @@ Nimbus is an open-source, local-first AI agent framework. A headless **Nimbus Ga
 ## What It Does
 
 ```bash
-# Search across every connected service — answered from the local index
-nimbus ask "Find all PDFs I received by email last month that I haven't opened"
+# Incident response — answered from the local index, no API calls, under 100ms
+nimbus ask "The payment-service alert just fired — what changed in the last 2 hours?"
 
-# Cross-service developer queries
-nimbus ask "Which of my open PRs mention payment-service and have failing CI?"
-nimbus ask "What caused the payment-service alert — what deployed recently?"
+# Release readiness — cross-service without tab-switching
+nimbus ask "Which of my open PRs have failing CI and are blocking the release branch?"
 
-# Run a multi-step script — with a full preview before anything executes
-nimbus run ./weekly-cleanup.yml
+# SecDevOps — correlate security signals with your codebase
+nimbus ask "Which repos have critical Dependabot alerts with open PRs touching the affected packages?"
+
+# Infrastructure — query state across providers
+nimbus ask "What Terraform drift has been detected since last week's deployment?"
+
+# Consent-gated automation — full plan preview before anything executes
+nimbus run ./incident-response.yml
 ```
 
 **Example session:**
@@ -55,13 +60,43 @@ Suggested next step: rollback to v2.14.0?
    Rollback? [y/n]: n  Aborted. No changes made.
 ```
 
+**SecDevOps example:**
+
+```
+$ nimbus ask "Critical CVE dropped for lodash — what's our exposure?"
+
+🔍 Scanning local index: 47 repos indexed, 12 have lodash as a direct dependency
+🔍 Active PRs touching lodash: 3 open PRs across payment-service, auth-gateway, api-proxy
+🔍 Sentry: 2 production errors last 24h in lodash code paths (payment-service)
+🔍 Jira: No active tickets for this CVE yet
+
+Suggested next step: Create Jira tickets for affected repos?
+⚠  CONSENT REQUIRED — Create 3 Jira tickets and assign to component owners.
+   Proceed? [y/n]: y  ✅ Created PLAT-1847, PLAT-1848, PLAT-1849.
+```
+
 ---
 
-## Why Nimbus
+## Who It's For
+
+Nimbus is built for engineers and operators who run systems in production. If your on-call rotation spans five monitoring tools and three cloud consoles, Nimbus is the intelligence layer that collapses that context into a single query.
+
+| Role | What Nimbus gives you |
+|---|---|
+| **On-call / SRE** | Instant incident context — last deploy, triggering commit, CI result, Slack thread — in one query, without seven browser tabs |
+| **Platform Engineer** | Drift detection, multi-cloud infra state, deployment correlation, consent-gated IaC apply and rollback |
+| **Security Engineer** | Alert-to-commit tracing, CVE-to-PR correlation, full audit log for every agent action, compliance posture queries |
+| **Senior Developer** | Cross-repo PR intelligence, release readiness checks, pipeline context, local-only credential storage |
+
+This is not a tool for everyone. There is no managed cloud service, no Nimbus account, and no relay server. If that's what you need, look elsewhere.
+
+---
+
+## Why Engineers Choose Nimbus
 
 ### Fast — Most Queries Never Hit the Network
 
-Nimbus maintains a local SQLite metadata index. Searching across 50,000 indexed items across five services takes under 100ms.
+Nimbus maintains a local SQLite metadata index. Searching across 50,000 indexed items across five services takes under 100ms — faster than opening a new browser tab.
 
 | Operation | Nimbus (local index) | Typical SaaS |
 |---|---|---|
@@ -90,6 +125,8 @@ Third-party connectors ship as npm packages. Install in one command; the agent g
 ---
 
 ## Connectors
+
+Every tool your on-call rotation depends on, unified in one local index. Cross-service queries are answered without an API call — the data is already there.
 
 **Phase 1–2 (shipped):** Local Filesystem, Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in)
 
@@ -456,13 +493,25 @@ For workflow, verification commands, and PR expectations, see [`CONTRIBUTING.md`
 
 ---
 
+## Pricing
+
+| Tier | For | Status |
+|---|---|---|
+| **Open Source** | Individual engineers — AGPL-3.0, full feature set for single-user deployments | Available now |
+| **Team** | Shared index namespaces, Team Vault, multi-user HITL, LAN federation — Phase 6 | Planned |
+| **Enterprise** | SSO/SCIM, compliance tooling, audit log shipping, Helm/Docker, SLA support — Phase 9 | Planned |
+
+The Extension SDK (`@nimbus-dev/sdk`) is MIT-licensed — extension authors have no copyleft obligation.
+
+Commercial license for embedding Nimbus in a product without AGPL obligations, or for organizations that need Team/Enterprise features before those phases ship: contact the maintainers.
+
+---
+
 ## License
 
-**Core (Gateway, CLI, connectors):** AGPL-3.0 — see [LICENSE](../LICENSE). Anyone running Nimbus as a network service must publish their modifications under the same terms.
+**Core (Gateway, CLI, connectors):** AGPL-3.0 — see [LICENSE](../LICENSE). Anyone running Nimbus as a network service must publish their modifications under the same terms. This is intentional: the AGPL protects users by preventing vendors from stripping the privacy guarantees and offering a hosted "Nimbus Cloud."
 
 **Extension SDK (`@nimbus-dev/sdk`):** MIT — extension authors are not burdened by copyleft obligations.
-
-Commercial license available for embedding Nimbus in a product without AGPL obligations — contact the maintainers.
 
 ---
 
