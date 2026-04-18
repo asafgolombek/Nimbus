@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { platform } from "node:os";
+import { mkdtempSync, rmSync } from "node:fs";
+import { platform, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { processEnvDelete, processEnvGet, processEnvSet } from "./env-access.ts";
@@ -9,11 +10,33 @@ import { createDarwinPaths, createLinuxPaths, createWindowsPaths } from "./paths
 const gatewayRoot = join(import.meta.dirname, "..", "..");
 
 describe("Platform Abstraction Layer", () => {
+  let tmpDir: string;
+  let originalEnv: Record<string, string | undefined>;
+
   beforeEach(() => {
     processEnvSet("NIMBUS_SKIP_EMBEDDING_RUNTIME", "1");
+    tmpDir = mkdtempSync(join(tmpdir(), "nimbus-pal-test-"));
+    originalEnv = {
+      APPDATA: processEnvGet("APPDATA"),
+      LOCALAPPDATA: processEnvGet("LOCALAPPDATA"),
+      XDG_CONFIG_HOME: processEnvGet("XDG_CONFIG_HOME"),
+      XDG_DATA_HOME: processEnvGet("XDG_DATA_HOME"),
+      XDG_RUNTIME_DIR: processEnvGet("XDG_RUNTIME_DIR"),
+    };
+    // Isolated paths for all platforms
+    processEnvSet("APPDATA", tmpDir);
+    processEnvSet("LOCALAPPDATA", tmpDir);
+    processEnvSet("XDG_CONFIG_HOME", join(tmpDir, ".config"));
+    processEnvSet("XDG_DATA_HOME", join(tmpDir, ".local/share"));
+    processEnvSet("XDG_RUNTIME_DIR", tmpDir);
   });
+
   afterEach(() => {
     processEnvDelete("NIMBUS_SKIP_EMBEDDING_RUNTIME");
+    for (const [key, val] of Object.entries(originalEnv)) {
+      processEnvSet(key, val);
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("createPlatformServices is exported", async () => {
@@ -25,47 +48,63 @@ describe("Platform Abstraction Layer", () => {
     const { createPlatformServices } = await import("./index.ts");
     const services = await createPlatformServices();
 
-    expect(services.vault).toBeDefined();
-    expect(typeof services.vault.get).toBe("function");
-    expect(services.ipc).toBeDefined();
-    expect(typeof services.ipc.start).toBe("function");
-    expect(services.paths).toBeDefined();
-    expect(services.localIndex).toBeDefined();
-    expect(typeof services.localIndex.listAudit).toBe("function");
-    expect(services.connectorMesh).toBeDefined();
-    expect(typeof services.connectorMesh.listTools).toBe("function");
-    expect(services.syncScheduler).toBeDefined();
-    expect(typeof services.syncScheduler.start).toBe("function");
-    services.syncScheduler.stop();
-    await services.connectorMesh.disconnect();
-    expect(services.autostart).toBeDefined();
-    expect(services.notifications).toBeDefined();
-    expect(typeof services.openUrl).toBe("function");
+    try {
+      expect(services.vault).toBeDefined();
+      expect(typeof services.vault.get).toBe("function");
+      expect(services.ipc).toBeDefined();
+      expect(typeof services.ipc.start).toBe("function");
+      expect(services.paths).toBeDefined();
+      expect(services.localIndex).toBeDefined();
+      expect(typeof services.localIndex.listAudit).toBe("function");
+      expect(services.connectorMesh).toBeDefined();
+      expect(typeof services.connectorMesh.listTools).toBe("function");
+      expect(services.syncScheduler).toBeDefined();
+      expect(typeof services.syncScheduler.start).toBe("function");
+      expect(services.autostart).toBeDefined();
+      expect(services.notifications).toBeDefined();
+      expect(typeof services.openUrl).toBe("function");
 
-    const { paths } = services;
-    for (const key of [
-      "configDir",
-      "dataDir",
-      "logDir",
-      "socketPath",
-      "extensionsDir",
-      "tempDir",
-    ] as const) {
-      expect(typeof paths[key]).toBe("string");
-      expect(paths[key].length).toBeGreaterThan(0);
+      const { paths } = services;
+      for (const key of [
+        "configDir",
+        "dataDir",
+        "logDir",
+        "socketPath",
+        "extensionsDir",
+        "tempDir",
+      ] as const) {
+        expect(typeof paths[key]).toBe("string");
+        expect(paths[key].length).toBeGreaterThan(0);
+      }
+    } finally {
+      services.syncScheduler?.stop();
+      await services.connectorMesh?.disconnect().catch(() => {});
+      (services as any).disposeSidecars?.();
+      services.localIndex?.close();
+      // Small delay to let async scheduler tasks finish before the DB is completely yanked
+      await new Promise(r => setTimeout(r, 100));
     }
-  });
+  }, 15000); // 15s timeout to allow for migrations on fresh DB
 
   it("uses the documented IPC path pattern per OS", async () => {
     const { createPlatformServices } = await import("./index.ts");
-    const { paths } = await createPlatformServices();
-    const os = platform();
-    if (os === "win32") {
-      expect(paths.socketPath.toLowerCase()).toBe(
-        String.raw`\\.\pipe\nimbus-gateway`.toLowerCase(),
-      );
-    } else {
-      expect(paths.socketPath).toContain("nimbus-gateway.sock");
+    const services = await createPlatformServices();
+    try {
+      const { paths } = services;
+      const os = platform();
+      if (os === "win32") {
+        expect(paths.socketPath.toLowerCase()).toBe(
+          String.raw`\\.\pipe\nimbus-gateway`.toLowerCase(),
+        );
+      } else {
+        expect(paths.socketPath).toContain("nimbus-gateway.sock");
+      }
+    } finally {
+      services.syncScheduler?.stop();
+      await services.connectorMesh?.disconnect().catch(() => {});
+      (services as any).disposeSidecars?.();
+      services.localIndex?.close();
+      await new Promise(r => setTimeout(r, 100));
     }
   });
 

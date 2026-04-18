@@ -26,19 +26,13 @@ describe("doctorVoiceLines", () => {
     expect(lines).toEqual([]);
   });
 
-  test("reports whisper-cli missing on PATH when not configured", () => {
+  test.each([
+    ["whisper-cli", "whisper-cli"],
+    ["ffmpeg", "ffmpeg"],
+    ["Linux TTS (espeak-ng)", "espeak-ng"],
+  ])("reports %s missing on PATH", (_, search) => {
     const lines = linuxNoToolLines();
-    expect(lines.some((l) => l.includes("[warn]") && l.includes("whisper-cli"))).toBe(true);
-  });
-
-  test("reports ffmpeg missing for wake-word capture", () => {
-    const lines = linuxNoToolLines();
-    expect(lines.some((l) => l.includes("[warn]") && l.includes("ffmpeg"))).toBe(true);
-  });
-
-  test("reports Linux TTS missing when neither espeak-ng nor spd-say is present", () => {
-    const lines = linuxNoToolLines();
-    expect(lines.some((l) => l.includes("[warn]") && l.includes("espeak-ng"))).toBe(true);
+    expect(lines.some((l) => l.includes("[warn]") && l.includes(search))).toBe(true);
   });
 
   test("reports Linux TTS ok when espeak-ng is on PATH", () => {
