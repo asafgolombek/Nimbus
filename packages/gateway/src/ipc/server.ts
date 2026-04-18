@@ -21,6 +21,7 @@ import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
+import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
 import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "./diagnostics-rpc.ts";
 import {
   errorResponse,
@@ -384,6 +385,28 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return phase4RpcSkipped;
   }
 
+  async function tryDispatchDataRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("data.")) return phase4RpcSkipped;
+    try {
+      const out = await dispatchDataRpc(method, params, {
+        index: options.localIndex,
+        vault: options.vault,
+        platform:
+          process.platform === "win32"
+            ? "win32"
+            : process.platform === "darwin"
+              ? "darwin"
+              : "linux",
+        nimbusVersion: options.version ?? "0.1.0",
+      });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof DataRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      throw e;
+    }
+    return phase4RpcSkipped;
+  }
+
   async function tryDispatchPhase4Rpc(method: string, params: unknown): Promise<unknown> {
     const llmOutcome = await tryDispatchLlmRpc(method, params);
     if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
@@ -391,6 +414,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (voiceOutcome !== phase4RpcSkipped) return voiceOutcome;
     const auditOutcome = await tryDispatchAuditRpc(method, params);
     if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
+    const dataOutcome = await tryDispatchDataRpc(method, params);
+    if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
     return tryDispatchReindexRpc(method, params);
   }
 
