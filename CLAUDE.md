@@ -174,6 +174,14 @@ bun run package:installers:linux -- --version 0.1.0
 # nimbus serve [--port 7474]
 # nimbus docs [topic]
 # nimbus connector history <name>
+# nimbus connector reindex <name> [--depth <metadata_only|summary|full>]
+
+# Phase 4 WS3 — Data Sovereignty
+# nimbus data export --output <path.tar.gz> --passphrase <pw> [--no-index]
+# nimbus data import <path.tar.gz> [--passphrase <pw> | --recovery-seed <mnemonic>]
+# nimbus data delete --service <name> [--dry-run] [--yes]
+# nimbus audit verify [--full] [--since <id>]
+# nimbus audit export --output <path.json>
 
 # Phase 4 env-var overrides (multi-agent loop guards)
 # NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)

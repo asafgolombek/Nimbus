@@ -388,15 +388,14 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   async function tryDispatchDataRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("data.")) return phase4RpcSkipped;
     try {
+      let rpcPlatform: "win32" | "darwin" | "linux";
+      if (process.platform === "win32") rpcPlatform = "win32";
+      else if (process.platform === "darwin") rpcPlatform = "darwin";
+      else rpcPlatform = "linux";
       const out = await dispatchDataRpc(method, params, {
         index: options.localIndex,
         vault: options.vault,
-        platform:
-          process.platform === "win32"
-            ? "win32"
-            : process.platform === "darwin"
-              ? "darwin"
-              : "linux",
+        platform: rpcPlatform,
         nimbusVersion: options.version ?? "0.1.0",
       });
       if (out.kind === "hit") return out.value;

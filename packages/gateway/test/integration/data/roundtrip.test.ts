@@ -62,14 +62,17 @@ describe("data sovereignty round-trip", () => {
     seed(sourceIdx, "slack", 2);
 
     const out = join(mkdtempSync(join(tmpdir(), "nimbus-rt-")), "b.tar.gz");
+    let platform: "win32" | "darwin" | "linux";
+    if (process.platform === "win32") platform = "win32";
+    else if (process.platform === "darwin") platform = "darwin";
+    else platform = "linux";
     const expResult = await runDataExport({
       output: out,
       includeIndex: false,
       passphrase: "pw",
       vault: sourceVault,
       index: sourceIdx,
-      platform:
-        process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
+      platform,
       nimbusVersion: "0.1.0",
       kdfParams: { t: 1, m: 1024, p: 1 },
     });

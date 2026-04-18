@@ -37,61 +37,69 @@ function requireDeps(ctx: DataRpcContext): { index: LocalIndex; vault: NimbusVau
   return { index: ctx.index, vault: ctx.vault };
 }
 
+async function handleDataExport(
+  rec: Record<string, unknown>,
+  ctx: DataRpcContext,
+): Promise<unknown> {
+  const { index, vault } = requireDeps(ctx);
+  const output = rec["output"];
+  const passphrase = rec["passphrase"];
+  const includeIndex = rec["includeIndex"] === true;
+  if (typeof output !== "string" || output === "")
+    throw new DataRpcError(-32602, "Missing param: output");
+  if (typeof passphrase !== "string" || passphrase === "")
+    throw new DataRpcError(-32602, "Missing param: passphrase");
+  return runDataExport({
+    output,
+    passphrase,
+    includeIndex,
+    vault,
+    index,
+    platform: ctx.platform,
+    nimbusVersion: ctx.nimbusVersion,
+    ...(ctx.kdfParams === undefined ? {} : { kdfParams: ctx.kdfParams }),
+  });
+}
+
+async function handleDataImport(
+  rec: Record<string, unknown>,
+  ctx: DataRpcContext,
+): Promise<unknown> {
+  const { index, vault } = requireDeps(ctx);
+  const bundlePath = rec["bundlePath"];
+  const passphrase = rec["passphrase"];
+  const recoverySeed = rec["recoverySeed"];
+  if (typeof bundlePath !== "string" || bundlePath === "")
+    throw new DataRpcError(-32602, "Missing param: bundlePath");
+  return runDataImport({
+    bundlePath,
+    ...(typeof passphrase === "string" ? { passphrase } : {}),
+    ...(typeof recoverySeed === "string" ? { recoverySeed } : {}),
+    vault,
+    index,
+  });
+}
+
+async function handleDataDelete(
+  rec: Record<string, unknown>,
+  ctx: DataRpcContext,
+): Promise<unknown> {
+  const { index, vault } = requireDeps(ctx);
+  const service = rec["service"];
+  const dryRun = rec["dryRun"] === true;
+  if (typeof service !== "string" || service === "")
+    throw new DataRpcError(-32602, "Missing param: service");
+  return runDataDelete({ service, dryRun, vault, index });
+}
+
 export async function dispatchDataRpc(
   method: string,
   params: unknown,
   ctx: DataRpcContext,
 ): Promise<RpcResult> {
   const rec = asRecord(params);
-
-  if (method === "data.export") {
-    const { index, vault } = requireDeps(ctx);
-    const output = rec["output"];
-    const passphrase = rec["passphrase"];
-    const includeIndex = rec["includeIndex"] === true;
-    if (typeof output !== "string" || output === "")
-      throw new DataRpcError(-32602, "Missing param: output");
-    if (typeof passphrase !== "string" || passphrase === "")
-      throw new DataRpcError(-32602, "Missing param: passphrase");
-    const result = await runDataExport({
-      output,
-      passphrase,
-      includeIndex,
-      vault,
-      index,
-      platform: ctx.platform,
-      nimbusVersion: ctx.nimbusVersion,
-      ...(ctx.kdfParams !== undefined ? { kdfParams: ctx.kdfParams } : {}),
-    });
-    return { kind: "hit", value: result };
-  }
-
-  if (method === "data.import") {
-    const { index, vault } = requireDeps(ctx);
-    const bundlePath = rec["bundlePath"];
-    const passphrase = rec["passphrase"];
-    const recoverySeed = rec["recoverySeed"];
-    if (typeof bundlePath !== "string" || bundlePath === "")
-      throw new DataRpcError(-32602, "Missing param: bundlePath");
-    const result = await runDataImport({
-      bundlePath,
-      ...(typeof passphrase === "string" ? { passphrase } : {}),
-      ...(typeof recoverySeed === "string" ? { recoverySeed } : {}),
-      vault,
-      index,
-    });
-    return { kind: "hit", value: result };
-  }
-
-  if (method === "data.delete") {
-    const { index, vault } = requireDeps(ctx);
-    const service = rec["service"];
-    const dryRun = rec["dryRun"] === true;
-    if (typeof service !== "string" || service === "")
-      throw new DataRpcError(-32602, "Missing param: service");
-    const result = await runDataDelete({ service, dryRun, vault, index });
-    return { kind: "hit", value: result };
-  }
-
+  if (method === "data.export") return { kind: "hit", value: await handleDataExport(rec, ctx) };
+  if (method === "data.import") return { kind: "hit", value: await handleDataImport(rec, ctx) };
+  if (method === "data.delete") return { kind: "hit", value: await handleDataDelete(rec, ctx) };
   return { kind: "miss" };
 }

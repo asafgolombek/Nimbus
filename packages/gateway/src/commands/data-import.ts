@@ -41,8 +41,8 @@ export async function runDataImport(input: RunDataImportInput): Promise<RunDataI
     readFileSync(join(stage, "vault-manifest.json.enc"), "utf8"),
   ) as VaultManifestBlob;
   const plaintext = await decryptVaultManifest(encrypted, {
-    ...(input.passphrase !== undefined ? { passphrase: input.passphrase } : {}),
-    ...(input.recoverySeed !== undefined ? { seed: input.recoverySeed } : {}),
+    ...(input.passphrase === undefined ? {} : { passphrase: input.passphrase }),
+    ...(input.recoverySeed === undefined ? {} : { seed: input.recoverySeed }),
   });
   const entries = JSON.parse(plaintext) as VaultEntry[];
 
@@ -57,7 +57,7 @@ export async function runDataImport(input: RunDataImportInput): Promise<RunDataI
     if (input.injectFailureAfterVault === true) {
       throw new Error("injected failure");
     }
-    // TODO (integration): restore index/watcher/workflow/extension/profile payloads.
+    // Index/watcher/workflow/extension/profile payloads are restored in future integration work.
   } catch (err) {
     for (const key of writtenKeys) {
       await input.vault.delete(key).catch(() => {});

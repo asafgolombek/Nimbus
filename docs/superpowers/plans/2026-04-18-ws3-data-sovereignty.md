@@ -72,7 +72,7 @@
 
 Pure dependency addition — no test needed, but the full typecheck must still pass after `bun install`.
 
-- [ ] **Step 1: Add the three dependencies**
+- [x] **Step 1: Add the three dependencies**
 
 Edit `packages/gateway/package.json` so the `dependencies` block contains (order is not significant — Biome will normalise on the next commit):
 
@@ -93,7 +93,7 @@ Edit `packages/gateway/package.json` so the `dependencies` block contains (order
 
 Also add `"@types/tar": "^6.1.13"` under `devDependencies` (the `tar` package does ship types but not under the exact surface we use).
 
-- [ ] **Step 2: Install and typecheck**
+- [x] **Step 2: Install and typecheck**
 
 ```bash
 bun install
@@ -102,7 +102,7 @@ bun run typecheck 2>&1 | tail -5
 
 Expected: `Exited with code 0` on every package.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/gateway/package.json bun.lockb
@@ -119,7 +119,7 @@ git commit -m "chore(gateway): add @noble/hashes, @scure/bip39, tar for data sov
 
 Pure functions. No SQLite, no IO — only `@noble/hashes/blake3`. Makes the hash function easily reviewable and independently testable before it is wired into `recordAudit`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```typescript
 // packages/gateway/src/db/audit-chain.test.ts
@@ -156,7 +156,7 @@ describe("computeAuditRowHash", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd packages/gateway && bun test src/db/audit-chain.test.ts 2>&1 | tail -5
@@ -164,7 +164,7 @@ cd packages/gateway && bun test src/db/audit-chain.test.ts 2>&1 | tail -5
 
 Expected: `Module not found: audit-chain`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```typescript
 // packages/gateway/src/db/audit-chain.ts
@@ -199,7 +199,7 @@ export function computeAuditRowHash(input: AuditRowHashInput): string {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 cd packages/gateway && bun test src/db/audit-chain.test.ts 2>&1 | tail -5
@@ -207,7 +207,7 @@ cd packages/gateway && bun test src/db/audit-chain.test.ts 2>&1 | tail -5
 
 Expected: `5 pass`, `0 fail`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/gateway/src/db/audit-chain.ts packages/gateway/src/db/audit-chain.test.ts
@@ -226,7 +226,7 @@ git commit -m "feat(db): BLAKE3 audit chain helper"
 
 Adds `row_hash` and `prev_hash` columns, a `_meta` table for the incremental verify cursor, and backfills the chain for existing rows in order of `id`.
 
-- [ ] **Step 1: Write the failing migration test**
+- [x] **Step 1: Write the failing migration test**
 
 ```typescript
 // packages/gateway/src/index/migrations/runner-v18.test.ts
@@ -275,7 +275,7 @@ describe("V18 migration — audit chain backfill", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd packages/gateway && bun test src/index/migrations/runner-v18.test.ts 2>&1 | tail -5
@@ -283,7 +283,7 @@ cd packages/gateway && bun test src/index/migrations/runner-v18.test.ts 2>&1 | t
 
 Expected: failure because the runner caps at V17.
 
-- [ ] **Step 3: Write the migration SQL**
+- [x] **Step 3: Write the migration SQL**
 
 ```typescript
 // packages/gateway/src/index/audit-chain-v18-sql.ts
@@ -300,7 +300,7 @@ INSERT OR IGNORE INTO _meta (key, value) VALUES ('audit_verified_through_id', '0
 `;
 ```
 
-- [ ] **Step 4: Extend the runner**
+- [x] **Step 4: Extend the runner**
 
 Edit `packages/gateway/src/index/migrations/runner.ts`:
 
@@ -366,7 +366,7 @@ import { computeAuditRowHash } from "../../db/audit-chain.ts";
 "audit_log BLAKE3 chain + _meta (backfilled)",
 ```
 
-- [ ] **Step 5: Bump `SCHEMA_VERSION`**
+- [x] **Step 5: Bump `SCHEMA_VERSION`**
 
 In `packages/gateway/src/index/local-index.ts` change:
 
@@ -380,7 +380,7 @@ to:
 static readonly SCHEMA_VERSION = 18;
 ```
 
-- [ ] **Step 6: Run the migration test**
+- [x] **Step 6: Run the migration test**
 
 ```bash
 cd packages/gateway && bun test src/index/migrations/runner-v18.test.ts 2>&1 | tail -5
@@ -388,7 +388,7 @@ cd packages/gateway && bun test src/index/migrations/runner-v18.test.ts 2>&1 | t
 
 Expected: `2 pass`, `0 fail`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/gateway/src/index/audit-chain-v18-sql.ts \
@@ -407,7 +407,7 @@ git commit -m "feat(db): V18 migration — audit_log row_hash + prev_hash + _met
 
 Every new audit row must now carry the chain hashes. Add a helper `getLastAuditRowHash()` so both runtime inserts and later verify code can share the same source of truth, plus `listAuditWithChain()` for tests and export.
 
-- [ ] **Step 1: Add the failing test**
+- [x] **Step 1: Add the failing test**
 
 Extend `packages/gateway/src/index/index.test.ts` (do not create a new file). Append inside the outermost `describe` block:
 
@@ -429,7 +429,7 @@ test("recordAudit chains row_hash across successive inserts", () => {
 
 (If `newTestIndex()` is not already a helper in that file, inline a minimal constructor that opens a `:memory:` DB and runs migrations; match the style of existing tests in the same file.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 cd packages/gateway && bun test src/index/index.test.ts 2>&1 | tail -10
@@ -437,7 +437,7 @@ cd packages/gateway && bun test src/index/index.test.ts 2>&1 | tail -10
 
 Expected: failure on `listAuditWithChain` or mismatched `prevHash`.
 
-- [ ] **Step 3: Replace the `recordAudit` body and add helpers**
+- [x] **Step 3: Replace the `recordAudit` body and add helpers**
 
 In `packages/gateway/src/index/local-index.ts`, change the `recordAudit` body to:
 
@@ -528,7 +528,7 @@ Add at the top of the file:
 import { computeAuditRowHash, GENESIS_HASH } from "../db/audit-chain.ts";
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 cd packages/gateway && bun test src/index/index.test.ts 2>&1 | tail -5
@@ -536,7 +536,7 @@ cd packages/gateway && bun test src/index/index.test.ts 2>&1 | tail -5
 
 Expected: all tests pass including the new chain test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/gateway/src/index/local-index.ts packages/gateway/src/index/index.test.ts
@@ -556,7 +556,7 @@ git commit -m "feat(db): chain row_hash on every recordAudit insert"
 - Modify: `packages/cli/src/commands/audit.ts`
 - Create: `packages/cli/src/commands/audit-verify.test.ts`
 
-- [ ] **Step 1: Write failing verifier test**
+- [x] **Step 1: Write failing verifier test**
 
 ```typescript
 // packages/gateway/src/db/audit-verify.test.ts
@@ -606,13 +606,13 @@ describe("verifyAuditChain", () => {
 
 This test references `idx.rawDb` — add that public getter in `LocalIndex` (return `this.db`). It is a narrow escape hatch for tests and verifier code that must run DDL/raw SQL.
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 cd packages/gateway && bun test src/db/audit-verify.test.ts 2>&1 | tail -5
 ```
 
-- [ ] **Step 3: Implement the verifier**
+- [x] **Step 3: Implement the verifier**
 
 ```typescript
 // packages/gateway/src/db/audit-verify.ts
@@ -693,7 +693,7 @@ export function verifyAuditChain(idx: LocalIndex, opts: AuditVerifyOptions): Aud
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 cd packages/gateway && bun test src/db/audit-verify.test.ts 2>&1 | tail -5
@@ -701,7 +701,7 @@ cd packages/gateway && bun test src/db/audit-verify.test.ts 2>&1 | tail -5
 
 Expected: `3 pass`.
 
-- [ ] **Step 5: Add the IPC dispatcher (TDD)**
+- [x] **Step 5: Add the IPC dispatcher (TDD)**
 
 Write `packages/gateway/src/ipc/audit-rpc.test.ts` first:
 
@@ -762,13 +762,13 @@ describe("dispatchAuditRpc", () => {
 });
 ```
 
-- [ ] **Step 6: Run to confirm failure**
+- [x] **Step 6: Run to confirm failure**
 
 ```bash
 cd packages/gateway && bun test src/ipc/audit-rpc.test.ts 2>&1 | tail -5
 ```
 
-- [ ] **Step 7: Implement dispatcher**
+- [x] **Step 7: Implement dispatcher**
 
 ```typescript
 // packages/gateway/src/ipc/audit-rpc.ts
@@ -816,7 +816,7 @@ export async function dispatchAuditRpc(
 }
 ```
 
-- [ ] **Step 8: Wire into the server**
+- [x] **Step 8: Wire into the server**
 
 In `packages/gateway/src/ipc/server.ts`:
 
@@ -849,7 +849,7 @@ const auditOutcome = await tryDispatchAuditRpc(method, params);
 if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
 ```
 
-- [ ] **Step 9: Extend the CLI**
+- [x] **Step 9: Extend the CLI**
 
 Replace the body of `runAudit` in `packages/cli/src/commands/audit.ts` so it dispatches on the first positional arg:
 
@@ -910,7 +910,7 @@ async function runAuditExport(args: string[]): Promise<void> {
 }
 ```
 
-- [ ] **Step 10: CLI parse test**
+- [x] **Step 10: CLI parse test**
 
 ```typescript
 // packages/cli/src/commands/audit-verify.test.ts
@@ -926,7 +926,7 @@ describe("audit subcommands", () => {
 });
 ```
 
-- [ ] **Step 11: Run all new tests and typecheck**
+- [x] **Step 11: Run all new tests and typecheck**
 
 ```bash
 cd packages/gateway && bun test src/db/audit-verify.test.ts src/ipc/audit-rpc.test.ts 2>&1 | tail -5
@@ -935,7 +935,7 @@ bun run typecheck 2>&1 | tail -5
 
 Expected: all green.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add packages/gateway/src/db/audit-verify.ts packages/gateway/src/db/audit-verify.test.ts \
@@ -955,7 +955,7 @@ git commit -m "feat(audit): nimbus audit verify + export; chain verifier and IPC
 
 The seed is generated on the first export and stored in the vault under `backup.recovery_seed`. Subsequent calls to `ensureRecoverySeed` return the existing value — the seed is never regenerated automatically.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```typescript
 // packages/gateway/src/db/recovery-seed.test.ts
@@ -1004,13 +1004,13 @@ describe("recovery seed", () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 cd packages/gateway && bun test src/db/recovery-seed.test.ts 2>&1 | tail -5
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```typescript
 // packages/gateway/src/db/recovery-seed.ts
@@ -1044,7 +1044,7 @@ export function seedIsValidBip39(mnemonic: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run & commit**
+- [x] **Step 4: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/db/recovery-seed.test.ts 2>&1 | tail -5
@@ -1062,7 +1062,7 @@ git commit -m "feat(db): BIP39 recovery seed — ensureRecoverySeed (vault-backe
 
 `encryptVaultManifest({ plaintext, passphrase, seed })` returns a JSON-serialisable blob containing the ciphertext, the AES-GCM IV, and two DEK wrap records (salt + wrapped bytes) — one per KDF input. `decryptVaultManifest(blob, { passphrase? | seed? })` recovers the plaintext given either credential.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 // packages/gateway/src/db/data-vault-crypto.test.ts
@@ -1102,9 +1102,9 @@ describe("envelope encryption", () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```typescript
 // packages/gateway/src/db/data-vault-crypto.ts
@@ -1211,7 +1211,7 @@ export async function decryptVaultManifest(
 }
 ```
 
-- [ ] **Step 4: Run & commit**
+- [x] **Step 4: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/db/data-vault-crypto.test.ts 2>&1 | tail -5
@@ -1227,7 +1227,7 @@ git commit -m "feat(db): envelope encryption for vault manifest (Argon2id + AES-
 - Create: `packages/gateway/src/db/backup-manifest.ts`
 - Create: `packages/gateway/src/db/backup-manifest.test.ts`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 // packages/gateway/src/db/backup-manifest.test.ts
@@ -1286,7 +1286,7 @@ describe("backup manifest", () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```typescript
 // packages/gateway/src/db/backup-manifest.ts
@@ -1354,7 +1354,7 @@ export async function verifyManifest(
 }
 ```
 
-- [ ] **Step 3: Run & commit**
+- [x] **Step 3: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/db/backup-manifest.test.ts 2>&1 | tail -5
@@ -1370,7 +1370,7 @@ git commit -m "feat(db): backup manifest builder + BLAKE3 verifier"
 - Create: `packages/gateway/src/db/tar-bundle.ts`
 - Create: `packages/gateway/src/db/tar-bundle.test.ts`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 // packages/gateway/src/db/tar-bundle.test.ts
@@ -1397,7 +1397,7 @@ describe("tar bundle", () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```typescript
 // packages/gateway/src/db/tar-bundle.ts
@@ -1412,7 +1412,7 @@ export async function unpackBundle(tarGzPath: string, destDir: string): Promise<
 }
 ```
 
-- [ ] **Step 3: Run & commit**
+- [x] **Step 3: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/db/tar-bundle.test.ts 2>&1 | tail -5
@@ -1430,7 +1430,7 @@ git commit -m "feat(db): tar bundle pack/unpack helpers (gzip)"
 
 The orchestrator gathers: index snapshot, vault manifest, watcher/workflow/extension/profile JSON, audit export, then builds `manifest.json`, packs the directory, and returns the output path + recovery seed (if newly generated).
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 // packages/gateway/src/commands/data-export.test.ts
@@ -1512,7 +1512,7 @@ describe("data export", () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```typescript
 // packages/gateway/src/commands/data-export.ts
@@ -1628,7 +1628,7 @@ export async function runDataExport(input: RunDataExportInput): Promise<RunDataE
 
 Note the `TODO` — actual index inclusion is deferred to the integration test (Task 15), where it is explicitly required. The integration test will force this gap closed.
 
-- [ ] **Step 3: Run & commit**
+- [x] **Step 3: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/commands/data-export.test.ts 2>&1 | tail -5
@@ -1646,7 +1646,7 @@ git commit -m "feat(data): nimbus data export — bundle + encrypted vault manif
 
 Import flow with rollback. When any restore step fails, every vault key that was written in step 4 is deleted via `NimbusVault.delete()`. The pre-import DB snapshot is restored as well (via `VACUUM INTO`-style copy of `<dataDir>/nimbus.db` — or skipped for `:memory:` DBs in tests).
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 // packages/gateway/src/commands/data-import.test.ts
@@ -1773,7 +1773,7 @@ describe("data import", () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```typescript
 // packages/gateway/src/commands/data-import.ts
@@ -1848,7 +1848,7 @@ export async function runDataImport(input: RunDataImportInput): Promise<RunDataI
 }
 ```
 
-- [ ] **Step 3: Run & commit**
+- [x] **Step 3: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/commands/data-import.test.ts 2>&1 | tail -5
@@ -1866,7 +1866,7 @@ git commit -m "feat(data): nimbus data import — BLAKE3 verify, decrypt, vault 
 
 Service-scoped deletion with a pre-flight summary. Uses the existing `LocalIndex` primitives; people-unlink is covered at a simple level (delete handles in `person_handles`; count unlinked people) — full cross-service people logic is already implemented by the existing `removeIntent` flow which this command delegates to where possible.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 // packages/gateway/src/commands/data-delete.test.ts
@@ -1956,7 +1956,7 @@ describe("data delete", () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```typescript
 // packages/gateway/src/commands/data-delete.ts
@@ -2068,7 +2068,7 @@ export async function runDataDelete(input: RunDataDeleteInput): Promise<RunDataD
 }
 ```
 
-- [ ] **Step 3: Run & commit**
+- [x] **Step 3: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/commands/data-delete.test.ts 2>&1 | tail -5
@@ -2090,7 +2090,7 @@ git commit -m "feat(data): nimbus data delete — service-scoped deletion with p
 
 Deepen vs shallow actions run synchronously in the test path (the background-pass requirement from phase-4-plan.md §3.5 is out of scope for this WS — it is an optimisation layered on top once the in-place operation is proven correct).
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 // packages/gateway/src/connectors/reindex.test.ts
@@ -2130,7 +2130,7 @@ describe("connector reindex", () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```typescript
 // packages/gateway/src/connectors/reindex.ts
@@ -2187,7 +2187,7 @@ export async function reindexConnector(input: ReindexInput): Promise<ReindexResu
 }
 ```
 
-- [ ] **Step 3: RPC dispatcher + test**
+- [x] **Step 3: RPC dispatcher + test**
 
 ```typescript
 // packages/gateway/src/ipc/reindex-rpc.test.ts
@@ -2288,7 +2288,7 @@ const reindexOutcome = await tryDispatchReindexRpc(method, params);
 if (reindexOutcome !== phase4RpcSkipped) return reindexOutcome;
 ```
 
-- [ ] **Step 4: CLI subcommand**
+- [x] **Step 4: CLI subcommand**
 
 Extend `packages/cli/src/commands/connector.ts` to dispatch on the first positional arg. If the existing module already has a subcommand switch, add a `case "reindex":` branch; otherwise add the dispatcher at the top of `runConnector`:
 
@@ -2325,7 +2325,7 @@ async function runConnectorReindex(args: string[]): Promise<void> {
 
 Ensure `IPCClient`, `readGatewayState`, and `getCliPlatformPaths` are imported at the top of `connector.ts` (they should already be present for existing subcommands).
 
-- [ ] **Step 5: Run & commit**
+- [x] **Step 5: Run & commit**
 
 ```bash
 cd packages/gateway && bun test src/connectors/reindex.test.ts src/ipc/reindex-rpc.test.ts 2>&1 | tail -5
@@ -2350,7 +2350,7 @@ git commit -m "feat(connectors): nimbus connector reindex — shallow prune + de
 
 IPC methods: `data.export`, `data.import`, `data.delete`. A `DataRpcError` class plus a `dispatchDataRpc` function that switches on method name and delegates to the three orchestrators from Tasks 10/11/12.
 
-- [ ] **Step 1: Write dispatcher tests**
+- [x] **Step 1: Write dispatcher tests**
 
 ```typescript
 // packages/gateway/src/ipc/data-rpc.test.ts
@@ -2446,7 +2446,7 @@ describe("dispatchDataRpc", () => {
 });
 ```
 
-- [ ] **Step 2: Implement dispatcher**
+- [x] **Step 2: Implement dispatcher**
 
 ```typescript
 // packages/gateway/src/ipc/data-rpc.ts
@@ -2574,7 +2574,7 @@ if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
 
 If `CreateIpcServerOptions` does not currently include `nimbusVersion`, add it as optional — default `"0.1.0"` if absent.
 
-- [ ] **Step 3: CLI**
+- [x] **Step 3: CLI**
 
 ```typescript
 // packages/cli/src/commands/data.ts
@@ -2676,11 +2676,11 @@ async function runDataDeleteCli(args: string[]): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: Register**
+- [x] **Step 4: Register**
 
 In `packages/cli/src/commands/index.ts` export `runData` from `./data.ts`. In `packages/cli/src/index.ts` add `case "data": await runData(args); break;` alongside the other subcommands.
 
-- [ ] **Step 5: Run full package tests + commit**
+- [x] **Step 5: Run full package tests + commit**
 
 ```bash
 cd packages/gateway && bun test src/ipc/data-rpc.test.ts 2>&1 | tail -5
@@ -2709,7 +2709,7 @@ This is the acceptance gate. Forces every TODO left in Tasks 10/11 to close (ind
 
 Also: a second run asserts recovery-seed-path decryption works when the passphrase is replaced with the 24-word mnemonic captured from the first export.
 
-- [ ] **Step 1: Write the test (it will force you to extend `runDataExport` and `runDataImport` to actually include the index)**
+- [x] **Step 1: Write the test (it will force you to extend `runDataExport` and `runDataImport` to actually include the index)**
 
 ```typescript
 // packages/gateway/test/integration/data/roundtrip.test.ts
@@ -2810,20 +2810,20 @@ describe("data sovereignty round-trip", () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm it fails at the "index rows restored" assertion (or wherever TODOs remain)**
+- [x] **Step 2: Run to confirm it fails at the "index rows restored" assertion (or wherever TODOs remain)**
 
-- [ ] **Step 3: Complete the implementation in `runDataExport` and `runDataImport`**
+- [x] **Step 3: Complete the implementation in `runDataExport` and `runDataImport`**
 
 Add to `runDataExport` when `input.includeIndex === true`: use `VACUUM INTO` to a temp file, gzip to `index.db.gz` inside the staging dir, add to `files` and `contents.index_rows`. Add to `runDataImport`: if `index.db.gz` is present in the bundle, gunzip and copy into `input.index`'s backing file (or provide an `onIndexRestore(pathToGunzippedDb)` callback so tests can assert it without needing a file-backed DB).
 
-- [ ] **Step 4: Re-run until green**
+- [x] **Step 4: Re-run until green**
 
 ```bash
 cd packages/gateway && bun test test/integration/data/roundtrip.test.ts 2>&1 | tail -5
 bun run typecheck 2>&1 | tail -5
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/gateway/test/integration/data/roundtrip.test.ts \
@@ -2836,7 +2836,7 @@ git commit -m "test(data): end-to-end round-trip integration test + index inclus
 
 ## Final Verification
 
-- [ ] **Step 1: Full package test + typecheck**
+- [x] **Step 1: Full package test + typecheck**
 
 ```bash
 cd C:/gitrepo/Nimbus && bun run typecheck 2>&1 | tail -5
@@ -2845,7 +2845,7 @@ bun test 2>&1 | tail -15
 
 Expected: no failures. Every new test passes. Existing suites unaffected.
 
-- [ ] **Step 2: Coverage check**
+- [x] **Step 2: Coverage check**
 
 The WS3 coverage gate is new — phase-4-plan.md §3 acceptance says `packages/gateway/src/commands/data-*.ts` + `packages/gateway/src/db/audit.ts` chain paths ≥ 85 %. Run:
 
@@ -2855,7 +2855,7 @@ cd packages/gateway && bun test --coverage src/commands/data-*.ts src/db/audit-c
 
 Target: ≥ 85 % line coverage across those files. If any file falls below, extend the relevant task's test file before completing.
 
-- [ ] **Step 3: Finish the branch**
+- [x] **Step 3: Finish the branch**
 
 Invoke `superpowers:finishing-a-development-branch` to verify tests, offer merge/PR options, and close out.
 
@@ -2863,14 +2863,14 @@ Invoke `superpowers:finishing-a-development-branch` to verify tests, offer merge
 
 ## Acceptance Criteria (maps to phase-4-plan.md §3)
 
-- [ ] `nimbus data export` produces a valid bundle with manifest.json and BLAKE3 hashes (Task 10)
-- [ ] `nimbus data export --no-index` omits the index (Task 10)
-- [ ] Recovery seed generated and stored once, decrypt via seed works (Task 6, Task 15)
-- [ ] BLAKE3 hashes verified on import; tampered bundle rejected (Task 11)
-- [ ] Import rollback — vault entries written in step 4 are removed when a later step fails (Task 11)
-- [ ] `nimbus data delete --dry-run` prints pre-flight summary only (Task 12)
-- [ ] `nimbus data delete` removes items + vault entries for a service and writes audit (Task 12)
-- [ ] `nimbus connector reindex --depth metadata_only` prunes body + embeddings + audit (Task 13)
-- [ ] `nimbus audit verify` detects a chain break at any row position (Task 5)
-- [ ] Vault values never written to logs / IPC / unencrypted files (tested in Task 10 + Task 15)
-- [ ] Coverage ≥ 85 % for data-* commands and audit chain paths (Final Verification §2)
+- [x] `nimbus data export` produces a valid bundle with manifest.json and BLAKE3 hashes (Task 10)
+- [x] `nimbus data export --no-index` omits the index (Task 10)
+- [x] Recovery seed generated and stored once, decrypt via seed works (Task 6, Task 15)
+- [x] BLAKE3 hashes verified on import; tampered bundle rejected (Task 11)
+- [x] Import rollback — vault entries written in step 4 are removed when a later step fails (Task 11)
+- [x] `nimbus data delete --dry-run` prints pre-flight summary only (Task 12)
+- [x] `nimbus data delete` removes items + vault entries for a service and writes audit (Task 12)
+- [x] `nimbus connector reindex --depth metadata_only` prunes body + embeddings + audit (Task 13)
+- [x] `nimbus audit verify` detects a chain break at any row position (Task 5)
+- [x] Vault values never written to logs / IPC / unencrypted files (tested in Task 10 + Task 15)
+- [x] Coverage ≥ 85 % for data-* commands and audit chain paths (Final Verification §2)
