@@ -9,6 +9,25 @@ function makeSpawnMock(exitCode = 0): MockSpawnResult {
   return { exited: Promise.resolve(exitCode) };
 }
 
+async function runLinuxTts(whichFn: (name: string) => string | null): Promise<string[][]> {
+  const origWhich = Bun.which;
+  Bun.which = whichFn;
+  const captured: string[][] = [];
+  const origSpawn = Bun.spawn;
+  Bun.spawn = mock((cmd: string[], _opts?: unknown) => {
+    captured.push(cmd);
+    return makeSpawnMock(0);
+  }) as unknown as typeof Bun.spawn;
+  try {
+    const provider = new NativeTtsProvider({ platform: "linux" });
+    await provider.speak("Test");
+  } finally {
+    Bun.which = origWhich;
+    Bun.spawn = origSpawn;
+  }
+  return captured;
+}
+
 describe("NativeTtsProvider", () => {
   let originalSpawn: typeof Bun.spawn;
 
@@ -41,7 +60,7 @@ describe("NativeTtsProvider", () => {
   test("speak passes text as separate argv element (no shell injection risk)", async () => {
     const captured: string[][] = [];
     Bun.spawn = mock((cmd: string[], _opts?: unknown) => {
-      captured.push(cmd as string[]);
+      captured.push(cmd);
       return makeSpawnMock(0);
     }) as unknown as typeof Bun.spawn;
 
@@ -63,32 +82,12 @@ describe("NativeTtsProvider", () => {
   });
 
   test("linux: uses espeak-ng when available on PATH", async () => {
-    const origWhich = Bun.which;
-    Bun.which = (_name: string) => "/usr/bin/espeak-ng";
-    const captured: string[][] = [];
-    Bun.spawn = mock((cmd: string[], _opts?: unknown) => {
-      captured.push(cmd as string[]);
-      return makeSpawnMock(0);
-    }) as unknown as typeof Bun.spawn;
-
-    const provider = new NativeTtsProvider({ platform: "linux" });
-    await provider.speak("Test");
+    const captured = await runLinuxTts((_name) => "/usr/bin/espeak-ng");
     expect(captured[0]?.[0]).toContain("espeak-ng");
-    Bun.which = origWhich;
   });
 
   test("linux: falls back to spd-say when espeak-ng not on PATH", async () => {
-    const origWhich = Bun.which;
-    Bun.which = (name: string) => (name === "spd-say" ? "/usr/bin/spd-say" : null);
-    const captured: string[][] = [];
-    Bun.spawn = mock((cmd: string[], _opts?: unknown) => {
-      captured.push(cmd as string[]);
-      return makeSpawnMock(0);
-    }) as unknown as typeof Bun.spawn;
-
-    const provider = new NativeTtsProvider({ platform: "linux" });
-    await provider.speak("Test");
+    const captured = await runLinuxTts((name) => (name === "spd-say" ? "/usr/bin/spd-say" : null));
     expect(captured[0]?.[0]).toContain("spd-say");
-    Bun.which = origWhich;
   });
 });
