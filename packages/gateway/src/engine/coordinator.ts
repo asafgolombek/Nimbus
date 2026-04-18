@@ -69,7 +69,7 @@ export class AgentCoordinator {
           text: outcome.text,
           tokensIn: outcome.tokensIn,
           tokensOut: outcome.tokensOut,
-          ...(outcome.modelUsed !== undefined ? { modelUsed: outcome.modelUsed } : {}),
+          ...(outcome.modelUsed === undefined ? {} : { modelUsed: outcome.modelUsed }),
         });
       } catch (err) {
         results.push({

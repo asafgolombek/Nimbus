@@ -1,8 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { AgentInvokeHandler } from "./agent-invoke.ts";
 import type { CreateIpcServerOptions } from "./server.ts";
 import { createIpcServer } from "./server.ts";
+
+let tmpDir: string;
+
+beforeAll(async () => {
+  tmpDir = await mkdtemp(join(tmpdir(), "nimbus-test-ws1-"));
+});
+
+afterAll(async () => {
+  await rm(tmpDir, { recursive: true, force: true });
+});
 
 function makeStubVault(): NimbusVault {
   const store = new Map<string, string>();
@@ -20,7 +33,7 @@ function makeStubVault(): NimbusVault {
 
 function makeServerOpts(extra: Partial<CreateIpcServerOptions> = {}): CreateIpcServerOptions {
   return {
-    listenPath: "/tmp/test-ws1.sock",
+    listenPath: join(tmpDir, "test-ws1.sock"),
     vault: makeStubVault(),
     version: "0.0.0-test",
     ...extra,

@@ -702,6 +702,13 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         }
 
         // Return streamId immediately so caller can track this stream
+        const sendChunk = (text: string) => {
+          session.writeNotification({
+            jsonrpc: "2.0",
+            method: "engine.streamToken",
+            params: { streamId, text },
+          });
+        };
         void (async () => {
           try {
             const requestStore: AgentRequestContext = {};
@@ -711,13 +718,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
                 clientId,
                 input,
                 stream: true,
-                sendChunk: (text: string) => {
-                  session.writeNotification({
-                    jsonrpc: "2.0",
-                    method: "engine.streamToken",
-                    params: { streamId, text },
-                  });
-                },
+                sendChunk,
               };
               if (sessionId !== undefined) payload.sessionId = sessionId;
               await handler(payload);

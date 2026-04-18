@@ -30,6 +30,29 @@ function parseVramMb(sizeBytes: unknown): number | undefined {
   return Math.round(sizeBytes / (1024 * 1024));
 }
 
+function processStreamLine(
+  line: string,
+  state: { text: string; tokensIn: number; tokensOut: number },
+  onToken?: (token: string) => void,
+): void {
+  const trimmed = line.trim();
+  if (trimmed === "") return;
+  try {
+    const chunk = JSON.parse(trimmed) as OllamaGenerateChunk;
+    const token = chunk.response ?? "";
+    if (token !== "") {
+      state.text += token;
+      onToken?.(token);
+    }
+    if (chunk.done === true) {
+      state.tokensIn = chunk.prompt_eval_count ?? 0;
+      state.tokensOut = chunk.eval_count ?? 0;
+    }
+  } catch {
+    /* ignore malformed chunk lines */
+  }
+}
+
 function parseOllamaModel(raw: OllamaTagsModel): LlmModelInfo | undefined {
   if (typeof raw.name !== "string" || raw.name === "") return undefined;
   const parameterCount = parseBillions(raw.details?.parameter_size);
@@ -77,7 +100,7 @@ export class OllamaProvider implements LlmProvider {
     if (!Array.isArray(data.models)) return [];
     const out: LlmModelInfo[] = [];
     for (const m of data.models) {
-      const parsed = parseOllamaModel(m as OllamaTagsModel);
+      const parsed = parseOllamaModel(m);
       if (parsed !== undefined) out.push(parsed);
     }
     return out;
@@ -142,9 +165,7 @@ export class OllamaProvider implements LlmProvider {
     if (reader === undefined) throw new Error("No response body");
 
     const decoder = new TextDecoder();
-    let text = "";
-    let tokensIn = 0;
-    let tokensOut = 0;
+    const state = { text: "", tokensIn: 0, tokensOut: 0 };
     let buf = "";
 
     while (true) {
@@ -154,28 +175,13 @@ export class OllamaProvider implements LlmProvider {
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed === "") continue;
-        try {
-          const chunk = JSON.parse(trimmed) as OllamaGenerateChunk;
-          const token = chunk.response ?? "";
-          if (token !== "") {
-            text += token;
-            opts.onToken?.(token);
-          }
-          if (chunk.done === true) {
-            tokensIn = chunk.prompt_eval_count ?? 0;
-            tokensOut = chunk.eval_count ?? 0;
-          }
-        } catch {
-          /* ignore malformed chunk lines */
-        }
+        processStreamLine(line, state, opts.onToken);
       }
     }
     return {
-      text,
-      tokensIn,
-      tokensOut,
+      text: state.text,
+      tokensIn: state.tokensIn,
+      tokensOut: state.tokensOut,
       modelUsed: this.modelName,
       isLocal: true,
       provider: "ollama",

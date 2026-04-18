@@ -527,10 +527,6 @@ export function runIndexedSchemaMigrations(
     }
   }
 
-  const maxKnownVersion = INDEXED_SCHEMA_STEPS.reduce(
-    (max, s) => (s.toVersion > max ? s.toVersion : max),
-    0,
-  );
   if (ver !== targetVersion) {
     throw new Error(
       `Unsupported local index schema version: ${String(ver)} (expected 0–${String(targetVersion)})`,
