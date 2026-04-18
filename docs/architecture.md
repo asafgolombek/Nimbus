@@ -787,7 +787,7 @@ The Model Router sits between the IPC layer and the Engine. It selects the infer
 | llama.cpp (GGUF) | Direct file path | `[llm.gguf_path]` |
 | Anthropic (remote) | `ANTHROPIC_API_KEY` in Vault | `[llm.provider] = "anthropic"` |
 
-Model lifecycle (pull, load, unload, status) is managed via the `model.*` IPC method namespace. The router dispatches to a loaded backend or falls back per the table above; it never calls an LLM provider API directly.
+Model lifecycle (list, pull, load, unload, status) is managed via the `llm.*` IPC method namespace (`llm.listModels`, `llm.getStatus`, `llm.pullModel`, `llm.loadModel`, `llm.unloadModel`, `llm.setDefault`, `llm.getRouterStatus`). The router dispatches to a loaded backend or falls back per the table above; it never calls an LLM provider API directly.
 
 ### Multi-Agent Orchestration
 
@@ -874,16 +874,18 @@ The Gateway is designed to start in a degraded state rather than fail completely
 All client ↔ Gateway communication uses JSON-RPC 2.0. The protocol is language-agnostic — a VS Code extension, browser extension, or mobile app over LAN can connect to the same Gateway without protocol changes.
 
 ```typescript
-// Streaming agent invocation
-const request: JSONRPCRequest = {
+// Streaming agent invocation (Phase 4) — returns streamId immediately;
+// Gateway emits engine.streamToken / engine.streamDone / engine.streamError notifications
+const streamReq: JSONRPCRequest = {
   jsonrpc: "2.0",
   id: crypto.randomUUID(),
-  method: "agent.invoke",
-  params: {
-    input: "Find all PDFs I received by email last month",
-    stream: true,
-  },
+  method: "engine.askStream",
+  params: { input: "Find all PDFs I received by email last month" },
 };
+// Response: { streamId: string }
+// Notification: { method: "engine.streamToken", params: { streamId, text, meta: { modelUsed, isLocal, provider } } }
+// Notification: { method: "engine.streamDone",  params: { streamId, meta } }
+// Notification: { method: "engine.streamError", params: { streamId, error } }
 
 // Consent gate — Gateway emits a consent request; client surfaces it to the user
 // Gateway → Client: { method: "consent.request", params: { actionId, prompt, details } }

@@ -1,5 +1,7 @@
 import { Database } from "bun:sqlite";
 import { expect } from "bun:test";
+import http from "node:http";
+import https from "node:https";
 import pino from "pino";
 
 import { LocalIndex } from "../index/local-index.ts";
@@ -93,7 +95,27 @@ export function expectPrefixedCursorCodecRoundTrip<T>(
   }
 }
 
-/** Completes the browser step of Google PKCE tests by POSTing to the redirect_uri callback. */
+/**
+ * Issues a GET to the local OAuth callback URL without using `globalThis.fetch`.
+ * Connector tests often replace global fetch; this keeps PKCE harness tests stable.
+ */
+async function pkceTestHttpGetStatus(url: string): Promise<number> {
+  const u = new URL(url);
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error(`PKCE test helper expected http(s) callback URL, got ${u.protocol}`);
+  }
+  const mod = u.protocol === "https:" ? https : http;
+  return await new Promise((resolve, reject) => {
+    const req = mod.request(u, { method: "GET", headers: { Connection: "close" } }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+/** Completes the browser step of PKCE tests by GETting the redirect_uri callback with code/state query params. */
 export function googlePkceOpenUrlCompleter(
   code: string,
   options?: {
@@ -117,9 +139,9 @@ export function googlePkceOpenUrlCompleter(
     const cb = new URL(ru);
     cb.searchParams.set("code", code);
     cb.searchParams.set("state", st);
-    const res = await fetch(cb.toString());
+    const status = await pkceTestHttpGetStatus(cb.toString());
     if (assertOk) {
-      expect(res.ok).toBe(true);
+      expect(status >= 200 && status < 300).toBe(true);
     }
   };
 }

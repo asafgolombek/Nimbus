@@ -185,3 +185,109 @@ export function loadNimbusEmbeddingFromPath(tomlPath: string): NimbusEmbeddingTo
 export function loadNimbusEmbeddingFromConfigDir(configDir: string): NimbusEmbeddingToml {
   return loadNimbusEmbeddingFromPath(join(configDir, "nimbus.toml"));
 }
+
+// ─── [llm] section ──────────────────────────────────────────────────────────
+
+export type NimbusLlmToml = {
+  preferLocal: boolean;
+  remoteModel: string;
+  localModel: string;
+  llamacppServerPath: string;
+  minReasoningParams: number;
+  enforceAirGap: boolean;
+  maxAgentDepth: number;
+  maxToolCallsPerSession: number;
+};
+
+export const DEFAULT_NIMBUS_LLM_TOML: NimbusLlmToml = {
+  preferLocal: true,
+  remoteModel: "claude-sonnet-4-6",
+  localModel: "llama3.2",
+  llamacppServerPath: "",
+  minReasoningParams: 7,
+  enforceAirGap: false,
+  maxAgentDepth: 3,
+  maxToolCallsPerSession: 20,
+};
+
+function applyNimbusLlmKey(out: Partial<NimbusLlmToml>, key: string, valRaw: string): void {
+  switch (key) {
+    case "prefer_local": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.preferLocal = b;
+      break;
+    }
+    case "remote_model":
+      out.remoteModel = parseString(valRaw);
+      break;
+    case "local_model":
+      out.localModel = parseString(valRaw);
+      break;
+    case "llamacpp_server_path":
+      out.llamacppServerPath = parseString(valRaw);
+      break;
+    case "min_reasoning_params": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) out.minReasoningParams = n;
+      break;
+    }
+    case "enforce_air_gap": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.enforceAirGap = b;
+      break;
+    }
+    case "max_agent_depth": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n >= 1 && n <= 10) out.maxAgentDepth = n;
+      break;
+    }
+    case "max_tool_calls_per_session": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n >= 1 && n <= 200) out.maxToolCallsPerSession = n;
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+export function parseNimbusTomlLlmSection(source: string): Partial<NimbusLlmToml> {
+  const lines = source.split(/\r?\n/);
+  let inLlm = false;
+  const out: Partial<NimbusLlmToml> = {};
+
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inLlm = trimmed === "[llm]";
+      continue;
+    }
+    if (!inLlm) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    applyNimbusLlmKey(out, key, valRaw);
+  }
+  return out;
+}
+
+export function loadNimbusLlmFromPath(tomlPath: string): NimbusLlmToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_LLM_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return structuredClone({
+      ...DEFAULT_NIMBUS_LLM_TOML,
+      ...parseNimbusTomlLlmSection(raw),
+    });
+  } catch {
+    return structuredClone(DEFAULT_NIMBUS_LLM_TOML);
+  }
+}
+
+export function loadNimbusLlmFromConfigDir(configDir: string): NimbusLlmToml {
+  return loadNimbusLlmFromPath(join(configDir, "nimbus.toml"));
+}

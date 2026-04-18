@@ -25,12 +25,14 @@ import {
 } from "../extension-session-v10-sql.ts";
 import { GRAPH_RELATION_TYPES_V12_SQL } from "../graph-relation-types-v12-sql.ts";
 import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
+import { LLM_CONTEXT_WINDOW_V16_ALTER_SQL, LLM_MODELS_V16_SQL } from "../llm-models-v16-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import { tryLoadSqliteVec } from "../sqlite-vec-load.ts";
+import { SUB_TASK_RESULTS_V17_SQL } from "../sub-task-results-v17-sql.ts";
 import {
   UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL,
   UNIFIED_ITEM_V3_SCHEMA_SQL,
@@ -221,6 +223,30 @@ function migrateIndexedV14ToV15(db: Database, now: number): void {
   })();
 }
 
+function llmModelsSyncStateHasContextWindowColumn(db: Database): boolean {
+  const cols = db.query("PRAGMA table_info(sync_state)").all() as Array<{ name: string }>;
+  return cols.some((c) => c.name === "context_window_tokens");
+}
+
+function migrateIndexedV15ToV16(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(LLM_MODELS_V16_SQL);
+    if (!llmModelsSyncStateHasContextWindowColumn(db)) {
+      db.exec(LLM_CONTEXT_WINDOW_V16_ALTER_SQL.trim());
+    }
+    db.exec("PRAGMA user_version = 16");
+    recordMigration(db, 16, "llm_models table + sync_state.context_window_tokens", now);
+  })();
+}
+
+function migrateIndexedV16ToV17(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(SUB_TASK_RESULTS_V17_SQL);
+    db.exec("PRAGMA user_version = 17");
+    recordMigration(db, 17, "sub_task_results (multi-agent sub-task persistence)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -237,6 +263,28 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 12, toVersion: 13, apply: migrateIndexedV12ToV13 },
   { fromVersion: 13, toVersion: 14, apply: migrateIndexedV13ToV14 },
   { fromVersion: 14, toVersion: 15, apply: migrateIndexedV14ToV15 },
+  { fromVersion: 15, toVersion: 16, apply: migrateIndexedV15ToV16 },
+  { fromVersion: 16, toVersion: 17, apply: migrateIndexedV16ToV17 },
+];
+
+const BACKFILL_LABELS: readonly string[] = [
+  "initial filesystem schema (backfilled)",
+  "scheduler_state + sync_telemetry (backfilled)",
+  "unified item + item_fts + person (backfilled)",
+  "person.linked (backfilled)",
+  "person extra handles (backfilled)",
+  "embedding_chunk + vec_items_384 (backfilled)",
+  "graph_entity + graph_relation (backfilled)",
+  "watcher + watcher_event (backfilled)",
+  "workflow + workflow_run + workflow_run_step (backfilled)",
+  "extension + session_memory (backfilled)",
+  "user_mcp_connector (backfilled)",
+  "graph_relation_type filesystem edges (backfilled)",
+  "connector health state + history (backfilled)",
+  "query_latency_log + slow_query_log (backfilled)",
+  "connector_remove_intent (backfilled)",
+  "llm_models table + sync_state.context_window_tokens (backfilled)",
+  "sub_task_results (backfilled)",
 ];
 
 /**
@@ -256,50 +304,14 @@ function backfillMigrationsLedger(db: Database): void {
   }
   const now = Date.now();
   db.transaction(() => {
-    if (uv >= 1) {
-      recordMigration(db, 1, "initial filesystem schema (backfilled)", now);
-    }
-    if (uv >= 2) {
-      recordMigration(db, 2, "scheduler_state + sync_telemetry (backfilled)", now);
-    }
-    if (uv >= 3) {
-      recordMigration(db, 3, "unified item + item_fts + person (backfilled)", now);
-    }
-    if (uv >= 4) {
-      recordMigration(db, 4, "person.linked (backfilled)", now);
-    }
-    if (uv >= 5) {
-      recordMigration(db, 5, "person extra handles (backfilled)", now);
-    }
-    if (uv >= 6) {
-      recordMigration(db, 6, "embedding_chunk + vec_items_384 (backfilled)", now);
-    }
-    if (uv >= 7) {
-      recordMigration(db, 7, "graph_entity + graph_relation (backfilled)", now);
-    }
-    if (uv >= 8) {
-      recordMigration(db, 8, "watcher + watcher_event (backfilled)", now);
-    }
-    if (uv >= 9) {
-      recordMigration(db, 9, "workflow + workflow_run + workflow_run_step (backfilled)", now);
-    }
-    if (uv >= 10) {
-      recordMigration(db, 10, "extension + session_memory (backfilled)", now);
-    }
-    if (uv >= 11) {
-      recordMigration(db, 11, "user_mcp_connector (backfilled)", now);
-    }
-    if (uv >= 12) {
-      recordMigration(db, 12, "graph_relation_type filesystem edges (backfilled)", now);
-    }
-    if (uv >= 13) {
-      recordMigration(db, 13, "connector health state + history (backfilled)", now);
-    }
-    if (uv >= 14) {
-      recordMigration(db, 14, "query_latency_log + slow_query_log (backfilled)", now);
-    }
-    if (uv >= 15) {
-      recordMigration(db, 15, "connector_remove_intent (backfilled)", now);
+    for (let v = 1; v <= uv; v++) {
+      const label = BACKFILL_LABELS[v - 1];
+      if (label === undefined) {
+        throw new Error(
+          `Backfill migration label missing for schema v${String(v)} (extend BACKFILL_LABELS in runner.ts)`,
+        );
+      }
+      recordMigration(db, v, label, now);
     }
   })();
 }
