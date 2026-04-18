@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776485895138,
+  "lastUpdate": 1776495544951,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -231,6 +231,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.098447700000001,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95e364e2ca11b004dd228d973bdea91e80ff5c75",
+          "message": "Merge pull request #48 from asafgolombek/dev/asafgolombek/general_code_review\n\nDev/asafgolombek/general code review",
+          "timestamp": "2026-04-18T09:58:42+03:00",
+          "tree_id": "66a00267bc5b6eec89b7b8f603a463f977c0919a",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/95e364e2ca11b004dd228d973bdea91e80ff5c75"
+        },
+        "date": 1776495544580,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4959961999999978,
             "unit": "ms"
           }
         ]
