@@ -3,7 +3,10 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => {}),
+  emit: vi.fn(async () => undefined),
+}));
 
 import { RootLayout } from "../../src/layouts/RootLayout";
 import { useNimbusStore } from "../../src/store";

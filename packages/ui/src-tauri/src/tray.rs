@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use tauri::image::Image;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
@@ -19,6 +19,12 @@ struct TrayStateChange {
     badge: u32,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct ConnectorMenuEntry {
+    pub name: String,
+    pub health: String,
+}
+
 fn icon_bytes(state: TrayIconState) -> &'static [u8] {
     match state {
         TrayIconState::Normal => include_bytes!("../icons/tray-normal.png"),
@@ -27,14 +33,79 @@ fn icon_bytes(state: TrayIconState) -> &'static [u8] {
     }
 }
 
-pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
+fn health_glyph(h: &str) -> &'static str {
+    match h {
+        "healthy" => "●",
+        "degraded" | "rate_limited" => "◐",
+        "error" | "unauthenticated" => "○",
+        _ => "·",
+    }
+}
+
+fn handle_menu_event(app_handle: &AppHandle, id: &str) {
+    match id {
+        "open-dashboard" => focus_main(app_handle),
+        "quick-query" => {
+            let _ = crate::quick_query::spawn_or_focus(app_handle);
+        }
+        "settings" => {
+            focus_main(app_handle);
+            let _ = app_handle.emit("tray://navigate", "/settings");
+        }
+        "quit" => app_handle.exit(0),
+        _ if id.starts_with("conn:") => {
+            let name = id.trim_start_matches("conn:").to_string();
+            focus_main(app_handle);
+            let _ = app_handle.emit("tray://open-connector", serde_json::json!({ "name": name }));
+        }
+        _ => {}
+    }
+}
+
+fn build_menu(
+    app: &AppHandle,
+    items: &[ConnectorMenuEntry],
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     let open = MenuItemBuilder::with_id("open-dashboard", "Open Dashboard").build(app)?;
     let quick = MenuItemBuilder::with_id("quick-query", "Quick Query\tCtrl+Shift+N").build(app)?;
     let settings = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-    let menu = MenuBuilder::new(app)
-        .items(&[&open, &quick, &settings, &quit])
-        .build()?;
+
+    let mut connectors_sub = SubmenuBuilder::new(app, "Connectors");
+    for c in items {
+        let id = format!("conn:{}", c.name);
+        let label = format!("{} {} — {}", health_glyph(&c.health), c.name, c.health);
+        let item = MenuItemBuilder::with_id(id, label).build(app)?;
+        connectors_sub = connectors_sub.item(&item);
+    }
+    let connectors_submenu = connectors_sub.build()?;
+
+    MenuBuilder::new(app)
+        .item(&open)
+        .item(&quick)
+        .separator()
+        .item(&connectors_submenu)
+        .separator()
+        .item(&settings)
+        .separator()
+        .item(&quit)
+        .build()
+}
+
+#[tauri::command]
+pub async fn set_connectors_menu(
+    app: AppHandle,
+    items: Vec<ConnectorMenuEntry>,
+) -> Result<(), String> {
+    let menu = build_menu(&app, &items).map_err(|e| e.to_string())?;
+    if let Some(tray) = app.tray_by_id("nimbus-tray") {
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
+    let menu = build_menu(app, &[])?;
 
     #[cfg(target_os = "macos")]
     let icon_is_template = true;
@@ -49,18 +120,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         })?)
         .icon_as_template(icon_is_template)
         .menu(&menu)
-        .on_menu_event(|app_handle, event| match event.id().as_ref() {
-            "open-dashboard" => focus_main(app_handle),
-            "quick-query" => {
-                let _ = crate::quick_query::spawn_or_focus(app_handle);
-            }
-            "settings" => {
-                focus_main(app_handle);
-                let _ = app_handle.emit("tray://navigate", "/settings");
-            }
-            "quit" => app_handle.exit(0),
-            _ => {}
-        })
+        .on_menu_event(|app_handle, event| handle_menu_event(app_handle, event.id().as_ref()))
         .on_tray_icon_event(|_icon, _event: TrayIconEvent| {})
         .build(app)?;
 

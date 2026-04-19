@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { type ReactNode, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useIpcQuery } from "../../hooks/useIpcQuery";
@@ -17,18 +18,30 @@ export function ConnectorGrid(): ReactNode {
   const patchConnector = useNimbusStore((s) => s.patchConnector);
   const connectors = useNimbusStore((s) => s.connectors);
   const highlight = useNimbusStore((s) => s.highlightConnector);
+  const recomputeAggregate = useNimbusStore((s) => s.recomputeAggregate);
+  const setConnectorsMenu = useNimbusStore((s) => s.setConnectorsMenu);
 
   const { data } = useIpcQuery<ConnectorStatus[]>("connector.listStatus", 30_000);
   useEffect(() => {
     if (data && data !== connectors) setConnectors(data);
   }, [data, connectors, setConnectors]);
 
+  useEffect(() => {
+    recomputeAggregate(connectors);
+    const items = connectors.map((c) => ({ name: c.name, health: c.health }));
+    setConnectorsMenu(items);
+    void invoke("set_connectors_menu", { items }).catch(() => {
+      // Non-fatal: tray will pick up state on the next refresh.
+    });
+  }, [connectors, recomputeAggregate, setConnectorsMenu]);
+
   const onHealth = useCallback(
     (payload: HealthChangedPayload) => {
-      patchConnector(payload.name, {
-        health: payload.health,
-        degradationReason: payload.degradationReason,
-      });
+      const patch: Partial<ConnectorStatus> = { health: payload.health };
+      if (payload.degradationReason !== undefined) {
+        patch.degradationReason = payload.degradationReason;
+      }
+      patchConnector(payload.name, patch);
     },
     [patchConnector],
   );

@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../src/store", () => ({
-  useNimbusStore: (sel: (s: { trayIcon: "normal" | "amber" | "red" }) => unknown) =>
-    sel({ trayIcon: "normal" }),
+  useNimbusStore: (sel: (s: { aggregateHealth: "normal" | "amber" | "red" }) => unknown) =>
+    sel({ aggregateHealth: "normal" }),
 }));
 
 import { PageHeader } from "../../../src/components/chrome/PageHeader";
