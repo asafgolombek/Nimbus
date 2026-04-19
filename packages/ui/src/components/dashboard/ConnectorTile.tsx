@@ -3,8 +3,8 @@ import type { ConnectorStatus } from "../../ipc/types";
 import { formatRelative } from "./format";
 
 interface Props {
-  status: ConnectorStatus;
-  highlighted: boolean;
+  readonly status: ConnectorStatus;
+  readonly highlighted: boolean;
 }
 
 function dotColour(h: ConnectorStatus["health"]): string {

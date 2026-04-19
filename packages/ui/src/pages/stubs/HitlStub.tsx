@@ -3,22 +3,28 @@ import type { ReactNode } from "react";
 import { PageHeader } from "../../components/chrome/PageHeader";
 import { useNimbusStore } from "../../store";
 
+function describePending(n: number): string {
+  if (n === 0) return "No pending actions.";
+  const suffix = n === 1 ? "" : "s";
+  return `${n} pending action${suffix}.`;
+}
+
+function openPopup(): void {
+  invoke("open_hitl_popup").catch(() => undefined);
+}
+
 export function HitlStub(): ReactNode {
   const pending = useNimbusStore((s) => s.pending.length);
   return (
     <>
       <PageHeader title="HITL" />
       <div className="p-6">
-        <p className="text-sm text-[var(--color-fg-muted)]">
-          {pending === 0
-            ? "No pending actions."
-            : `${pending} pending action${pending === 1 ? "" : "s"}.`}
-        </p>
+        <p className="text-sm text-[var(--color-fg-muted)]">{describePending(pending)}</p>
         {pending > 0 && (
           <button
             type="button"
             className="mt-3 px-3 py-1 bg-[var(--color-accent)] text-white rounded"
-            onClick={() => void invoke("open_hitl_popup").catch(() => undefined)}
+            onClick={openPopup}
           >
             Open popup
           </button>

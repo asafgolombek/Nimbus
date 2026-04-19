@@ -3,7 +3,7 @@ import { useIpcQuery } from "../../hooks/useIpcQuery";
 import type { IndexMetrics } from "../../ipc/types";
 import { formatBytes, formatCount, formatMs, formatPercent } from "./format";
 
-function Tile({ label, value }: { label: string; value: string }): ReactNode {
+function Tile({ label, value }: { readonly label: string; readonly value: string }): ReactNode {
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md p-4">
       <div className="text-[var(--color-fg)] text-2xl font-medium">{value}</div>

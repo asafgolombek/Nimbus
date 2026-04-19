@@ -8,9 +8,9 @@ import { useNimbusStore } from "../../store";
 import { ConnectorTile } from "./ConnectorTile";
 
 interface HealthChangedPayload {
-  name: string;
-  health: ConnectorStatus["health"];
-  degradationReason?: string;
+  readonly name: string;
+  readonly health: ConnectorStatus["health"];
+  readonly degradationReason?: string;
 }
 
 export function ConnectorGrid(): ReactNode {
@@ -30,9 +30,7 @@ export function ConnectorGrid(): ReactNode {
     recomputeAggregate(connectors);
     const items = connectors.map((c) => ({ name: c.name, health: c.health }));
     setConnectorsMenu(items);
-    void invoke("set_connectors_menu", { items }).catch(() => {
-      // Non-fatal: tray will pick up state on the next refresh.
-    });
+    invoke("set_connectors_menu", { items }).catch(() => undefined);
   }, [connectors, recomputeAggregate, setConnectorsMenu]);
 
   const onHealth = useCallback(
