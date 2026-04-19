@@ -1,4 +1,6 @@
 mod gateway_bridge;
+mod quick_query;
+mod tray;
 
 use gateway_bridge::{connect_and_run, BridgeState};
 use tauri::Manager;
@@ -7,6 +9,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(BridgeState::new())
         .invoke_handler(tauri::generate_handler![
             gateway_bridge::rpc_call,
@@ -20,6 +23,10 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            tray::init_tray(app.handle())?;
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let handle = app.handle().clone();
             let state = handle.state::<BridgeState>();
             let bridge_for_task = BridgeState {
