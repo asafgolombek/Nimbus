@@ -1,6 +1,6 @@
 {
   "name": "@nimbus-dev/sdk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -29,7 +29,8 @@
     "lint": "biome check src/",
     "test": "bun test",
     "clean": "rm -rf dist",
-    "prepublishOnly": "bun run build && bun run typecheck"
+    "prepublishOnly": "bun run build && bun run typecheck",
+    "test:coverage:sdk": "bun test --coverage src"
   },
   "publishConfig": {
     "access": "public",

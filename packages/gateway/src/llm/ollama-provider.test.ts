@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { OllamaProvider } from "./ollama-provider.ts";
 
+const _realFetch = globalThis.fetch;
+
 const FAKE_TAGS_RESPONSE = {
   models: [
     {
@@ -40,7 +42,7 @@ describe("OllamaProvider", () => {
   });
 
   afterEach(() => {
-    globalThis.fetch = fetch;
+    globalThis.fetch = _realFetch;
   });
 
   test("providerId is 'ollama'", () => {

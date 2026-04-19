@@ -72,6 +72,17 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/gateway/src/index/sub-task-results-v17-sql.ts` | V17 migration SQL — `sub_task_results` table for multi-agent persistence |
 | `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY` connection) |
 | `packages/gateway/src/ipc/metrics-server.ts` | Prometheus-compatible metrics endpoint (`localhost` only, off by default) |
+| `packages/gateway/src/ipc/lan-crypto.ts` | NaCl box keypair generation, `sealBoxFrame` / `openBoxFrame` for LAN E2E encryption |
+| `packages/gateway/src/ipc/lan-pairing.ts` | `PairingWindow` — single-use base58 pairing code with 5-minute expiry |
+| `packages/gateway/src/ipc/lan-rate-limit.ts` | `LanRateLimiter` — per-IP sliding-window failure tracking and lockout |
+| `packages/gateway/src/ipc/lan-rpc.ts` | `LanError`, `checkLanMethodAllowed` — forbidden-method and write-grant enforcement for LAN peers |
+| `packages/gateway/src/ipc/lan-server.ts` | `LanServer` — `Bun.listen` TCP server; length-framed, NaCl box encrypted RPC after pairing handshake |
+| `packages/gateway/src/ipc/updater-rpc.ts` | `dispatchUpdaterRpc` — `updater.getStatus`, `updater.checkNow`, `updater.applyUpdate`, `updater.rollback` |
+| `packages/gateway/src/updater/updater.ts` | `Updater` state machine — manifest fetch, semver compare, download, Ed25519 verify, install |
+| `packages/gateway/src/updater/manifest-fetcher.ts` | `fetchUpdateManifest` — typed manifest fetch with `AbortController` timeout |
+| `packages/gateway/src/updater/signature-verifier.ts` | `verifyBinarySignature` — Ed25519 over SHA-256 of binary |
+| `packages/gateway/src/updater/public-key.ts` | Embedded Ed25519 updater public key; `NIMBUS_DEV_UPDATER_PUBLIC_KEY` override for tests |
+| `packages/gateway/src/index/lan-peers-v19-sql.ts` | V19 migration SQL — `lan_peers` table |
 | `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
@@ -130,6 +141,9 @@ bun run test:coverage:config       # ≥80% threshold (config loader, profiles, 
 bun run test:coverage:client       # ≥80% threshold (@nimbus-dev/client)
 bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — payload safety gate)
 bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
+# Phase 4 WS4 coverage gates
+bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
+bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
 
 # Integration tests
 bun run test:integration
@@ -183,10 +197,28 @@ bun run package:installers:linux -- --version 0.1.0
 # nimbus audit verify [--full] [--since <id>]
 # nimbus audit export --output <path.json>
 
+# Phase 4 WS4 — Release Infrastructure
+# nimbus update --check              # check for update; exit 1 if available, 0 if current
+# nimbus update [--yes]              # download, verify Ed25519 signature, invoke platform installer
+# nimbus lan enable [--allow-pairing]  # start LAN server; open 5-min pairing window (optional)
+# nimbus lan disable                 # stop LAN server
+# nimbus lan pair <host-ip> <code>   # exchange X25519 keys with a host using pairing code
+# nimbus lan status                  # show LAN server state and paired peers
+# nimbus lan list-peers              # list paired peers with id, direction, write-allowed
+# nimbus lan grant-write <peer-id>   # allow peer to call write/HITL methods
+# nimbus lan revoke-write <peer-id>  # remove write grant
+# nimbus lan remove-peer <peer-id>   # unpair a peer
+
 # Phase 4 env-var overrides (multi-agent loop guards)
 # NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)
 # NIMBUS_MAX_TOOL_CALLS_PER_SESSION=20  hard cap on tool calls per session (1–200; default 20)
 # Exceeding either fires agent.gasLimitReached and halts new decomposition.
+
+# Phase 4 WS4 env-var overrides
+# NIMBUS_UPDATER_URL=<url>           override update manifest URL (default: official endpoint)
+# NIMBUS_UPDATER_DISABLE=true        disable auto-update checks entirely
+# NIMBUS_LAN_PORT=<port>             override LAN TCP listen port (default: 7475)
+# NIMBUS_DEV_UPDATER_PUBLIC_KEY=<base64>  override embedded Ed25519 public key (tests only)
 
 # Docs site (packages/docs)
 bun run docs:build                     # from repo root (workspace filter)

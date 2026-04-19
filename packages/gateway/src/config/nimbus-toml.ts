@@ -393,3 +393,207 @@ export function loadNimbusVoiceFromPath(tomlPath: string): NimbusVoiceToml {
 export function loadNimbusVoiceFromConfigDir(configDir: string): NimbusVoiceToml {
   return loadNimbusVoiceFromPath(join(configDir, "nimbus.toml"));
 }
+
+// ─── [updater] section ──────────────────────────────────────────────────────
+
+export type NimbusUpdaterToml = {
+  enabled: boolean;
+  url: string;
+  checkOnStartup: boolean;
+  autoApply: boolean;
+};
+
+export const DEFAULT_NIMBUS_UPDATER_TOML: NimbusUpdaterToml = {
+  enabled: true,
+  url: "https://github.com/asafgolombek/Nimbus/releases/latest/download/latest.json",
+  checkOnStartup: true,
+  autoApply: false,
+};
+
+function applyNimbusUpdaterKey(out: Partial<NimbusUpdaterToml>, key: string, valRaw: string): void {
+  switch (key) {
+    case "enabled": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.enabled = b;
+      break;
+    }
+    case "url":
+      out.url = parseString(valRaw);
+      break;
+    case "check_on_startup": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.checkOnStartup = b;
+      break;
+    }
+    case "auto_apply": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.autoApply = b;
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+export function parseNimbusTomlUpdaterSection(source: string): Partial<NimbusUpdaterToml> {
+  const lines = source.split(/\r?\n/);
+  let inUpdater = false;
+  const out: Partial<NimbusUpdaterToml> = {};
+
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inUpdater = trimmed === "[updater]";
+      continue;
+    }
+    if (!inUpdater) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    applyNimbusUpdaterKey(out, key, valRaw);
+  }
+  return out;
+}
+
+export function parseNimbusUpdaterToml(
+  raw: string,
+  defaults: NimbusUpdaterToml = DEFAULT_NIMBUS_UPDATER_TOML,
+): NimbusUpdaterToml {
+  const section = parseNimbusTomlUpdaterSection(raw);
+  const result: NimbusUpdaterToml = { ...defaults, ...section };
+
+  const urlOverride = processEnvGet("NIMBUS_UPDATER_URL");
+  if (urlOverride) {
+    result.url = urlOverride;
+  }
+  if (processEnvGet("NIMBUS_UPDATER_DISABLE") === "1") {
+    result.enabled = false;
+  }
+  return result;
+}
+
+export function loadNimbusUpdaterFromPath(tomlPath: string): NimbusUpdaterToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_UPDATER_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return parseNimbusUpdaterToml(raw);
+  } catch {
+    return structuredClone(DEFAULT_NIMBUS_UPDATER_TOML);
+  }
+}
+
+export function loadNimbusUpdaterFromConfigDir(configDir: string): NimbusUpdaterToml {
+  return loadNimbusUpdaterFromPath(join(configDir, "nimbus.toml"));
+}
+
+// ─── [lan] section ──────────────────────────────────────────────────────────
+
+export type NimbusLanToml = {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  pairingWindowSeconds: number;
+  maxFailedAttempts: number;
+  lockoutSeconds: number;
+};
+
+export const DEFAULT_NIMBUS_LAN_TOML: NimbusLanToml = {
+  enabled: false,
+  port: 7475,
+  bind: "0.0.0.0",
+  pairingWindowSeconds: 300,
+  maxFailedAttempts: 3,
+  lockoutSeconds: 60,
+};
+
+function applyNimbusLanKey(out: Partial<NimbusLanToml>, key: string, valRaw: string): void {
+  switch (key) {
+    case "enabled": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.enabled = b;
+      break;
+    }
+    case "port": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) out.port = n;
+      break;
+    }
+    case "bind":
+      out.bind = parseString(valRaw);
+      break;
+    case "pairing_window_seconds": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) out.pairingWindowSeconds = n;
+      break;
+    }
+    case "max_failed_attempts": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) out.maxFailedAttempts = n;
+      break;
+    }
+    case "lockout_seconds": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n >= 0) out.lockoutSeconds = n;
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function parseNimbusTomlLanSection(source: string): Partial<NimbusLanToml> {
+  const lines = source.split(/\r?\n/);
+  let inLan = false;
+  const out: Partial<NimbusLanToml> = {};
+
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inLan = trimmed === "[lan]";
+      continue;
+    }
+    if (!inLan) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    applyNimbusLanKey(out, key, valRaw);
+  }
+  return out;
+}
+
+export function parseNimbusLanToml(
+  raw: string,
+  defaults: NimbusLanToml = DEFAULT_NIMBUS_LAN_TOML,
+): NimbusLanToml {
+  const section = parseNimbusTomlLanSection(raw);
+  const result: NimbusLanToml = { ...defaults, ...section };
+
+  const portOverride = processEnvGet("NIMBUS_LAN_PORT");
+  if (portOverride) {
+    const parsed = Number.parseInt(portOverride, 10);
+    if (!Number.isNaN(parsed)) result.port = parsed;
+  }
+  return result;
+}
+
+export function loadNimbusLanFromPath(tomlPath: string): NimbusLanToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_LAN_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return parseNimbusLanToml(raw);
+  } catch {
+    return structuredClone(DEFAULT_NIMBUS_LAN_TOML);
+  }
+}
+
+export function loadNimbusLanFromConfigDir(configDir: string): NimbusLanToml {
+  return loadNimbusLanFromPath(join(configDir, "nimbus.toml"));
+}

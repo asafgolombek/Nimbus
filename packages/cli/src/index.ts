@@ -17,6 +17,7 @@ import {
   runDiag,
   runDoctor,
   runExtension,
+  runLan,
   runPeople,
   runProfile,
   runQuery,
@@ -30,6 +31,7 @@ import {
   runStop,
   runTelemetry,
   runTest,
+  runUpdate,
   runVault,
   runWatch,
   runWorkflowCli,
@@ -78,6 +80,9 @@ async function main(): Promise<void> {
           break;
         case "telemetry":
           await runTelemetry(args);
+          break;
+        case "update":
+          await runUpdate(args);
           break;
         case "doctor":
           await runDoctor(args);
@@ -135,6 +140,9 @@ async function main(): Promise<void> {
           break;
         case "scaffold":
           await runScaffold(args);
+          break;
+        case "lan":
+          await runLan(args);
           break;
         default:
           console.error(`Unknown command: ${command}`);

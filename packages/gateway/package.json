@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "test": "bun test",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test:coverage:updater": "bun test --coverage src/updater",
+    "test:coverage:lan": "bun test --coverage src/ipc/lan-crypto.test.ts src/ipc/lan-pairing.test.ts src/ipc/lan-rate-limit.test.ts src/ipc/lan-rpc.test.ts src/ipc/lan-server.test.ts"
   },
   "dependencies": {
     "@nimbus-dev/sdk": "workspace:*",
@@ -20,9 +22,11 @@
     "@noble/hashes": "^1.8.0",
     "@scure/bip39": "^1.6.0",
     "@xenova/transformers": "^2.17.0",
+    "bs58": "^6.0.0",
     "pino": "^10.3.1",
     "sqlite-vec": "^0.1.6",
     "tar": "^7.4.3",
+    "tweetnacl": "^1.0.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
