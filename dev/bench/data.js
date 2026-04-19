@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776594285875,
+  "lastUpdate": 1776598060178,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -608,6 +608,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4349271999999984,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "f3715b197fc6deac4a0efc9641094ddffd4d1aac",
+          "message": "chore: update .gitignore to include superpowers brainstorming artifacts and enhance security documentation in README and SECURITY.md",
+          "timestamp": "2026-04-19T14:27:10+03:00",
+          "tree_id": "3837f662eedea11e3761cc55a82dc1e025804871",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/f3715b197fc6deac4a0efc9641094ddffd4d1aac"
+        },
+        "date": 1776598059796,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.492538620000003,
             "unit": "ms"
           }
         ]
