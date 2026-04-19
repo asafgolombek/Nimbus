@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { type ConnectionSlice, createConnectionSlice } from "./slices/connection";
 import { createDashboardSlice, type DashboardSlice } from "./slices/dashboard";
+import { createHitlSlice, type HitlSlice } from "./slices/hitl";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboarding";
 import { createQuickQuerySlice, type QuickQuerySlice } from "./slices/quickQuery";
 import { createTraySlice, type TraySlice } from "./slices/tray";
@@ -9,7 +10,8 @@ export type NimbusStore = ConnectionSlice &
   TraySlice &
   QuickQuerySlice &
   OnboardingSlice &
-  DashboardSlice;
+  DashboardSlice &
+  HitlSlice;
 
 export const useNimbusStore = create<NimbusStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -17,4 +19,5 @@ export const useNimbusStore = create<NimbusStore>()((...a) => ({
   ...createQuickQuerySlice(...a),
   ...createOnboardingSlice(...a),
   ...createDashboardSlice(...a),
+  ...createHitlSlice(...a),
 }));

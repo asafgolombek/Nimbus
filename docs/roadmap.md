@@ -301,9 +301,18 @@ Commercial license also available now for organizations that need to embed Nimbu
 ### Desktop Application (Tauri 2.0)
 
 - [x] **App shell foundation (WS5-A)** — React 19 + Tailwind v4 + Radix + Zustand v5 + React Router v7 scaffolding; Rust Tauri 2.0 bridge with compile-time `ALLOWED_METHODS` allowlist (6 methods); system tray + `Ctrl/Cmd+Shift+N` Quick Query popup (frameless, 560×220, auto-close after stream); three-step onboarding wizard (Welcome → Connect → Syncing); first-run routing; macOS accessory mode; CI unit coverage gate (≥80% lines / ≥75% branches)
-- [ ] **System tray enhancements** — connector health dot with degradation state colour; badge for pending HITL actions
-- [ ] **Dashboard** — connector sync status with health state badges, index item counts, recent agent actions, audit log feed; degradation reason shown in connector tooltip
-- [ ] **HITL consent dialogs** — structured action preview; diff view for file/code changes; approve/reject with optional edit before approve
+- [x] **System tray enhancements (WS5-B)** — aggregate-health icon (green → amber → red); pending-HITL badge; "Connectors ▸" submenu populated from `set_connectors_menu`; click navigates to Dashboard and flashes the matching tile
+- [x] **Dashboard (WS5-B)** — `IndexMetricsStrip` (items · embeddings · p95 · size), `ConnectorGrid` with live `connector://health-changed` patches + empty state, `AuditFeed` (last 25); `useIpcQuery` polling hook pauses on hidden / disconnected
+- [x] **HITL consent dialogs (WS5-B)** — dedicated frameless 480×360 always-on-top popup at `#/hitl-popup`; `StructuredPreview` renders details XSS-safely; destructive-action deny-list suppresses Approve `autoFocus`; Rust `pending_hitl` inbox + `consent://request`/`consent://resolved` classifier; diff view for file/code changes and optional edit-before-approve deferred to a later sub-project
+
+#### WS5 Sub-project B acceptance
+
+- Dashboard (metrics + connectors + audit) renders within 2 s against a populated Gateway.
+- HITL popup opens within 1 s of `consent.request`; Approve / Reject → `consent.respond`.
+- Tray icon reflects aggregate health (green → amber → red) via `tray://state-changed` events.
+- Tray badge matches pending HITL count.
+- `ALLOWED_METHODS` grew by exactly four read-side methods; no `vault.*` or `db.*` writes.
+- `packages/ui` coverage ≥ 80 % lines / ≥ 75 % branches.
 - [ ] **Extension Marketplace panel** — browse, install, update, disable, remove extensions; verified publisher badge; community ratings; changelog per version; auto-update toggle
 - [ ] **Watcher management UI** — create, pause, delete watchers; condition builder; history of fired events
 - [ ] **Workflow pipeline editor** — visual step list; run history; re-run failed steps; parameter override before run

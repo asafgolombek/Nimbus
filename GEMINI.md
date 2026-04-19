@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -97,12 +97,25 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/ui/src/App.tsx` | `createBrowserRouter` — all UI routes |
 | `packages/ui/src/pages/QuickQuery.tsx` | Quick Query popup page — stream + auto-close |
 | `packages/ui/src/pages/Onboarding.tsx` | Onboarding wizard frame + step pills |
+| `packages/ui/src/pages/Dashboard.tsx` | Dashboard page (metrics strip + connector grid + audit feed) |
+| `packages/ui/src/pages/HitlPopup.tsx` | HITL popup page hosted inside the `hitl-popup` Tauri window |
+| `packages/ui/src/components/hitl/HitlPopupPage.tsx` | Head-of-queue consent dialog; Approve / Reject → `consent.respond` |
+| `packages/ui/src/components/hitl/StructuredPreview.tsx` | Recursive, XSS-safe preview of `consent.request` details |
+| `packages/ui/src/components/chrome/Sidebar.tsx` | Labelled sidebar nav with pending-HITL badge |
+| `packages/ui/src/components/chrome/PageHeader.tsx` | Page title + profile/health pill |
+| `packages/ui/src/components/dashboard/ConnectorTile.tsx` | Single connector card with health dot + degradation tooltip |
+| `packages/ui/src/hooks/useIpcQuery.ts` | Typed polling hook (pauses on hidden / disconnected) |
+| `packages/ui/src/hooks/useIpcSubscription.ts` | Typed Tauri event listener hook |
+| `packages/ui/src/store/slices/dashboard.ts` | Dashboard store slice (metrics / connectors / audit / highlight) |
+| `packages/ui/src/store/slices/hitl.ts` | HITL pending-request FIFO queue |
 | `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS`, `rpc_call`, reconnect loop |
 | `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
 | `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
+| `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
 | `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |
 | `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
 | `docs/manual-smoke-ws5a.md` | WS5-A manual smoke checklist |
+| `docs/manual-smoke-ws5b.md` | WS5-B manual smoke checklist |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
