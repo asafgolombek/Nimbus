@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776577512166,
+  "lastUpdate": 1776588001230,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -550,6 +550,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4980125400000008,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e099242b1616a81df49e1e02eaa96941b5e79608",
+          "message": "Merge pull request #54 from asafgolombek/dev/asafgolombek/phase_4_ws_4\n\nfeat(phase-4): WS4 Release Infrastructure — signing, auto-update, Plugin API v1, LAN remote access",
+          "timestamp": "2026-04-19T11:39:35+03:00",
+          "tree_id": "142a7b01b80d6cb7bedf76774e61a24007871ec5",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/e099242b1616a81df49e1e02eaa96941b5e79608"
+        },
+        "date": 1776588000585,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.501023019999999,
             "unit": "ms"
           }
         ]
