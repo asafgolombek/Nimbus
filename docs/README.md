@@ -351,7 +351,7 @@ nimbus extension list
 - **Extension isolation** — third-party extensions run as child processes, receive only their declared service's credentials, and cannot reach the Vault or other connectors. Manifest SHA-256 is verified on every Gateway startup.
 - **Full audit log** — every action, including every HITL decision, is recorded in a local SQLite table before the action executes.
 
-> **Note:** Nimbus's guarantees hold at the process boundary. OS login strength, screen locking, and disk encryption are your responsibility. See [SECURITY.md](./SECURITY.md) for the full boundary definition.
+> **Note:** Nimbus's guarantees hold at the process boundary. It is not a firewall, antivirus, or VPN application; endpoint protection (AV/EDR), network security (VPN/Firewall), and OS-level hardening are your responsibility. See [SECURITY.md](./SECURITY.md) for the full boundary definition.
 
 ---
 

@@ -114,6 +114,9 @@ playwright/.cache/
 # --- Git worktrees ---
 .worktrees/
 
+# --- Superpowers brainstorming artifacts ---
+.superpowers/
+
 # --- Release binaries ---
 nimbus-*.exe
 nimbus-*.dmg

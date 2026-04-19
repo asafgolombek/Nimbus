@@ -56,7 +56,8 @@ Nimbus owns and enforces security **within its process boundary**. What sits bel
 - Strong OS login or biometric authentication
 - Screen locking when unattended
 - Disk encryption — BitLocker (Windows), FileVault (macOS), LUKS (Linux)
-- Active endpoint protection — the OS-native keystores protect against stolen-disk attacks; they do not protect against malware running with user-level privileges on a live machine
+- Active endpoint protection (Antivirus/EDR) — the OS-native keystores protect against stolen-disk attacks; they do not protect against malware running with user-level privileges on a live machine
+- Network integrity (Firewall, VPN, and DNS security)
 - Timely OS security updates
 
 This boundary is the reason certain issue classes are listed as out of scope below — they describe vulnerabilities in your half of the model, not in Nimbus's.
