@@ -6,11 +6,11 @@
  * See CHANGELOG.md for the stable surface guarantee.
  */
 
-export type { AuditEmit, AuditLogger } from "./audit-logger.ts";
-export { createScopedAuditLogger } from "./audit-logger.ts";
+export type { AuditEmit, AuditLogger } from "./audit-logger";
+export { createScopedAuditLogger } from "./audit-logger";
 export { ExtensionContractError, runContractTests } from "./contract-tests";
-export type { HitlRequest } from "./hitl-request.ts";
-export { isHitlRequest } from "./hitl-request.ts";
+export type { HitlRequest } from "./hitl-request";
+export { isHitlRequest } from "./hitl-request";
 export { NimbusExtensionServer } from "./server";
 export { MockGateway } from "./testing/index";
 export type { ExtensionManifest, NimbusItem } from "./types";

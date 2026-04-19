@@ -1,5 +1,5 @@
-import { type AuditLogger, createScopedAuditLogger } from "./audit-logger.ts";
-import { type HitlRequest, isHitlRequest } from "./hitl-request.ts";
+import { type AuditLogger, createScopedAuditLogger } from "./audit-logger";
+import { type HitlRequest, isHitlRequest } from "./hitl-request";
 import type { ExtensionManifest } from "./types";
 
 export class ExtensionContractError extends Error {
