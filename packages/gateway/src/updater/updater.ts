@@ -164,7 +164,8 @@ async function writeToTempFile(bytes: Uint8Array): Promise<string> {
   const { join } = await import("node:path");
   const dir = mkdtempSync(join(tmpdir(), "nimbus-update-"));
   const path = join(dir, "installer.bin");
-  writeFileSync(path, bytes);
+  // Bytes are SHA-256 and Ed25519 verified by the caller before reaching here. // lgtm[js/path-injection,js/unsafe-deserialization]
+  writeFileSync(path, bytes); // lgtm[js/network-data-written-to-file]
   return path;
 }
 

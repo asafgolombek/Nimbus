@@ -74,6 +74,7 @@ async function runDataImportCli(args: string[]): Promise<void> {
       "data.import",
       { bundlePath, passphrase, recoverySeed },
     );
+    // These are counts only — no credential values are logged. // lgtm[js/clear-text-logging-sensitive-data]
     console.log(`[ok] restored ${String(result.credentialsRestored)} credentials`);
     if (result.oauthEntriesFlagged > 0) {
       console.log(
