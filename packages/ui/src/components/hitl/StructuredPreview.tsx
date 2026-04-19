@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from "react";
 
 interface Props {
-  details?: Record<string, unknown>;
+  details?: Record<string, unknown> | undefined;
 }
 
 const LONG_STRING = 80;
