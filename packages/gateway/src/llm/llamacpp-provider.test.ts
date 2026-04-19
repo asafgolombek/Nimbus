@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { LlamaCppProvider } from "./llamacpp-provider.ts";
 
+const _realFetch = globalThis.fetch;
+
 const FAKE_COMPLETION_RESPONSE = {
   content: "Response from llama.cpp",
   timings: { prompt_n: 8, predicted_n: 7 },
@@ -20,7 +22,7 @@ describe("LlamaCppProvider", () => {
   });
 
   afterEach(() => {
-    globalThis.fetch = fetch;
+    globalThis.fetch = _realFetch;
   });
 
   test("providerId is 'llamacpp'", () => {
