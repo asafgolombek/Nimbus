@@ -9,7 +9,7 @@
 > - **WS1 — Local LLM & Multi-Agent:** ✅ Merged. `OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`, `AgentCoordinator`, `runSubAgent`, `engine.askStream`, `llm.*` IPC, V16 + V17 migrations.
 > - **WS2 — Voice Interface:** ✅ Merged (PR #52). `VoiceService` + STT/TTS providers + `voice.*` IPC.
 > - **WS3 — Data Sovereignty:** ✅ Merged (PR #53). `nimbus data export|import|delete`, `nimbus audit verify|export`, BLAKE3-chained audit log (V18), envelope-encrypted vault bundle, BIP39 recovery seed, `nimbus connector reindex`.
-> - **WS4 — Release Infrastructure:** 🟡 Planning. Design committed in `docs/superpowers/specs/2026-04-19-ws4-release-infrastructure-design.md`. Scope: signing plumbing (cert-ready, cert-independent), Ed25519-verified auto-update + `nimbus update` CLI, Plugin API v1 freeze (`AuditLogger` + `HitlRequest`), opt-in encrypted LAN remote access. Out of scope: mDNS host discovery, cert procurement, SDK exports beyond the two v1 additions. Introduces V19 migration (`lan_peers`).
+> - **WS4 — Release Infrastructure:** ✅ Implemented (Tasks 1–18 complete). Signing plumbing (Ed25519 + binary-hash manifest), Ed25519-verified auto-updater + `nimbus update` CLI, Plugin API v1 frozen (`AuditLogger` + `HitlRequest` in SDK), opt-in encrypted LAN remote access (`lan-crypto`, `lan-pairing`, `lan-rate-limit`, `lan-server`, `lan-rpc`, `nimbus lan` CLI), V19 migration (`lan_peers`), coverage gates added. Pending: cert procurement, mDNS host discovery, npm publish.
 > - **WS5–WS7:** Blocked on WS4 IPC stability.
 
 ---
@@ -1047,13 +1047,13 @@ Config: no new keys — mDNS advertisement is active whenever `[lan] enabled = t
 - [ ] `v0.1.0` installer passes Gatekeeper on macOS (no user override) — verified on macOS CI runner
 - [ ] `v0.1.0` installer passes SmartScreen on Windows (no user override) — verified on Windows CI runner
 - [ ] Linux `.deb` and AppImage ship with detached GPG signatures; `gpg --verify` passes
-- [ ] `updater.updateAvailable` notification fires when a mock update server reports a newer version; `applyUpdate` verifies the Ed25519 signature before executing; a simulated corrupted binary triggers automatic rollback and `updater.rolledBack` notification
-- [ ] `nimbus update --check` exits `1` when an update is available; `nimbus update` downloads, verifies signature, and invokes the platform installer
-- [ ] Headless Gateway startup prints `"A new version is available"` hint when update manifest reports a newer version
-- [ ] Plugin API v1 is documented in `packages/sdk/CHANGELOG.md`; `runContractTests()` passes against a test extension using all v1 stable exports
-- [ ] LAN server: `--allow-pairing` window closes after 5 minutes; 3 failed attempts per 60 s triggers lockout; paired peer can read index; write is rejected without explicit `grant-write`; tampered ciphertext rejected — `lan-rpc.test.ts`
+- [x] `updater.updateAvailable` notification fires when a mock update server reports a newer version; `applyUpdate` verifies the Ed25519 signature before executing; a simulated corrupted binary triggers automatic rollback and `updater.rolledBack` notification
+- [x] `nimbus update --check` exits `1` when an update is available; `nimbus update` downloads, verifies signature, and invokes the platform installer
+- [x] Headless Gateway startup prints `"A new version is available"` hint when update manifest reports a newer version
+- [x] Plugin API v1 is documented in `packages/sdk/CHANGELOG.md`; `runContractTests()` passes against a test extension using all v1 stable exports
+- [x] LAN server: `--allow-pairing` window closes after 5 minutes; 3 failed attempts per 60 s triggers lockout; paired peer can read index; write is rejected without explicit `grant-write`; tampered ciphertext rejected — `lan-rpc.test.ts`
 - [ ] `nimbus lan pair --discover` lists reachable hosts by mDNS name; client reconnects after host IP change using stored `host_name`
-- [ ] Coverage: `packages/gateway/src/updater/` ≥ 80%; `packages/gateway/src/ipc/lan-server.ts` ≥ 80%
+- [x] Coverage: `packages/gateway/src/updater/` ≥ 80%; `packages/gateway/src/ipc/lan-server.ts` ≥ 80%
 
 ---
 

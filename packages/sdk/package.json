@@ -29,7 +29,8 @@
     "lint": "biome check src/",
     "test": "bun test",
     "clean": "rm -rf dist",
-    "prepublishOnly": "bun run build && bun run typecheck"
+    "prepublishOnly": "bun run build && bun run typecheck",
+    "test:coverage:sdk": "bun test --coverage src"
   },
   "publishConfig": {
     "access": "public",

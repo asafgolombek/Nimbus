@@ -189,6 +189,12 @@ jobs:
             script: "test:coverage:db"
           - name: MCP
             script: "test:coverage:mcp"
+          - name: Updater
+            script: "test:coverage:updater"
+          - name: LAN
+            script: "test:coverage:lan"
+          - name: SDK
+            script: "test:coverage:sdk"
     steps:
       - name: Harden Runner
         if: runner.os == 'Linux'
