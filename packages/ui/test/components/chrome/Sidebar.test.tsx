@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../src/store", () => ({
-  useNimbusStore: (sel: (s: { hitlBadgeCount: number }) => unknown) => sel({ hitlBadgeCount: 3 }),
+  useNimbusStore: (sel: (s: { pendingHitl: number }) => unknown) => sel({ pendingHitl: 3 }),
 }));
 
 import { Sidebar } from "../../../src/components/chrome/Sidebar";

@@ -14,6 +14,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             gateway_bridge::rpc_call,
             gateway_bridge::shell_start_gateway,
+            tray::set_connectors_menu,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

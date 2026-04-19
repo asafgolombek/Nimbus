@@ -12,7 +12,7 @@ const ENTRIES: ReadonlyArray<{ to: string; icon: string; label: string }> = [
 ];
 
 export function Sidebar(): ReactNode {
-  const pendingHitl = useNimbusStore((s) => s.hitlBadgeCount);
+  const pendingHitl = useNimbusStore((s) => s.pendingHitl);
   return (
     <nav
       aria-label="Primary"
