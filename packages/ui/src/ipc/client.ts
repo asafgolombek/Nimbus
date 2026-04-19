@@ -3,8 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import {
   type ConnectionState,
   GatewayOfflineError,
-  type JsonRpcErrorPayload,
   JsonRpcError,
+  type JsonRpcErrorPayload,
   type JsonRpcNotification,
   MethodNotAllowedError,
 } from "./types";
@@ -17,11 +17,7 @@ export interface NimbusIpcClient {
 
 function parseError(err: unknown): Error {
   const msg =
-    typeof err === "string"
-      ? err
-      : err instanceof Error
-        ? err.message
-        : JSON.stringify(err);
+    typeof err === "string" ? err : err instanceof Error ? err.message : JSON.stringify(err);
   if (msg.startsWith("ERR_METHOD_NOT_ALLOWED")) {
     const method = msg.split(":")[1] ?? "unknown";
     return new MethodNotAllowedError(method);
@@ -53,14 +49,10 @@ export function createIpcClient(): NimbusIpcClient {
       }
     },
     async subscribe(handler): Promise<() => void> {
-      return listen<JsonRpcNotification>("gateway://notification", (evt) =>
-        handler(evt.payload),
-      );
+      return listen<JsonRpcNotification>("gateway://notification", (evt) => handler(evt.payload));
     },
     async onConnectionState(handler): Promise<() => void> {
-      return listen<ConnectionState>("gateway://connection-state", (evt) =>
-        handler(evt.payload),
-      );
+      return listen<ConnectionState>("gateway://connection-state", (evt) => handler(evt.payload));
     },
   };
   singleton = client;

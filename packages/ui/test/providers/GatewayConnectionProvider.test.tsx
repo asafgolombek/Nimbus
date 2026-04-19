@@ -56,6 +56,54 @@ describe("GatewayConnectionProvider", () => {
     await waitFor(() => expect(useNimbusStore.getState().connectionState).toBe("connected"));
   });
 
+  it("routes to / when diag.snapshot has items (returning user)", async () => {
+    callMock.mockImplementation(async (method) => {
+      if (method === "diag.snapshot") return { indexTotalItems: 5, connectorCount: 2 };
+      if (method === "db.getMeta") return "true";
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const seen: string[] = [];
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/onboarding/welcome"]}>
+        <GatewayConnectionProvider>
+          <Consumer onPath={(p) => seen.push(p)} />
+        </GatewayConnectionProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
+    connectionHandlers[0]?.("connected");
+
+    await waitFor(() => expect(seen[seen.length - 1]).toBe("/"));
+    rerender(<div />);
+  });
+
+  it("routes to / when meta is non-null even with zero items", async () => {
+    callMock.mockImplementation(async (method) => {
+      if (method === "diag.snapshot") return { indexTotalItems: 0, connectorCount: 0 };
+      if (method === "db.getMeta") return "true";
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const seen: string[] = [];
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/onboarding/welcome"]}>
+        <GatewayConnectionProvider>
+          <Consumer onPath={(p) => seen.push(p)} />
+        </GatewayConnectionProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
+    connectionHandlers[0]?.("connected");
+
+    await waitFor(() => expect(seen[seen.length - 1]).toBe("/"));
+    rerender(<div />);
+  });
+
   it("routes to /onboarding/welcome on first connected when no data and no meta", async () => {
     callMock.mockImplementation(async (method) => {
       if (method === "diag.snapshot") return { indexTotalItems: 0, connectorCount: 0 };

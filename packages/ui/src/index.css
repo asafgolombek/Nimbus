@@ -14,5 +14,14 @@
   --radius-lg: 0.75rem;
 }
 
-html, body, #root { height: 100%; }
-body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}

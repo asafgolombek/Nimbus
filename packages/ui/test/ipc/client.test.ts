@@ -5,7 +5,8 @@ type InvokeArgs = { method: string; params: unknown };
 const { invokeMock, listenMock } = vi.hoisted(() => {
   return {
     invokeMock: vi.fn<(cmd: string, args?: InvokeArgs) => Promise<unknown>>(),
-    listenMock: vi.fn<(event: string, handler: (e: { payload: unknown }) => void) => Promise<() => void>>(),
+    listenMock:
+      vi.fn<(event: string, handler: (e: { payload: unknown }) => void) => Promise<() => void>>(),
   };
 });
 
@@ -13,11 +14,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
 
 import { __resetIpcClientForTests, createIpcClient } from "../../src/ipc/client";
-import {
-  GatewayOfflineError,
-  JsonRpcError,
-  MethodNotAllowedError,
-} from "../../src/ipc/types";
+import { GatewayOfflineError, JsonRpcError, MethodNotAllowedError } from "../../src/ipc/types";
 
 describe("NimbusIpcClient", () => {
   beforeEach(() => {
@@ -55,12 +52,36 @@ describe("NimbusIpcClient", () => {
   });
 
   it("propagates JSON-RPC errors as JsonRpcError", async () => {
-    invokeMock.mockRejectedValueOnce(
-      JSON.stringify({ code: -32000, message: "boom" }),
-    );
+    invokeMock.mockRejectedValueOnce(JSON.stringify({ code: -32000, message: "boom" }));
     const client = createIpcClient();
 
     await expect(client.call("diag.snapshot")).rejects.toBeInstanceOf(JsonRpcError);
+  });
+
+  it("handles Error object (uses .message property)", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("ERR_GATEWAY_OFFLINE"));
+    const client = createIpcClient();
+
+    await expect(client.call("diag.snapshot")).rejects.toBeInstanceOf(GatewayOfflineError);
+  });
+
+  it("handles plain non-string non-Error value by JSON.stringify-ing it", async () => {
+    invokeMock.mockRejectedValueOnce({ code: 42 });
+    const client = createIpcClient();
+
+    const err = await client.call("diag.snapshot").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(MethodNotAllowedError);
+    expect(err).not.toBeInstanceOf(GatewayOfflineError);
+  });
+
+  it("handles non-JSON-RPC JSON object (no code/message) as generic Error", async () => {
+    invokeMock.mockRejectedValueOnce(JSON.stringify({ foo: "bar" }));
+    const client = createIpcClient();
+
+    const err = await client.call("diag.snapshot").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(JsonRpcError);
   });
 
   it("dispatches notifications to subscribers", async () => {
