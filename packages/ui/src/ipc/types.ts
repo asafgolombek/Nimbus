@@ -49,3 +49,36 @@ export class JsonRpcError extends Error {
     this.name = "JsonRpcError";
   }
 }
+
+// ---- WS5-B additions ----
+
+export type ConnectorStatus = {
+  name: string;
+  health: ConnectorHealth;
+  lastSyncAt?: string;
+  degradationReason?: string;
+  itemCount?: number;
+};
+
+export interface IndexMetrics {
+  itemsTotal: number;
+  embeddingCoveragePct: number;
+  queryP95Ms: number;
+  indexSizeBytes: number;
+}
+
+export interface AuditEntry {
+  id: number;
+  ts: string;
+  action: string;
+  outcome: "approved" | "rejected" | "auto" | "info";
+  subject?: string;
+  hitlRejectReason?: string;
+}
+
+export interface HitlRequest {
+  requestId: string;
+  prompt: string;
+  details?: Record<string, unknown>;
+  receivedAtMs: number;
+}

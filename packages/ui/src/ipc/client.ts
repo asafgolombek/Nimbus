@@ -1,8 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
+  type AuditEntry,
   type ConnectionState,
+  type ConnectorStatus,
   GatewayOfflineError,
+  type IndexMetrics,
   JsonRpcError,
   type JsonRpcErrorPayload,
   type JsonRpcNotification,
@@ -13,6 +16,10 @@ export interface NimbusIpcClient {
   call<TResult>(method: string, params?: unknown): Promise<TResult>;
   subscribe(handler: (n: JsonRpcNotification) => void): Promise<() => void>;
   onConnectionState(handler: (s: ConnectionState) => void): Promise<() => void>;
+  connectorListStatus(): Promise<ConnectorStatus[]>;
+  indexMetrics(): Promise<IndexMetrics>;
+  auditList(limit?: number): Promise<AuditEntry[]>;
+  consentRespond(requestId: string, approved: boolean): Promise<void>;
 }
 
 function parseError(err: unknown): Error {
@@ -59,6 +66,27 @@ export function createIpcClient(): NimbusIpcClient {
     },
     async onConnectionState(handler): Promise<() => void> {
       return listen<ConnectionState>("gateway://connection-state", (evt) => handler(evt.payload));
+    },
+    async connectorListStatus(): Promise<ConnectorStatus[]> {
+      const res = await this.call<unknown>("connector.listStatus", {});
+      if (!Array.isArray(res)) throw new Error("connector.listStatus: expected array");
+      return res as ConnectorStatus[];
+    },
+    async indexMetrics(): Promise<IndexMetrics> {
+      const res = await this.call<unknown>("index.metrics", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("index.metrics: expected object");
+      return res as IndexMetrics;
+    },
+    async auditList(limit = 25): Promise<AuditEntry[]> {
+      const res = await this.call<unknown>("audit.list", { limit });
+      if (!Array.isArray(res)) throw new Error("audit.list: expected array");
+      return res as AuditEntry[];
+    },
+    async consentRespond(requestId: string, approved: boolean): Promise<void> {
+      await this.call<unknown>("consent.respond", { requestId, approved });
+      // Notify Rust to clear its inbox and fan `consent://resolved` out to all windows.
+      await invoke("hitl_resolved", { requestId, approved });
     },
   };
   singleton = client;
