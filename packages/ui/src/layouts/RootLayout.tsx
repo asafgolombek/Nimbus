@@ -35,9 +35,9 @@ export function RootLayout() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    void emit("tray://state-changed", { icon: aggregateHealth, badge: pendingHitl }).catch(() => {
-      // Non-fatal; tray will pick up the next change.
-    });
+    emit("tray://state-changed", { icon: aggregateHealth, badge: pendingHitl }).catch(
+      () => undefined,
+    );
   }, [aggregateHealth, pendingHitl]);
 
   useEffect(() => {
@@ -45,8 +45,8 @@ export function RootLayout() {
   }, [pending.length, setPendingHitl]);
 
   const onTrayConnector = useCallback(
-    (p: { name: string }) => {
-      void navigate("/");
+    (p: { readonly name: string }) => {
+      navigate("/");
       requestHighlight(p.name);
       setTimeout(() => clearHighlight(), 1500);
     },
@@ -77,7 +77,7 @@ export function RootLayout() {
   useIpcSubscription<ConsentResolvedPayload>("consent://resolved", onConsentResolved);
 
   useEffect(() => {
-    void invoke<ConsentRequestPayload[]>("get_pending_hitl")
+    invoke<ConsentRequestPayload[]>("get_pending_hitl")
       .then((list) => {
         for (const p of list ?? []) {
           const request: HitlRequest = {

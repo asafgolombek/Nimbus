@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from "react";
 
 interface Props {
-  details?: Record<string, unknown> | undefined;
+  readonly details?: Record<string, unknown> | undefined;
 }
 
 const LONG_STRING = 80;
@@ -10,7 +10,7 @@ function isScalar(v: unknown): v is string | number | boolean {
   return typeof v === "string" || typeof v === "number" || typeof v === "boolean";
 }
 
-function ScalarValue({ v }: { v: string | number | boolean }): ReactNode {
+function ScalarValue({ v }: { readonly v: string | number | boolean }): ReactNode {
   const s = String(v);
   const [expanded, setExpanded] = useState(false);
   if (typeof v === "string" && s.length > LONG_STRING) {
@@ -34,8 +34,8 @@ function PreviewRows({
   record,
   depth,
 }: {
-  record: Record<string, unknown>;
-  depth: number;
+  readonly record: Record<string, unknown>;
+  readonly depth: number;
 }): ReactNode {
   const keys = Object.keys(record).filter((k) => record[k] !== null && record[k] !== undefined);
   return (
@@ -52,17 +52,16 @@ function PreviewRows({
   );
 }
 
-function Value({ v, depth }: { v: unknown; depth: number }): ReactNode {
+function Value({ v, depth }: { readonly v: unknown; readonly depth: number }): ReactNode {
   if (v === null || v === undefined) return null;
   if (isScalar(v)) return <ScalarValue v={v} />;
   if (Array.isArray(v)) {
-    if (v.every(isScalar)) return <>{v.map((x) => String(x)).join(", ")}</>;
+    if (v.every(isScalar)) return <>{v.map(String).join(", ")}</>;
     if (depth >= 1) return <code className="text-xs">{JSON.stringify(v)}</code>;
     return (
       <ul className="list-disc pl-4">
-        {v.map((item, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: list items have no stable identity
-          <li key={i}>
+        {v.map((item) => (
+          <li key={JSON.stringify(item)}>
             <Value v={item} depth={depth + 1} />
           </li>
         ))}

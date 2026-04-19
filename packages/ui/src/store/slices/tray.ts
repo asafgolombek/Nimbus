@@ -28,6 +28,10 @@ export const createTraySlice: StateCreator<TraySlice, [], [], TraySlice> = (set)
   recomputeAggregate: (connectors) => {
     const hasRed = connectors.some((c) => c.health === "error" || c.health === "unauthenticated");
     const hasAmber = connectors.some((c) => c.health === "degraded" || c.health === "rate_limited");
-    set({ aggregateHealth: hasRed ? "red" : hasAmber ? "amber" : "normal" });
+    let aggregate: TrayIconState;
+    if (hasRed) aggregate = "red";
+    else if (hasAmber) aggregate = "amber";
+    else aggregate = "normal";
+    set({ aggregateHealth: aggregate });
   },
 });

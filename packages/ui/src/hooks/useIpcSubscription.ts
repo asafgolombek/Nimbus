@@ -8,13 +8,15 @@ export function useIpcSubscription<T = unknown>(
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     let cancelled = false;
-    void listen<T>(event, (e) => handler(e.payload)).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
+    listen<T>(event, (e) => handler(e.payload))
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
       if (unlisten) unlisten();

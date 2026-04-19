@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
 interface Props {
-  profile: string;
-  aggregateHealth: "normal" | "amber" | "red";
+  readonly profile: string;
+  readonly aggregateHealth: "normal" | "amber" | "red";
 }
 
 function dotColour(h: Props["aggregateHealth"]): string {

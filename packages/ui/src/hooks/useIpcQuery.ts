@@ -53,15 +53,15 @@ export function useIpcQuery<T>(
     if (connectionState !== "connected") return;
     if (document.visibilityState === "hidden") return;
 
-    void run();
+    run().catch(() => undefined);
     const id = setInterval(() => {
       if (document.visibilityState === "hidden") return;
       if (connectionState !== "connected") return;
-      void run();
+      run().catch(() => undefined);
     }, intervalMs);
 
     const onVis = () => {
-      if (document.visibilityState === "visible") void run();
+      if (document.visibilityState === "visible") run().catch(() => undefined);
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
