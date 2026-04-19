@@ -103,7 +103,6 @@ jobs:
           cd packages/gateway
           bun build src/index.ts --compile --outfile ../../dist/${{ matrix.target.artifact }}${{ matrix.target.ext }} --target bun
 
-      # When implementing signing, prefer a `release` GitHub Environment for secrets + optional reviewers.
       - name: Sign binary (macOS)
         if: startsWith(matrix.target.os, 'macos')
         timeout-minutes: 15
@@ -114,9 +113,7 @@ jobs:
           NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
           NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
           NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
-        run: |
-          # TODO: Add codesign + notarytool steps when Apple Developer account is configured
-          echo "macOS signing: configure MACOS_CERTIFICATE and related secrets in GitHub repo settings"
+        run: bash scripts/sign-macos.sh dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
 
       - name: Sign binary (Windows)
         if: matrix.target.os == 'windows'
@@ -124,9 +121,22 @@ jobs:
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
-        run: |
-          # TODO: Add signtool.exe steps when Windows code signing cert is configured
-          echo "Windows signing: configure WINDOWS_CERTIFICATE secret in GitHub repo settings"
+        shell: pwsh
+        run: ./scripts/sign-windows.ps1 -Target dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
+
+      - name: Sign binary (Linux GPG)
+        if: matrix.target.os == 'linux'
+        timeout-minutes: 15
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: bash scripts/sign-linux-gpg.sh dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
+
+      - name: Sign binary (Ed25519 updater)
+        timeout-minutes: 5
+        env:
+          UPDATER_SIGNING_KEY: ${{ secrets.UPDATER_SIGNING_KEY }}
+        run: bun scripts/sign-ed25519.ts dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -267,3 +277,37 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  update-manifest:
+    name: Publish updater manifest
+    needs: publish-release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: ./.github/actions/setup-nimbus-ci
+        with:
+          verify-lock: "false"
+      - name: Download all artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          path: dist/
+      - name: Flatten artifact dir
+        run: |
+          mkdir -p manifest-build
+          cp dist/nimbus-gateway-linux-x64/nimbus-gateway-linux-x64* manifest-build/
+          cp dist/nimbus-gateway-macos-x64/nimbus-gateway-macos-x64* manifest-build/
+          cp dist/nimbus-gateway-macos-arm64/nimbus-gateway-macos-arm64* manifest-build/
+          cp dist/nimbus-gateway-windows-x64/nimbus-gateway-windows-x64.exe* manifest-build/
+      - name: Build latest.json
+        working-directory: manifest-build
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}"
+          bun ../scripts/build-update-manifest.ts --version "$V" --output latest.json --base-url "$BASE"
+      - name: Upload latest.json to release
+        uses: softprops/action-gh-release@c95fe1489396fe8a21967200391e1b9067ad0ba5
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          files: manifest-build/latest.json
