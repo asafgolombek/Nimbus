@@ -1,11 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./index.css";
+import { App } from "./App";
 
-// Roadmap Q4: Tauri 2.0 desktop application
-// Components to build: ConsentDialog, ConnectorCard, ExtensionMarketplace,
-//                      Dashboard, Search, Marketplace, Settings, AuditLog
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <div>Nimbus — Q4 2026</div>
+    <App />
   </React.StrictMode>,
 );
