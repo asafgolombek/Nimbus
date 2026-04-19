@@ -1456,17 +1456,34 @@ function dotColour(h: ConnectorStatus["health"]): string {
 const DISPLAY_NAMES: Record<string, string> = {
   drive: "Google Drive",
   gmail: "Gmail",
+  photos: "Google Photos",
+  onedrive: "OneDrive",
+  outlook: "Outlook",
+  teams: "Microsoft Teams",
   github: "GitHub",
   gitlab: "GitLab",
+  bitbucket: "Bitbucket",
   slack: "Slack",
+  discord: "Discord",
   linear: "Linear",
   jira: "Jira",
   notion: "Notion",
   confluence: "Confluence",
-  onedrive: "OneDrive",
-  outlook: "Outlook",
-  teams: "Microsoft Teams",
-  photos: "Google Photos",
+  jenkins: "Jenkins",
+  "github-actions": "GitHub Actions",
+  circleci: "CircleCI",
+  "gitlab-ci": "GitLab CI",
+  aws: "AWS",
+  azure: "Azure",
+  gcp: "GCP",
+  iac: "IaC",
+  kubernetes: "Kubernetes",
+  pagerduty: "PagerDuty",
+  grafana: "Grafana",
+  sentry: "Sentry",
+  "new-relic": "New Relic",
+  datadog: "Datadog",
+  filesystem: "Filesystem",
 };
 
 function displayName(name: string): string {
@@ -2685,6 +2702,12 @@ const DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /\.cancel$/,
   /\.stop$/,
   /\.rollback$/,
+  /\.wipe$/,
+  /\.purge$/,
+  /\.format$/,
+  /\.terminate$/,
+  /\.drop$/,
+  /\.prune$/,
   /^pipeline\./,
   /^k8s\./,
   /^kubernetes\./,
@@ -2873,6 +2896,7 @@ pub fn open_or_focus(app: &AppHandle) -> Result<(), tauri::Error> {
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
+        .center()
         .build()?;
     Ok(())
 }

@@ -81,7 +81,7 @@ Additive over WS5-A. No files deleted except the single Dashboard stub replaced 
 
 **New:**
 
-- `hitl_popup.rs` — spawn/focus/close helpers for the popup window; mirrors `quick_query.rs`; 480×360, `always_on_top(true)`, `skip_taskbar(true)`, decorations off, non-resizable.
+- `hitl_popup.rs` — spawn/focus/close helpers for the popup window; mirrors `quick_query.rs`; 480×360, `always_on_top(true)`, `skip_taskbar(true)`, decorations off, non-resizable, centered on the active monitor (explicit `.center()` call so placement does not rely on Tauri defaults, which differ across backends).
 
 **Modified:**
 
@@ -294,7 +294,7 @@ async fn set_connectors_menu(
 
 **`ConnectorTile.tsx`** — 3-line card:
 
-- Row 1: state dot + connector display name (`github` → `GitHub` via a small mapping table).
+- Row 1: state dot + connector display name via `DISPLAY_NAMES` mapping. Covers every MCP connector key currently shipped — including the dev/collab services (`github` → `GitHub`, `gitlab` → `GitLab`, `slack` → `Slack`, `linear` → `Linear`, `jira` → `Jira`, …), the Microsoft/Google suites, and the Phase 2/3 infra/observability set (`aws` → `AWS`, `azure` → `Azure`, `gcp` → `GCP`, `iac` → `IaC`, `kubernetes` → `Kubernetes`, `pagerduty` → `PagerDuty`, `grafana` → `Grafana`, `sentry` → `Sentry`, `new-relic` → `New Relic`, `datadog` → `Datadog`). Unknown keys fall back to the raw name so new connectors degrade gracefully.
 - Row 2: last sync relative time (`2 m ago`) or `not synced yet`.
 - Row 3 (only on degradation): small amber/red text with degradation reason.
 
@@ -337,7 +337,7 @@ Radix `<Tooltip>` on hover shows the full degradation reason for long messages. 
 - `null` / `undefined` / missing → row hidden.
 - **Never** renders raw HTML — all values go through `{String(v)}` for XSS safety.
 
-**Destructive-action deny-list** — the Approve button loses `autoFocus` when `action` matches: `*.delete`, `*.destroy`, `*.cancel`, `*.stop`, `*.rollback`, `pipeline.*`, `k8s.*`, `kubernetes.*`. Co-located as `DESTRUCTIVE_ACTION_PATTERNS` in `HitlPopupPage.tsx` and tested.
+**Destructive-action deny-list** — the Approve button loses `autoFocus` when `action` matches: `*.delete`, `*.destroy`, `*.cancel`, `*.stop`, `*.rollback`, `*.wipe`, `*.purge`, `*.format`, `*.terminate`, `*.drop`, `*.prune`, `pipeline.*`, `k8s.*`, `kubernetes.*`. Co-located as `DESTRUCTIVE_ACTION_PATTERNS` in `HitlPopupPage.tsx` and tested. Err toward over-inclusion — a missed keystroke on a destructive action is worse than one extra click on a benign one.
 
 **Approve / Reject flow:**
 
@@ -479,7 +479,7 @@ function useIpcQuery<T>(
 ### 6.2 Panel-level error UI
 
 - `IndexMetricsStrip` — em-dash values + Retry button; preserves layout height.
-- `ConnectorGrid` — keeps last-known tiles if any; one-line error row above the grid with Retry.
+- `ConnectorGrid` — keeps last-known tiles if any; one-line error row above the grid with Retry. **Known race (self-healing, accepted):** a `connector://health-changed` event arriving while the initial `connector.listStatus` fetch is in flight can be overwritten when the fetch resolves and calls `setConnectors`. A tile can show stale health for up to the 30 s poll interval until the next notification or refetch corrects it. Not patched because local IPC latency keeps the window small and a patch-replay queue is speculative complexity; revisit if we observe it in practice.
 - `AuditFeed` — "Could not load recent activity. [Retry]".
 
 ### 6.3 HITL popup edge cases
