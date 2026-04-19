@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { fetchUpdateManifest, ManifestFetchError } from "./manifest-fetcher.ts";
 import type { UpdateManifest } from "./types.ts";
+import { jsonResponse } from "./updater-test-fixtures.ts";
 
 let server: ReturnType<typeof Bun.serve>;
 let url: string;
@@ -33,11 +34,6 @@ function sampleManifest(): UpdateManifest {
       },
     },
   };
-}
-
-const JSON_HEADERS = { "Content-Type": "application/json" };
-function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
 }
 
 describe("fetchUpdateManifest", () => {

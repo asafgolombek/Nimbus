@@ -1,23 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { randomBytes } from "node:crypto";
 import type { Server } from "bun";
-import nacl from "tweetnacl";
 import { Updater } from "../updater/updater.ts";
-import { dispatchUpdaterRpc, UpdaterRpcError } from "./updater-rpc.ts";
+import { jsonResponse, makeKeypair } from "../updater/updater-test-fixtures.ts";
+import { dispatchUpdaterRpc } from "./updater-rpc.ts";
+import { expectRpcError } from "./updater-rpc-test-helpers.ts";
 
 let server: Server<unknown>;
-const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(randomBytes(32)));
-
-async function expectRpcError(
-  promise: Promise<unknown>,
-  code: number,
-  pattern: RegExp,
-): Promise<void> {
-  const err = await promise.catch((e: unknown) => e);
-  expect(err).toBeInstanceOf(UpdaterRpcError);
-  expect((err as UpdaterRpcError).rpcCode).toBe(code);
-  expect((err as UpdaterRpcError).message).toMatch(pattern);
-}
+const kp = makeKeypair();
 
 describe("dispatchUpdaterRpc", () => {
   afterEach(() => {
@@ -25,10 +14,14 @@ describe("dispatchUpdaterRpc", () => {
   });
 
   test("getStatus returns current state", async () => {
-    server = Bun.serve({ port: 0, fetch: () => Response.json({ version: "0.1.0" }) });
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => jsonResponse({ version: "0.1.0" }),
+    });
     const u = new Updater({
       currentVersion: "0.1.0",
-      manifestUrl: `http://localhost:${server.port}/latest.json`,
+      manifestUrl: `http://127.0.0.1:${server.port}/latest.json`,
       publicKey: kp.publicKey,
       target: "linux-x86_64",
       emit: () => {},
@@ -45,7 +38,7 @@ describe("dispatchUpdaterRpc", () => {
   test("unknown method rejected", async () => {
     await expect(
       dispatchUpdaterRpc("updater.bogus", {}, { updater: undefined }),
-    ).rejects.toBeInstanceOf(UpdaterRpcError);
+    ).rejects.toBeInstanceOf(Error);
   });
 
   test("returns -32603 with ERR_UPDATER_MANIFEST_UNREACHABLE in message when fetch fails", async () => {

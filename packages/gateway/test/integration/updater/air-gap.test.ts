@@ -1,21 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 import { randomBytes } from "node:crypto";
-import nacl from "tweetnacl";
-import { dispatchUpdaterRpc, UpdaterRpcError } from "../../../src/ipc/updater-rpc.ts";
+import { dispatchUpdaterRpc } from "../../../src/ipc/updater-rpc.ts";
+import { expectRpcError } from "../../../src/ipc/updater-rpc-test-helpers.ts";
 import { Updater } from "../../../src/updater/updater.ts";
+import { makeKeypair } from "../../../src/updater/updater-test-fixtures.ts";
 
-const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(randomBytes(32)));
-
-async function expectRpcError(
-  promise: Promise<unknown>,
-  code: number,
-  pattern: RegExp,
-): Promise<void> {
-  const err = await promise.catch((e: unknown) => e);
-  expect(err).toBeInstanceOf(UpdaterRpcError);
-  expect((err as UpdaterRpcError).rpcCode).toBe(code);
-  expect((err as UpdaterRpcError).message).toMatch(pattern);
-}
+const kp = makeKeypair();
 
 describe("updater + air-gap", () => {
   test("when updater is not configured, returns rpcCode -32602", async () => {
