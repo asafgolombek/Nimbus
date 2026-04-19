@@ -6,6 +6,11 @@ import { sha256Hex } from "./signature-verifier.ts";
 import type { UpdateManifest } from "./types.ts";
 import { Updater } from "./updater.ts";
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify(data), { headers: JSON_HEADERS });
+}
+
 let server: Server<undefined>;
 let downloadServer: Server<undefined>;
 const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(randomBytes(32)));
@@ -15,7 +20,7 @@ function buildManifest(binary: Uint8Array, version = "0.2.0"): UpdateManifest {
   const digest = Buffer.from(sha, "hex");
   const sig = nacl.sign.detached(new Uint8Array(digest), kp.secretKey);
   const sigB64 = Buffer.from(sig).toString("base64");
-  const url = `http://localhost:${downloadServer.port}/bin`;
+  const url = `http://127.0.0.1:${downloadServer.port}/bin`;
   return {
     version,
     pub_date: "2026-05-01T00:00:00Z",
@@ -37,18 +42,20 @@ describe("Updater state machine", () => {
   test("checkNow emits updateAvailable when manifest newer", async () => {
     const binary = new Uint8Array(randomBytes(512));
     downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
       port: 0,
       fetch: () => new Response(binary),
     });
     server = Bun.serve({
+      hostname: "127.0.0.1",
       port: 0,
-      fetch: () => Response.json(buildManifest(binary, "0.2.0")),
+      fetch: () => jsonResponse(buildManifest(binary, "0.2.0")),
     });
 
     const events: string[] = [];
     const u = new Updater({
       currentVersion: "0.1.0",
-      manifestUrl: `http://localhost:${server.port}/latest.json`,
+      manifestUrl: `http://127.0.0.1:${server.port}/latest.json`,
       publicKey: kp.publicKey,
       target: "linux-x86_64",
       emit: (name) => events.push(name),
@@ -61,12 +68,20 @@ describe("Updater state machine", () => {
 
   test("checkNow does not emit when versions equal", async () => {
     const binary = new Uint8Array(randomBytes(512));
-    downloadServer = Bun.serve({ port: 0, fetch: () => new Response(binary) });
-    server = Bun.serve({ port: 0, fetch: () => Response.json(buildManifest(binary, "0.1.0")) });
+    downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(binary),
+    });
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => jsonResponse(buildManifest(binary, "0.1.0")),
+    });
     const events: string[] = [];
     const u = new Updater({
       currentVersion: "0.1.0",
-      manifestUrl: `http://localhost:${server.port}/latest.json`,
+      manifestUrl: `http://127.0.0.1:${server.port}/latest.json`,
       publicKey: kp.publicKey,
       target: "linux-x86_64",
       emit: (name) => events.push(name),
@@ -79,12 +94,20 @@ describe("Updater state machine", () => {
 
   test("applyUpdate verifies signature before invoking installer", async () => {
     const binary = new Uint8Array(randomBytes(512));
-    downloadServer = Bun.serve({ port: 0, fetch: () => new Response(binary) });
-    server = Bun.serve({ port: 0, fetch: () => Response.json(buildManifest(binary, "0.2.0")) });
+    downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(binary),
+    });
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => jsonResponse(buildManifest(binary, "0.2.0")),
+    });
     const invocations: string[] = [];
     const u = new Updater({
       currentVersion: "0.1.0",
-      manifestUrl: `http://localhost:${server.port}/latest.json`,
+      manifestUrl: `http://127.0.0.1:${server.port}/latest.json`,
       publicKey: kp.publicKey,
       target: "linux-x86_64",
       emit: () => {},
@@ -101,14 +124,18 @@ describe("Updater state machine", () => {
   test("applyUpdate rejects tampered binary and does not invoke installer", async () => {
     const binary = new Uint8Array(randomBytes(512));
     const tamperedBinary = new Uint8Array(randomBytes(512));
-    downloadServer = Bun.serve({ port: 0, fetch: () => new Response(tamperedBinary) });
+    downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(tamperedBinary),
+    });
     const manifest = buildManifest(binary, "0.2.0");
-    server = Bun.serve({ port: 0, fetch: () => Response.json(manifest) });
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => jsonResponse(manifest) });
     const invocations: string[] = [];
     const events: string[] = [];
     const u = new Updater({
       currentVersion: "0.1.0",
-      manifestUrl: `http://localhost:${server.port}/latest.json`,
+      manifestUrl: `http://127.0.0.1:${server.port}/latest.json`,
       publicKey: kp.publicKey,
       target: "linux-x86_64",
       emit: (name) => events.push(name),
