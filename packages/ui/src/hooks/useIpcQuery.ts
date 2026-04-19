@@ -42,8 +42,10 @@ export function useIpcQuery<T>(
     } finally {
       if (gen === generationRef.current) setIsLoading(false);
     }
-    // paramsKey in deps so the ref identity changes with params shape
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Use the stringified key in deps so the callback identity tracks param
+    // shape changes — object identity of `params` alone would re-fire on every
+    // render even when the shape is stable.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: paramsKey proxies params
   }, [method, paramsKey]);
 
   useEffect(() => {

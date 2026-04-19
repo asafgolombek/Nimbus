@@ -40,7 +40,7 @@ describe("useIpcSubscription", () => {
     renderHook(() => useIpcSubscription("topic://x", handler));
     await Promise.resolve();
     const cbs = listeners.get("topic://x") ?? [];
-    cbs.forEach((cb) => cb({ foo: 1 }));
+    for (const cb of cbs) cb({ foo: 1 });
     expect(handler).toHaveBeenCalledWith({ foo: 1 });
   });
 });
