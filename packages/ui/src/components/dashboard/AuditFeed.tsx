@@ -17,7 +17,6 @@ function outcomeColour(o: AuditEntry["outcome"]): string {
       return "text-[var(--color-error)]";
     case "auto":
       return "text-[var(--color-accent)]";
-    case "info":
     default:
       return "text-[var(--color-fg-muted)]";
   }

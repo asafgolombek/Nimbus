@@ -7,12 +7,12 @@ import {
   RouterProvider,
 } from "react-router-dom";
 import { RootLayout } from "./layouts/RootLayout";
+import { Dashboard } from "./pages/Dashboard";
 import { Onboarding } from "./pages/Onboarding";
 import { Connect } from "./pages/onboarding/Connect";
 import { Syncing } from "./pages/onboarding/Syncing";
 import { Welcome } from "./pages/onboarding/Welcome";
 import { QuickQuery } from "./pages/QuickQuery";
-import { DashboardStub } from "./pages/stubs/DashboardStub";
 import { HitlStub } from "./pages/stubs/HitlStub";
 import { MarketplaceStub } from "./pages/stubs/MarketplaceStub";
 import { SettingsStub } from "./pages/stubs/SettingsStub";
@@ -33,7 +33,7 @@ const router = createBrowserRouter(
         </Wrapper>
       }
     >
-      <Route index element={<DashboardStub />} />
+      <Route index element={<Dashboard />} />
       <Route path="onboarding" element={<Onboarding />}>
         <Route index element={<Navigate to="welcome" replace />} />
         <Route path="welcome" element={<Welcome />} />

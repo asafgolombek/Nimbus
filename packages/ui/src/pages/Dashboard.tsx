@@ -1,0 +1,18 @@
+import type { ReactNode } from "react";
+import { PageHeader } from "../components/chrome/PageHeader";
+import { AuditFeed } from "../components/dashboard/AuditFeed";
+import { ConnectorGrid } from "../components/dashboard/ConnectorGrid";
+import { IndexMetricsStrip } from "../components/dashboard/IndexMetricsStrip";
+
+export function Dashboard(): ReactNode {
+  return (
+    <>
+      <PageHeader title="Dashboard" />
+      <div className="p-6 space-y-6">
+        <IndexMetricsStrip />
+        <ConnectorGrid />
+        <AuditFeed />
+      </div>
+    </>
+  );
+}

@@ -17,7 +17,6 @@ function dotColour(h: ConnectorStatus["health"]): string {
     case "error":
     case "unauthenticated":
       return "bg-[var(--color-error)]";
-    case "paused":
     default:
       return "bg-[var(--color-fg-muted)]";
   }
