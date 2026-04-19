@@ -358,7 +358,7 @@ These items resolve deferred decisions from Phase 3.
 
 ### Remote Access
 
-- [ ] **Optional encrypted LAN remote access** — E2E encrypted (NaCl box), no relay server; Gateway advertises on the local network; connecting client must present a pairing token issued at setup time; read-only by default; write requires a separate HITL approval on the host machine; disabled by default (`[remote_access.enabled] = false`)
+- [ ] **Optional encrypted LAN remote access** — E2E encrypted (NaCl box via tweetnacl), no relay server; paired peers exchange X25519 public keys via a 120-bit base58 pairing code issued during a 5-minute window; read-only by default; write requires explicit `nimbus lan grant-write <peer-id>` on the host; `vault.*`, `updater.*`, `lan.*`, `profile.*` forbidden over LAN regardless of grant; disabled by default (`[lan] enabled = false`); mDNS host discovery deferred to a post-v0.1.0 point release
 
 ### Release Infrastructure
 

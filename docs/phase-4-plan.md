@@ -5,7 +5,12 @@
 > **Constraint:** Solo developer — workstreams are sequential unless explicitly noted as parallelisable.  
 > **Release gate:** `v0.1.0` does not ship until every acceptance criterion in this document passes on Windows, macOS, and Linux. Release timeline is intentionally unconstrained — ship when complete, not by a date.
 
-> **Status (2026-04-18):** Workstream 1 implementation in progress on `dev/asafgolombek/phase_4_workstream_1`. Implemented: `OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`, `AgentCoordinator`, `runSubAgent`, `engine.askStream` IPC streaming, `llm.listModels`/`llm.getStatus` dispatchers, V16 (`llm_models`) and V17 (`sub_task_results`) schema migrations. Unit tests for all implemented modules pass. E2E acceptance criteria (air-gap bench, multi-agent HITL, loop-protection, GPU arbitration) pending.
+> **Status (2026-04-19):**
+> - **WS1 — Local LLM & Multi-Agent:** ✅ Merged. `OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`, `AgentCoordinator`, `runSubAgent`, `engine.askStream`, `llm.*` IPC, V16 + V17 migrations.
+> - **WS2 — Voice Interface:** ✅ Merged (PR #52). `VoiceService` + STT/TTS providers + `voice.*` IPC.
+> - **WS3 — Data Sovereignty:** ✅ Merged (PR #53). `nimbus data export|import|delete`, `nimbus audit verify|export`, BLAKE3-chained audit log (V18), envelope-encrypted vault bundle, BIP39 recovery seed, `nimbus connector reindex`.
+> - **WS4 — Release Infrastructure:** 🟡 Planning. Design committed in `docs/superpowers/specs/2026-04-19-ws4-release-infrastructure-design.md`. Scope: signing plumbing (cert-ready, cert-independent), Ed25519-verified auto-update + `nimbus update` CLI, Plugin API v1 freeze (`AuditLogger` + `HitlRequest`), opt-in encrypted LAN remote access. Out of scope: mDNS host discovery, cert procurement, SDK exports beyond the two v1 additions. Introduces V19 migration (`lan_peers`).
+> - **WS5–WS7:** Blocked on WS4 IPC stability.
 
 ---
 
