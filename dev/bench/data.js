@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776588001230,
+  "lastUpdate": 1776594285875,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -579,6 +579,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.501023019999999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "57fc7d0f3e599e78b949bec1a951f0cefb6b7a21",
+          "message": "chore(logging): add comments to clarify logging behavior in data import and updater functions",
+          "timestamp": "2026-04-19T13:24:16+03:00",
+          "tree_id": "9c095bb0d2a73a151561c48bd8067d074e1b5696",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/57fc7d0f3e599e78b949bec1a951f0cefb6b7a21"
+        },
+        "date": 1776594285419,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4349271999999984,
             "unit": "ms"
           }
         ]
