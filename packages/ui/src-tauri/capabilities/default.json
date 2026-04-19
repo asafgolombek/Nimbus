@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for Nimbus Desktop",
-  "windows": ["main", "quick-query"],
+  "windows": ["main", "quick-query", "hitl-popup"],
   "permissions": [
     "core:default",
     "shell:allow-spawn",
