@@ -15,7 +15,7 @@ describe("LAN crypto — NaCl box round-trip", () => {
     const alice = generateBoxKeypair();
     const bob = generateBoxKeypair();
     const frame = sealBoxFrame(new TextEncoder().encode("hi"), bob.publicKey, alice.secretKey);
-    frame[frame.length - 1] = (frame[frame.length - 1] ?? 0) ^ 0xff;
+    frame[frame.length - 1] = (frame.at(-1) ?? 0) ^ 0xff;
     expect(() => openBoxFrame(frame, alice.publicKey, bob.secretKey)).toThrow();
   });
 

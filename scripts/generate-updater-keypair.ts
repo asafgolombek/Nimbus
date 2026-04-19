@@ -17,7 +17,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import nacl from "../packages/gateway/node_modules/tweetnacl/nacl.js";
+import nacl from "tweetnacl";
 
 const PUBLIC_KEY_FILE = join(import.meta.dir, "..", "packages/gateway/src/updater/public-key.ts");
 

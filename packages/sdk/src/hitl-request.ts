@@ -9,11 +9,14 @@ export function isHitlRequest(value: unknown): value is HitlRequest {
     return false;
   }
   const candidate = value as Record<string, unknown>;
+  const actionId = candidate["actionId"];
+  const summary = candidate["summary"];
+  const diff = candidate["diff"];
   return (
-    typeof candidate["actionId"] === "string" &&
-    (candidate["actionId"] as string).length > 0 &&
-    typeof candidate["summary"] === "string" &&
-    (candidate["summary"] as string).length > 0 &&
-    (candidate["diff"] === undefined || typeof candidate["diff"] === "string")
+    typeof actionId === "string" &&
+    actionId.length > 0 &&
+    typeof summary === "string" &&
+    summary.length > 0 &&
+    (diff === undefined || typeof diff === "string")
   );
 }

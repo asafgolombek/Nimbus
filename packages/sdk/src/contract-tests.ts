@@ -86,7 +86,7 @@ function validateMinNimbusVersion(manifest: ExtensionManifest): string[] {
 
 function assertV1AuditLoggerShape(logger: AuditLogger, extensionId: string): void {
   const ret = logger.log("test.action", {});
-  if (typeof (ret as Promise<void>).then !== "function") {
+  if (typeof ret.then !== "function") {
     throw new ExtensionContractError(
       `AuditLogger.log must return a Promise (extension ${extensionId})`,
     );

@@ -83,13 +83,13 @@ async function readLine(): Promise<string> {
       resolve("");
       return;
     }
-    const chunk = process.stdin.read() as Buffer | null;
-    if (chunk !== null) {
-      resolve(chunk.toString("utf8"));
-    } else {
+    const chunk = process.stdin.read();
+    if (chunk === null) {
       process.stdin.once("data", (data) => {
-        resolve(data.toString("utf8"));
+        resolve((data as Buffer).toString("utf8"));
       });
+    } else {
+      resolve(chunk.toString("utf8"));
     }
   });
 }

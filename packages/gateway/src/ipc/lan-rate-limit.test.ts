@@ -8,12 +8,12 @@ describe("LanRateLimiter", () => {
       { maxFailures: 3, windowMs: 60_000, lockoutMs: 60_000 },
       () => now,
     );
-    expect(l.checkAllowed("1.2.3.4")).toBe(true);
-    l.recordFailure("1.2.3.4");
-    l.recordFailure("1.2.3.4");
-    expect(l.checkAllowed("1.2.3.4")).toBe(true);
-    l.recordFailure("1.2.3.4");
-    expect(l.checkAllowed("1.2.3.4")).toBe(false);
+    expect(l.checkAllowed("192.0.2.1")).toBe(true);
+    l.recordFailure("192.0.2.1");
+    l.recordFailure("192.0.2.1");
+    expect(l.checkAllowed("192.0.2.1")).toBe(true);
+    l.recordFailure("192.0.2.1");
+    expect(l.checkAllowed("192.0.2.1")).toBe(false);
   });
 
   test("lockout expires after lockoutMs", () => {
@@ -22,11 +22,11 @@ describe("LanRateLimiter", () => {
       { maxFailures: 2, windowMs: 60_000, lockoutMs: 60_000 },
       () => now,
     );
-    l.recordFailure("1.2.3.4");
-    l.recordFailure("1.2.3.4");
-    expect(l.checkAllowed("1.2.3.4")).toBe(false);
+    l.recordFailure("192.0.2.1");
+    l.recordFailure("192.0.2.1");
+    expect(l.checkAllowed("192.0.2.1")).toBe(false);
     now += 61_000;
-    expect(l.checkAllowed("1.2.3.4")).toBe(true);
+    expect(l.checkAllowed("192.0.2.1")).toBe(true);
   });
 
   test("per-IP isolation", () => {

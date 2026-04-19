@@ -92,10 +92,10 @@ export class LanServer {
       const payload = socket.data.buffer.slice(4, 4 + length);
       socket.data.buffer = socket.data.buffer.slice(4 + length);
 
-      if (!socket.data.peerPubkey) {
-        await this.handleHandshake(socket, payload);
-      } else {
+      if (socket.data.peerPubkey) {
         await this.handleEncryptedMessage(socket, payload);
+      } else {
+        await this.handleHandshake(socket, payload);
       }
     }
   }

@@ -431,62 +431,60 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return phase4RpcSkipped;
   }
 
+  function requireLanIndex() {
+    if (options.localIndex === undefined)
+      throw new RpcMethodError(-32603, "Local index is not available");
+    return options.localIndex;
+  }
+
+  function requireLanPairingWindow() {
+    if (options.lanPairingWindow === undefined)
+      throw new RpcMethodError(-32603, "LAN pairing window not configured");
+    return options.lanPairingWindow;
+  }
+
+  function extractPeerId(rec: Record<string, unknown> | undefined): string {
+    const peerId = rec !== undefined && typeof rec["peerId"] === "string" ? rec["peerId"] : "";
+    if (!peerId) throw new RpcMethodError(-32602, "Missing peerId");
+    return peerId;
+  }
+
   function handleLanLocalRpc(method: string, params: unknown): unknown {
     const rec = asRecord(params);
     switch (method) {
       case "lan.openPairingWindow": {
-        const pw = options.lanPairingWindow;
-        if (pw === undefined) throw new RpcMethodError(-32603, "LAN pairing window not configured");
+        const pw = requireLanPairingWindow();
         const pairingCode = generatePairingCode();
         const windowMs = (options as Record<string, unknown>)["lanPairingWindowMs"];
         const ms = typeof windowMs === "number" ? windowMs : 300_000;
         pw.open(pairingCode);
-        const expiresAt = Date.now() + ms;
-        return { pairingCode, expiresAt };
+        return { pairingCode, expiresAt: Date.now() + ms };
       }
       case "lan.closePairingWindow": {
-        const pw = options.lanPairingWindow;
-        if (pw === undefined) throw new RpcMethodError(-32603, "LAN pairing window not configured");
-        pw.close();
+        requireLanPairingWindow().close();
         return { ok: true };
       }
       case "lan.listPeers": {
-        if (options.localIndex === undefined)
-          throw new RpcMethodError(-32603, "Local index is not available");
-        const peers = options.localIndex.listLanPeers();
-        return { peers };
+        return { peers: requireLanIndex().listLanPeers() };
       }
       case "lan.grantWrite": {
-        if (options.localIndex === undefined)
-          throw new RpcMethodError(-32603, "Local index is not available");
-        const peerId = rec !== undefined && typeof rec["peerId"] === "string" ? rec["peerId"] : "";
-        if (!peerId) throw new RpcMethodError(-32602, "Missing peerId");
-        options.localIndex.grantLanWrite(peerId);
+        requireLanIndex().grantLanWrite(extractPeerId(rec));
         return { ok: true };
       }
       case "lan.revokeWrite": {
-        if (options.localIndex === undefined)
-          throw new RpcMethodError(-32603, "Local index is not available");
-        const peerId = rec !== undefined && typeof rec["peerId"] === "string" ? rec["peerId"] : "";
-        if (!peerId) throw new RpcMethodError(-32602, "Missing peerId");
-        options.localIndex.revokeLanWrite(peerId);
+        requireLanIndex().revokeLanWrite(extractPeerId(rec));
         return { ok: true };
       }
       case "lan.removePeer": {
-        if (options.localIndex === undefined)
-          throw new RpcMethodError(-32603, "Local index is not available");
-        const peerId = rec !== undefined && typeof rec["peerId"] === "string" ? rec["peerId"] : "";
-        if (!peerId) throw new RpcMethodError(-32602, "Missing peerId");
-        options.localIndex.removeLanPeer(peerId);
+        requireLanIndex().removeLanPeer(extractPeerId(rec));
         return { ok: true };
       }
       case "lan.getStatus": {
-        const listenAddr = options.lanServer?.listenAddr();
         const pw = options.lanPairingWindow;
         return {
           enabled: options.lanServer !== undefined,
           pairingOpen: pw?.isOpen() ?? false,
-          listenAddr: listenAddr ?? null,
+          listenAddr: options.lanServer?.listenAddr() ?? null,
         };
       }
       default:
