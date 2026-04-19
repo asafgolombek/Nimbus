@@ -536,10 +536,10 @@ getDefault(taskType: string): { provider: string; modelName: string } | undefine
 
 - [ ] **Step 4: Add a migration for `llm_task_defaults`**
 
-Locate the last migration number in `packages/gateway/src/index/` (continuing from V17 per CLAUDE.md). Create `packages/gateway/src/index/llm-task-defaults-v18-sql.ts`:
+V18 (`audit-chain-v18-sql.ts`) and V19 (`lan-peers-v19-sql.ts`) are already present in `packages/gateway/src/index/`. Create `packages/gateway/src/index/llm-task-defaults-v20-sql.ts`:
 
 ```ts
-export const LLM_TASK_DEFAULTS_V18_SQL = `
+export const LLM_TASK_DEFAULTS_V20_SQL = `
 CREATE TABLE IF NOT EXISTS llm_task_defaults (
   task_type TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -549,9 +549,7 @@ CREATE TABLE IF NOT EXISTS llm_task_defaults (
 `;
 ```
 
-Register it in the migrations list (follow the pattern used for V17 — find `SUB_TASK_RESULTS_V17_SQL` import and its registration; add the new one immediately after).
-
-> **Note on numbering.** WS3 reserves V18 for `audit_log.row_hash/prev_hash` per CLAUDE.md. If WS3 has already consumed V18, use V19 here and shift the V19 `lan_peers` migration accordingly — verify migration numbers are in order before committing.
+Register it in the migrations list (find the V19 `LAN_PEERS_V19_SQL` import; add the new import immediately after it, then append V20 to the migration array).
 
 - [ ] **Step 5: Add the RPC case**
 
@@ -588,8 +586,8 @@ bun test packages/gateway/src/ipc/llm-rpc.test.ts -t "setDefault"
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/gateway/src/llm/registry.ts packages/gateway/src/ipc/llm-rpc.ts packages/gateway/src/ipc/llm-rpc.test.ts packages/gateway/src/index/llm-task-defaults-v18-sql.ts
-git commit -m "feat(ipc): llm.setDefault persists task-type defaults (V18 schema: llm_task_defaults)"
+git add packages/gateway/src/llm/registry.ts packages/gateway/src/ipc/llm-rpc.ts packages/gateway/src/ipc/llm-rpc.test.ts packages/gateway/src/index/llm-task-defaults-v20-sql.ts
+git commit -m "feat(ipc): llm.setDefault persists task-type defaults (V20 schema: llm_task_defaults)"
 ```
 
 ### Task 5: `llm.getRouterStatus`
@@ -1174,108 +1172,131 @@ The telemetry collector exposes config + counters internally. Two new methods su
 ### Task 11: `telemetry.getStatus`
 
 **Files:**
-- Modify: `packages/gateway/src/telemetry/collector.ts`
 - Modify: `packages/gateway/src/ipc/diagnostics-rpc.ts`
 - Test: `packages/gateway/src/ipc/diagnostics-rpc.test.ts` (create if missing)
 
-- [ ] **Step 1: Read the collector shape**
+> **Architecture note:** `collector.ts` is pure functions — there is no stateful `TelemetryCollector` class. Enabled/disabled state lives in the marker file `dataDir/.nimbus-telemetry-disabled`. The existing `telemetry.disableMark` case writes it; `telemetry.preview` reads it. `telemetry.getStatus` checks for the marker and, when enabled, returns the preview payload with an `enabled: true` flag prepended. `DiagnosticsRpcContext` already provides everything needed — no new fields.
 
-Open `packages/gateway/src/telemetry/collector.ts` and identify: the `enabled` flag, the counter fields (`eventsSent`, `bytesSent`, etc.), and the `lastFlushAt` timestamp. Adjust field names in Step 3 to match the actual collector. If the collector does not expose a `getState()` method, add one.
+- [ ] **Step 1: Write the failing test**
 
-- [ ] **Step 2: Write the failing test**
-
-Add to `packages/gateway/src/ipc/diagnostics-rpc.test.ts` (create with the existing imports if the file is new):
+Create `packages/gateway/src/ipc/diagnostics-rpc.test.ts` (or add to it):
 
 ```ts
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { dispatchDiagnosticsRpc } from "./diagnostics-rpc.ts";
+import type { DiagnosticsRpcContext } from "./diagnostics-rpc.ts";
+
+function makeCtx(dataDir: string): DiagnosticsRpcContext {
+  return {
+    dataDir,
+    configDir: dataDir,
+    localIndex: undefined,
+    consent: { pendingCount: () => 0 } as never,
+    gatewayVersion: "0.0.0-test",
+    startedAtMs: Date.now(),
+  };
+}
 
 describe("telemetry.getStatus", () => {
-  test("returns enabled + counters snapshot", async () => {
-    const fakeCollector = {
-      getState: () => ({
-        enabled: true,
-        eventsSent: 42,
-        bytesSent: 8192,
-        lastFlushAt: 1_700_000_000_000,
-      }),
-    };
-    const r = await dispatchDiagnosticsRpc("telemetry.getStatus", null, {
-      telemetry: fakeCollector,
-    } as unknown as Parameters<typeof dispatchDiagnosticsRpc>[2]);
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "nimbus-diag-")); });
+
+  test("returns enabled:true when marker file absent", () => {
+    const r = dispatchDiagnosticsRpc("telemetry.getStatus", null, makeCtx(dir));
     expect(r.kind).toBe("hit");
-    const v = (r as { value: { enabled: boolean } }).value;
-    expect(v.enabled).toBe(true);
+    expect((r as { value: { enabled: boolean } }).value.enabled).toBe(true);
+  });
+
+  test("returns enabled:false when marker file present", () => {
+    writeFileSync(join(dir, ".nimbus-telemetry-disabled"), `${Date.now()}\n`);
+    const r = dispatchDiagnosticsRpc("telemetry.getStatus", null, makeCtx(dir));
+    expect(r.kind).toBe("hit");
+    expect((r as { value: { enabled: boolean } }).value.enabled).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 ```
 
-- [ ] **Step 3: Add a `getState()` method to the telemetry collector**
-
-In `packages/gateway/src/telemetry/collector.ts`, add (adjust property names to the real collector):
-
-```ts
-getState(): { enabled: boolean; eventsSent: number; bytesSent: number; lastFlushAt: number | null } {
-  return {
-    enabled: this.enabled,
-    eventsSent: this.eventsSent,
-    bytesSent: this.bytesSent,
-    lastFlushAt: this.lastFlushAt ?? null,
-  };
-}
-```
-
-- [ ] **Step 4: Add the RPC case**
-
-In `dispatchDiagnosticsRpc`, add inside the `switch`:
-
-```ts
-case "telemetry.getStatus":
-  return { kind: "hit", value: ctx.telemetry.getState() };
-```
-
-Extend the `DiagnosticsRpcContext` type to include `telemetry: { getState(): ReturnType<TelemetryCollector["getState"]> }`.
-
-- [ ] **Step 5: Run the test; expect PASS**
+- [ ] **Step 2: Run and watch it fail**
 
 ```bash
 bun test packages/gateway/src/ipc/diagnostics-rpc.test.ts -t "telemetry.getStatus"
 ```
 
-- [ ] **Step 6: Commit**
+Expected: FAIL — method returns `{ kind: "miss" }`.
+
+- [ ] **Step 3: Add the RPC case**
+
+In `dispatchDiagnosticsRpc`, add before the `default` case (all imports — `existsSync`, `join`, `collectIndexMetrics`, `buildTelemetryPreview` — are already present in this file):
+
+```ts
+case "telemetry.getStatus": {
+  const disabled = existsSync(join(ctx.dataDir, ".nimbus-telemetry-disabled"));
+  if (disabled) return { kind: "hit", value: { enabled: false } };
+  const d = requireDb(ctx);
+  const m = collectIndexMetrics(d);
+  const preview = buildTelemetryPreview({
+    nimbusVersion: ctx.gatewayVersion,
+    queryLatencyP50Ms: m.queryLatencyP50Ms,
+    queryLatencyP95Ms: m.queryLatencyP95Ms,
+    queryLatencyP99Ms: m.queryLatencyP99Ms,
+    db: d,
+  });
+  return { kind: "hit", value: { enabled: true, ...preview } };
+}
+```
+
+- [ ] **Step 4: Run the test; expect PASS**
 
 ```bash
-git add packages/gateway/src/telemetry/collector.ts packages/gateway/src/ipc/diagnostics-rpc.ts packages/gateway/src/ipc/diagnostics-rpc.test.ts
-git commit -m "feat(ipc): telemetry.getStatus exposes collector state snapshot"
+bun test packages/gateway/src/ipc/diagnostics-rpc.test.ts -t "telemetry.getStatus"
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/gateway/src/ipc/diagnostics-rpc.ts packages/gateway/src/ipc/diagnostics-rpc.test.ts
+git commit -m "feat(ipc): telemetry.getStatus returns enabled flag + preview payload"
 ```
 
 ### Task 12: `telemetry.setEnabled`
 
 **Files:**
-- Modify: `packages/gateway/src/telemetry/collector.ts`
 - Modify: `packages/gateway/src/ipc/diagnostics-rpc.ts`
 - Modify: `packages/gateway/src/ipc/diagnostics-rpc.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
+Add to `diagnostics-rpc.test.ts` (reuse `makeCtx` and `dir` from Task 11):
+
 ```ts
+import { existsSync, unlinkSync } from "node:fs";
+
 describe("telemetry.setEnabled", () => {
-  test("flips enabled and writes an audit row", async () => {
-    let currentlyEnabled = true;
-    const audit = { append: mock(() => {}) };
-    const fakeCollector = {
-      getState: () => ({ enabled: currentlyEnabled, eventsSent: 0, bytesSent: 0, lastFlushAt: null }),
-      setEnabled: (e: boolean) => {
-        currentlyEnabled = e;
-      },
-    };
-    const ctx = { telemetry: fakeCollector, audit } as unknown as Parameters<
-      typeof dispatchDiagnosticsRpc
-    >[2];
-    const r = await dispatchDiagnosticsRpc("telemetry.setEnabled", { enabled: false }, ctx);
-    expect(r.kind).toBe("hit");
-    expect(currentlyEnabled).toBe(false);
-    expect(audit.append).toHaveBeenCalledTimes(1);
+  test("setEnabled(false) writes the disable marker", () => {
+    const dir2 = mkdtempSync(join(tmpdir(), "nimbus-diag-"));
+    dispatchDiagnosticsRpc("telemetry.setEnabled", { enabled: false }, makeCtx(dir2));
+    expect(existsSync(join(dir2, ".nimbus-telemetry-disabled"))).toBe(true);
+    rmSync(dir2, { recursive: true, force: true });
+  });
+
+  test("setEnabled(true) removes the disable marker", () => {
+    const dir3 = mkdtempSync(join(tmpdir(), "nimbus-diag-"));
+    writeFileSync(join(dir3, ".nimbus-telemetry-disabled"), `${Date.now()}\n`);
+    dispatchDiagnosticsRpc("telemetry.setEnabled", { enabled: true }, makeCtx(dir3));
+    expect(existsSync(join(dir3, ".nimbus-telemetry-disabled"))).toBe(false);
+    rmSync(dir3, { recursive: true, force: true });
+  });
+
+  test("rejects missing enabled param", () => {
+    const dir4 = mkdtempSync(join(tmpdir(), "nimbus-diag-"));
+    expect(() =>
+      dispatchDiagnosticsRpc("telemetry.setEnabled", null, makeCtx(dir4)),
+    ).toThrow();
+    rmSync(dir4, { recursive: true, force: true });
   });
 });
 ```
@@ -1286,41 +1307,43 @@ describe("telemetry.setEnabled", () => {
 bun test packages/gateway/src/ipc/diagnostics-rpc.test.ts -t "telemetry.setEnabled"
 ```
 
-- [ ] **Step 3: Extend the collector**
+- [ ] **Step 3: Add `unlinkSync` to the existing `node:fs` import and add the RPC case**
 
-Ensure `TelemetryCollector` has a `setEnabled(enabled: boolean): void` method — if not, add one that updates the internal flag and persists to the config file (mirroring whatever `telemetry.disableMark` does today).
-
-- [ ] **Step 4: Add the RPC case**
+In `diagnostics-rpc.ts`, extend the `node:fs` import line to include `unlinkSync`. Then add before `default`:
 
 ```ts
 case "telemetry.setEnabled": {
   const p = params as { enabled?: unknown } | null;
   if (p === null || typeof p.enabled !== "boolean") {
-    return { kind: "hit", value: { error: "telemetry.setEnabled requires enabled:boolean" } };
+    throw new DiagnosticsRpcError(-32602, "telemetry.setEnabled requires enabled:boolean");
   }
-  ctx.telemetry.setEnabled(p.enabled);
-  ctx.audit?.append?.({
-    kind: "telemetry.setEnabled",
-    outcome: "ok",
-    details: { enabled: p.enabled },
-  });
+  const markerPath = join(ctx.dataDir, ".nimbus-telemetry-disabled");
+  if (p.enabled) {
+    if (existsSync(markerPath)) {
+      assertTelemetryDisablePathSafe(markerPath);
+      unlinkSync(markerPath);
+    }
+  } else {
+    assertTelemetryDisablePathSafe(markerPath);
+    writeFileSync(markerPath, `${String(Date.now())}\n`, { mode: 0o600 });
+  }
   return { kind: "hit", value: { enabled: p.enabled } };
 }
 ```
 
-Extend `DiagnosticsRpcContext` with `audit?: { append(entry: unknown): void }` if not already present.
+`assertTelemetryDisablePathSafe`, `existsSync`, `writeFileSync`, and `join` are already in scope in this file.
 
-- [ ] **Step 5: Run the test; expect PASS**
+- [ ] **Step 4: Run the test; expect PASS**
 
 ```bash
 bun test packages/gateway/src/ipc/diagnostics-rpc.test.ts -t "telemetry.setEnabled"
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add packages/gateway/src/telemetry/collector.ts packages/gateway/src/ipc/diagnostics-rpc.ts packages/gateway/src/ipc/diagnostics-rpc.test.ts
-git commit -m "feat(ipc): telemetry.setEnabled toggles collector + writes audit row"
+git add packages/gateway/src/ipc/diagnostics-rpc.ts packages/gateway/src/ipc/diagnostics-rpc.test.ts
+git commit -m "feat(ipc): telemetry.setEnabled writes/removes disable marker"
 ```
 
 ---
@@ -1871,97 +1894,131 @@ git commit -m "feat(ipc): connector.setConfig composes setInterval + pause/resum
 
 **Files:**
 - Modify: `packages/gateway/src/updater/updater.ts`
-- Modify: `packages/gateway/src/ipc/updater-rpc.ts`
-- Modify: `packages/gateway/src/ipc/updater-rpc.test.ts`
+- Test: `packages/gateway/src/updater/updater.test.ts` (create if missing)
 
-- [ ] **Step 1: Read the existing download path**
+> **Architecture note:** `Updater` emits all notifications via `this.opts.emit` — not via an `onProgress` callback parameter. `UpdaterEmit` already includes `"updater.downloadProgress"` in its type union (line 8). The download currently does `body = await resp.arrayBuffer()` — a single-call, no streaming. The fix is purely inside `Updater.applyUpdate`: replace `arrayBuffer()` with a `ReadableStream` reader loop that calls `this.opts.emit("updater.downloadProgress", ...)` per chunk. No changes to `updater-rpc.ts` are needed.
 
-Open `packages/gateway/src/updater/updater.ts` and find where the candidate binary is fetched (likely a `fetch` with a `ReadableStream`). Confirm whether a progress hook is already wired. If so, only the RPC-side emission is missing; jump to Step 4.
+- [ ] **Step 1: Write the failing test**
 
-- [ ] **Step 2: Write the failing test**
-
-Add to `updater-rpc.test.ts`:
+Create `packages/gateway/src/updater/updater.test.ts`:
 
 ```ts
-describe("updater download emits downloadProgress", () => {
-  test("emits progress chunks during applyUpdate's download phase", async () => {
-    const notifications: { method: string; params: unknown }[] = [];
-    const fakeUpdater = {
-      applyUpdate: async (onProgress?: (p: { bytes: number; total: number }) => void) => {
-        onProgress?.({ bytes: 100, total: 1000 });
-        onProgress?.({ bytes: 1000, total: 1000 });
-        return { applied: true };
+import { describe, test, expect, mock } from "bun:test";
+import { Updater } from "./updater.ts";
+import type { UpdaterOptions } from "./updater.ts";
+
+describe("Updater.applyUpdate emits downloadProgress", () => {
+  test("emits at least two downloadProgress events during streaming fetch", async () => {
+    const progressEvents: Array<{ bytes: number; total: number }> = [];
+    const emit = mock(
+      (name: Parameters<UpdaterOptions["emit"]>[0], payload?: Record<string, unknown>) => {
+        if (name === "updater.downloadProgress") {
+          progressEvents.push(payload as { bytes: number; total: number });
+        }
+      },
+    ) as UpdaterOptions["emit"];
+
+    const updater = new Updater({
+      currentVersion: "0.0.1",
+      manifestUrl: "http://unused",
+      publicKey: new Uint8Array(32),
+      target: "linux-x64",
+      emit,
+      timeoutMs: 5000,
+    });
+
+    const chunk = new Uint8Array(256);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream({
+          start(c) {
+            c.enqueue(chunk);
+            c.enqueue(chunk);
+            c.close();
+          },
+        }),
+        { headers: { "content-length": "512" } },
+      );
+
+    // Inject a fake manifest (private field — cast to access in tests)
+    (updater as { lastManifest: unknown }).lastManifest = {
+      version: "0.0.2",
+      platforms: {
+        "linux-x64": { url: "http://unused", sha256: "deadbeef", signature: "AAAA" },
       },
     };
-    const ctx = {
-      updater: fakeUpdater,
-      notify: (m: string, p: unknown) => notifications.push({ method: m, params: p }),
-    } as unknown as Parameters<typeof dispatchUpdaterRpc>[2];
-    await dispatchUpdaterRpc("updater.applyUpdate", null, ctx);
-    expect(notifications.filter((n) => n.method === "updater.downloadProgress")).toHaveLength(2);
+
+    await updater.applyUpdate().catch(() => {
+      /* expected: sha256 / sig verify will fail — progress events fire before that */
+    });
+    globalThis.fetch = origFetch;
+
+    expect(progressEvents.length).toBeGreaterThanOrEqual(2);
+    expect(progressEvents[0]?.total).toBe(512);
+    expect(progressEvents[1]?.bytes).toBeGreaterThan(progressEvents[0]!.bytes);
   });
 });
 ```
 
-- [ ] **Step 3: Run and watch it fail**
+- [ ] **Step 2: Run and watch it fail**
 
 ```bash
-bun test packages/gateway/src/ipc/updater-rpc.test.ts -t "downloadProgress"
+bun test packages/gateway/src/updater/updater.test.ts -t "downloadProgress"
 ```
 
-- [ ] **Step 4: Thread a progress callback through `Updater.applyUpdate`**
+Expected: FAIL — zero `downloadProgress` events emitted (current code calls `resp.arrayBuffer()` instead of streaming).
 
-In `updater.ts`, extend the `applyUpdate` signature:
+- [ ] **Step 3: Replace `arrayBuffer()` with a streaming reader in `applyUpdate`**
+
+In `packages/gateway/src/updater/updater.ts`, replace the try-catch block that does the download (lines ~82–95) with:
 
 ```ts
-async applyUpdate(onProgress?: (p: { bytes: number; total: number }) => void): Promise<{ applied: boolean }> {
-  // ... existing logic ...
-  // Replace the raw `await resp.body` with a reader that calls onProgress after each chunk:
-  const reader = resp.body?.getReader();
+this.state = "downloading";
+let bytes: Uint8Array;
+try {
+  const resp = await fetch(asset.url, { redirect: "follow" });
+  if (!resp.ok) {
+    throw new Error(`download HTTP ${resp.status}`);
+  }
   const total = Number(resp.headers.get("content-length") ?? 0);
-  let bytes = 0;
+  const reader = resp.body?.getReader();
+  if (reader === undefined) throw new Error("No response body from download");
   const chunks: Uint8Array[] = [];
-  if (reader !== undefined) {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value !== undefined) {
-        chunks.push(value);
-        bytes += value.byteLength;
-        onProgress?.({ bytes, total });
-      }
+  let downloaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value !== undefined) {
+      chunks.push(value);
+      downloaded += value.byteLength;
+      this.opts.emit("updater.downloadProgress", { bytes: downloaded, total });
     }
   }
-  // Continue with signature verification over the concatenated buffer.
+  bytes = new Uint8Array(downloaded);
+  let off = 0;
+  for (const c of chunks) { bytes.set(c, off); off += c.byteLength; }
+} catch (err) {
+  this.state = "failed";
+  this.lastError = err instanceof Error ? err.message : String(err);
+  this.opts.emit("updater.rolledBack", { reason: "download_failed" });
+  throw err;
 }
 ```
 
-- [ ] **Step 5: Emit from the RPC dispatcher**
+Remove the `let body: ArrayBuffer;` declaration and the subsequent `const bytes = new Uint8Array(body);` line — `bytes` is now declared directly in the try block.
 
-In `updater-rpc.ts`, modify the `applyUpdate` case:
-
-```ts
-case "updater.applyUpdate": {
-  const result = await ctx.updater.applyUpdate((p) =>
-    ctx.notify?.("updater.downloadProgress", p),
-  );
-  return { kind: "hit", value: result };
-}
-```
-
-Extend `UpdaterRpcContext` with `notify?: (method: string, params: unknown) => void;` if not already present, and wire the notifier in `server.ts`.
-
-- [ ] **Step 6: Run the test; expect PASS**
+- [ ] **Step 4: Run the test; expect PASS**
 
 ```bash
-bun test packages/gateway/src/ipc/updater-rpc.test.ts -t "downloadProgress"
+bun test packages/gateway/src/updater/updater.test.ts -t "downloadProgress"
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add packages/gateway/src/updater/updater.ts packages/gateway/src/ipc/updater-rpc.ts packages/gateway/src/ipc/updater-rpc.test.ts
-git commit -m "feat(ipc): emit updater.downloadProgress during applyUpdate's fetch loop"
+git add packages/gateway/src/updater/updater.ts packages/gateway/src/updater/updater.test.ts
+git commit -m "feat(updater): emit updater.downloadProgress per chunk during applyUpdate fetch loop"
 ```
 
 ---
@@ -2061,5 +2118,12 @@ No gaps.
 **Placeholder scan.** No "TBD" / "TODO" / "fill in details" / "similar to Task N" strings — every task has self-contained test + implementation code blocks. Two tasks (Task 11 collector field names, Task 15 end-to-end fixture) carry explicit "read the existing file first" steps because the exact subsystem shape is not known from outside the gateway source; the plan tells the executor how to discover the shape, not a placeholder to invent one.
 
 **Type consistency.** `PullProgressChunk` defined in Task 1 is imported consistently in Task 2. `LlmRpcContext` extended in Task 2 and reused verbatim in Tasks 3/4/5. `ProfileManager` methods (`list`, `getActive`, `create`, `switchTo`, `delete`) referenced consistently in Tasks 7–10. `LocalIndex` new methods (`countItems`, `countItemsByService`, `getAuditSummary`) declared in the tasks that add them.
+
+**Open questions resolved (see `2026-04-19-ws5c-gateway-ipc-plumbing-open-questions.md`):**
+- Q1 Migration number: both V18 (`audit-chain`) and V19 (`lan-peers`) are present in the repo — Task 4 now uses V20.
+- Q2 `modelName` empty string: kept as-is, already an explicit documented decision.
+- Q3 Telemetry collector shape: no stateful class exists — Tasks 11–12 rewritten to use the marker-file architecture in `diagnostics-rpc.ts`.
+- Q4 Data export fixtures: hedge in Task 15 is sufficient; Step 1 read-first instruction covers it.
+- Q5 Updater progress hook: `applyUpdate` uses `resp.arrayBuffer()` (no streaming); `UpdaterEmit` already includes `"updater.downloadProgress"`. Task 20 rewritten to fix the internal loop and test at the `Updater` unit level — no `updater-rpc.ts` changes needed.
 
 **Scope.** One feature branch, one PR, ~20 tasks. Independently shippable; does not block Plan 2 from starting Phase 1 of its own UI work in parallel once Phase 1 (LLM) lands here.
