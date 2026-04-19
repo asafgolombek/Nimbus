@@ -65,20 +65,12 @@ describe("GatewayConnectionProvider", () => {
     await waitFor(() => expect(useNimbusStore.getState().connectionState).toBe("connected"));
   });
 
-  it("routes to / when diag.snapshot has items (returning user)", async () => {
+  it.each([
+    { label: "has items", indexTotalItems: 5, connectorCount: 2 },
+    { label: "zero items but meta non-null", indexTotalItems: 0, connectorCount: 0 },
+  ])("routes to / when meta is non-null ($label)", async ({ indexTotalItems, connectorCount }) => {
     callMock.mockImplementation(async (method) => {
-      if (method === "diag.snapshot") return { indexTotalItems: 5, connectorCount: 2 };
-      if (method === "db.getMeta") return "true";
-      throw new Error(`unexpected method ${method}`);
-    });
-    const { seen, rerender } = await renderAndConnect("/onboarding/welcome");
-    await waitFor(() => expect(seen.at(-1)).toBe("/"));
-    rerender(<div />);
-  });
-
-  it("routes to / when meta is non-null even with zero items", async () => {
-    callMock.mockImplementation(async (method) => {
-      if (method === "diag.snapshot") return { indexTotalItems: 0, connectorCount: 0 };
+      if (method === "diag.snapshot") return { indexTotalItems, connectorCount };
       if (method === "db.getMeta") return "true";
       throw new Error(`unexpected method ${method}`);
     });

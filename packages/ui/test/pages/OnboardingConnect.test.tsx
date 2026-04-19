@@ -2,15 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const callMock = vi.fn<(method: string, params?: unknown) => Promise<unknown>>();
-vi.mock("../../src/ipc/client", () => ({
-  createIpcClient: () => ({
-    call: callMock,
-    subscribe: async () => () => {},
-    onConnectionState: async () => () => {},
-  }),
-}));
+vi.mock("../../src/ipc/client");
 
+import { callMock } from "../../src/ipc/__mocks__/client";
 import { Connect } from "../../src/pages/onboarding/Connect";
 import { useNimbusStore } from "../../src/store";
 
