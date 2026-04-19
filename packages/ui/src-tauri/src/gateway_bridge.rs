@@ -199,3 +199,15 @@ mod tests {
         assert!(!is_method_allowed("unknown.method"));
     }
 }
+
+use tauri_plugin_shell::ShellExt;
+
+#[tauri::command]
+pub async fn shell_start_gateway(app: AppHandle) -> Result<(), String> {
+    app.shell()
+        .command("nimbus")
+        .args(["start"])
+        .spawn()
+        .map(|_child| ())
+        .map_err(|e| format!("Failed to launch nimbus: {e} (is it on PATH?)"))
+}

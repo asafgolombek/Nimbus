@@ -8,7 +8,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(BridgeState::new())
-        .invoke_handler(tauri::generate_handler![gateway_bridge::rpc_call])
+        .invoke_handler(tauri::generate_handler![
+            gateway_bridge::rpc_call,
+            gateway_bridge::shell_start_gateway,
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

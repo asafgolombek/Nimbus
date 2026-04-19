@@ -1,11 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "enables the default permissions",
-  "windows": [
-    "main"
-  ],
+  "description": "Default capabilities for Nimbus Desktop",
+  "windows": ["main", "quick-query"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "shell:allow-spawn",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "name": "nimbus", "cmd": "nimbus", "args": ["start"], "sidecar": false }
+      ]
+    },
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister"
   ]
 }
