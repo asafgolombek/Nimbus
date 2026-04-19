@@ -8,6 +8,7 @@ import {
 } from "react-router-dom";
 import { RootLayout } from "./layouts/RootLayout";
 import { Dashboard } from "./pages/Dashboard";
+import { HitlPopup } from "./pages/HitlPopup";
 import { Onboarding } from "./pages/Onboarding";
 import { Connect } from "./pages/onboarding/Connect";
 import { Syncing } from "./pages/onboarding/Syncing";
@@ -41,6 +42,7 @@ const router = createBrowserRouter(
         <Route path="syncing" element={<Syncing />} />
       </Route>
       <Route path="quick" element={<QuickQuery />} />
+      <Route path="hitl-popup" element={<HitlPopup />} />
       <Route path="hitl" element={<HitlStub />} />
       <Route path="settings" element={<SettingsStub />} />
       <Route path="marketplace" element={<MarketplaceStub />} />

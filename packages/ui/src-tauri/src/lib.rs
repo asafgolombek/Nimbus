@@ -1,8 +1,9 @@
 mod gateway_bridge;
+mod hitl_popup;
 mod quick_query;
 mod tray;
 
-use gateway_bridge::{connect_and_run, BridgeState};
+use gateway_bridge::{connect_and_run, BridgeState, HitlInbox};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -11,10 +12,15 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(BridgeState::new())
+        .manage(HitlInbox::new())
         .invoke_handler(tauri::generate_handler![
             gateway_bridge::rpc_call,
             gateway_bridge::shell_start_gateway,
+            gateway_bridge::get_pending_hitl,
+            gateway_bridge::hitl_resolved,
             tray::set_connectors_menu,
+            hitl_popup::open_hitl_popup,
+            hitl_popup::close_hitl_popup,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

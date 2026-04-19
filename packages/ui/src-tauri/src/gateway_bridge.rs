@@ -7,11 +7,53 @@ use interprocess::local_socket::{GenericNamespaced, ToNsName};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::sleep;
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct PendingHitl {
+    pub request_id: String,
+    pub prompt: String,
+    pub details: Option<Value>,
+    pub received_at_ms: u64,
+}
+
+pub struct HitlInbox {
+    list: StdMutex<Vec<PendingHitl>>,
+}
+
+impl HitlInbox {
+    pub fn new() -> Self {
+        Self {
+            list: StdMutex::new(Vec::new()),
+        }
+    }
+    pub fn push_dedup(&self, r: PendingHitl) -> bool {
+        let mut g = self.list.lock().unwrap();
+        if g.iter().any(|x| x.request_id == r.request_id) {
+            return false;
+        }
+        g.push(r);
+        true
+    }
+    pub fn remove(&self, request_id: &str) {
+        let mut g = self.list.lock().unwrap();
+        g.retain(|x| x.request_id != request_id);
+    }
+    pub fn snapshot(&self) -> Vec<PendingHitl> {
+        self.list.lock().unwrap().clone()
+    }
+}
+
+impl Default for HitlInbox {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub const ALLOWED_METHODS: &[&str] = &[
     // Sub-project A
@@ -142,7 +184,8 @@ where
                 };
                 let _ = tx.send(payload);
             }
-        } else if msg.get("method").is_some() {
+        } else if let Some(method) = msg.get("method").and_then(|v| v.as_str()).map(String::from) {
+            classify_notification(&app, &method, msg.get("params"));
             let _ = app.emit("gateway://notification", msg);
         }
     }
@@ -254,4 +297,69 @@ pub async fn shell_start_gateway(app: AppHandle) -> Result<(), String> {
         .spawn()
         .map(|_child| ())
         .map_err(|e| format!("Failed to launch nimbus: {e} (is it on PATH?)"))
+}
+
+#[tauri::command]
+pub async fn get_pending_hitl(state: State<'_, HitlInbox>) -> Result<Vec<PendingHitl>, String> {
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub async fn hitl_resolved(
+    app: AppHandle,
+    state: State<'_, HitlInbox>,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    state.remove(&request_id);
+    let _ = app.emit(
+        "consent://resolved",
+        json!({ "request_id": request_id, "approved": approved }),
+    );
+    Ok(())
+}
+
+fn classify_notification(app: &AppHandle, method: &str, params: Option<&Value>) {
+    match method {
+        "consent.request" => {
+            let Some(params) = params else {
+                return;
+            };
+            let (Some(request_id), Some(prompt)) = (
+                params
+                    .get("requestId")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                params
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+            ) else {
+                return;
+            };
+            let received_at_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let details = params.get("details").cloned();
+            let record = PendingHitl {
+                request_id,
+                prompt,
+                details,
+                received_at_ms,
+            };
+            if let Some(inbox) = app.try_state::<HitlInbox>() {
+                if inbox.push_dedup(record.clone()) {
+                    let _ = app.emit("consent://request", &record);
+                    let _ = crate::hitl_popup::open_or_focus(app);
+                }
+            }
+        }
+        "connector.healthChanged" => {
+            if let Some(p) = params.cloned() {
+                let _ = app.emit("connector://health-changed", p);
+            }
+        }
+        _ => {}
+    }
 }
