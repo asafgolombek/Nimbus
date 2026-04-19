@@ -36,8 +36,8 @@ export function QuickQuery() {
 
   useEffect(() => {
     if (!doneAt) return;
-    const t = setTimeout(() => {
-      void getCurrentWindow().close();
+    const t = setTimeout(async () => {
+      await getCurrentWindow().close();
     }, 2000);
     return () => clearTimeout(t);
   }, [doneAt]);

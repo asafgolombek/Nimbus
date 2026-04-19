@@ -4,17 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Handler<T> = (payload: T) => void;
 const connectionHandlers: Handler<string>[] = [];
-const notificationHandlers: Handler<{ method: string; params: unknown }>[] = [];
 const callMock = vi.fn<(method: string, params?: unknown) => Promise<unknown>>();
 
 vi.mock("../../src/ipc/client", async () => {
   return {
     createIpcClient: () => ({
       call: callMock,
-      subscribe: async (h: Handler<{ method: string; params: unknown }>) => {
-        notificationHandlers.push(h);
-        return () => {};
-      },
+      subscribe: async () => () => {},
       onConnectionState: async (h: Handler<string>) => {
         connectionHandlers.push(h);
         return () => {};
@@ -50,7 +46,6 @@ async function renderAndConnect(initialEntry: string) {
 describe("GatewayConnectionProvider", () => {
   beforeEach(() => {
     connectionHandlers.length = 0;
-    notificationHandlers.length = 0;
     callMock.mockReset();
     useNimbusStore.setState({ connectionState: "initializing" });
   });
