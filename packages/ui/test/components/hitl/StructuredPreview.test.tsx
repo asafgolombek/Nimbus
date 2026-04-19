@@ -34,4 +34,35 @@ describe("StructuredPreview", () => {
     expect(screen.getByText("author")).toBeInTheDocument();
     expect(screen.getByText("me")).toBeInTheDocument();
   });
+
+  it("returns null for an undefined details prop", () => {
+    const { container } = render(<StructuredPreview />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders an array of objects as a bulleted nested list", () => {
+    render(
+      <StructuredPreview
+        details={{
+          recipients: [
+            { email: "a@x.com", role: "to" },
+            { email: "b@x.com", role: "cc" },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText(/a@x\.com/)).toBeInTheDocument();
+    expect(screen.getByText(/b@x\.com/)).toBeInTheDocument();
+  });
+
+  it("renders deeply nested objects as JSON fallback beyond one level", () => {
+    render(<StructuredPreview details={{ outer: { inner: { deep: "value" } } }} />);
+    expect(screen.getByText(/{"deep":"value"}/)).toBeInTheDocument();
+  });
+
+  it("truncates long strings with a Show full toggle", () => {
+    const long = "x".repeat(120);
+    render(<StructuredPreview details={{ note: long }} />);
+    expect(screen.getByRole("button", { name: /Show full/i })).toBeInTheDocument();
+  });
 });
