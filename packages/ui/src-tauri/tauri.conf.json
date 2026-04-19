@@ -40,10 +40,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "dockIcon": false,
       "exceptionDomain": null,
       "frameworks": [],
-      "license": "",
       "minimumSystemVersion": "13.0",
       "signingIdentity": null
     }
