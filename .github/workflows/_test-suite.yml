@@ -75,7 +75,7 @@ jobs:
       - name: Unit tests (with coverage) — Linux
         if: runner.os == 'Linux'
         shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors --coverage --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml
+        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml
         env:
           CI: "true"
 
@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2; do
-            bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors --coverage --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml && break
+            bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml && break
             echo "Attempt $attempt failed, retrying in 5 s..." && sleep 5
           done
         env:
@@ -95,6 +95,14 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           use_oidc: true
+          files: coverage/lcov.info
+
+      - name: SonarCloud analysis
+        if: runner.os == 'Linux' && env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92 # v3.1.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Integration tests
         run: bun test packages/gateway/test/integration/ packages/cli/test/integration/ --reporter=junit --reporter-outfile=junit-reports/junit-integration.xml
