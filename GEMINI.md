@@ -117,6 +117,9 @@ bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — p
 bun run test:coverage:db           # ≥85% threshold (verify, repair, migrations, metrics, latency buffer)
 bun run test:coverage:health       # ≥85% threshold (connectors/health.ts)
 bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
+# Phase 4 WS4 coverage gates
+bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
+bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
 
 # Integration tests
 bun run test:integration
@@ -171,10 +174,28 @@ bun run audit:high                 # same (root script)
 # nimbus audit verify [--full] [--since <id>]
 # nimbus audit export --output <path.json>
 
+# Phase 4 WS4 — Release Infrastructure
+# nimbus update --check              # check for update; exit 1 if available, 0 if current
+# nimbus update [--yes]              # download, verify Ed25519 signature, invoke platform installer
+# nimbus lan enable [--allow-pairing]  # start LAN server; open 5-min pairing window (optional)
+# nimbus lan disable                 # stop LAN server
+# nimbus lan pair <host-ip> <code>   # exchange X25519 keys with a host using pairing code
+# nimbus lan status                  # show LAN server state and paired peers
+# nimbus lan list-peers              # list paired peers with id, direction, write-allowed
+# nimbus lan grant-write <peer-id>   # allow peer to call write/HITL methods
+# nimbus lan revoke-write <peer-id>  # remove write grant
+# nimbus lan remove-peer <peer-id>   # unpair a peer
+
 # Phase 4 env-var overrides (multi-agent loop guards)
 # NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)
 # NIMBUS_MAX_TOOL_CALLS_PER_SESSION=20  hard cap on tool calls per session (1–200; default 20)
 # Exceeding either fires agent.gasLimitReached and halts new decomposition.
+
+# Phase 4 WS4 env-var overrides
+# NIMBUS_UPDATER_URL=<url>           override update manifest URL
+# NIMBUS_UPDATER_DISABLE=true        disable auto-update checks entirely
+# NIMBUS_LAN_PORT=<port>             override LAN TCP listen port (default: 7475)
+# NIMBUS_DEV_UPDATER_PUBLIC_KEY=<base64>  override embedded Ed25519 public key (tests only)
 
 # Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
 # Optional: NIMBUS_EMBEDDING_MODEL_DIR or bun run package:headless -- --embedding-model-dir <path>

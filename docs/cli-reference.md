@@ -379,6 +379,14 @@ endpoint = "https://telemetry.nimbus.dev/v1/collect"
 
 [filesystem]
 # roots = ["/home/user/projects", "/home/user/documents"]
+
+[updater]
+# enabled = true
+# url = "https://releases.nimbus.dev/latest.json"
+
+[lan]
+# enabled = false
+# port = 7475
 ```
 
 **Environment variable overrides:** All keys can be overridden with `NIMBUS_` prefixed env vars. Examples: `NIMBUS_LLM_PROVIDER`, `NIMBUS_SYNC_INTERVAL_SECONDS`, `NIMBUS_TELEMETRY_ENABLED`.
@@ -786,6 +794,122 @@ nimbus audit --json
 
 ---
 
+## Updates
+
+### `nimbus update`
+
+Check for or apply a Nimbus software update. Updates are downloaded, verified against an Ed25519 signature, and then handed off to the platform installer. No update is applied until the binary signature is confirmed.
+
+```bash
+nimbus update --check               # Print current vs. latest version; exit 1 if update available, 0 if current
+nimbus update                       # Download, verify signature, prompt for confirmation, run installer
+nimbus update --yes                 # Skip confirmation prompt (for scripted/unattended use)
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--check` | Check-only mode — no download, no install |
+| `--yes` | Skip the "Apply update?" confirmation |
+
+**Security:** The downloaded binary's SHA-256 hash is computed and verified against the Ed25519-signed manifest before any installer is invoked. A tampered binary is rejected and automatically rolled back.
+
+**Headless note:** When the Gateway starts in headless mode (no Tauri connection detected) and an update is available, it prints a one-line hint to stdout: `"A new version of Nimbus is available (X.Y.Z). Run 'nimbus update' to install."`
+
+**Environment overrides:** `NIMBUS_UPDATER_URL` overrides the manifest URL. `NIMBUS_UPDATER_DISABLE=true` disables all update checks.
+
+---
+
+## LAN Remote Access
+
+Encrypted, relay-free remote access between machines on the same network. Disabled by default (`[lan] enabled = false` in `nimbus.toml`). Enable via `nimbus config set lan.enabled true`.
+
+All traffic is E2E encrypted with NaCl box (X25519 DH + XSalsa20-Poly1305). `vault.*`, `updater.*`, `lan.*`, and `profile.*` methods are forbidden over LAN regardless of peer grants.
+
+### `nimbus lan enable`
+
+Start the LAN server. Without `--allow-pairing`, only already-paired peers can connect.
+
+```bash
+nimbus lan enable                   # Accept connections from paired peers only
+nimbus lan enable --allow-pairing   # Also open a 5-minute pairing window; prints pairing code
+```
+
+---
+
+### `nimbus lan disable`
+
+Stop the LAN server and close all active peer connections.
+
+```bash
+nimbus lan disable
+```
+
+---
+
+### `nimbus lan pair <host-ip> <pairing-code>`
+
+Initiate a key exchange with a host that has an open pairing window. Stores the peer's X25519 public key in the local `lan_peers` table.
+
+```bash
+nimbus lan pair 192.168.1.42 Ab3Xy7QmPn1Wk8Zv    # 20-character base58 pairing code
+```
+
+---
+
+### `nimbus lan status`
+
+Show LAN server state, listen port, and number of paired peers.
+
+```bash
+nimbus lan status
+nimbus lan status --json
+```
+
+---
+
+### `nimbus lan list-peers`
+
+List all paired peers with their ID, direction (`inbound` / `outbound`), and write-allowed status.
+
+```bash
+nimbus lan list-peers
+nimbus lan list-peers --json
+```
+
+---
+
+### `nimbus lan grant-write <peer-id>`
+
+Allow a peer to call write and HITL-gated methods. Read-only by default after pairing.
+
+```bash
+nimbus lan grant-write abc123
+```
+
+---
+
+### `nimbus lan revoke-write <peer-id>`
+
+Remove a peer's write grant. They remain paired but are restricted to read-only methods.
+
+```bash
+nimbus lan revoke-write abc123
+```
+
+---
+
+### `nimbus lan remove-peer <peer-id>`
+
+Unpair a peer. Their stored public key is deleted; any active session is terminated.
+
+```bash
+nimbus lan remove-peer abc123
+```
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -818,6 +942,10 @@ nimbus audit --json
 | `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` | Hard cap on total tool calls per session (1–200; default 20) |
 | `NIMBUS_RUN_QUERY_BENCH` | Set to `1` to enable strict `< 100ms` p95 assertion in the query latency benchmark |
 | `NIMBUS_LOG_LEVEL` | `debug` / `info` / `warn` / `error` (default: `info`) |
+| `NIMBUS_UPDATER_URL` | Override the update manifest URL (default: official endpoint) |
+| `NIMBUS_UPDATER_DISABLE` | Set to `true` to disable all auto-update checks |
+| `NIMBUS_LAN_PORT` | Override the LAN TCP listen port (default: `7475`) |
+| `NIMBUS_DEV_UPDATER_PUBLIC_KEY` | Override the embedded Ed25519 updater public key — for tests only |
 
 ---
 

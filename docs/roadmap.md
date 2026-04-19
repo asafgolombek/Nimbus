@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-18 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) in PR #52:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) merged to `main`:** BLAKE3-chained audit log (`audit.verify`/`audit.exportAll`), portable encrypted backups (`nimbus data export/import`, BIP39 recovery seed, Argon2id envelope encryption), service-scoped GDPR deletion (`nimbus data delete`), and connector reindex depth control (`nimbus connector reindex`).
+> **Last updated:** 2026-04-19 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) merged to `main`:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) merged to `main`:** BLAKE3-chained audit log (`audit.verify`/`audit.exportAll`), portable encrypted backups (`nimbus data export/import`, BIP39 recovery seed, Argon2id envelope encryption), service-scoped GDPR deletion (`nimbus data delete`), and connector reindex depth control (`nimbus connector reindex`). **WS4 (Release Infrastructure) implemented:** Ed25519 signing plumbing + CI release workflow, `Updater` state machine with `nimbus update` CLI, `@nimbus-dev/sdk` frozen at v1.0.0 (Plugin API v1), opt-in encrypted LAN remote access (`lan-crypto`, `lan-pairing`, `lan-rate-limit`, `lan-server`, `lan-rpc`, `nimbus lan` CLI), V19 `lan_peers` migration. Pending: cert procurement, Gatekeeper/SmartScreen sign-off, mDNS host discovery (post-v0.1.0 point release).
 
 ---
 
@@ -358,13 +358,13 @@ These items resolve deferred decisions from Phase 3.
 
 ### Remote Access
 
-- [ ] **Optional encrypted LAN remote access** — E2E encrypted (NaCl box via tweetnacl), no relay server; paired peers exchange X25519 public keys via a 120-bit base58 pairing code issued during a 5-minute window; read-only by default; write requires explicit `nimbus lan grant-write <peer-id>` on the host; `vault.*`, `updater.*`, `lan.*`, `profile.*` forbidden over LAN regardless of grant; disabled by default (`[lan] enabled = false`); mDNS host discovery deferred to a post-v0.1.0 point release
+- [x] **Optional encrypted LAN remote access** — E2E encrypted (NaCl box via tweetnacl), no relay server; paired peers exchange X25519 public keys via a 120-bit base58 pairing code issued during a 5-minute window; read-only by default; write requires explicit `nimbus lan grant-write <peer-id>` on the host; `vault.*`, `updater.*`, `lan.*`, `profile.*` forbidden over LAN regardless of grant; disabled by default (`[lan] enabled = false`); mDNS host discovery deferred to a post-v0.1.0 point release
 
 ### Release Infrastructure
 
-- [ ] Signed + notarized release binaries: macOS (Gatekeeper notarized), Windows (Authenticode signed), Linux (GPG-signed `.deb` + AppImage)
-- [ ] Auto-update via self-hosted `tauri-update-server`; update checked on Gateway startup; user approves before applying
-- [ ] Plugin API v1 — third-party connector registration stable and documented; breaking changes require a major version bump
+- [ ] Signed + notarized release binaries: macOS (Gatekeeper notarized), Windows (Authenticode signed), Linux (GPG-signed `.deb` + AppImage) — signing scripts + CI workflow in place; pending cert procurement and Gatekeeper/SmartScreen verification
+- [x] Auto-update — Ed25519-signed binary manifest (`latest.json`); `Updater` state machine verifies signature before install; `nimbus update --check` / `nimbus update`; Gateway emits `updater.updateAvailable` on startup
+- [x] Plugin API v1 — `@nimbus-dev/sdk` frozen at v1.0.0; `AuditLogger`, `HitlRequest`, `runContractTests` stable surface; `CHANGELOG.md` documents breaking-change policy
 
 ### Acceptance Criteria
 
