@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776598060178,
+  "lastUpdate": 1776608921804,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -637,6 +637,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.492538620000003,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e60b679a753018e269484b33da72024ae8361f07",
+          "message": "Merge pull request #55 from asafgolombek/dev/ws5a-app-shell\n\nfeat(ui): WS5-A — App Shell Foundation",
+          "timestamp": "2026-04-19T17:28:09+03:00",
+          "tree_id": "274b41889d8bc3478afeef411375019913feef01",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/e60b679a753018e269484b33da72024ae8361f07"
+        },
+        "date": 1776608920885,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.6879661399999997,
             "unit": "ms"
           }
         ]
