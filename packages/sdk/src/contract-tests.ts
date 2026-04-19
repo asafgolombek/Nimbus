@@ -109,7 +109,7 @@ function assertV1HitlRequestGuard(): void {
 /**
  * Validates a {@link ExtensionManifest} for CI / `nimbus test` (no network, no Gateway).
  */
-export function runContractTests(manifest: ExtensionManifest): void {
+export async function runContractTests(manifest: ExtensionManifest): Promise<void> {
   const errors: string[] = [
     ...validateRequiredStrings(manifest),
     ...validateRuntime(manifest),

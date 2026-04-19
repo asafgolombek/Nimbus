@@ -17,20 +17,20 @@ const base = (): ExtensionManifest => ({
 });
 
 describe("runContractTests", () => {
-  test("accepts a minimal valid manifest", () => {
-    expect(() => runContractTests(base())).not.toThrow();
+  test("accepts a minimal valid manifest", async () => {
+    await expect(runContractTests(base())).resolves.toBeUndefined();
   });
 
-  test("rejects invalid permission", () => {
+  test("rejects invalid permission", async () => {
     const m = base();
     m.permissions = ["read", "admin"] as ExtensionManifest["permissions"];
-    expect(() => runContractTests(m)).toThrow(ExtensionContractError);
+    await expect(runContractTests(m)).rejects.toBeInstanceOf(ExtensionContractError);
   });
 });
 
 describe("runContractTests — v1 additions", () => {
-  test("v1 contract passes against a minimal extension manifest", () => {
-    expect(() =>
+  test("v1 contract passes against a minimal extension manifest", async () => {
+    await expect(
       runContractTests({
         id: "ext.v1-smoke",
         displayName: "V1 Smoke",
@@ -43,6 +43,6 @@ describe("runContractTests — v1 additions", () => {
         hitlRequired: [],
         minNimbusVersion: "0.1.0",
       }),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 });
