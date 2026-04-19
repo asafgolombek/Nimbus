@@ -5,7 +5,7 @@ interface NavItemProps {
   to: string;
   icon: string;
   label: string;
-  badge?: number;
+  badge?: number | undefined;
 }
 
 function formatBadge(n: number): string {
