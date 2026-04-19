@@ -36,13 +36,13 @@ pub fn run() {
                 Modifiers::CONTROL | Modifiers::SHIFT
             };
             let shortcut = Shortcut::new(Some(modifier), Code::KeyN);
-            if let Err(err) = app
-                .global_shortcut()
-                .on_shortcut(shortcut, move |_app, _sh, event| {
-                    if event.state == ShortcutState::Pressed {
-                        let _ = crate::quick_query::spawn_or_focus(&handle_for_shortcut);
-                    }
-                })
+            if let Err(err) =
+                app.global_shortcut()
+                    .on_shortcut(shortcut, move |_app, _sh, event| {
+                        if event.state == ShortcutState::Pressed {
+                            let _ = crate::quick_query::spawn_or_focus(&handle_for_shortcut);
+                        }
+                    })
             {
                 log::warn!("quick-query hotkey registration failed: {err}");
                 let _ = app.handle().emit("tray://hotkey-failed", err.to_string());

@@ -6,15 +6,19 @@ pub fn spawn_or_focus(app: &AppHandle) -> tauri::Result<()> {
         let _ = existing.set_focus();
         return Ok(());
     }
-    let window = WebviewWindowBuilder::new(app, "quick-query", WebviewUrl::App("index.html#/quick".into()))
-        .inner_size(560.0, 220.0)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .center()
-        .focused(true)
-        .build()?;
+    let window = WebviewWindowBuilder::new(
+        app,
+        "quick-query",
+        WebviewUrl::App("index.html#/quick".into()),
+    )
+    .inner_size(560.0, 220.0)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .center()
+    .focused(true)
+    .build()?;
 
     let handle_for_event = app.clone();
     window.on_window_event(move |event| {
