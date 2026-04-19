@@ -3,8 +3,8 @@ import { useNimbusStore } from "../../store";
 import { ProfileHealthPill } from "./ProfileHealthPill";
 
 interface Props {
-  title: string;
-  profile?: string;
+  readonly title: string;
+  readonly profile?: string;
 }
 
 export function PageHeader({ title, profile = "default" }: Props): ReactNode {
