@@ -250,8 +250,20 @@ export type LocalIndexOptions = {
   semanticSearch?: SemanticSearchDeps;
 };
 
+export interface LanPeerRow {
+  peer_id: string;
+  peer_pubkey: Uint8Array;
+  direction: "inbound" | "outbound";
+  host_ip: string | null;
+  host_port: number | null;
+  display_name: string | null;
+  write_allowed: number;
+  paired_at: string;
+  last_seen_at: string | null;
+}
+
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 18;
+  static readonly SCHEMA_VERSION = 19;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -782,6 +794,57 @@ export class LocalIndex {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [String(v)],
     );
+  }
+
+  public listLanPeers(): LanPeerRow[] {
+    return this.db.query(`SELECT * FROM lan_peers ORDER BY paired_at ASC`).all() as LanPeerRow[];
+  }
+
+  public addLanPeer(params: {
+    peerId: string;
+    peerPubkey: Uint8Array;
+    direction: "inbound" | "outbound";
+    hostIp?: string;
+    hostPort?: number;
+    displayName?: string;
+  }): void {
+    this.db.run(
+      `INSERT INTO lan_peers (peer_id, peer_pubkey, direction, host_ip, host_port, display_name, write_allowed, paired_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+      [
+        params.peerId,
+        Buffer.from(params.peerPubkey),
+        params.direction,
+        params.hostIp ?? null,
+        params.hostPort ?? null,
+        params.displayName ?? null,
+        new Date().toISOString(),
+      ],
+    );
+  }
+
+  public grantLanWrite(peerId: string): void {
+    this.db.run(
+      `UPDATE lan_peers SET write_allowed = 1 WHERE peer_id = ? AND direction = 'inbound'`,
+      [peerId],
+    );
+  }
+
+  public revokeLanWrite(peerId: string): void {
+    this.db.run(
+      `UPDATE lan_peers SET write_allowed = 0 WHERE peer_id = ? AND direction = 'inbound'`,
+      [peerId],
+    );
+  }
+
+  public removeLanPeer(peerId: string): void {
+    this.db.run(`DELETE FROM lan_peers WHERE peer_id = ?`, [peerId]);
+  }
+
+  public getLanPeerByPubkey(pubkey: Uint8Array): LanPeerRow | undefined {
+    return this.db
+      .query(`SELECT * FROM lan_peers WHERE peer_pubkey = ?`)
+      .get(Buffer.from(pubkey)) as LanPeerRow | undefined;
   }
 
   /**
