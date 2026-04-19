@@ -53,6 +53,18 @@
       }
     }
   },
+  "css": {
+    "parser": {
+      "cssModules": false,
+      "tailwindDirectives": true
+    },
+    "linter": {
+      "enabled": false
+    },
+    "formatter": {
+      "enabled": false
+    }
+  },
   "javascript": {
     "formatter": {
       "quoteStyle": "double",
@@ -67,6 +79,19 @@
         "rules": {
           "suspicious": {
             "noConsole": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/ui/src/pages/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noAutofocus": "off"
           }
         }
       }
