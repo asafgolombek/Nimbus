@@ -14,12 +14,18 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::sleep;
 
 pub const ALLOWED_METHODS: &[&str] = &[
+    // Sub-project A
     "diag.snapshot",
     "connector.list",
     "connector.startAuth",
     "engine.askStream",
     "db.getMeta",
     "db.setMeta",
+    // Sub-project B additions
+    "connector.listStatus",
+    "index.metrics",
+    "audit.list",
+    "consent.respond",
 ];
 
 pub fn is_method_allowed(method: &str) -> bool {
@@ -197,7 +203,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_contains_expected_methods() {
+    fn allowlist_ws5a_methods() {
         assert!(is_method_allowed("diag.snapshot"));
         assert!(is_method_allowed("connector.list"));
         assert!(is_method_allowed("connector.startAuth"));
@@ -207,11 +213,28 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_rejects_sensitive_methods() {
+    fn allowlist_ws5b_additions() {
+        assert!(is_method_allowed("connector.listStatus"));
+        assert!(is_method_allowed("index.metrics"));
+        assert!(is_method_allowed("audit.list"));
+        assert!(is_method_allowed("consent.respond"));
+    }
+
+    #[test]
+    fn allowlist_rejects_vault_and_raw_db_writes() {
         assert!(!is_method_allowed("vault.get"));
         assert!(!is_method_allowed("vault.set"));
-        assert!(!is_method_allowed("db.query"));
-        assert!(!is_method_allowed("engine.ask"));
+        assert!(!is_method_allowed("vault.list"));
+        assert!(!is_method_allowed("db.put"));
+        assert!(!is_method_allowed("db.delete"));
+        assert!(!is_method_allowed("config.set"));
+        assert!(!is_method_allowed("index.rebuild"));
+    }
+
+    #[test]
+    fn allowlist_exact_size() {
+        // Prevents accidental additions without an updated test.
+        assert_eq!(ALLOWED_METHODS.len(), 10);
     }
 
     #[test]
