@@ -10,10 +10,10 @@ export function isHitlRequest(value: unknown): value is HitlRequest {
   }
   const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate.actionId === "string" &&
-    candidate.actionId.length > 0 &&
-    typeof candidate.summary === "string" &&
-    candidate.summary.length > 0 &&
-    (candidate.diff === undefined || typeof candidate.diff === "string")
+    typeof candidate["actionId"] === "string" &&
+    (candidate["actionId"] as string).length > 0 &&
+    typeof candidate["summary"] === "string" &&
+    (candidate["summary"] as string).length > 0 &&
+    (candidate["diff"] === undefined || typeof candidate["diff"] === "string")
   );
 }

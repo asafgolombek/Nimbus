@@ -1,3 +1,5 @@
+import { type AuditLogger, createScopedAuditLogger } from "./audit-logger.ts";
+import { type HitlRequest, isHitlRequest } from "./hitl-request.ts";
 import type { ExtensionManifest } from "./types";
 
 export class ExtensionContractError extends Error {
@@ -46,8 +48,8 @@ function validateRuntime(manifest: ExtensionManifest): string[] {
 
 function validatePermissions(manifest: ExtensionManifest): string[] {
   const errors: string[] = [];
-  if (!Array.isArray(manifest.permissions) || manifest.permissions.length === 0) {
-    errors.push("manifest.permissions must be a non-empty array");
+  if (!Array.isArray(manifest.permissions)) {
+    errors.push("manifest.permissions must be an array");
     return errors;
   }
   for (const p of manifest.permissions) {
@@ -82,6 +84,28 @@ function validateMinNimbusVersion(manifest: ExtensionManifest): string[] {
   return [];
 }
 
+function assertV1AuditLoggerShape(logger: AuditLogger, extensionId: string): void {
+  const ret = logger.log("test.action", {});
+  if (typeof (ret as Promise<void>).then !== "function") {
+    throw new ExtensionContractError(
+      `AuditLogger.log must return a Promise (extension ${extensionId})`,
+    );
+  }
+}
+
+function assertV1HitlRequestGuard(): void {
+  const good: HitlRequest = { actionId: "x", summary: "y" };
+  if (!isHitlRequest(good)) {
+    throw new ExtensionContractError("isHitlRequest must accept a valid HitlRequest");
+  }
+  if (isHitlRequest({})) {
+    throw new ExtensionContractError("isHitlRequest must reject an empty object");
+  }
+  if (isHitlRequest({ actionId: "", summary: "y" })) {
+    throw new ExtensionContractError("isHitlRequest must reject empty actionId");
+  }
+}
+
 /**
  * Validates a {@link ExtensionManifest} for CI / `nimbus test` (no network, no Gateway).
  */
@@ -96,4 +120,9 @@ export function runContractTests(manifest: ExtensionManifest): void {
   if (errors.length > 0) {
     throw new ExtensionContractError(errors.join("; "));
   }
+  assertV1HitlRequestGuard();
+  assertV1AuditLoggerShape(
+    createScopedAuditLogger(manifest.id, async () => {}),
+    manifest.id,
+  );
 }

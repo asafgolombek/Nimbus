@@ -27,3 +27,22 @@ describe("runContractTests", () => {
     expect(() => runContractTests(m)).toThrow(ExtensionContractError);
   });
 });
+
+describe("runContractTests — v1 additions", () => {
+  test("v1 contract passes against a minimal extension manifest", () => {
+    expect(() =>
+      runContractTests({
+        id: "ext.v1-smoke",
+        displayName: "V1 Smoke",
+        version: "0.1.0",
+        description: "Smoke test extension",
+        author: "Nimbus",
+        entrypoint: "index.ts",
+        runtime: "bun",
+        permissions: [],
+        hitlRequired: [],
+        minNimbusVersion: "0.1.0",
+      }),
+    ).not.toThrow();
+  });
+});
