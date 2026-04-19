@@ -11,7 +11,7 @@
     "lint": "biome check src/",
     "test": "bunx vitest run",
     "test:watch": "bunx vitest",
-    "test:coverage": "bunx vitest run --coverage",
+    "test:coverage": "bunx vitest run --coverage --coverage.thresholds.lines=80 --coverage.thresholds.branches=75",
     "tauri": "bunx tauri",
     "clean": "rm -rf dist"
   },
