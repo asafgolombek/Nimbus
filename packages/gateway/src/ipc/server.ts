@@ -31,6 +31,9 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
 } from "./jsonrpc.ts";
+import { generatePairingCode, type PairingWindow } from "./lan-pairing.ts";
+// lan-rpc.ts checkLanMethodAllowed is used only on the LAN HTTP path (lan-server.ts), not here.
+import type { LanServer } from "./lan-server.ts";
 import { dispatchLlmRpc, LlmRpcError } from "./llm-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
 import { dispatchReindexRpc, ReindexRpcError } from "./reindex-rpc.ts";
@@ -168,6 +171,10 @@ export type CreateIpcServerOptions = {
   voiceService?: VoiceService;
   /** Auto-updater for updater.* RPCs (Phase 4 WS4). */
   updater?: Updater;
+  /** LAN server instance for lan.* RPCs (Phase 4 WS4). */
+  lanServer?: LanServer;
+  /** Pairing window shared with the LAN server (Phase 4 WS4). */
+  lanPairingWindow?: PairingWindow;
 };
 
 function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key: string): string {
@@ -424,6 +431,76 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return phase4RpcSkipped;
   }
 
+  function handleLanLocalRpc(method: string, params: unknown): unknown {
+    const rec = asRecord(params);
+    switch (method) {
+      case "lan.openPairingWindow": {
+        const pw = options.lanPairingWindow;
+        if (pw === undefined) throw new RpcMethodError(-32603, "LAN pairing window not configured");
+        const pairingCode = generatePairingCode();
+        const windowMs = (options as Record<string, unknown>)["lanPairingWindowMs"];
+        const ms = typeof windowMs === "number" ? windowMs : 300_000;
+        pw.open(pairingCode);
+        const expiresAt = Date.now() + ms;
+        return { pairingCode, expiresAt };
+      }
+      case "lan.closePairingWindow": {
+        const pw = options.lanPairingWindow;
+        if (pw === undefined) throw new RpcMethodError(-32603, "LAN pairing window not configured");
+        pw.close();
+        return { ok: true };
+      }
+      case "lan.listPeers": {
+        if (options.localIndex === undefined)
+          throw new RpcMethodError(-32603, "Local index is not available");
+        const peers = options.localIndex.listLanPeers();
+        return { peers };
+      }
+      case "lan.grantWrite": {
+        if (options.localIndex === undefined)
+          throw new RpcMethodError(-32603, "Local index is not available");
+        const peerId = rec !== undefined && typeof rec["peerId"] === "string" ? rec["peerId"] : "";
+        if (!peerId) throw new RpcMethodError(-32602, "Missing peerId");
+        options.localIndex.grantLanWrite(peerId);
+        return { ok: true };
+      }
+      case "lan.revokeWrite": {
+        if (options.localIndex === undefined)
+          throw new RpcMethodError(-32603, "Local index is not available");
+        const peerId = rec !== undefined && typeof rec["peerId"] === "string" ? rec["peerId"] : "";
+        if (!peerId) throw new RpcMethodError(-32602, "Missing peerId");
+        options.localIndex.revokeLanWrite(peerId);
+        return { ok: true };
+      }
+      case "lan.removePeer": {
+        if (options.localIndex === undefined)
+          throw new RpcMethodError(-32603, "Local index is not available");
+        const peerId = rec !== undefined && typeof rec["peerId"] === "string" ? rec["peerId"] : "";
+        if (!peerId) throw new RpcMethodError(-32602, "Missing peerId");
+        options.localIndex.removeLanPeer(peerId);
+        return { ok: true };
+      }
+      case "lan.getStatus": {
+        const listenAddr = options.lanServer?.listenAddr();
+        const pw = options.lanPairingWindow;
+        return {
+          enabled: options.lanServer !== undefined,
+          pairingOpen: pw?.isOpen() ?? false,
+          listenAddr: listenAddr ?? null,
+        };
+      }
+      default:
+        throw new RpcMethodError(-32601, `Method not found: ${method}`);
+    }
+  }
+
+  async function tryDispatchLanRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("lan.")) return phase4RpcSkipped;
+    // Local IPC clients (not LAN peers) are permitted to call all lan.* methods.
+    // checkLanMethodAllowed is only applied on the LAN HTTP path (lan-server.ts).
+    return handleLanLocalRpc(method, params);
+  }
+
   async function tryDispatchPhase4Rpc(method: string, params: unknown): Promise<unknown> {
     const llmOutcome = await tryDispatchLlmRpc(method, params);
     if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
@@ -435,6 +512,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
     const dataOutcome = await tryDispatchDataRpc(method, params);
     if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
+    const lanOutcome = await tryDispatchLanRpc(method, params);
+    if (lanOutcome !== phase4RpcSkipped) return lanOutcome;
     return tryDispatchReindexRpc(method, params);
   }
 

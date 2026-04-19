@@ -489,3 +489,111 @@ export function loadNimbusUpdaterFromPath(tomlPath: string): NimbusUpdaterToml {
 export function loadNimbusUpdaterFromConfigDir(configDir: string): NimbusUpdaterToml {
   return loadNimbusUpdaterFromPath(join(configDir, "nimbus.toml"));
 }
+
+// ─── [lan] section ──────────────────────────────────────────────────────────
+
+export type NimbusLanToml = {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  pairingWindowSeconds: number;
+  maxFailedAttempts: number;
+  lockoutSeconds: number;
+};
+
+export const DEFAULT_NIMBUS_LAN_TOML: NimbusLanToml = {
+  enabled: false,
+  port: 7475,
+  bind: "0.0.0.0",
+  pairingWindowSeconds: 300,
+  maxFailedAttempts: 3,
+  lockoutSeconds: 60,
+};
+
+function applyNimbusLanKey(out: Partial<NimbusLanToml>, key: string, valRaw: string): void {
+  switch (key) {
+    case "enabled": {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.enabled = b;
+      break;
+    }
+    case "port": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) out.port = n;
+      break;
+    }
+    case "bind":
+      out.bind = parseString(valRaw);
+      break;
+    case "pairing_window_seconds": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) out.pairingWindowSeconds = n;
+      break;
+    }
+    case "max_failed_attempts": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n > 0) out.maxFailedAttempts = n;
+      break;
+    }
+    case "lockout_seconds": {
+      const n = parseIntDec(valRaw);
+      if (n !== undefined && n >= 0) out.lockoutSeconds = n;
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function parseNimbusTomlLanSection(source: string): Partial<NimbusLanToml> {
+  const lines = source.split(/\r?\n/);
+  let inLan = false;
+  const out: Partial<NimbusLanToml> = {};
+
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inLan = trimmed === "[lan]";
+      continue;
+    }
+    if (!inLan) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    applyNimbusLanKey(out, key, valRaw);
+  }
+  return out;
+}
+
+export function parseNimbusLanToml(
+  raw: string,
+  defaults: NimbusLanToml = DEFAULT_NIMBUS_LAN_TOML,
+): NimbusLanToml {
+  const section = parseNimbusTomlLanSection(raw);
+  const result: NimbusLanToml = { ...defaults, ...section };
+
+  const portOverride = processEnvGet("NIMBUS_LAN_PORT");
+  if (portOverride) {
+    const parsed = Number.parseInt(portOverride, 10);
+    if (!Number.isNaN(parsed)) result.port = parsed;
+  }
+  return result;
+}
+
+export function loadNimbusLanFromPath(tomlPath: string): NimbusLanToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_LAN_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return parseNimbusLanToml(raw);
+  } catch {
+    return structuredClone(DEFAULT_NIMBUS_LAN_TOML);
+  }
+}
+
+export function loadNimbusLanFromConfigDir(configDir: string): NimbusLanToml {
+  return loadNimbusLanFromPath(join(configDir, "nimbus.toml"));
+}

@@ -12,6 +12,7 @@ export { runDiag } from "./diag.ts";
 export { runDoctor } from "./doctor.ts";
 export { runExtension } from "./extension.ts";
 export { printHelp } from "./help.ts";
+export { runLan } from "./lan.ts";
 export { runPeople } from "./people.ts";
 export { runProfile } from "./profile.ts";
 export { runQuery } from "./query.ts";
