@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 import { getConnectorHealth } from "../connectors/health.ts";
+import { computeAuditRowHash, GENESIS_HASH } from "../db/audit-chain.ts";
 import {
   DEFAULT_SLOW_QUERY_THRESHOLD_MS,
   latencyRingBuffer,
@@ -250,7 +251,7 @@ export type LocalIndexOptions = {
 };
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 17;
+  static readonly SCHEMA_VERSION = 18;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -706,10 +707,80 @@ export class LocalIndex {
     actionJson: string;
     timestamp: number;
   }): void {
+    const prevHash = this.getLastAuditRowHash();
+    const rowHash = computeAuditRowHash({
+      prevHash,
+      actionType: entry.actionType,
+      hitlStatus: entry.hitlStatus,
+      actionJson: entry.actionJson,
+      timestamp: entry.timestamp,
+    });
     this.db.run(
-      `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp)
-       VALUES (?, ?, ?, ?)`,
-      [entry.actionType, entry.hitlStatus, entry.actionJson, entry.timestamp],
+      `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp, row_hash, prev_hash)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [entry.actionType, entry.hitlStatus, entry.actionJson, entry.timestamp, rowHash, prevHash],
+    );
+  }
+
+  get rawDb(): Database {
+    return this.db;
+  }
+
+  getLastAuditRowHash(): string {
+    const row = this.db.query(`SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1`).get() as
+      | { row_hash: string | null }
+      | undefined;
+    const h = row?.row_hash;
+    return typeof h === "string" && h.length === 64 ? h : GENESIS_HASH;
+  }
+
+  listAuditWithChain(limit: number): Array<AuditEntry & { rowHash: string; prevHash: string }> {
+    const capped = Math.min(10_000, Math.max(1, Math.floor(limit)));
+    const rows = this.db
+      .query(
+        `SELECT id, action_type, hitl_status, action_json, timestamp, row_hash, prev_hash
+         FROM audit_log ORDER BY id ASC LIMIT ?`,
+      )
+      .all(capped) as Array<{
+      id: number;
+      action_type: string;
+      hitl_status: string;
+      action_json: string;
+      timestamp: number;
+      row_hash: string;
+      prev_hash: string;
+    }>;
+    return rows.map((r) => {
+      const status = r.hitl_status;
+      if (status !== "approved" && status !== "rejected" && status !== "not_required") {
+        throw new Error("Corrupt audit_log row: invalid hitl_status");
+      }
+      return {
+        id: r.id,
+        actionType: r.action_type,
+        hitlStatus: status,
+        actionJson: r.action_json,
+        timestamp: r.timestamp,
+        rowHash: r.row_hash,
+        prevHash: r.prev_hash,
+      };
+    });
+  }
+
+  getAuditVerifiedThroughId(): number {
+    const row = this.db
+      .query(`SELECT value FROM _meta WHERE key = 'audit_verified_through_id'`)
+      .get() as { value: string } | undefined;
+    const n = row === undefined ? 0 : Number.parseInt(row.value, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+
+  setAuditVerifiedThroughId(id: number): void {
+    const v = Math.max(0, Math.floor(id));
+    this.db.run(
+      `INSERT INTO _meta (key, value) VALUES ('audit_verified_through_id', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [String(v)],
     );
   }
 

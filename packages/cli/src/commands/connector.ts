@@ -1221,6 +1221,23 @@ async function runConnectorRemove(tail: string[]): Promise<void> {
   }
 }
 
+async function runConnectorReindex(args: string[]): Promise<void> {
+  const service = args[0];
+  if (service === undefined) {
+    throw new Error(
+      "Usage: nimbus connector reindex <name> [--depth <metadata_only|summary|full>]",
+    );
+  }
+  const depthIdx = args.indexOf("--depth");
+  const depth = depthIdx >= 0 ? (args[depthIdx + 1] ?? "metadata_only") : "metadata_only";
+  const result = await withIpc((c) =>
+    c.call<{ itemsAffected: number; mode: string }>("connector.reindex", { service, depth }),
+  );
+  console.log(
+    `[ok] ${service} reindex ${result.mode} — ${String(result.itemsAffected)} items affected`,
+  );
+}
+
 async function runConnectorHistory(tail: string[]): Promise<void> {
   const service = tail[0];
   if (service === undefined) {
@@ -1290,6 +1307,9 @@ export async function runConnector(args: string[]): Promise<void> {
       return;
     case "remove":
       await runConnectorRemove(tail);
+      return;
+    case "reindex":
+      await runConnectorReindex(tail);
       return;
     default:
       throw new Error(`Unknown connector subcommand: ${sub}. Try: nimbus connector help`);

@@ -14,6 +14,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
+import { computeAuditRowHash } from "../../db/audit-chain.ts";
+import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
 import {
   EMBEDDING_V6_MIGRATION_SQL,
@@ -247,6 +249,42 @@ function migrateIndexedV16ToV17(db: Database, now: number): void {
   })();
 }
 
+function backfillAuditChain(db: Database): void {
+  const rows = db
+    .query(
+      `SELECT id, action_type, hitl_status, action_json, timestamp FROM audit_log ORDER BY id ASC`,
+    )
+    .all() as Array<{
+    id: number;
+    action_type: string;
+    hitl_status: string;
+    action_json: string;
+    timestamp: number;
+  }>;
+  let prev = "0".repeat(64);
+  const update = db.prepare(`UPDATE audit_log SET row_hash = ?, prev_hash = ? WHERE id = ?`);
+  for (const r of rows) {
+    const row = computeAuditRowHash({
+      prevHash: prev,
+      actionType: r.action_type,
+      hitlStatus: r.hitl_status,
+      actionJson: r.action_json,
+      timestamp: r.timestamp,
+    });
+    update.run(row, prev, r.id);
+    prev = row;
+  }
+}
+
+function migrateIndexedV17ToV18(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(AUDIT_CHAIN_V18_SCHEMA_SQL);
+    backfillAuditChain(db);
+    db.exec("PRAGMA user_version = 18");
+    recordMigration(db, 18, "audit_log BLAKE3 chain (row_hash + prev_hash) + _meta", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -265,6 +303,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 14, toVersion: 15, apply: migrateIndexedV14ToV15 },
   { fromVersion: 15, toVersion: 16, apply: migrateIndexedV15ToV16 },
   { fromVersion: 16, toVersion: 17, apply: migrateIndexedV16ToV17 },
+  { fromVersion: 17, toVersion: 18, apply: migrateIndexedV17ToV18 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -285,6 +324,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "connector_remove_intent (backfilled)",
   "llm_models table + sync_state.context_window_tokens (backfilled)",
   "sub_task_results (backfilled)",
+  "audit_log BLAKE3 chain + _meta (backfilled)",
 ];
 
 /**

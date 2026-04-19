@@ -1,0 +1,105 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildManifest } from "../db/backup-manifest.ts";
+import { encryptVaultManifest, type KdfParams } from "../db/data-vault-crypto.ts";
+import { ensureRecoverySeed } from "../db/recovery-seed.ts";
+import { packBundle } from "../db/tar-bundle.ts";
+import type { LocalIndex } from "../index/local-index.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
+
+export type RunDataExportInput = {
+  output: string;
+  /** When false, omit index.db.gz from the bundle. */
+  includeIndex: boolean;
+  passphrase: string;
+  vault: NimbusVault;
+  index: LocalIndex;
+  platform: "win32" | "darwin" | "linux";
+  nimbusVersion: string;
+  /** Override Argon2id params in tests. */
+  kdfParams?: KdfParams;
+};
+
+export type RunDataExportResult = {
+  outputPath: string;
+  recoverySeed: string;
+  recoverySeedGenerated: boolean;
+  itemsExported: number;
+};
+
+async function collectVaultManifestPlaintext(vault: NimbusVault): Promise<string> {
+  const keys = await vault.listKeys();
+  const entries: Array<{ key: string; value: string }> = [];
+  for (const key of keys) {
+    if (key === "backup.recovery_seed") continue; // seed is never included in the encrypted manifest
+    const value = await vault.get(key);
+    if (value !== null) entries.push({ key, value });
+  }
+  return JSON.stringify(entries);
+}
+
+export async function runDataExport(input: RunDataExportInput): Promise<RunDataExportResult> {
+  const seed = await ensureRecoverySeed(input.vault);
+  const stage = mkdtempSync(join(tmpdir(), "nimbus-export-stage-"));
+
+  // Vault manifest (encrypted)
+  const vaultPlaintext = await collectVaultManifestPlaintext(input.vault);
+  const encrypted = await encryptVaultManifest({
+    plaintext: vaultPlaintext,
+    passphrase: input.passphrase,
+    seed: seed.mnemonic,
+    ...(input.kdfParams === undefined ? {} : { kdfParams: input.kdfParams }),
+  });
+  const vaultPath = join(stage, "vault-manifest.json.enc");
+  writeFileSync(vaultPath, JSON.stringify(encrypted));
+
+  // Side files: watchers, workflows, extensions, profiles, audit chain
+  const watchersPath = join(stage, "watchers.json");
+  writeFileSync(watchersPath, "[]");
+  const workflowsPath = join(stage, "workflows.json");
+  writeFileSync(workflowsPath, "[]");
+  const extensionsPath = join(stage, "extensions.json");
+  writeFileSync(extensionsPath, "[]");
+  const profilesPath = join(stage, "profiles.json");
+  writeFileSync(profilesPath, "[]");
+  const auditPath = join(stage, "audit-chain.json");
+  writeFileSync(auditPath, JSON.stringify(input.index.listAuditWithChain(10_000)));
+
+  const files: Record<string, string> = {
+    "vault-manifest.json.enc": vaultPath,
+    "watchers.json": watchersPath,
+    "workflows.json": workflowsPath,
+    "extensions.json": extensionsPath,
+    "profiles.json": profilesPath,
+    "audit-chain.json": auditPath,
+  };
+
+  const parsedVault = JSON.parse(vaultPlaintext) as Array<unknown>;
+  const manifest = await buildManifest({
+    bundleDir: stage,
+    nimbusVersion: input.nimbusVersion,
+    platform: input.platform,
+    contents: {
+      index_rows: 0,
+      vault_entries: parsedVault.length,
+      watchers: 0,
+      workflows: 0,
+      extensions: 0,
+      profiles: 0,
+    },
+    files,
+    indexIncluded: input.includeIndex,
+  });
+  writeFileSync(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2));
+
+  mkdirSync(join(input.output, ".."), { recursive: true });
+  await packBundle(stage, input.output);
+
+  return {
+    outputPath: input.output,
+    recoverySeed: seed.mnemonic,
+    recoverySeedGenerated: seed.generated,
+    itemsExported: parsedVault.length,
+  };
+}

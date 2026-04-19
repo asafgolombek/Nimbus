@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
+import { GENESIS_HASH } from "../db/audit-chain.ts";
 import { upsertIndexedItem } from "./item-store.ts";
 import { type AuditEntry, LocalIndex, RAW_META_MAX_BYTES } from "./local-index.ts";
 import { isVecLoaded, tryLoadSqliteVec } from "./sqlite-vec-load.ts";
@@ -206,6 +207,18 @@ describe("LocalIndex", () => {
     expect(list.length).toBe(2);
     expect(list[0]?.actionType).toBe("filesystem.search");
     expect(list[1]?.actionType).toBe("file.delete");
+  });
+
+  test("recordAudit chains row_hash across successive inserts", () => {
+    const db = openMemoryIndex();
+    db.recordAudit({ actionType: "a", hitlStatus: "approved", actionJson: "{}", timestamp: 1 });
+    db.recordAudit({ actionType: "b", hitlStatus: "approved", actionJson: "{}", timestamp: 2 });
+    const rows = db.listAuditWithChain(10);
+    expect(rows).toHaveLength(2);
+    const [first, second] = rows;
+    expect(first?.prevHash).toBe(GENESIS_HASH);
+    expect(second?.prevHash).toBe(first?.rowHash);
+    expect(first?.rowHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("connector scheduler registration and persisted statuses", () => {

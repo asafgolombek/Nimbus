@@ -17,9 +17,11 @@ import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { VoiceService } from "../voice/service.ts";
 import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
+import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 import { ConsentCoordinatorImpl } from "./consent.ts";
+import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
 import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "./diagnostics-rpc.ts";
 import {
   errorResponse,
@@ -30,6 +32,7 @@ import {
 } from "./jsonrpc.ts";
 import { dispatchLlmRpc, LlmRpcError } from "./llm-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
+import { dispatchReindexRpc, ReindexRpcError } from "./reindex-rpc.ts";
 import { ClientSession, type SessionWrite } from "./session.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
 import type { IPCServer } from "./types.ts";
@@ -358,10 +361,61 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
   }
 
+  async function tryDispatchAuditRpc(method: string, params: unknown): Promise<unknown> {
+    if (method !== "audit.verify" && method !== "audit.exportAll") return phase4RpcSkipped;
+    try {
+      const out = await dispatchAuditRpc(method, params, { index: options.localIndex });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof AuditRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      throw e;
+    }
+    return phase4RpcSkipped;
+  }
+
+  async function tryDispatchReindexRpc(method: string, params: unknown): Promise<unknown> {
+    if (method !== "connector.reindex") return phase4RpcSkipped;
+    try {
+      const out = await dispatchReindexRpc(method, params, { index: options.localIndex });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof ReindexRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      throw e;
+    }
+    return phase4RpcSkipped;
+  }
+
+  async function tryDispatchDataRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("data.")) return phase4RpcSkipped;
+    try {
+      let rpcPlatform: "win32" | "darwin" | "linux";
+      if (process.platform === "win32") rpcPlatform = "win32";
+      else if (process.platform === "darwin") rpcPlatform = "darwin";
+      else rpcPlatform = "linux";
+      const out = await dispatchDataRpc(method, params, {
+        index: options.localIndex,
+        vault: options.vault,
+        platform: rpcPlatform,
+        nimbusVersion: options.version ?? "0.1.0",
+      });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof DataRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      throw e;
+    }
+    return phase4RpcSkipped;
+  }
+
   async function tryDispatchPhase4Rpc(method: string, params: unknown): Promise<unknown> {
     const llmOutcome = await tryDispatchLlmRpc(method, params);
     if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
-    return tryDispatchVoiceRpc(method, params);
+    const voiceOutcome = await tryDispatchVoiceRpc(method, params);
+    if (voiceOutcome !== phase4RpcSkipped) return voiceOutcome;
+    const auditOutcome = await tryDispatchAuditRpc(method, params);
+    if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
+    const dataOutcome = await tryDispatchDataRpc(method, params);
+    if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
+    return tryDispatchReindexRpc(method, params);
   }
 
   async function tryDispatchSessionRpc(method: string, params: unknown): Promise<unknown> {

@@ -12,6 +12,7 @@ import {
   runAudit,
   runConfig,
   runConnector,
+  runData,
   runDb,
   runDiag,
   runDoctor,
@@ -104,6 +105,9 @@ async function main(): Promise<void> {
           break;
         case "connector":
           await runConnector(args);
+          break;
+        case "data":
+          await runData(args);
           break;
         case "extension":
           await runExtension(args);

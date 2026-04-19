@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-18 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) in PR #52:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) plan written:** implementation pending.
+> **Last updated:** 2026-04-18 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) in PR #52:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) merged to `main`:** BLAKE3-chained audit log (`audit.verify`/`audit.exportAll`), portable encrypted backups (`nimbus data export/import`, BIP39 recovery seed, Argon2id envelope encryption), service-scoped GDPR deletion (`nimbus data delete`), and connector reindex depth control (`nimbus connector reindex`).
 
 ---
 
@@ -341,11 +341,11 @@ First-party demonstrations of multi-agent orchestration and multi-connector cont
 
 ### Data Sovereignty
 
-- [ ] **Full export** — `nimbus data export --output nimbus-backup.tar.gz`: SQLite snapshot, vault credential manifest (re-encrypted with user passphrase), watcher definitions, workflow pipelines, extension list, active profile configs
-- [ ] **Full import** — `nimbus data import nimbus-backup.tar.gz`: decrypts manifest, re-seals credentials into target machine's native Vault, restores index, re-registers extensions, restores profiles
-- [ ] **GDPR deletion** — `nimbus data delete --service <name>`: removes all index rows and Vault entries for a service; writes a signed deletion record to the audit log
-- [ ] **Tamper-evident audit log** — each audit log row is BLAKE3-chained to the previous; log export includes the chain; `nimbus audit verify` checks integrity
-- [ ] **Data minimization** — per-connector indexing depth config in `nimbus.toml`: `metadata_only` (name, timestamps, URL — no content), `summary` (body preview truncated to 512 chars), or `full` (default); applies at ingest — content excluded never enters the index or embedding pipeline; important for shared-machine and compliance scenarios
+- [x] **Full export** — `nimbus data export --output nimbus-backup.tar.gz`: SQLite snapshot, vault credential manifest (re-encrypted with user passphrase + BIP39 recovery seed), BLAKE3 integrity hashes in manifest; `--no-index` flag to omit SQLite snapshot
+- [x] **Full import** — `nimbus data import nimbus-backup.tar.gz`: verifies BLAKE3 hashes, decrypts manifest (passphrase or recovery seed), re-seals credentials into target machine's native Vault, restores index
+- [x] **GDPR deletion** — `nimbus data delete --service <name>`: preflight shows counts; `--dry-run` for preview; `--yes` to confirm; removes all `item` rows and Vault entries for a service; writes `data.delete` audit entry
+- [x] **Tamper-evident audit log** — each audit log row is BLAKE3-chained to the previous (V18 schema migration); `nimbus audit verify [--full] [--since <id>]` checks integrity incrementally or fully; `nimbus audit export --output <path>` exports chain
+- [x] **Data minimization / connector reindex** — `nimbus connector reindex <name> [--depth <metadata_only|summary|full>]`: prunes body/embeddings at `metadata_only`, writes `data.minimization.prune` audit entry
 - [ ] **SQLite encryption at rest (SQLCipher)** — opt-in AES-256 encryption of the local index; key derived from OS Vault (DPAPI/Keychain/libsecret — same trust boundary as credential storage); enabled via `[db.encrypt] = true`; resolves the Phase 2 deferral (OS filesystem encryption covers the baseline threat model; SQLCipher closes the gap for shared-machine and compliance scenarios)
 
 ### Automation & Graph Enhancements
