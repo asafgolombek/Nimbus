@@ -35,10 +35,10 @@ describe("LanRateLimiter", () => {
       { maxFailures: 2, windowMs: 60_000, lockoutMs: 60_000 },
       () => now,
     );
-    l.recordFailure("1.1.1.1");
-    l.recordFailure("1.1.1.1");
-    expect(l.checkAllowed("1.1.1.1")).toBe(false);
-    expect(l.checkAllowed("2.2.2.2")).toBe(true);
+    l.recordFailure("192.0.2.1");
+    l.recordFailure("192.0.2.1");
+    expect(l.checkAllowed("192.0.2.1")).toBe(false);
+    expect(l.checkAllowed("192.0.2.2")).toBe(true);
   });
 
   test("success resets counter", () => {
@@ -47,11 +47,11 @@ describe("LanRateLimiter", () => {
       { maxFailures: 3, windowMs: 60_000, lockoutMs: 60_000 },
       () => now,
     );
-    l.recordFailure("1.1.1.1");
-    l.recordFailure("1.1.1.1");
-    l.recordSuccess("1.1.1.1");
-    l.recordFailure("1.1.1.1");
-    l.recordFailure("1.1.1.1");
-    expect(l.checkAllowed("1.1.1.1")).toBe(true);
+    l.recordFailure("192.0.2.1");
+    l.recordFailure("192.0.2.1");
+    l.recordSuccess("192.0.2.1");
+    l.recordFailure("192.0.2.1");
+    l.recordFailure("192.0.2.1");
+    expect(l.checkAllowed("192.0.2.1")).toBe(true);
   });
 });
