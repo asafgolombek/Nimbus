@@ -139,7 +139,7 @@ export type ConnectorHealth =
   | "rate_limited"
   | "error"
   | "unauthenticated"
-  | "unknown";
+  | "paused";
 
 export interface ConnectorStatus {
   name: string;
@@ -1448,7 +1448,7 @@ function dotColour(h: ConnectorStatus["health"]): string {
     case "rate_limited": return "bg-[var(--color-amber)]";
     case "error":
     case "unauthenticated": return "bg-[var(--color-error)]";
-    case "unknown":
+    case "paused":
     default: return "bg-[var(--color-fg-muted)]";
   }
 }

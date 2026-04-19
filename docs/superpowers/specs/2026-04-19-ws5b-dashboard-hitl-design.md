@@ -177,7 +177,7 @@ export type ConnectorHealth =
   | "rate_limited"
   | "error"
   | "unauthenticated"
-  | "unknown";
+  | "paused";
 
 export interface ConnectorStatus {
   name: string;
@@ -305,7 +305,7 @@ Radix `<Tooltip>` on hover shows the full degradation reason for long messages. 
 | `healthy` | `--color-ok` |
 | `degraded`, `rate_limited` | `--color-amber` |
 | `error`, `unauthenticated` | `--color-error` |
-| `unknown` | `--color-fg-muted` |
+| `paused` | `--color-fg-muted` |
 
 **`AuditFeed.tsx`** — scrollable list, max-height 320 px. `useIpcQuery("audit.list", 10_000, { limit: 25 })`. One row per entry: timestamp (`10:42`) · action · subject · outcome pill. No click interaction in B.
 
