@@ -8,6 +8,17 @@ import { dispatchUpdaterRpc, UpdaterRpcError } from "./updater-rpc.ts";
 let server: Server<unknown>;
 const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(randomBytes(32)));
 
+async function expectRpcError(
+  promise: Promise<unknown>,
+  code: number,
+  pattern: RegExp,
+): Promise<void> {
+  const err = await promise.catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(UpdaterRpcError);
+  expect((err as UpdaterRpcError).rpcCode).toBe(code);
+  expect((err as UpdaterRpcError).message).toMatch(pattern);
+}
+
 describe("dispatchUpdaterRpc", () => {
   afterEach(() => {
     server?.stop(true);
@@ -46,13 +57,10 @@ describe("dispatchUpdaterRpc", () => {
       emit: () => {},
       timeoutMs: 500,
     });
-    try {
-      await dispatchUpdaterRpc("updater.checkNow", {}, { updater: u });
-      throw new Error("expected error");
-    } catch (err) {
-      expect(err).toBeInstanceOf(UpdaterRpcError);
-      expect((err as UpdaterRpcError).rpcCode).toBe(-32603);
-      expect((err as UpdaterRpcError).message).toMatch(/ERR_UPDATER_MANIFEST_UNREACHABLE/);
-    }
+    await expectRpcError(
+      dispatchUpdaterRpc("updater.checkNow", {}, { updater: u }),
+      -32603,
+      /ERR_UPDATER_MANIFEST_UNREACHABLE/,
+    );
   });
 });

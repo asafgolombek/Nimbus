@@ -3,12 +3,12 @@
 set -euo pipefail
 
 TARGET="${1:-}"
-if [ -z "$TARGET" ]; then
+if [[ -z "$TARGET" ]]; then
   echo "usage: $0 <path>" >&2
   exit 1
 fi
 
-if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_PASSPHRASE:-}" ]; then
+if [[ -z "${GPG_PRIVATE_KEY:-}" ]] || [[ -z "${GPG_PASSPHRASE:-}" ]]; then
   echo "signing skipped: GPG_PRIVATE_KEY not set"
   exit 0
 fi

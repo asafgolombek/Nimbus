@@ -6,16 +6,24 @@ import { Updater } from "../../../src/updater/updater.ts";
 
 const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(randomBytes(32)));
 
+async function expectRpcError(
+  promise: Promise<unknown>,
+  code: number,
+  pattern: RegExp,
+): Promise<void> {
+  const err = await promise.catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(UpdaterRpcError);
+  expect((err as UpdaterRpcError).rpcCode).toBe(code);
+  expect((err as UpdaterRpcError).message).toMatch(pattern);
+}
+
 describe("updater + air-gap", () => {
   test("when updater is not configured, returns rpcCode -32602", async () => {
-    try {
-      await dispatchUpdaterRpc("updater.checkNow", {}, { updater: undefined });
-      throw new Error("expected error");
-    } catch (err) {
-      expect(err).toBeInstanceOf(UpdaterRpcError);
-      expect((err as UpdaterRpcError).rpcCode).toBe(-32602);
-      expect((err as UpdaterRpcError).message).toMatch(/ERR_UPDATER_NOT_CONFIGURED/);
-    }
+    await expectRpcError(
+      dispatchUpdaterRpc("updater.checkNow", {}, { updater: undefined }),
+      -32602,
+      /ERR_UPDATER_NOT_CONFIGURED/,
+    );
   });
 
   test("fetch failure surfaces as -32603 with ERR_UPDATER_MANIFEST_UNREACHABLE in message", async () => {
@@ -27,13 +35,10 @@ describe("updater + air-gap", () => {
       emit: () => {},
       timeoutMs: 500,
     });
-    try {
-      await dispatchUpdaterRpc("updater.checkNow", {}, { updater: u });
-      throw new Error("expected error");
-    } catch (err) {
-      expect(err).toBeInstanceOf(UpdaterRpcError);
-      expect((err as UpdaterRpcError).rpcCode).toBe(-32603);
-      expect((err as UpdaterRpcError).message).toMatch(/ERR_UPDATER_MANIFEST_UNREACHABLE/);
-    }
+    await expectRpcError(
+      dispatchUpdaterRpc("updater.checkNow", {}, { updater: u }),
+      -32603,
+      /ERR_UPDATER_MANIFEST_UNREACHABLE/,
+    );
   });
 });

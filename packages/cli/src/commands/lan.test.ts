@@ -22,35 +22,27 @@ describe("parseLanArgs", () => {
     expect(parseLanArgs(["peers"])).toEqual({ kind: "peers" });
   });
 
-  test("grant <peerId>", () => {
-    expect(parseLanArgs(["grant", "abc-123"])).toEqual({ kind: "grant", peerId: "abc-123" });
-  });
+  const peerCommands = [
+    { sub: "grant", peerId: "abc-123" },
+    { sub: "revoke", peerId: "peer-x" },
+    { sub: "remove", peerId: "peer-y" },
+  ] as const;
 
-  test("grant missing peerId throws", () => {
-    expect(() => parseLanArgs(["grant"])).toThrow(/Usage: nimbus lan grant/);
-  });
+  for (const { sub, peerId } of peerCommands) {
+    test(`${sub} <peerId>`, () => {
+      expect(parseLanArgs([sub, peerId])).toEqual({ kind: sub, peerId });
+    });
 
-  test("revoke <peerId>", () => {
-    expect(parseLanArgs(["revoke", "peer-x"])).toEqual({ kind: "revoke", peerId: "peer-x" });
-  });
+    test(`${sub} missing peerId throws`, () => {
+      expect(() => parseLanArgs([sub])).toThrow(new RegExp(`Usage: nimbus lan ${sub}`));
+    });
+  }
 
-  test("revoke missing peerId throws", () => {
-    expect(() => parseLanArgs(["revoke"])).toThrow(/Usage: nimbus lan revoke/);
-  });
-
-  test("remove <peerId>", () => {
-    expect(parseLanArgs(["remove", "peer-y"])).toEqual({ kind: "remove", peerId: "peer-y" });
-  });
-
-  test("remove missing peerId throws", () => {
-    expect(() => parseLanArgs(["remove"])).toThrow(/Usage: nimbus lan remove/);
+  test("grant trims whitespace from peerId", () => {
+    expect(parseLanArgs(["grant", "  trimmed  "])).toEqual({ kind: "grant", peerId: "trimmed" });
   });
 
   test("unknown subcommand throws", () => {
     expect(() => parseLanArgs(["bogus"])).toThrow(/Unknown subcommand/);
-  });
-
-  test("grant trims whitespace from peerId", () => {
-    expect(parseLanArgs(["grant", "  trimmed  "])).toEqual({ kind: "grant", peerId: "trimmed" });
   });
 });

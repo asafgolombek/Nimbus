@@ -38,10 +38,12 @@ function validateManifest(raw: unknown): UpdateManifest {
     throw new ManifestFetchError("manifest must be an object");
   }
   const m = raw as Record<string, unknown>;
-  if (typeof m["version"] !== "string") {
+  const version = m["version"];
+  if (typeof version !== "string") {
     throw new ManifestFetchError("manifest.version must be a string");
   }
-  if (typeof m["pub_date"] !== "string") {
+  const pub_date = m["pub_date"];
+  if (typeof pub_date !== "string") {
     throw new ManifestFetchError("manifest.pub_date must be a string");
   }
   if (typeof m["platforms"] !== "object" || m["platforms"] === null) {
@@ -55,8 +57,8 @@ function validateManifest(raw: unknown): UpdateManifest {
     validatePlatformAsset(target, platforms[target]);
   }
   const manifest: UpdateManifest = {
-    version: m["version"] as string,
-    pub_date: m["pub_date"] as string,
+    version,
+    pub_date,
     platforms: platforms as Record<
       PlatformTarget,
       { url: string; sha256: string; signature: string }

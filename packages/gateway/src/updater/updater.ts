@@ -1,4 +1,4 @@
-import { fetchUpdateManifest, ManifestFetchError } from "./manifest-fetcher.ts";
+import { fetchUpdateManifest } from "./manifest-fetcher.ts";
 import { sha256Hex, verifyBinarySignature } from "./signature-verifier.ts";
 import type { PlatformTarget, UpdateManifest, UpdaterStatus } from "./types.ts";
 
@@ -147,8 +147,8 @@ export class Updater {
 }
 
 function semverGreater(a: string, b: string): boolean {
-  const pa = a.split(".").map((s) => parseInt(s, 10));
-  const pb = b.split(".").map((s) => parseInt(s, 10));
+  const pa = a.split(".").map((s) => Number.parseInt(s, 10));
+  const pb = b.split(".").map((s) => Number.parseInt(s, 10));
   for (let i = 0; i < 3; i++) {
     const ai = pa[i] ?? 0;
     const bi = pb[i] ?? 0;
@@ -168,4 +168,4 @@ async function writeToTempFile(bytes: Uint8Array): Promise<string> {
   return path;
 }
 
-export { ManifestFetchError };
+export { ManifestFetchError } from "./manifest-fetcher.ts";

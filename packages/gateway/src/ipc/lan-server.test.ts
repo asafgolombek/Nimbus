@@ -4,6 +4,25 @@ import { LanServer } from "./lan-server.ts";
 
 let server: LanServer | undefined;
 
+function makeServer(): LanServer {
+  return new LanServer({
+    bind: "127.0.0.1",
+    port: 0,
+    hostKeypair: generateBoxKeypair(),
+    onMessage: async () => ({}),
+    isKnownPeer: () => null,
+    rateLimit: { checkAllowed: () => true, recordFailure: () => {}, recordSuccess: () => {} },
+    pairing: {
+      isOpen: () => false,
+      consume: () => false,
+      open: () => {},
+      close: () => {},
+      getExpiresAt: () => undefined,
+    },
+    registerPeer: () => "peer-id",
+  });
+}
+
 describe("LanServer boot/stop", () => {
   afterEach(async () => {
     await server?.stop();
@@ -11,23 +30,7 @@ describe("LanServer boot/stop", () => {
   });
 
   test("start exposes listenAddr on an available port", async () => {
-    const hostKp = generateBoxKeypair();
-    server = new LanServer({
-      bind: "127.0.0.1",
-      port: 0,
-      hostKeypair: hostKp,
-      onMessage: async () => ({}),
-      isKnownPeer: () => null,
-      rateLimit: { checkAllowed: () => true, recordFailure: () => {}, recordSuccess: () => {} },
-      pairing: {
-        isOpen: () => false,
-        consume: () => false,
-        open: () => {},
-        close: () => {},
-        getExpiresAt: () => undefined,
-      },
-      registerPeer: () => "peer-id",
-    });
+    server = makeServer();
     await server.start();
     const addr = server.listenAddr();
     expect(addr).toBeTruthy();
@@ -35,23 +38,7 @@ describe("LanServer boot/stop", () => {
   });
 
   test("stop cleanly releases the port", async () => {
-    const hostKp = generateBoxKeypair();
-    server = new LanServer({
-      bind: "127.0.0.1",
-      port: 0,
-      hostKeypair: hostKp,
-      onMessage: async () => ({}),
-      isKnownPeer: () => null,
-      rateLimit: { checkAllowed: () => true, recordFailure: () => {}, recordSuccess: () => {} },
-      pairing: {
-        isOpen: () => false,
-        consume: () => false,
-        open: () => {},
-        close: () => {},
-        getExpiresAt: () => undefined,
-      },
-      registerPeer: () => "peer-id",
-    });
+    server = makeServer();
     await server.start();
     await server.stop();
     server = undefined;

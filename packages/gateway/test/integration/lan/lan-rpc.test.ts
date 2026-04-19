@@ -128,7 +128,7 @@ describe("LAN end-to-end pair → read → write → tamper", () => {
       host.hostKp.publicKey,
       clientKp.secretKey,
     );
-    tampered[tampered.length - 1] = (tampered[tampered.length - 1] ?? 0) ^ 0xff;
+    tampered[tampered.length - 1] = (tampered.at(-1) ?? 0) ^ 0xff;
     writeFrame(sock, tampered);
     await Bun.sleep(50);
     sock.end();

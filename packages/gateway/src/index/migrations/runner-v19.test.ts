@@ -7,7 +7,7 @@ describe("V19 migration — lan_peers", () => {
     const db = new Database(":memory:");
     runIndexedSchemaMigrations(db, 19);
     const cols = db.query(`PRAGMA table_info(lan_peers)`).all() as Array<{ name: string }>;
-    const names = cols.map((c) => c.name).sort();
+    const names = cols.map((c) => c.name).sort((a, b) => a.localeCompare(b));
     expect(names).toContain("peer_id");
     expect(names).toContain("peer_pubkey");
     expect(names).toContain("direction");

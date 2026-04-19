@@ -4,12 +4,12 @@
 set -euo pipefail
 
 TARGET="${1:-}"
-if [ -z "$TARGET" ]; then
+if [[ -z "$TARGET" ]]; then
   echo "usage: $0 <path-to-binary-or-app>" >&2
   exit 1
 fi
 
-if [ -z "${MACOS_CERTIFICATE:-}" ] || [ -z "${MACOS_SIGNING_IDENTITY:-}" ]; then
+if [[ -z "${MACOS_CERTIFICATE:-}" ]] || [[ -z "${MACOS_SIGNING_IDENTITY:-}" ]]; then
   echo "signing skipped: MACOS_CERTIFICATE not set"
   exit 0
 fi
@@ -25,7 +25,7 @@ rm cert.p12
 
 codesign --deep --force --options runtime --sign "$MACOS_SIGNING_IDENTITY" "$TARGET"
 
-if [ -n "${NOTARIZATION_APPLE_ID:-}" ] && [ -n "${NOTARIZATION_PASSWORD:-}" ] && [ -n "${NOTARIZATION_TEAM_ID:-}" ]; then
+if [[ -n "${NOTARIZATION_APPLE_ID:-}" ]] && [[ -n "${NOTARIZATION_PASSWORD:-}" ]] && [[ -n "${NOTARIZATION_TEAM_ID:-}" ]]; then
   ZIP="$(mktemp -d)/notarize.zip"
   ditto -c -k --keepParent "$TARGET" "$ZIP"
   xcrun notarytool submit "$ZIP" \
