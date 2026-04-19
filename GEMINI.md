@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3.5 — Observability & DX ✅ Complete; **Phase 4** — Presence 🔵 Active
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -68,6 +68,17 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/gateway/src/index/sub-task-results-v17-sql.ts` | V17 migration SQL — `sub_task_results` table for multi-agent persistence |
 | `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY` connection) |
 | `packages/gateway/src/ipc/metrics-server.ts` | Prometheus-compatible metrics endpoint (`localhost` only, off by default) |
+| `packages/gateway/src/ipc/lan-crypto.ts` | NaCl box keypair generation, `sealBoxFrame` / `openBoxFrame` for LAN E2E encryption |
+| `packages/gateway/src/ipc/lan-pairing.ts` | `PairingWindow` — single-use base58 pairing code with 5-minute expiry |
+| `packages/gateway/src/ipc/lan-rate-limit.ts` | `LanRateLimiter` — per-IP sliding-window failure tracking and lockout |
+| `packages/gateway/src/ipc/lan-rpc.ts` | `LanError`, `checkLanMethodAllowed` — forbidden-method and write-grant enforcement for LAN peers |
+| `packages/gateway/src/ipc/lan-server.ts` | `LanServer` — `Bun.listen` TCP server; length-framed, NaCl box encrypted RPC after pairing handshake |
+| `packages/gateway/src/ipc/updater-rpc.ts` | `dispatchUpdaterRpc` — `updater.getStatus`, `updater.checkNow`, `updater.applyUpdate`, `updater.rollback` |
+| `packages/gateway/src/updater/updater.ts` | `Updater` state machine — manifest fetch, semver compare, download, Ed25519 verify, install |
+| `packages/gateway/src/updater/manifest-fetcher.ts` | `fetchUpdateManifest` — typed manifest fetch with `AbortController` timeout |
+| `packages/gateway/src/updater/signature-verifier.ts` | `verifyBinarySignature` — Ed25519 over SHA-256 of binary |
+| `packages/gateway/src/updater/public-key.ts` | Embedded Ed25519 updater public key; `NIMBUS_DEV_UPDATER_PUBLIC_KEY` override for tests |
+| `packages/gateway/src/index/lan-peers-v19-sql.ts` | V19 migration SQL — `lan_peers` table |
 | `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
 | `packages/cli/src/index.ts` | CLI entry point |
 | `packages/cli/src/ipc-client/` | IPC client + consent channel |
@@ -95,6 +106,14 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
+
+---
+
+## Development Workflow
+
+**Worktree directory:** `.worktrees/` (project-local, git-ignored)
+
+When setting up isolated workspaces for feature branches, use `.worktrees/<branch-name>`.
 
 ---
 

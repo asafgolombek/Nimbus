@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 — Observability & DX ✅ Complete; **Phase 4** — Presence 🔵 Active
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
