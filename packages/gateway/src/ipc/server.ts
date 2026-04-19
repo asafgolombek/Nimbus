@@ -13,6 +13,7 @@ import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
 import type { LlmRegistry } from "../llm/registry.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
+import type { Updater } from "../updater/updater.ts";
 import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { VoiceService } from "../voice/service.ts";
@@ -36,6 +37,7 @@ import { dispatchReindexRpc, ReindexRpcError } from "./reindex-rpc.ts";
 import { ClientSession, type SessionWrite } from "./session.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
 import type { IPCServer } from "./types.ts";
+import { dispatchUpdaterRpc, UpdaterRpcError } from "./updater-rpc.ts";
 import { dispatchVoiceRpc, VoiceRpcError } from "./voice-rpc.ts";
 import type { WorkflowRunContext, WorkflowRunHandler } from "./workflow-invoke.ts";
 
@@ -164,6 +166,8 @@ export type CreateIpcServerOptions = {
   llmRegistry?: LlmRegistry;
   /** Voice service for voice.* RPCs (Phase 4 WS2). */
   voiceService?: VoiceService;
+  /** Auto-updater for updater.* RPCs (Phase 4 WS4). */
+  updater?: Updater;
 };
 
 function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key: string): string {
@@ -361,6 +365,20 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
   }
 
+  async function tryDispatchUpdaterRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("updater.")) {
+      return phase4RpcSkipped;
+    }
+    try {
+      return await dispatchUpdaterRpc(method, params, { updater: options.updater });
+    } catch (e) {
+      if (e instanceof UpdaterRpcError) {
+        throw new RpcMethodError(e.rpcCode, e.message);
+      }
+      throw e;
+    }
+  }
+
   async function tryDispatchAuditRpc(method: string, params: unknown): Promise<unknown> {
     if (method !== "audit.verify" && method !== "audit.exportAll") return phase4RpcSkipped;
     try {
@@ -411,6 +429,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
     const voiceOutcome = await tryDispatchVoiceRpc(method, params);
     if (voiceOutcome !== phase4RpcSkipped) return voiceOutcome;
+    const updaterOutcome = await tryDispatchUpdaterRpc(method, params);
+    if (updaterOutcome !== phase4RpcSkipped) return updaterOutcome;
     const auditOutcome = await tryDispatchAuditRpc(method, params);
     if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
     const dataOutcome = await tryDispatchDataRpc(method, params);
