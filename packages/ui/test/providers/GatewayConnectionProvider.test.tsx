@@ -1,5 +1,5 @@
 import { render, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Handler<T> = (payload: T) => void;
@@ -23,7 +23,6 @@ vi.mock("../../src/ipc/client", async () => {
   };
 });
 
-import { useLocation } from "react-router-dom";
 import { GatewayConnectionProvider } from "../../src/providers/GatewayConnectionProvider";
 import { useNimbusStore } from "../../src/store";
 
@@ -76,7 +75,7 @@ describe("GatewayConnectionProvider", () => {
     await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
     connectionHandlers[0]?.("connected");
 
-    await waitFor(() => expect(seen[seen.length - 1]).toBe("/"));
+    await waitFor(() => expect(seen.at(-1)).toBe("/"));
     rerender(<div />);
   });
 
@@ -100,7 +99,7 @@ describe("GatewayConnectionProvider", () => {
     await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
     connectionHandlers[0]?.("connected");
 
-    await waitFor(() => expect(seen[seen.length - 1]).toBe("/"));
+    await waitFor(() => expect(seen.at(-1)).toBe("/"));
     rerender(<div />);
   });
 
@@ -124,7 +123,7 @@ describe("GatewayConnectionProvider", () => {
     await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
     connectionHandlers[0]?.("connected");
 
-    await waitFor(() => expect(seen[seen.length - 1]).toBe("/onboarding/welcome"));
+    await waitFor(() => expect(seen.at(-1)).toBe("/onboarding/welcome"));
     rerender(<div />);
   });
 });

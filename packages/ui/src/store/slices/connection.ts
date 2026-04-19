@@ -15,14 +15,19 @@ export const createConnectionSlice: StateCreator<ConnectionSlice, [], [], Connec
   lastConnectedAt: null,
   reconnectAttempts: 0,
   setConnectionState: (s) =>
-    set((state) => ({
-      connectionState: s,
-      lastConnectedAt: s === "connected" ? Date.now() : state.lastConnectedAt,
-      reconnectAttempts:
-        s === "connecting"
-          ? state.reconnectAttempts + 1
-          : s === "connected"
-            ? 0
-            : state.reconnectAttempts,
-    })),
+    set((state) => {
+      let reconnectAttempts: number;
+      if (s === "connecting") {
+        reconnectAttempts = state.reconnectAttempts + 1;
+      } else if (s === "connected") {
+        reconnectAttempts = 0;
+      } else {
+        reconnectAttempts = state.reconnectAttempts;
+      }
+      return {
+        connectionState: s,
+        lastConnectedAt: s === "connected" ? Date.now() : state.lastConnectedAt,
+        reconnectAttempts,
+      };
+    }),
 });

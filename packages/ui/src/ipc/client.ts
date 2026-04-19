@@ -16,8 +16,14 @@ export interface NimbusIpcClient {
 }
 
 function parseError(err: unknown): Error {
-  const msg =
-    typeof err === "string" ? err : err instanceof Error ? err.message : JSON.stringify(err);
+  let msg: string;
+  if (typeof err === "string") {
+    msg = err;
+  } else if (err instanceof Error) {
+    msg = err.message;
+  } else {
+    msg = JSON.stringify(err);
+  }
   if (msg.startsWith("ERR_METHOD_NOT_ALLOWED")) {
     const method = msg.split(":")[1] ?? "unknown";
     return new MethodNotAllowedError(method);

@@ -33,10 +33,11 @@ describe("quickQuery slice", () => {
     const before = Date.now();
     useNimbusStore.getState().markDone("s1", "local · llama-3.1-8b");
     const after = Date.now();
-    expect(useNimbusStore.getState().modelLabel).toBe("local · llama-3.1-8b");
-    expect(useNimbusStore.getState().doneAt).not.toBeNull();
-    expect(useNimbusStore.getState().doneAt!).toBeGreaterThanOrEqual(before);
-    expect(useNimbusStore.getState().doneAt!).toBeLessThanOrEqual(after);
+    const { modelLabel, doneAt } = useNimbusStore.getState();
+    expect(modelLabel).toBe("local · llama-3.1-8b");
+    expect(doneAt).not.toBeNull();
+    expect(doneAt).toBeGreaterThanOrEqual(before);
+    expect(doneAt).toBeLessThanOrEqual(after);
   });
 
   it("markDone with mismatching streamId is a no-op", () => {

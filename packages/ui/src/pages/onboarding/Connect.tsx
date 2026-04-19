@@ -5,6 +5,24 @@ import type { ConnectorSummary } from "../../ipc/types";
 import { useNimbusStore } from "../../store";
 
 const CONNECTORS = ["Google Drive", "GitHub", "Slack", "Linear", "Notion", "Gmail"] as const;
+
+type AuthStatus = "authenticating" | "connected" | "failed" | "cancelled" | "pending";
+
+const STATUS_COLOR: Record<AuthStatus, string> = {
+  connected: "var(--color-ok)",
+  failed: "var(--color-error)",
+  cancelled: "var(--color-error)",
+  authenticating: "var(--color-amber)",
+  pending: "var(--color-amber)",
+};
+
+const STATUS_LABEL: Record<AuthStatus, string> = {
+  authenticating: "Authenticating…",
+  connected: "Connected",
+  failed: "Failed — retry",
+  cancelled: "Cancelled — retry",
+  pending: "Pending",
+};
 const CONNECTOR_DESCRIPTIONS: Record<(typeof CONNECTORS)[number], string> = {
   "Google Drive": "Docs, Sheets, Slides",
   GitHub: "Repos, PRs, issues",
@@ -118,23 +136,10 @@ export function Connect() {
                   style={{
                     fontSize: 11,
                     marginTop: 6,
-                    color:
-                      status === "connected"
-                        ? "var(--color-ok)"
-                        : status === "failed" || status === "cancelled"
-                          ? "var(--color-error)"
-                          : "var(--color-amber)",
+                    color: STATUS_COLOR[status as AuthStatus] ?? STATUS_COLOR.pending,
                   }}
                 >
-                  {status === "authenticating"
-                    ? "Authenticating…"
-                    : status === "connected"
-                      ? "Connected"
-                      : status === "failed"
-                        ? "Failed — retry"
-                        : status === "cancelled"
-                          ? "Cancelled — retry"
-                          : "Pending"}
+                  {STATUS_LABEL[status as AuthStatus] ?? STATUS_LABEL.pending}
                 </div>
               )}
             </button>

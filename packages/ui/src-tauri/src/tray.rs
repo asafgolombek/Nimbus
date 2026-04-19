@@ -51,7 +51,9 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(|app_handle, event| match event.id().as_ref() {
             "open-dashboard" => focus_main(app_handle),
-            "quick-query" => { let _ = crate::quick_query::spawn_or_focus(app_handle); },
+            "quick-query" => {
+                let _ = crate::quick_query::spawn_or_focus(app_handle);
+            }
             "settings" => {
                 focus_main(app_handle);
                 let _ = app_handle.emit("tray://navigate", "/settings");
@@ -64,7 +66,9 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
 
     let tray_for_listener = tray.clone();
     app.listen("tray://state-changed", move |event| {
-        let Ok(change) = serde_json::from_str::<TrayStateChange>(event.payload()) else { return };
+        let Ok(change) = serde_json::from_str::<TrayStateChange>(event.payload()) else {
+            return;
+        };
         let bytes = icon_bytes(change.icon);
         let _ = tray_for_listener.set_icon(Some(Image::from_bytes(bytes).unwrap()));
         let tooltip = if change.badge > 0 {

@@ -23,13 +23,17 @@ export function Onboarding() {
       >
         <div style={{ display: "flex", gap: 6, padding: "18px 24px 4px" }}>
           {STEPS.map((s, i) => {
-            const state = i < currentIdx ? "done" : i === currentIdx ? "active" : "pending";
-            const bg =
-              state === "active"
-                ? "rgba(120, 144, 255, 0.25)"
-                : state === "done"
-                  ? "rgba(82, 196, 26, 0.2)"
-                  : "rgba(255, 255, 255, 0.05)";
+            let state: "done" | "active" | "pending";
+            if (i < currentIdx) state = "done";
+            else if (i === currentIdx) state = "active";
+            else state = "pending";
+
+            const bgMap = {
+              active: "rgba(120, 144, 255, 0.25)",
+              done: "rgba(82, 196, 26, 0.2)",
+              pending: "rgba(255, 255, 255, 0.05)",
+            };
+            const bg = bgMap[state];
             const color = state === "pending" ? "var(--color-fg-muted)" : "var(--color-fg)";
             return (
               <div

@@ -57,8 +57,8 @@ describe("connection slice", () => {
     expect(useNimbusStore.getState().reconnectAttempts).toBe(0);
     const lastConnectedAt = useNimbusStore.getState().lastConnectedAt;
     expect(lastConnectedAt).not.toBeNull();
-    expect(lastConnectedAt!).toBeGreaterThanOrEqual(before);
-    expect(lastConnectedAt!).toBeLessThanOrEqual(after);
+    expect(lastConnectedAt).toBeGreaterThanOrEqual(before);
+    expect(lastConnectedAt).toBeLessThanOrEqual(after);
   });
 
   it("setConnectionState with other state preserves reconnectAttempts", () => {

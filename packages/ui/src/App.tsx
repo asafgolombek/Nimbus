@@ -20,7 +20,7 @@ import { WatchersStub } from "./pages/stubs/WatchersStub";
 import { WorkflowsStub } from "./pages/stubs/WorkflowsStub";
 import { GatewayConnectionProvider } from "./providers/GatewayConnectionProvider";
 
-function Wrapper({ children }: { children: ReactNode }) {
+function Wrapper({ children }: { readonly children: ReactNode }) {
   return <GatewayConnectionProvider>{children}</GatewayConnectionProvider>;
 }
 

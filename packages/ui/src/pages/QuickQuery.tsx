@@ -27,11 +27,11 @@ export function QuickQuery() {
   const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") void getCurrentWindow().close();
+    const onKey = async (e: KeyboardEvent) => {
+      if (e.key === "Escape") await getCurrentWindow().close();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
   }, []);
 
   useEffect(() => {

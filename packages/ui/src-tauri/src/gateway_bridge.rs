@@ -50,8 +50,8 @@ pub async fn connect_and_run(app: AppHandle, state: BridgeState) {
 
         #[cfg(target_os = "windows")]
         let connect_result = {
-            let name = std::env::var("NIMBUS_SOCKET")
-                .unwrap_or_else(|_| "nimbus-gateway".to_string());
+            let name =
+                std::env::var("NIMBUS_SOCKET").unwrap_or_else(|_| "nimbus-gateway".to_string());
             let ns_name = name
                 .to_ns_name::<GenericNamespaced>()
                 .expect("valid named pipe");

@@ -26,7 +26,9 @@ pub fn run() {
             tray::init_tray(app.handle())?;
 
             use tauri::Emitter;
-            use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+            use tauri_plugin_global_shortcut::{
+                Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+            };
             let handle_for_shortcut = app.handle().clone();
             let modifier = if cfg!(target_os = "macos") {
                 Modifiers::SUPER | Modifiers::SHIFT

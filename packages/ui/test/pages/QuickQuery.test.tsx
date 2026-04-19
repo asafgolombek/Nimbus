@@ -39,19 +39,19 @@ describe("QuickQuery", () => {
         <QuickQuery />
       </MemoryRouter>,
     );
-    const input = screen.getByPlaceholderText(/ask nimbus/i) as HTMLInputElement;
+    const input = screen.getByPlaceholderText(/ask nimbus/i);
     fireEvent.change(input, { target: { value: "summarize my week" } });
-    fireEvent.submit(input.closest("form")!);
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
 
     await waitFor(() => expect(notifHandlers.length).toBeGreaterThan(0));
     act(() =>
-      notifHandlers[0]!({
+      (notifHandlers.at(0) as NotifHandler)({
         method: "engine.streamToken",
         params: { streamId: "s1", text: "Hello" },
       }),
     );
     act(() =>
-      notifHandlers[0]!({
+      (notifHandlers.at(0) as NotifHandler)({
         method: "engine.streamToken",
         params: { streamId: "s1", text: ", world" },
       }),
@@ -67,11 +67,11 @@ describe("QuickQuery", () => {
       </MemoryRouter>,
     );
     fireEvent.change(screen.getByPlaceholderText(/ask nimbus/i), { target: { value: "hi" } });
-    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form")!);
+    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form") as HTMLFormElement);
 
     await waitFor(() => expect(notifHandlers.length).toBeGreaterThan(0));
     act(() =>
-      notifHandlers[0]!({
+      (notifHandlers.at(0) as NotifHandler)({
         method: "engine.streamDone",
         params: { streamId: "s2", model: "local · llama-3.1-8b" },
       }),
@@ -88,7 +88,7 @@ describe("QuickQuery", () => {
         <QuickQuery />
       </MemoryRouter>,
     );
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(globalThis, { key: "Escape" });
     expect(closeMock).toHaveBeenCalled();
   });
 
@@ -98,7 +98,7 @@ describe("QuickQuery", () => {
         <QuickQuery />
       </MemoryRouter>,
     );
-    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form")!);
+    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form") as HTMLFormElement);
     await new Promise((r) => setTimeout(r, 0));
     expect(callMock).not.toHaveBeenCalled();
   });
@@ -111,11 +111,11 @@ describe("QuickQuery", () => {
       </MemoryRouter>,
     );
     fireEvent.change(screen.getByPlaceholderText(/ask nimbus/i), { target: { value: "hi" } });
-    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form")!);
+    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form") as HTMLFormElement);
 
     await waitFor(() => expect(notifHandlers.length).toBeGreaterThan(0));
     act(() =>
-      notifHandlers[0]!({
+      (notifHandlers.at(0) as NotifHandler)({
         method: "engine.streamDone",
         params: { streamId: "s3", meta: { isLocal: true, modelUsed: "gemma2" } },
       }),
@@ -131,11 +131,11 @@ describe("QuickQuery", () => {
       </MemoryRouter>,
     );
     fireEvent.change(screen.getByPlaceholderText(/ask nimbus/i), { target: { value: "hi" } });
-    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form")!);
+    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form") as HTMLFormElement);
 
     await waitFor(() => expect(notifHandlers.length).toBeGreaterThan(0));
     act(() =>
-      notifHandlers[0]!({
+      (notifHandlers.at(0) as NotifHandler)({
         method: "engine.streamDone",
         params: { streamId: "s4", meta: { isLocal: false, modelUsed: "gpt-4o" } },
       }),
