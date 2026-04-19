@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildInstallerCommand, type Platform } from "./installer.ts";
+import {
+  buildInstallerCommand,
+  type InstallerCommandSubprocess,
+  type Platform,
+} from "./installer.ts";
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "nimbus-installer-"));
@@ -15,7 +19,7 @@ describe("buildInstallerCommand", () => {
     writeFileSync(pkg, "");
     const cmd = buildInstallerCommand("darwin" as Platform, pkg);
     expect(cmd.kind).toBe("subprocess");
-    const subprocess = cmd as any;
+    const subprocess = cmd as InstallerCommandSubprocess;
     expect(subprocess.argv[0]).toBe("open");
     expect(subprocess.argv).toContain("-W");
     expect(subprocess.argv[subprocess.argv.length - 1]).toBe(pkg);
@@ -27,7 +31,7 @@ describe("buildInstallerCommand", () => {
     writeFileSync(deb, "");
     const cmd = buildInstallerCommand("linux" as Platform, deb);
     expect(cmd.kind).toBe("subprocess");
-    const subprocess = cmd as any;
+    const subprocess = cmd as InstallerCommandSubprocess;
     expect(subprocess.argv[0]).toBe("sudo");
     expect(subprocess.argv).toContain("dpkg");
   });
@@ -46,7 +50,7 @@ describe("buildInstallerCommand", () => {
     writeFileSync(exe, "");
     const cmd = buildInstallerCommand("win32" as Platform, exe);
     expect(cmd.kind).toBe("subprocess");
-    const subprocess = cmd as any;
+    const subprocess = cmd as InstallerCommandSubprocess;
     expect(subprocess.argv[0]).toBe(exe);
     expect(subprocess.argv).toContain("/S");
   });
