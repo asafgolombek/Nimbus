@@ -61,4 +61,54 @@ describe("Onboarding → Connect", () => {
       expect(callMock).toHaveBeenCalledWith("connector.startAuth", { service: "GitHub" }),
     );
   });
+
+  it("shows Authenticating… immediately after clicking Authenticate", async () => {
+    let resolveAuth!: () => void;
+    callMock.mockImplementation(async (method) => {
+      if (method === "connector.startAuth")
+        return new Promise<null>((r) => {
+          resolveAuth = () => r(null);
+        });
+      if (method === "connector.list") return [];
+      throw new Error(`unexpected ${method}`);
+    });
+    renderAt();
+    fireEvent.click(screen.getByText("GitHub"));
+    fireEvent.click(screen.getByRole("button", { name: /authenticate/i }));
+    await waitFor(() => expect(screen.getByText("Authenticating…")).toBeTruthy());
+    resolveAuth();
+  });
+
+  it("shows Failed — retry when connector.startAuth throws", async () => {
+    callMock.mockImplementation(async (method) => {
+      if (method === "connector.startAuth") throw new Error("auth error");
+      if (method === "connector.list") return [];
+      throw new Error(`unexpected ${method}`);
+    });
+    renderAt();
+    fireEvent.click(screen.getByText("GitHub"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /authenticate/i }));
+    });
+    await waitFor(() => expect(screen.getByText("Failed — retry")).toBeTruthy());
+  });
+
+  it("navigates to /onboarding/syncing when a connector becomes connected", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    callMock.mockImplementation(async (method) => {
+      if (method === "connector.startAuth") return null;
+      if (method === "connector.list") return [{ name: "GitHub", state: "healthy" }];
+      throw new Error(`unexpected ${method}`);
+    });
+    renderAt();
+    fireEvent.click(screen.getByText("GitHub"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /authenticate/i }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(2100);
+    });
+    await waitFor(() => expect(screen.getByText("syncing")).toBeTruthy());
+    vi.useRealTimers();
+  });
 });

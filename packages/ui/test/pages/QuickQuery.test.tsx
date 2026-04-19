@@ -91,4 +91,55 @@ describe("QuickQuery", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(closeMock).toHaveBeenCalled();
   });
+
+  it("does not call IPC when prompt is empty or whitespace", async () => {
+    render(
+      <MemoryRouter>
+        <QuickQuery />
+      </MemoryRouter>,
+    );
+    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form")!);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(callMock).not.toHaveBeenCalled();
+  });
+
+  it("shows local model label from meta when streamDone has no model field", async () => {
+    callMock.mockResolvedValueOnce({ streamId: "s3" });
+    render(
+      <MemoryRouter>
+        <QuickQuery />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByPlaceholderText(/ask nimbus/i), { target: { value: "hi" } });
+    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form")!);
+
+    await waitFor(() => expect(notifHandlers.length).toBeGreaterThan(0));
+    act(() =>
+      notifHandlers[0]!({
+        method: "engine.streamDone",
+        params: { streamId: "s3", meta: { isLocal: true, modelUsed: "gemma2" } },
+      }),
+    );
+    await waitFor(() => expect(screen.getByText(/local · gemma2/)).toBeTruthy());
+  });
+
+  it("shows remote model label from meta when not local", async () => {
+    callMock.mockResolvedValueOnce({ streamId: "s4" });
+    render(
+      <MemoryRouter>
+        <QuickQuery />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByPlaceholderText(/ask nimbus/i), { target: { value: "hi" } });
+    fireEvent.submit(screen.getByPlaceholderText(/ask nimbus/i).closest("form")!);
+
+    await waitFor(() => expect(notifHandlers.length).toBeGreaterThan(0));
+    act(() =>
+      notifHandlers[0]!({
+        method: "engine.streamDone",
+        params: { streamId: "s4", meta: { isLocal: false, modelUsed: "gpt-4o" } },
+      }),
+    );
+    await waitFor(() => expect(screen.getByText(/gpt-4o/)).toBeTruthy());
+  });
 });
