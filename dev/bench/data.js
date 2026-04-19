@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776537137830,
+  "lastUpdate": 1776572464087,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -492,6 +492,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4242888999999996,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b4af1d6a92f1356d2b2fd66dff8fc438f1e8b781",
+          "message": "Merge pull request #53 from asafgolombek/dev/asafgolombek/_phase_4_ws_3\n\nfeat(phase-4-ws3): data sovereignty — export/import/delete, audit chain, connector reindex",
+          "timestamp": "2026-04-19T07:20:34+03:00",
+          "tree_id": "11be6e7131fae716ddc6028e986e591887ddc1cf",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/b4af1d6a92f1356d2b2fd66dff8fc438f1e8b781"
+        },
+        "date": 1776572463184,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4938129399999986,
             "unit": "ms"
           }
         ]
