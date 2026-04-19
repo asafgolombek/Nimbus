@@ -2,10 +2,10 @@ import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
 interface NavItemProps {
-  to: string;
-  icon: string;
-  label: string;
-  badge?: number | undefined;
+  readonly to: string;
+  readonly icon: string;
+  readonly label: string;
+  readonly badge?: number | undefined;
 }
 
 function formatBadge(n: number): string {

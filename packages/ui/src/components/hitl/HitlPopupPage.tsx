@@ -38,7 +38,7 @@ export function HitlPopupPage(): ReactNode {
   useEffect(() => {
     if (pending.length === 0) {
       const id = setTimeout(() => {
-        void invoke("close_hitl_popup").catch(() => undefined);
+        invoke("close_hitl_popup").catch(() => undefined);
       }, 500);
       return () => clearTimeout(id);
     }
