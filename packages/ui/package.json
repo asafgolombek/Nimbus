@@ -11,17 +11,26 @@
     "lint": "biome check src/",
     "test": "bunx vitest run",
     "test:watch": "bunx vitest",
-    "test:coverage": "bunx vitest run --coverage",
+    "test:coverage": "bunx vitest run --coverage --coverage.thresholds.lines=80 --coverage.thresholds.branches=75",
     "tauri": "bunx tauri",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.1.5",
+    "zustand": "^5.0.2",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-tooltip": "^1.1.6",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-shell": "^2.0.0",
+    "@tauri-apps/plugin-global-shortcut": "^2.0.0"
   },
   "devDependencies": {
-    "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/cli": "^2.0.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.0.0",

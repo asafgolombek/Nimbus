@@ -94,6 +94,19 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
+| `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` |
+| `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, error types |
+| `packages/ui/src/store/index.ts` | `useNimbusStore` — Zustand v5 store composed from 4 slices |
+| `packages/ui/src/providers/GatewayConnectionProvider.tsx` | `onConnectionState` mirror + first-run routing logic |
+| `packages/ui/src/App.tsx` | `createBrowserRouter` — all UI routes |
+| `packages/ui/src/pages/QuickQuery.tsx` | Quick Query popup page — stream + auto-close |
+| `packages/ui/src/pages/Onboarding.tsx` | Onboarding wizard frame + step pills |
+| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS`, `rpc_call`, reconnect loop |
+| `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
+| `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
+| `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |
+| `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
+| `docs/manual-smoke-ws5a.md` | WS5-A manual smoke checklist |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
@@ -145,6 +158,9 @@ bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
 bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
 bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
 
+# Phase 4 WS5-A UI coverage gate (Vitest — separate runner)
+cd packages/ui && bunx vitest run --coverage  # ≥80% lines / ≥75% branches
+
 # Integration tests
 bun run test:integration
 
@@ -153,6 +169,7 @@ bun run test:e2e:cli
 
 # UI component tests (Vitest — separate from bun test)
 cd packages/ui && bunx vitest run
+cd packages/ui && bunx vitest run --coverage  # with branch/line coverage report
 
 # Build all packages
 bun run build
