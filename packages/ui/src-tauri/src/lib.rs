@@ -54,7 +54,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let state = handle.state::<BridgeState>();
             let bridge_for_task = BridgeState {
-                writer: state.writer.clone(),
+                write_tx: state.write_tx.clone(),
                 pending: state.pending.clone(),
                 next_id: state.next_id.clone(),
             };

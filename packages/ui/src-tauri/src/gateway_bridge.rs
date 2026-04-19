@@ -2,14 +2,13 @@ use interprocess::local_socket::{
     tokio::{prelude::*, Stream},
     GenericFilePath, GenericNamespaced, ToFsName, ToNsName,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
-use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{oneshot, Mutex};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::sleep;
 
 pub const ALLOWED_METHODS: &[&str] = &[
@@ -28,7 +27,7 @@ pub fn is_method_allowed(method: &str) -> bool {
 type PendingMap = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, Value>>>>>;
 
 pub struct BridgeState {
-    pub(crate) writer: Arc<Mutex<Option<Box<dyn AsyncWrite + Send + Unpin>>>>,
+    pub(crate) write_tx: Arc<Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
     pub(crate) pending: PendingMap,
     pub(crate) next_id: Arc<Mutex<u64>>,
 }
@@ -36,7 +35,7 @@ pub struct BridgeState {
 impl BridgeState {
     pub fn new() -> Self {
         Self {
-            writer: Arc::new(Mutex::new(None)),
+            write_tx: Arc::new(Mutex::new(None)),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(Mutex::new(0)),
         }
@@ -74,16 +73,19 @@ pub async fn connect_and_run(app: AppHandle, state: BridgeState) {
             Ok(stream) => {
                 attempt = 0;
                 let (read_half, write_half) = stream.split();
+                let (tx, rx) = mpsc::channel::<Vec<u8>>(16);
                 {
-                    let mut w = state.writer.lock().await;
-                    *w = Some(Box::new(write_half));
+                    let mut w = state.write_tx.lock().await;
+                    *w = Some(tx);
                 }
                 let _ = app.emit("gateway://connection-state", "connected");
                 let pending = state.pending.clone();
                 let app_cloned = app.clone();
                 let reader = BufReader::new(read_half);
+                let writer_task = tokio::spawn(run_write_loop(write_half, rx));
                 run_read_loop(reader, pending, app_cloned).await;
-                let mut w = state.writer.lock().await;
+                writer_task.abort();
+                let mut w = state.write_tx.lock().await;
                 *w = None;
             }
             Err(_err) => {}
@@ -96,6 +98,20 @@ pub async fn connect_and_run(app: AppHandle, state: BridgeState) {
         };
         attempt = attempt.saturating_add(1);
         sleep(Duration::from_millis(backoff_ms)).await;
+    }
+}
+
+async fn run_write_loop<W>(mut writer: W, mut rx: mpsc::Receiver<Vec<u8>>)
+where
+    W: AsyncWriteExt + Unpin,
+{
+    while let Some(data) = rx.recv().await {
+        if writer.write_all(&data).await.is_err() {
+            break;
+        }
+        if writer.flush().await.is_err() {
+            break;
+        }
     }
 }
 
@@ -137,11 +153,14 @@ pub async fn rpc_call(
     if !is_method_allowed(&method) {
         return Err(format!("ERR_METHOD_NOT_ALLOWED:{}", method));
     }
-    let writer_slot = state.writer.clone();
-    let mut writer_guard = writer_slot.lock().await;
-    let Some(writer) = writer_guard.as_mut() else {
-        return Err("ERR_GATEWAY_OFFLINE".into());
+    let tx = {
+        let guard = state.write_tx.lock().await;
+        guard
+            .as_ref()
+            .ok_or_else(|| "ERR_GATEWAY_OFFLINE".to_string())?
+            .clone()
     };
+
     let mut id_guard = state.next_id.lock().await;
     *id_guard = id_guard.wrapping_add(1);
     let id = format!("r{}", *id_guard);
@@ -155,16 +174,16 @@ pub async fn rpc_call(
     });
     let mut line = frame.to_string();
     line.push('\n');
-    writer
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
-    drop(writer_guard);
 
-    let (tx, rx) = oneshot::channel();
-    state.pending.lock().await.insert(id, tx);
-    match rx.await {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    state.pending.lock().await.insert(id.clone(), resp_tx);
+
+    if tx.send(line.into_bytes()).await.is_err() {
+        state.pending.lock().await.remove(&id);
+        return Err("ERR_GATEWAY_OFFLINE".into());
+    }
+
+    match resp_rx.await {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(e.to_string()),
         Err(_) => Err("ERR_GATEWAY_OFFLINE".into()),
