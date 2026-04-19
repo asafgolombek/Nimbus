@@ -28,6 +28,10 @@ export function useIpcQuery<T>(
   const generationRef = useRef(0);
   const connectionState = useNimbusStore((s) => s.connectionState);
 
+  // paramsKey is the stringified form of params — using it in the dep list
+  // tracks shape changes without re-firing on every render from object
+  // identity changes when the caller passes an inline literal.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: paramsKey proxies params
   const run = useCallback(async () => {
     const gen = ++generationRef.current;
     setIsLoading(true);
@@ -42,10 +46,6 @@ export function useIpcQuery<T>(
     } finally {
       if (gen === generationRef.current) setIsLoading(false);
     }
-    // Use the stringified key in deps so the callback identity tracks param
-    // shape changes — object identity of `params` alone would re-fire on every
-    // render even when the shape is stable.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: paramsKey proxies params
   }, [method, paramsKey]);
 
   useEffect(() => {
