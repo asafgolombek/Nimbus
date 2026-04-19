@@ -1,5 +1,4 @@
 import { describe, test } from "bun:test";
-import { randomBytes } from "node:crypto";
 import { dispatchUpdaterRpc } from "../../../src/ipc/updater-rpc.ts";
 import { expectRpcError } from "../../../src/ipc/updater-rpc-test-helpers.ts";
 import { Updater } from "../../../src/updater/updater.ts";
