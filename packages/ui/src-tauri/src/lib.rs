@@ -24,6 +24,28 @@ pub fn run() {
                 )?;
             }
             tray::init_tray(app.handle())?;
+
+            use tauri::Emitter;
+            use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+            let handle_for_shortcut = app.handle().clone();
+            let modifier = if cfg!(target_os = "macos") {
+                Modifiers::SUPER | Modifiers::SHIFT
+            } else {
+                Modifiers::CONTROL | Modifiers::SHIFT
+            };
+            let shortcut = Shortcut::new(Some(modifier), Code::KeyN);
+            if let Err(err) = app
+                .global_shortcut()
+                .on_shortcut(shortcut, move |_app, _sh, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let _ = crate::quick_query::spawn_or_focus(&handle_for_shortcut);
+                    }
+                })
+            {
+                log::warn!("quick-query hotkey registration failed: {err}");
+                let _ = app.handle().emit("tray://hotkey-failed", err.to_string());
+            }
+
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
