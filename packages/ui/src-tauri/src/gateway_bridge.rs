@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{oneshot, Mutex};
 use tokio::time::sleep;
 
@@ -28,7 +28,7 @@ pub fn is_method_allowed(method: &str) -> bool {
 type PendingMap = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, Value>>>>>;
 
 pub struct BridgeState {
-    pub(crate) writer: Arc<Mutex<Option<Box<dyn AsyncWriteExt + Send + Unpin>>>>,
+    pub(crate) writer: Arc<Mutex<Option<Box<dyn AsyncWrite + Send + Unpin>>>>,
     pub(crate) pending: PendingMap,
     pub(crate) next_id: Arc<Mutex<u64>>,
 }
