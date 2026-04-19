@@ -32,6 +32,21 @@ function Consumer({ onPath }: { onPath: (p: string) => void }) {
   return null;
 }
 
+/** Renders the provider with a path-recording Consumer and fires a "connected" event. */
+async function renderAndConnect(initialEntry: string) {
+  const seen: string[] = [];
+  const { rerender } = render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <GatewayConnectionProvider>
+        <Consumer onPath={(p) => seen.push(p)} />
+      </GatewayConnectionProvider>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
+  connectionHandlers[0]?.("connected");
+  return { seen, rerender };
+}
+
 describe("GatewayConnectionProvider", () => {
   beforeEach(() => {
     connectionHandlers.length = 0;
@@ -61,20 +76,7 @@ describe("GatewayConnectionProvider", () => {
       if (method === "db.getMeta") return "true";
       throw new Error(`unexpected method ${method}`);
     });
-
-    const seen: string[] = [];
-
-    const { rerender } = render(
-      <MemoryRouter initialEntries={["/onboarding/welcome"]}>
-        <GatewayConnectionProvider>
-          <Consumer onPath={(p) => seen.push(p)} />
-        </GatewayConnectionProvider>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
-    connectionHandlers[0]?.("connected");
-
+    const { seen, rerender } = await renderAndConnect("/onboarding/welcome");
     await waitFor(() => expect(seen.at(-1)).toBe("/"));
     rerender(<div />);
   });
@@ -85,20 +87,7 @@ describe("GatewayConnectionProvider", () => {
       if (method === "db.getMeta") return "true";
       throw new Error(`unexpected method ${method}`);
     });
-
-    const seen: string[] = [];
-
-    const { rerender } = render(
-      <MemoryRouter initialEntries={["/onboarding/welcome"]}>
-        <GatewayConnectionProvider>
-          <Consumer onPath={(p) => seen.push(p)} />
-        </GatewayConnectionProvider>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
-    connectionHandlers[0]?.("connected");
-
+    const { seen, rerender } = await renderAndConnect("/onboarding/welcome");
     await waitFor(() => expect(seen.at(-1)).toBe("/"));
     rerender(<div />);
   });
@@ -109,20 +98,7 @@ describe("GatewayConnectionProvider", () => {
       if (method === "db.getMeta") return null;
       throw new Error(`unexpected method ${method}`);
     });
-
-    const seen: string[] = [];
-
-    const { rerender } = render(
-      <MemoryRouter initialEntries={["/"]}>
-        <GatewayConnectionProvider>
-          <Consumer onPath={(p) => seen.push(p)} />
-        </GatewayConnectionProvider>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
-    connectionHandlers[0]?.("connected");
-
+    const { seen, rerender } = await renderAndConnect("/");
     await waitFor(() => expect(seen.at(-1)).toBe("/onboarding/welcome"));
     rerender(<div />);
   });
