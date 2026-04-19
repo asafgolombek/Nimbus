@@ -26,6 +26,7 @@ export { runStatus } from "./status.ts";
 export { runStop } from "./stop.ts";
 export { runTelemetry } from "./telemetry.ts";
 export { runTest } from "./test.ts";
+export { runUpdate } from "./update.ts";
 export { runVault } from "./vault.ts";
 export { runWatch } from "./watch.ts";
 export { runWorkflowCli } from "./workflow.ts";

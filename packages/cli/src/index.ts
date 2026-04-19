@@ -30,6 +30,7 @@ import {
   runStop,
   runTelemetry,
   runTest,
+  runUpdate,
   runVault,
   runWatch,
   runWorkflowCli,
@@ -78,6 +79,9 @@ async function main(): Promise<void> {
           break;
         case "telemetry":
           await runTelemetry(args);
+          break;
+        case "update":
+          await runUpdate(args);
           break;
         case "doctor":
           await runDoctor(args);
