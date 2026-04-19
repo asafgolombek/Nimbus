@@ -35,8 +35,8 @@
 | Create | `packages/gateway/src/updater/manifest-fetcher.test.ts` | Fetcher unit tests |
 | Create | `packages/gateway/src/updater/signature-verifier.ts` | Ed25519 verify |
 | Create | `packages/gateway/src/updater/signature-verifier.test.ts` | Verify unit tests |
-| Create | `packages/gateway/src/updater/installer.ts` | Platform dispatch |
-| Create | `packages/gateway/src/updater/installer.test.ts` | Installer unit tests |
+| Create | `packages/gateway/src/updater/installer.ts` | Platform dispatch + `executeReplaceInPlace` (chmod +x) |
+| Create | `packages/gateway/src/updater/installer.test.ts` | Installer unit tests + chmod verification |
 | Create | `packages/gateway/src/updater/updater.ts` | State machine |
 | Create | `packages/gateway/src/updater/updater.test.ts` | State machine tests |
 | Create | `packages/gateway/src/ipc/updater-rpc.ts` | `updater.*` RPC dispatcher |
@@ -525,7 +525,8 @@ The signing key is generated once, committed as public-key-in-repo, and the priv
  * is intended — see CHANGELOG.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import nacl from "tweetnacl";
 
@@ -560,9 +561,23 @@ console.log("Updater Ed25519 keypair generated.\n");
 console.log("PUBLIC KEY (commit to packages/gateway/src/updater/public-key.ts):");
 console.log(`  base64: ${pubB64}`);
 console.log(`  hex:    ${pubHex}\n`);
-console.log("PRIVATE KEY (paste into GitHub secret UPDATER_SIGNING_KEY — do NOT commit):");
-console.log(`  base64: ${privB64}\n`);
-console.log("After committing the public key, delete the private-key output from your terminal scrollback.");
+
+// Write private key to a 0600-permissioned temp file, NOT stdout.
+// Keeps it out of terminal scrollback, shell history, CI logs, and process listings.
+const privDir = mkdtempSync(join(tmpdir(), "nimbus-updater-key-"));
+const privPath = join(privDir, "updater-private.b64");
+writeFileSync(privPath, privB64);
+try {
+  chmodSync(privPath, 0o600);
+} catch {
+  // Windows filesystems may not honour chmod; the user-scoped tmpdir
+  // (C:\Users\<user>\AppData\Local\Temp) is the primary protection.
+}
+
+console.log("PRIVATE KEY written to:");
+console.log(`  ${privPath}\n`);
+console.log("Upload to GitHub secret UPDATER_SIGNING_KEY, then delete:");
+console.log(`  gh secret set UPDATER_SIGNING_KEY < "${privPath}" && rm -f "${privPath}"`);
 ```
 
 - [ ] **Step 2: Create `public-key.ts` with a dev placeholder**
@@ -1076,6 +1091,25 @@ describe("buildInstallerCommand", () => {
     expect(() => buildInstallerCommand("linux" as Platform, bogus)).toThrow(/unsupported/i);
   });
 });
+
+describe("executeReplaceInPlace", () => {
+  test("copies source over target and chmod +x on POSIX", async () => {
+    const { executeReplaceInPlace } = await import("./installer.ts");
+    const { statSync } = await import("node:fs");
+    const dir = tmp();
+    const src = join(dir, "new-binary");
+    const dst = join(dir, "live-binary");
+    writeFileSync(src, "NEW");
+    writeFileSync(dst, "OLD");
+    await executeReplaceInPlace({ kind: "replace-in-place", sourceArchive: src, targetBinary: dst });
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(dst, "utf8")).toBe("NEW");
+    if (process.platform !== "win32") {
+      const mode = statSync(dst).mode & 0o777;
+      expect(mode).toBe(0o755);
+    }
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1110,6 +1144,26 @@ export type InstallerCommand = InstallerCommandSubprocess | InstallerCommandRepl
 export interface BuildCommandOptions {
   /** Path the CURRENT Gateway/CLI binary should be replaced at, for Linux tarball mode. */
   targetBinary?: string;
+}
+
+/**
+ * Executes a `replace-in-place` command by copying the new binary over the target
+ * path and restoring the executable bit. Exposed so callers can invoke it from
+ * their `invokeInstaller` callback for Linux tarball installs. POSIX-only chmod;
+ * harmless no-op on Windows NTFS where the execute bit is not a concept.
+ *
+ * Backup of the prior binary is the caller's responsibility (see spec §Auto-Update
+ * 4.2.2 — the Gateway backs up to `<dataDir>/backups/gateway-prev[.exe]` before
+ * invoking the installer).
+ */
+export async function executeReplaceInPlace(cmd: InstallerCommandReplaceInPlace): Promise<void> {
+  const { copyFileSync, chmodSync } = await import("node:fs");
+  copyFileSync(cmd.sourceArchive, cmd.targetBinary);
+  try {
+    chmodSync(cmd.targetBinary, 0o755);
+  } catch {
+    // Non-POSIX filesystem — chmod not meaningful.
+  }
 }
 
 export function buildInstallerCommand(
@@ -1555,7 +1609,7 @@ describe("dispatchUpdaterRpc", () => {
     );
   });
 
-  test("returns ERR_UPDATER_MANIFEST_UNREACHABLE when fetch fails", async () => {
+  test("returns -32603 with ERR_UPDATER_MANIFEST_UNREACHABLE in message when fetch fails", async () => {
     const u = new Updater({
       currentVersion: "0.1.0",
       manifestUrl: "http://127.0.0.1:1/does-not-exist",
@@ -1569,7 +1623,8 @@ describe("dispatchUpdaterRpc", () => {
       throw new Error("expected error");
     } catch (err) {
       expect(err).toBeInstanceOf(UpdaterRpcError);
-      expect((err as UpdaterRpcError).code).toBe("ERR_UPDATER_MANIFEST_UNREACHABLE");
+      expect((err as UpdaterRpcError).rpcCode).toBe(-32603);
+      expect((err as UpdaterRpcError).message).toMatch(/ERR_UPDATER_MANIFEST_UNREACHABLE/);
     }
   });
 });
@@ -1589,21 +1644,22 @@ Expected: `Module not found: updater-rpc`.
 // packages/gateway/src/ipc/updater-rpc.ts
 import { ManifestFetchError, Updater } from "../updater/updater.ts";
 
-export type UpdaterErrorCode =
-  | "ERR_UPDATER_MANIFEST_UNREACHABLE"
-  | "ERR_UPDATER_SIGNATURE_INVALID"
-  | "ERR_UPDATER_NO_UPDATE_AVAILABLE"
-  | "ERR_UPDATER_ROLLBACK_FAILED"
-  | "ERR_UPDATER_UNKNOWN_METHOD"
-  | "ERR_UPDATER_NOT_CONFIGURED";
-
+/**
+ * Matches the existing dispatcher convention (see data-rpc.ts, audit-rpc.ts):
+ *   - rpcCode is a JSON-RPC 2.0 integer code
+ *   - diagnostic string codes go in the error message, not on the class
+ *
+ * Codes used:
+ *   -32601  method not found
+ *   -32602  invalid params / required service missing
+ *   -32603  internal error (fetch failure, signature invalid, etc.)
+ */
 export class UpdaterRpcError extends Error {
-  constructor(
-    public readonly code: UpdaterErrorCode,
-    message: string,
-  ) {
+  readonly rpcCode: number;
+  constructor(rpcCode: number, message: string) {
     super(message);
     this.name = "UpdaterRpcError";
+    this.rpcCode = rpcCode;
   }
 }
 
@@ -1617,7 +1673,7 @@ export async function dispatchUpdaterRpc(
   ctx: UpdaterRpcContext,
 ): Promise<unknown> {
   if (!ctx.updater) {
-    throw new UpdaterRpcError("ERR_UPDATER_NOT_CONFIGURED", "updater service not initialised");
+    throw new UpdaterRpcError(-32602, "ERR_UPDATER_NOT_CONFIGURED: updater service not initialised");
   }
   switch (method) {
     case "updater.getStatus":
@@ -1627,7 +1683,7 @@ export async function dispatchUpdaterRpc(
         return await ctx.updater.checkNow();
       } catch (err) {
         if (err instanceof ManifestFetchError) {
-          throw new UpdaterRpcError("ERR_UPDATER_MANIFEST_UNREACHABLE", err.message);
+          throw new UpdaterRpcError(-32603, `ERR_UPDATER_MANIFEST_UNREACHABLE: ${err.message}`);
         }
         throw err;
       }
@@ -1638,7 +1694,7 @@ export async function dispatchUpdaterRpc(
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (/signature|hash/i.test(message)) {
-          throw new UpdaterRpcError("ERR_UPDATER_SIGNATURE_INVALID", message);
+          throw new UpdaterRpcError(-32603, `ERR_UPDATER_SIGNATURE_INVALID: ${message}`);
         }
         throw err;
       }
@@ -1647,7 +1703,7 @@ export async function dispatchUpdaterRpc(
       // Real rollback is triggered by the Tauri watchdog (WS5) or CLI reinstall.
       return { ok: true };
     default:
-      throw new UpdaterRpcError("ERR_UPDATER_UNKNOWN_METHOD", `unknown method: ${method}`);
+      throw new UpdaterRpcError(-32601, `ERR_UPDATER_UNKNOWN_METHOD: ${method}`);
   }
 }
 ```
@@ -2278,20 +2334,18 @@ import { UpdaterRpcError, dispatchUpdaterRpc } from "../../../src/ipc/updater-rp
 const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(randomBytes(32)));
 
 describe("updater + air-gap", () => {
-  test("when updater.enabled = false, no network call is attempted", async () => {
-    // A manifest URL pointing nowhere; if the updater tried to fetch,
-    // the dispatcher would surface ERR_UPDATER_MANIFEST_UNREACHABLE.
-    // With updater undefined, we expect ERR_UPDATER_NOT_CONFIGURED instead.
+  test("when updater is not configured, returns rpcCode -32602", async () => {
     try {
       await dispatchUpdaterRpc("updater.checkNow", {}, { updater: undefined });
       throw new Error("expected error");
     } catch (err) {
       expect(err).toBeInstanceOf(UpdaterRpcError);
-      expect((err as UpdaterRpcError).code).toBe("ERR_UPDATER_NOT_CONFIGURED");
+      expect((err as UpdaterRpcError).rpcCode).toBe(-32602);
+      expect((err as UpdaterRpcError).message).toMatch(/ERR_UPDATER_NOT_CONFIGURED/);
     }
   });
 
-  test("fetch failure surfaces as ERR_UPDATER_MANIFEST_UNREACHABLE, not a raw network error", async () => {
+  test("fetch failure surfaces as -32603 with ERR_UPDATER_MANIFEST_UNREACHABLE in message", async () => {
     const u = new Updater({
       currentVersion: "0.1.0",
       manifestUrl: "http://127.0.0.1:1/no",
@@ -2305,7 +2359,8 @@ describe("updater + air-gap", () => {
       throw new Error("expected error");
     } catch (err) {
       expect(err).toBeInstanceOf(UpdaterRpcError);
-      expect((err as UpdaterRpcError).code).toBe("ERR_UPDATER_MANIFEST_UNREACHABLE");
+      expect((err as UpdaterRpcError).rpcCode).toBe(-32603);
+      expect((err as UpdaterRpcError).message).toMatch(/ERR_UPDATER_MANIFEST_UNREACHABLE/);
     }
   });
 });
@@ -2926,13 +2981,14 @@ describe("checkLanMethodAllowed", () => {
     }
   });
 
-  test("rejects write method without grant", () => {
+  test("rejects write method without grant — rpcCode -32603", () => {
     try {
       checkLanMethodAllowed("engine.ask", { peerId: "p", writeAllowed: false });
       throw new Error("expected");
     } catch (err) {
       expect(err).toBeInstanceOf(LanError);
-      expect((err as LanError).code).toBe("ERR_LAN_WRITE_FORBIDDEN");
+      expect((err as LanError).rpcCode).toBe(-32603);
+      expect((err as LanError).message).toMatch(/ERR_LAN_WRITE_FORBIDDEN/);
     }
   });
 
@@ -2948,21 +3004,23 @@ describe("checkLanMethodAllowed", () => {
 
 ```typescript
 // packages/gateway/src/ipc/lan-rpc.ts
-export type LanErrorCode =
-  | "ERR_LAN_NOT_ENABLED"
-  | "ERR_LAN_PAIRING_WINDOW_CLOSED"
-  | "ERR_LAN_RATE_LIMITED"
-  | "ERR_LAN_WRITE_FORBIDDEN"
-  | "ERR_LAN_PEER_UNKNOWN"
-  | "ERR_METHOD_NOT_ALLOWED";
 
+/**
+ * Matches the existing dispatcher convention (see data-rpc.ts, audit-rpc.ts):
+ *   - rpcCode is a JSON-RPC 2.0 integer code
+ *   - diagnostic string tags go in the error message as ERR_<NAME>: <detail>
+ *
+ * Codes used:
+ *   -32601  method not callable over LAN
+ *   -32602  LAN not enabled / peer unknown / invalid params
+ *   -32603  rate-limited / write-forbidden / pairing-window-closed
+ */
 export class LanError extends Error {
-  constructor(
-    public readonly code: LanErrorCode,
-    message: string,
-  ) {
+  readonly rpcCode: number;
+  constructor(rpcCode: number, message: string) {
     super(message);
     this.name = "LanError";
+    this.rpcCode = rpcCode;
   }
 }
 
@@ -3001,12 +3059,12 @@ export interface LanPeerContext {
 export function checkLanMethodAllowed(method: string, peer: LanPeerContext): void {
   const ns = method.split(".")[0] ?? "";
   if (FORBIDDEN_OVER_LAN.has(ns)) {
-    throw new LanError("ERR_METHOD_NOT_ALLOWED", `method ${method} is not callable over LAN`);
+    throw new LanError(-32601, `ERR_METHOD_NOT_ALLOWED: ${method} is not callable over LAN`);
   }
   if (WRITE_METHODS.has(method) && !peer.writeAllowed) {
     throw new LanError(
-      "ERR_LAN_WRITE_FORBIDDEN",
-      `peer ${peer.peerId} lacks write permission for ${method}`,
+      -32603,
+      `ERR_LAN_WRITE_FORBIDDEN: peer ${peer.peerId} lacks write permission for ${method}`,
     );
   }
 }
@@ -3489,6 +3547,7 @@ import { generateBoxKeypair, type BoxKeypair } from "./lan-crypto.ts";
 import { PairingWindow, generatePairingCode } from "./lan-pairing.ts";
 import { LanRateLimiter } from "./lan-rate-limit.ts";
 import { LanError, checkLanMethodAllowed } from "./lan-rpc.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { createHash } from "node:crypto";
 
 let lanServer: LanServer | undefined;
@@ -3500,11 +3559,30 @@ function derivePeerId(pubkey: Uint8Array): string {
   return Buffer.from(digest).subarray(0, 16).toString("base64url");
 }
 
-async function loadHostLanKeypair(options: { vault: /* NimbusVault */ unknown }): Promise<BoxKeypair> {
-  // Vault read/write pattern — implementation delegates to existing vault helpers.
-  // For this WS we treat a fresh keypair as acceptable on first use; persistent storage
-  // is wrapped by existing Vault abstractions, not new to WS4.
-  return generateBoxKeypair();
+/**
+ * Persistent host X25519 keypair, stored under vault keys `lan.host_pubkey` +
+ * `lan.host_privkey` (matching spec §5.2). Generated on first call; reused on
+ * every subsequent boot.
+ *
+ * Rotating the keypair invalidates ALL paired inbound peers (they must re-pair).
+ * That rotation is an explicit operator action, not a Gateway auto-behaviour.
+ */
+async function loadHostLanKeypair(options: { vault: NimbusVault }): Promise<BoxKeypair> {
+  const pubB64 = await options.vault.get("lan.host_pubkey");
+  const privB64 = await options.vault.get("lan.host_privkey");
+  if (pubB64 && privB64) {
+    const publicKey = new Uint8Array(Buffer.from(pubB64, "base64"));
+    const secretKey = new Uint8Array(Buffer.from(privB64, "base64"));
+    if (publicKey.length === 32 && secretKey.length === 32) {
+      return { publicKey, secretKey };
+    }
+    // Malformed — fall through and regenerate. The caller's logger should record
+    // the event if it cares; we don't want this helper to take a logger dep.
+  }
+  const kp = generateBoxKeypair();
+  await options.vault.set("lan.host_pubkey", Buffer.from(kp.publicKey).toString("base64"));
+  await options.vault.set("lan.host_privkey", Buffer.from(kp.secretKey).toString("base64"));
+  return kp;
 }
 
 if (options.config.lan.enabled) {
@@ -3564,7 +3642,7 @@ async function handleLanLocalRpc(
   ctx: { pairing?: PairingWindow; localIndex: /* LocalIndex */ unknown; lanServer?: LanServer },
 ): Promise<unknown> {
   if (!ctx.pairing) {
-    throw new LanError("ERR_LAN_NOT_ENABLED", "LAN is disabled in config");
+    throw new LanError(-32602, "ERR_LAN_NOT_ENABLED: LAN is disabled in config");
   }
   switch (method) {
     case "lan.openPairingWindow": {
@@ -3599,7 +3677,7 @@ async function handleLanLocalRpc(
         listenAddr: ctx.lanServer?.listenAddr(),
       };
     default:
-      throw new LanError("ERR_METHOD_NOT_ALLOWED", `unknown lan method: ${method}`);
+      throw new LanError(-32601, `ERR_METHOD_NOT_ALLOWED: unknown lan method: ${method}`);
   }
 }
 ```
@@ -3995,6 +4073,18 @@ After all 18 tasks are merged:
 3. Manually verify two-machine LAN pair on a real LAN (not CI — this is the only acceptance criterion that remains manual).
 4. When Apple Developer + Windows OV certs are procured, set the `MACOS_CERTIFICATE`, `MACOS_SIGNING_IDENTITY`, `NOTARIZATION_*`, `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PWD`, and `GPG_PRIVATE_KEY`/`GPG_PASSPHRASE` secrets on the repo. The signing steps activate automatically. Tick the Gatekeeper + SmartScreen + GPG acceptance boxes in the v0.1.0 Release Gate Checklist.
 5. Confirm the `packages/sdk/` published to npm is version `1.0.0` (via the existing `publish-client.yml` analogue for SDK — or wire one if absent).
+
+## Future Work (out of scope for this plan)
+
+The following items are deliberately deferred. They are tracked here so the next planning cycle picks them up without re-discovery.
+
+- **mDNS / Bonjour host discovery** — `nimbus lan pair --discover` (phase-4-plan.md §4.4.3). Dropped from WS4 because of Windows Bonjour SDK bundling (licensing + headless-bundle bloat) and the avahi runtime dep on Linux. Revisit in a post-v0.1.0 point release when someone actually hits a DHCP-rotation re-pair.
+- **Fork-aware default updater URL** — today the default points to the canonical repo's GitHub releases. Fork operators override via `NIMBUS_UPDATER_URL` env var or `[updater] url` in config. A future ergonomic improvement is deriving the default at build time from `GITHUB_REPOSITORY`, so a fork's release build injects its own release URL into the binary automatically.
+- **Updater key rotation** — no rotation mechanism in v1. Leak response is "cut a new keypair, publish via OS package managers, bypass in-app updater." A proper rotation design (embedded root-of-trust + intermediate signing keys) is a v2 concern.
+- **Remote HITL attestation** — a LAN peer with `grant-write` can trigger a write; the host's HITL dialog displays the peer ID but cannot cryptographically attest which human-on-that-peer initiated the request. Treated as out-of-scope in v1 (LAN peer = trusted admin). A future enhancement could require per-user signatures on LAN RPC requests.
+- **Fine-grained LAN ACLs** — `read` vs `write` is the only axis in v1. Per-method family grants (e.g. "can sync Gmail but not delete anything") are a v2+ extension.
+- **SDK v1.1 additions** — `NimbusTool`, `NimbusToolHandler`, `McpServerBuilder`, `ItemSchema`, `PersonSchema`. Frozen-out of v1 per brainstorming decision; add when a real extension author requires them.
+- **Cross-machine LAN manual verification** — WS4's `lan-rpc.test.ts` covers loopback only. Real two-machine validation on a physical LAN is a v0.1.0 RC manual check, tracked in the Release Gate Checklist.
 
 ## Self-Review Checklist
 

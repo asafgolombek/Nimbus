@@ -198,7 +198,9 @@ v1 freezes the SDK surface shape. The `AuditLogger` interface will be wired thro
 
 ### New error codes
 
-| Code | When |
+These are **diagnostic tags** surfaced in the JSON-RPC error `message` field (prefixed as `ERR_<NAME>: <detail>`). The JSON-RPC `code` field itself is an integer per the JSON-RPC 2.0 spec — the existing dispatcher convention (see `data-rpc.ts`, `audit-rpc.ts`) reuses the standard integer range (`-32601` method not found, `-32602` invalid params, `-32603` internal error) rather than minting a custom numeric code per error. WS4 follows the same convention.
+
+| Tag | When |
 |---|---|
 | `ERR_UPDATER_MANIFEST_UNREACHABLE` | `GET <url>` failed |
 | `ERR_UPDATER_SIGNATURE_INVALID` | Ed25519 verification failed |
