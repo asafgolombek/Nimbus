@@ -1,7 +1,9 @@
 use interprocess::local_socket::{
     tokio::{prelude::*, Stream},
-    GenericFilePath, GenericNamespaced, ToFsName, ToNsName,
+    GenericFilePath, ToFsName,
 };
+#[cfg(target_os = "windows")]
+use interprocess::local_socket::{GenericNamespaced, ToNsName};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,7 +23,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
 ];
 
 pub fn is_method_allowed(method: &str) -> bool {
-    ALLOWED_METHODS.iter().any(|&m| m == method)
+    ALLOWED_METHODS.contains(&method)
 }
 
 type PendingMap = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, Value>>>>>;
