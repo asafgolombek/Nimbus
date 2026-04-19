@@ -6,22 +6,28 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "bun dev",
+    "beforeDevCommand": "bunx vite",
     "beforeBuildCommand": "bunx vite build"
   },
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Nimbus",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 640,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "hiddenTitle": true,
+        "titleBarStyle": "Transparent"
       }
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": false
   },
   "bundle": {
     "active": true,
@@ -32,6 +38,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "dockIcon": false,
+      "exceptionDomain": null,
+      "frameworks": [],
+      "license": "",
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": null
+    }
   }
 }
