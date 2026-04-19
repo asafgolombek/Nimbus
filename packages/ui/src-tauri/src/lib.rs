@@ -1,6 +1,12 @@
+mod gateway_bridge;
+
+use gateway_bridge::BridgeState;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(BridgeState::new())
+        .invoke_handler(tauri::generate_handler![gateway_bridge::rpc_call])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
