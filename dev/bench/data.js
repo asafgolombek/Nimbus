@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776572464087,
+  "lastUpdate": 1776577512166,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -521,6 +521,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4938129399999986,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "1be4f9b2d2c3225e468ddb28c3d2937c080bcd0a",
+          "message": "chore(data-sovereignty): remove outdated implementation plan document\n\nDeleted the WS3 Data Sovereignty Implementation Plan document as it is no longer relevant. This change cleans up the repository by removing obsolete files.",
+          "timestamp": "2026-04-19T08:44:34+03:00",
+          "tree_id": "d2a22efb20b7565523ddb8e5e09ab104ca8fd935",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/1be4f9b2d2c3225e468ddb28c3d2937c080bcd0a"
+        },
+        "date": 1776577511151,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4980125400000008,
             "unit": "ms"
           }
         ]
