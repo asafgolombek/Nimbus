@@ -139,8 +139,8 @@ describe("LAN end-to-end pair → read → write → tamper", () => {
 
     // Step 8 — rate-limit guard
     for (let i = 0; i < 4; i++) {
-      host.rateLimit.recordFailure("9.9.9.9");
+      host.rateLimit.recordFailure("192.0.2.3");
     }
-    expect(host.rateLimit.checkAllowed("9.9.9.9")).toBe(false);
+    expect(host.rateLimit.checkAllowed("192.0.2.3")).toBe(false);
   });
 });

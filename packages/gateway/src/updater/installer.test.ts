@@ -22,7 +22,7 @@ describe("buildInstallerCommand", () => {
     const subprocess = cmd as InstallerCommandSubprocess;
     expect(subprocess.argv[0]).toBe("open");
     expect(subprocess.argv).toContain("-W");
-    expect(subprocess.argv[subprocess.argv.length - 1]).toBe(pkg);
+    expect(subprocess.argv.at(-1)).toBe(pkg);
   });
 
   test("Linux .deb uses dpkg -i with sudo", () => {
