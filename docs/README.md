@@ -38,6 +38,9 @@ nimbus ask "Which repos have critical Dependabot alerts with open PRs touching t
 # Infrastructure — query state across providers
 nimbus ask "What Terraform drift has been detected since last week's deployment?"
 
+# Data lineage — answered from the local index, no warehouse query
+nimbus ask "The Q1 revenue dashboard shows zeroes — which upstream model broke?"
+
 # Consent-gated automation — full plan preview before anything executes
 nimbus run ./incident-response.yml
 ```
@@ -75,6 +78,23 @@ Suggested next step: Create Jira tickets for affected repos?
    Proceed? [y/n]: y  ✅ Created PLAT-1847, PLAT-1848, PLAT-1849.
 ```
 
+**Data lineage example:**
+
+```
+$ nimbus ask "The Q1 revenue dashboard shows zeroes — which upstream model broke?"
+
+🔍 Tableau: dashboard "Q1 Revenue" — last refresh failed 12 minutes ago
+🔍 Upstream Looker view: revenue_daily → dbt model revenue_daily_agg
+🔍 dbt Cloud: revenue_daily_agg — last run failed 14 minutes ago
+🔍 Airflow: DAG daily_revenue_etl — task load_fact_orders failed with SQL error
+🔍 GitHub PR #842 "Rename order_amount → gross_amount" — merged by @priya 28 minutes ago
+   No downstream dbt model updated to match the rename.
+
+Suggested next step: Revert PR #842 and rerun the DAG?
+⚠  CONSENT REQUIRED — Revert PR #842 and trigger Airflow DAG rerun.
+   Proceed? [y/n]: n  Aborted. No changes made.
+```
+
 ---
 
 ## Who It's For
@@ -87,6 +107,7 @@ Nimbus is built for engineers and operators who run systems in production. If yo
 | **Platform Engineer** | Drift detection, multi-cloud infra state, deployment correlation, consent-gated IaC apply and rollback |
 | **Security Engineer** | Alert-to-commit tracing, CVE-to-PR correlation, full audit log for every agent action, compliance posture queries |
 | **Senior Developer** | Cross-repo PR intelligence, release readiness checks, pipeline context, local-only credential storage |
+| **Analytics Engineer / Data Scientist** | Cross-stack lineage from dashboard to dbt model to warehouse table to orchestration DAG — one local query instead of five consoles; metadata-only ingestion keeps row data on the warehouse |
 
 This is not a tool for everyone. There is no managed cloud service, no Nimbus account, and no relay server. If that's what you need, look elsewhere.
 
@@ -131,6 +152,10 @@ Every tool your on-call rotation depends on, unified in one local index. Cross-s
 **Phase 1–2 (shipped):** Local Filesystem, Google Drive, Gmail, Google Photos, OneDrive, Outlook, Microsoft Teams, GitHub, GitLab, Bitbucket, Slack, Linear, Jira, Notion, Confluence, Discord (opt-in)
 
 **Phase 3 (shipped):** Jenkins, GitHub Actions, CircleCI, GitLab CI, AWS, Azure, GCP, Kubernetes, Terraform/Pulumi/CloudFormation, Datadog, Grafana, Sentry, PagerDuty, New Relic
+
+**Phase 5 (planned):** Databricks, Apache Airflow, Prefect, Dagster, Metabase, Superset, Kibana / Elasticsearch, CloudWatch Logs, GCP Cloud Logging, BigQuery, Athena, dbt Cloud (data warehouse, orchestration, and BI — personal-auth connectors)
+
+**Phase 6 (planned, Team tier):** Snowflake, Tableau, Looker, PowerBI (SSO-gated warehouse and BI connectors; depends on Team Vault)
 
 See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
