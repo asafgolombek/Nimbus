@@ -143,6 +143,8 @@ The WS5-C Gateway IPC plumbing plan (merged on `dev/asafgolombek/phase_4_ws5`) s
 
 4. **`data.import` schema-version compatibility check** — before any destructive action (vault swap, index replace), the handler reads the archive's embedded `schemaVersion` field and compares it to the Gateway's `SCHEMA_VERSION` constant. On mismatch, it throws a JSON-RPC error with code `-32010` and `data: { kind: "version_incompatible", archiveSchemaVersion: number, currentSchemaVersion: number, relation: "archive_newer" | "archive_older_unsupported" }`. The UI catches the typed error and surfaces a terminal dialog ("Archive is from an incompatible Nimbus version — no changes made"). No retry; no partial import. Older-but-migratable archives are **not** handled in v0.1.0 — treat them as `archive_older_unsupported` until a migration path ships. Unit-tested at the dispatcher level with a crafted archive.
 
+5. **`SyncStatus` exposes `depth` and `enabled` over `connector.listStatus`** — the current `SyncStatus` interface in `packages/gateway/src/sync/types.ts` has `status`, `intervalMs`, and health fields but no explicit `depth` and no boolean `enabled`. The ConnectorsPanel needs both to populate its depth selector and enable toggle with current values. Extend `SyncStatus` with `depth: "metadata_only" | "summary" | "full"` (sourced from the connector-config store) and `enabled: boolean` (derived as `status !== "paused"`). The status-builder in `packages/gateway/src/sync/` is updated to populate both fields; existing consumers (CLI, Dashboard) ignore the new fields harmlessly. Unit-tested at the status-builder level.
+
 No other Gateway code is touched by WS5-C.
 
 ---
@@ -157,7 +159,7 @@ WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 16 write methods → al
 |---|---|---|
 | `llm.listModels` | Model | installed models + task-type defaults |
 | `llm.getRouterStatus` | Model | current routing decisions per task type |
-| `connector.listStatus` | Connectors | reused from WS5-B — returns `SyncStatus[]` including interval, depth, enabled |
+| `connector.listStatus` | Connectors | reused from WS5-B — returns `SyncStatus[]` including `intervalMs`, `depth`, `enabled` (latter two added per §2.4 #5) |
 | `profile.list` | Profiles | profile summaries + active |
 | `audit.getSummary` | Audit | counts by outcome/service for filter chips |
 | `telemetry.getStatus` | Telemetry | enabled state + counters |
@@ -358,12 +360,14 @@ Reconnect logic already exists in `gateway_bridge.rs` for generic disconnect. WS
 [Preflight card: "Deletes 1,247 items, 3 vault keys, 89 embeddings"]
    │
    ▼ typed confirmation: exact service name, e.g., "github"
-[IPC: data.delete { service, confirm: true }]
+[IPC: data.delete { service, dryRun: false }]
    │
    ▼
 [Toast: "Deleted. Audit entry: data.delete#<id>"]
    → audit feed refreshes, showing the delete row
 ```
+
+**UI-side gating, not server-side `confirm` flag.** `data.delete` accepts `{ service, dryRun?: boolean }` — `dryRun: false` (or omitted, since the default is false) performs the real delete; `dryRun: true` returns the same shape as `data.getDeletePreflight`. The Gateway has no `confirm` parameter; destructive gating lives entirely in the UI (preflight card + typed-service-name match). We pass `dryRun: false` explicitly in the wire call to make the intent readable in logs and parseable without relying on the default. The UI MUST NOT reach this call until the typed-name input exactly matches the selected service.
 
 ---
 
@@ -474,7 +478,7 @@ Follows the WS5-B template.
 
 **Single PR:** `dev/ws5c-ui` off `dev/asafgolombek/phase_4_ws5`. Commits are grouped by panel in increasing sensitivity order so review can proceed commit-by-commit even though the PR lands atomically:
 
-1. **Gateway prerequisites** — four additions from §2.4: `connector.setConfig` accepts `depth` and enforces 60 s minimum `intervalMs`; `connector.configChanged` emitted on mutations; `data.import` performs a schemaVersion compatibility check before any destructive action. Unit tests added at the dispatcher level for all four.
+1. **Gateway prerequisites** — five additions from §2.4: `connector.setConfig` accepts `depth` and enforces 60 s minimum `intervalMs`; `connector.configChanged` emitted on mutations; `data.import` performs a schemaVersion compatibility check before any destructive action; `SyncStatus` returned by `connector.listStatus` exposes `depth` and `enabled` fields. Unit tests added at the dispatcher / status-builder level for all five.
 2. **UI dependency install** — `bun add` to `packages/ui/package.json`: `zxcvbn` (passphrase strength meter, §4.1), `react-window` (virtualized audit list, §2.1). No other deps change.
 3. **Shell + Rust bridge** — Settings route + `SettingsSidebar` (three-column layout per §2.1) + nested-route redirect + `settings.ts` store slice + Zustand `persist` wrapper on `connectors` / `model` / `profile` slices with tested `partialize` whitelist (§2.1) + IPC type additions in `packages/ui/src/ipc/types.ts` + `ALLOWED_METHODS` growth, `NO_TIMEOUT_METHODS` allowlist, and cross-window `profile.switched` rebroadcast in `gateway_bridge.rs` (§2.2).
 4. **Profiles panel** — fully wired (list / create / switch / delete); consumes `profile.switched` (now a global Tauri event per §2.2) and calls Tauri `app.restart()` in every open window (§5.2).
