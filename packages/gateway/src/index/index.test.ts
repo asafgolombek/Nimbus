@@ -192,7 +192,7 @@ describe("LocalIndex", () => {
     const e1: Omit<AuditEntry, "id"> = {
       actionType: "file.delete",
       hitlStatus: "rejected",
-      actionJson: '{"path":"/tmp/a"}',
+      actionJson: '{"path":"/home/nimbus-test/a"}',
       timestamp: 100,
     };
     const e2: Omit<AuditEntry, "id"> = {

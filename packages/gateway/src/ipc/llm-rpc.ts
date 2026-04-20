@@ -40,7 +40,7 @@ export async function dispatchLlmRpc(
         throw new LlmRpcError(-32602, `Unsupported provider: ${provider}`);
       }
       const modelName = p.modelName;
-      const pullId = `pull_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const pullId = `pull_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
       const controller = new AbortController();
       activePulls.set(pullId, controller);
       void ctx.registry
