@@ -18,6 +18,8 @@ Nimbus is a local-first AI agent for DevOps engineers, security practitioners, a
 | **Extension Registry** | Plugin layer: sandboxed third-party MCP connectors + local marketplace |
 | **Observability Layer** | Health model, index metrics, query latency ring buffer, Prometheus endpoint, HTTP read API |
 
+Starting in Phase 5, Nimbus also serves as a unified metadata layer for the data stack — dbt models, orchestration DAGs, warehouse schemas, and BI dashboards are indexed as first-class items so lineage queries resolve from the local index without additional warehouse or BI API calls. Row data and binary extracts never cross the connector boundary.
+
 ---
 
 ## Cross-Platform Architecture
@@ -329,6 +331,14 @@ const HITL_REQUIRED: ReadonlySet<string> = Object.freeze(new Set([
   // Monitoring & incidents
   "alert.acknowledge", "alert.silence",
   "incident.escalate", "incident.resolve",
+  // Data warehouse, orchestration & BI (Phase 5/6 — forward-looking; added to
+  // executor.ts only when the corresponding connectors land)
+  "warehouse.task.run", "warehouse.pipe.resume",
+  "warehouse.job.trigger", "warehouse.job.cancel",
+  "warehouse.cluster.restart",
+  "orchestration.run.trigger", "orchestration.run.cancel",
+  "dbt.job.trigger",
+  "bi.comment.post", "bi.dataset.refresh", "bi.schedule.send",
 ]));
 
 export class ToolExecutor {
@@ -588,6 +598,50 @@ Infrastructure resources are indexed with: `provider`, `service`, `resource_type
 | `incident.resolve` | **Always** | — |
 
 Alerts are indexed with: `monitor_name`, `severity`, `status`, `service`, `fired_at`, `resolved_at`, `url`. Cross-service correlation (alert → deployment → PR → commit) is performed by the Memory Layer's hybrid search over indexed items from multiple connectors.
+
+#### Data Warehouse, Orchestration & BI (Phase 5/6)
+
+Warehouse, orchestration, and BI connectors ingest **metadata only** — schema definitions (DDL), column tags, job statuses, run history, and query plans. Row data, binary extracts, and result sets are forbidden at the connector boundary: there is no code path in any connector that fetches them, and a contract test asserts the absence of row-fetch tools on each connector's MCP surface.
+
+**Warehouse & compute** (Databricks, Snowflake, BigQuery, Athena):
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `warehouse.schema.list` / `warehouse.schema.get` | No | `data_model` |
+| `warehouse.table.describe` | No | `data_model` |
+| `warehouse.job.list` / `warehouse.job.get` | No | `data_pipeline` |
+| `warehouse.query.history` | No | — |
+| `warehouse.job.trigger` / `warehouse.job.cancel` | **Always** | — |
+| `warehouse.task.run` / `warehouse.pipe.resume` | **Always** | — |
+| `warehouse.cluster.restart` | **Always** | — |
+
+`data_model` items are indexed with: `provider`, `database`, `schema`, `object_name`, `object_type` (`table` / `view` / `model`), `column_tags`, `owner`, `last_altered_at`, `row_count_estimate`.
+
+**Orchestration** (Airflow, Prefect, Dagster, dbt Cloud):
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `orchestration.dag.list` / `orchestration.dag.get` | No | `data_pipeline` |
+| `orchestration.run.list` / `orchestration.run.get` | No | `data_pipeline` |
+| `orchestration.logs.get` | No | — |
+| `orchestration.run.trigger` / `orchestration.run.cancel` | **Always** | — |
+| `dbt.job.trigger` | **Always** | — |
+
+`data_pipeline` items are indexed with: `provider`, `dag_name`, `task_id`, `status`, `triggering_user`, `started_at`, `finished_at`, `duration_ms`, `upstream_refs`, `downstream_refs`.
+
+**BI & visualisation** (Tableau, Looker, PowerBI, Metabase, Superset, Kibana):
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `bi.dashboard.list` / `bi.dashboard.get` | No | `dashboard` |
+| `bi.query.list` / `bi.query.get` | No | `dashboard` |
+| `bi.alarm.list` | No | `log_alarm` |
+| `bi.comment.post` | **Always** | — |
+| `bi.dataset.refresh` | **Always** | — |
+| `bi.schedule.send` | **Always** | — |
+| `alarm.acknowledge` / `alarm.silence` | **Always** | — |
+
+`dashboard` items are indexed with: `provider`, `name`, `folder`, `author`, `upstream_models`, `last_refreshed_at`, `refresh_status`, `url`. Cross-stack lineage (Tableau → Looker view → dbt model → Snowflake table → Airflow DAG → PR) resolves via the Memory Layer's hybrid search plus `traverseGraph` over `upstream_refs` / `downstream_refs` relations in the graph substrate.
 
 ### Delta Sync
 
@@ -901,6 +955,7 @@ const streamReq: JSONRPCRequest = {
 -- item_type values: "file" | "email" | "event" | "photo"
 --                   "pr" | "issue" | "pipeline_run" | "deployment"
 --                   "alert" | "incident" | "infra_resource"
+--                   "data_model" | "data_pipeline" | "dashboard" | "log_alarm"  -- Phase 5/6
 -- Note: "task" is not a currently emitted item_type; use "issue" for Linear/Jira items.
 CREATE TABLE indexed_items (
     id          TEXT PRIMARY KEY,   -- "<service>:<native_id>"
@@ -1100,6 +1155,7 @@ PRs that drop below threshold are blocked when checks are required.
 | Token leakage in logs | Pino `redact` config covers `*.token`, `*.secret`, `oauth.*` patterns | Logger middleware |
 | Index exfiltration | SQLite stores metadata only (not content); protected by OS file permissions | OS file ACL |
 | Extension sandbox escape | **Partial:** process isolation + scoped env today; full syscall isolation planned (Phase 5) | Extension Registry / risk register |
+| Row-data exfiltration via warehouse or BI connector (Phase 5/6) | Connector boundary forbids row / binary / result-set fetches; only DDL, column tags, job status, and query plans cross into the index; contract test asserts absence of row-fetch tools on each connector's MCP surface | MCP connector contract |
 
 ---
 
