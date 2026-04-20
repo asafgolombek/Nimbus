@@ -111,7 +111,7 @@ Analytics engineers and data scientists live in a stack that is, if anything, mo
 
 **Root-cause correlation from dashboard to commit.** When a production Tableau or Looker dashboard fails, the agent assembles the chain — failing dashboard → upstream view → dbt model → warehouse table → orchestration DAG failure → the GitHub PR that changed the model — from indexed metadata. The same correlation that works for incidents works for broken pipelines.
 
-**Metadata-only by construction.** Warehouse and BI connectors ingest schema definitions (DDL), column tags, job statuses, and query plans. They do not ingest rows, result sets, or binary extracts — there is no code path in any connector that fetches them. The agent has a data catalog's visibility without the data-exfiltration surface of a SaaS catalog.
+**Metadata-only by construction.** Warehouse and BI connectors ingest schema definitions (DDL), column tags, job statuses, and query plans. They do not ingest rows, result sets, or binary extracts — there is no code path in any connector that fetches them. The same boundary applies to local data files: the filesystem connector reads Parquet footers, CSV / JSONL headers, and file-level row-count estimates — never row contents, first-row samples, or cell values. The agent has a data catalog's visibility without the data-exfiltration surface of a SaaS catalog.
 
 **Sovereign data context for local LLMs.** Lineage reasoning and schema-aware query generation happen fully locally via Ollama. Schema structures and column names — which themselves can be sensitive — never leave the machine.
 
