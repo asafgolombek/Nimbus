@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
+import { packBundle, unpackBundle } from "../db/tar-bundle.ts";
 import { runDataExport } from "./data-export.ts";
-import { runDataImport } from "./data-import.ts";
+import { DataImportVersionError, runDataImport } from "./data-import.ts";
 
 describe("data import", () => {
   const kdfParams = { t: 1, m: 1024, p: 1 } as const;
@@ -103,5 +104,99 @@ describe("data import", () => {
         index: newIndex(),
       }),
     ).rejects.toThrow(/integrity check failed/);
+  });
+});
+
+async function stageBundle(schemaVersion: number): Promise<string> {
+  const sourceVault = memVault();
+  await sourceVault.set("github.pat", "secret_value");
+  const outPath = join(mkdtempSync(join(tmpdir(), `nimbus-sv${schemaVersion}-`)), "b.tar.gz");
+  await runDataExport({
+    output: outPath,
+    includeIndex: false,
+    passphrase: "pw",
+    vault: sourceVault,
+    index: newIndex(),
+    platform: "linux",
+    nimbusVersion: "0.1.0",
+    schemaVersion,
+    kdfParams: { t: 1, m: 1024, p: 1 } as const,
+  });
+  return outPath;
+}
+
+describe("runDataImport — schemaVersion compatibility check", () => {
+  test("rejects a bundle with schema_version > current as archive_newer", async () => {
+    const bundle = await stageBundle(99);
+    const err = await runDataImport({
+      bundlePath: bundle,
+      passphrase: "pw",
+      vault: memVault(),
+      index: newIndex(),
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(DataImportVersionError);
+    expect((err as DataImportVersionError).archiveSchemaVersion).toBe(99);
+    expect((err as DataImportVersionError).relation).toBe("archive_newer");
+  });
+
+  test("rejects a bundle with schema_version < current as archive_older_unsupported", async () => {
+    const bundle = await stageBundle(10);
+    const err = await runDataImport({
+      bundlePath: bundle,
+      passphrase: "pw",
+      vault: memVault(),
+      index: newIndex(),
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(DataImportVersionError);
+    expect((err as DataImportVersionError).archiveSchemaVersion).toBe(10);
+    expect((err as DataImportVersionError).relation).toBe("archive_older_unsupported");
+  });
+
+  test("rejects a legacy v1 manifest as archive_older_unsupported (archiveSchemaVersion=0)", async () => {
+    const bundle = await stageBundle(21);
+    const stage = mkdtempSync(join(tmpdir(), "nimbus-legacy-stage-"));
+    await unpackBundle(bundle, stage);
+    const manifestPath = join(stage, "manifest.json");
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    const legacy = { ...parsed, version: 1 };
+    delete (legacy as Record<string, unknown>)["schema_version"];
+    writeFileSync(manifestPath, JSON.stringify(legacy, null, 2));
+    const legacyBundle = join(stage, "legacy.tar.gz");
+    await packBundle(stage, legacyBundle);
+
+    const err = await runDataImport({
+      bundlePath: legacyBundle,
+      passphrase: "pw",
+      vault: memVault(),
+      index: newIndex(),
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(DataImportVersionError);
+    expect((err as DataImportVersionError).archiveSchemaVersion).toBe(0);
+    expect((err as DataImportVersionError).relation).toBe("archive_older_unsupported");
+  });
+
+  test("no vault writes occur when schema_version is incompatible", async () => {
+    const bundle = await stageBundle(99);
+    const targetVault = memVault();
+    await runDataImport({
+      bundlePath: bundle,
+      passphrase: "pw",
+      vault: targetVault,
+      index: newIndex(),
+    }).catch(() => {});
+    expect(await targetVault.get("github.pat")).toBeNull();
+  });
+
+  test("happy path — matching schema_version restores credentials", async () => {
+    const bundle = await stageBundle(21);
+    const targetVault = memVault();
+    const result = await runDataImport({
+      bundlePath: bundle,
+      passphrase: "pw",
+      vault: targetVault,
+      index: newIndex(),
+    });
+    expect(result.credentialsRestored).toBe(1);
+    expect(await targetVault.get("github.pat")).toBe("secret_value");
   });
 });
