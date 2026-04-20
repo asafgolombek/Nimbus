@@ -135,7 +135,11 @@ Everything else (HITL queue, audit list, transient dialog state, pull progress m
 
 The WS5-C Gateway IPC plumbing plan (merged on `dev/asafgolombek/phase_4_ws5`) shipped every §3 method. Two small additions remain — required by the ConnectorsPanel — and land as the **first commit** of the single WS5-C UI PR:
 
-1. **`connector.setConfig` accepts optional `depth`** — extend the handler in `packages/gateway/src/ipc/connector-rpc-handlers.ts` to pass `depth: "metadata_only" | "summary" | "full"` through to the existing connector manager (depth is already a connector-config field; only the IPC surface lacks it). Param becomes `{ service, intervalMs?, depth?, enabled? }` — partial update, all writable fields optional.
+1. **Persist per-connector `depth` and expose it via `connector.setConfig`** — `depth` is currently a one-shot parameter to `connector.reindex` only; there is no per-connector persistent storage. WS5-C adds it:
+   - **Schema migration V21** — `ALTER TABLE sync_state ADD COLUMN depth TEXT NOT NULL DEFAULT 'summary'`. New migration file follows the established pattern (`packages/gateway/src/index/connector-depth-v21-sql.ts` + runner-v21 test).
+   - **LocalIndex** — `setConnectorDepth(serviceId, depth, now)` writes the column; existing `rowToPersistedSyncStatus` + scheduler `rowToStatus` builders read it into `SyncStatus.depth`.
+   - **Handler** — `connector.setConfig` param becomes `{ service, intervalMs?, depth?, enabled? }` — partial update, all writable fields optional. When `depth` is provided, the handler validates it against the literal union `"metadata_only" | "summary" | "full"` and calls `LocalIndex.setConnectorDepth`.
+   - **Semantics** — `depth` is the **default depth for the next reindex triggered from the UI**. Routine scheduler sync behavior is unchanged (stays `metadata_only`). A reindex initiated without an explicit `depth` param uses this stored value. This keeps the change surgical — it does not touch the scheduler's tick loop.
 
 2. **`connector.setConfig` enforces a 60 s minimum `intervalMs`** — the handler rejects any `intervalMs < 60_000` with JSON-RPC error code `-32602` and message `"intervalMs must be >= 60000 (60 seconds)"`. Prevents accidental sync-loop abuse against cloud APIs. UI mirrors the rule with inline validation (disabled save button + helper text) so the error is never reached in the happy path. Unit-tested at the dispatcher level.
 
