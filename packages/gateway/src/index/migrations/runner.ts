@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
 import { computeAuditRowHash } from "../../db/audit-chain.ts";
 import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
+import { CONNECTOR_DEPTH_V21_SQL } from "../connector-depth-v21-sql.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
 import {
   EMBEDDING_V6_MIGRATION_SQL,
@@ -303,6 +304,14 @@ function migrateIndexedV19ToV20(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV20ToV21(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(CONNECTOR_DEPTH_V21_SQL);
+    db.exec("PRAGMA user_version = 21");
+    recordMigration(db, 21, "sync_state.depth (per-connector reindex depth)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -324,6 +333,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 17, toVersion: 18, apply: migrateIndexedV17ToV18 },
   { fromVersion: 18, toVersion: 19, apply: migrateIndexedV18ToV19 },
   { fromVersion: 19, toVersion: 20, apply: migrateIndexedV19ToV20 },
+  { fromVersion: 20, toVersion: 21, apply: migrateIndexedV20ToV21 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -347,6 +357,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "audit_log BLAKE3 chain + _meta (backfilled)",
   "lan_peers (LAN remote-access peer registry) (backfilled)",
   "llm_task_defaults (per-task-type LLM model defaults) (backfilled)",
+  "sync_state.depth (per-connector reindex depth) (backfilled)",
 ];
 
 /**
