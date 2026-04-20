@@ -136,6 +136,10 @@ describe("OllamaProvider.pullModel", () => {
     globalThis.fetch = _realFetch;
   });
 
+  afterEach(() => {
+    globalThis.fetch = _realFetch;
+  });
+
   test("pullModel streams progress chunks and resolves on done", async () => {
     const chunks = [
       '{"status":"pulling manifest"}\n',
