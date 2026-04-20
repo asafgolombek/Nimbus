@@ -135,3 +135,31 @@ describe("llm.loadModel / llm.unloadModel", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("llm.setDefault", () => {
+  test("persists default per task type and echoes back", async () => {
+    const setDefault = mock(async () => {});
+    const registry = { setDefault } as unknown as LlmRegistry;
+    const r = await dispatchLlmRpc(
+      "llm.setDefault",
+      { taskType: "classification", provider: "ollama", modelName: "gemma:2b" },
+      { registry, notify: () => {} },
+    );
+    expect(r.kind).toBe("hit");
+    expect((r as { kind: "hit"; value: { taskType: string } }).value.taskType).toBe(
+      "classification",
+    );
+    expect(setDefault).toHaveBeenCalledWith("classification", "ollama", "gemma:2b");
+  });
+
+  test("rejects invalid taskType", async () => {
+    const registry = { setDefault: mock(async () => {}) } as unknown as LlmRegistry;
+    await expect(
+      dispatchLlmRpc(
+        "llm.setDefault",
+        { taskType: "bogus", provider: "ollama", modelName: "x" },
+        { registry, notify: () => {} },
+      ),
+    ).rejects.toThrow();
+  });
+});

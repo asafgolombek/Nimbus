@@ -98,6 +98,30 @@ export async function dispatchLlmRpc(
       ctx.notify("llm.modelUnloaded", { provider, modelName });
       return { kind: "hit", value: { isLoaded: false } };
     }
+    case "llm.setDefault": {
+      const VALID_TASKS = new Set(["classification", "embedding", "reasoning", "generation"]);
+      const VALID_PROVIDERS = new Set(["ollama", "llamacpp", "remote"]);
+      const p = params as { taskType?: string; provider?: string; modelName?: string } | null;
+      if (
+        p === null ||
+        typeof p.taskType !== "string" ||
+        !VALID_TASKS.has(p.taskType) ||
+        typeof p.provider !== "string" ||
+        !VALID_PROVIDERS.has(p.provider) ||
+        typeof p.modelName !== "string"
+      ) {
+        throw new LlmRpcError(-32602, "setDefault requires valid taskType, provider, modelName");
+      }
+      await ctx.registry.setDefault(
+        p.taskType as "classification" | "embedding" | "reasoning" | "generation",
+        p.provider as "ollama" | "llamacpp" | "remote",
+        p.modelName,
+      );
+      return {
+        kind: "hit",
+        value: { taskType: p.taskType, provider: p.provider, modelName: p.modelName },
+      };
+    }
     default:
       return { kind: "miss" };
   }

@@ -97,6 +97,31 @@ export class LlmRegistry {
     await p.pullModel(modelName, opts);
   }
 
+  async setDefault(
+    taskType: "classification" | "embedding" | "reasoning" | "generation",
+    provider: "ollama" | "llamacpp" | "remote",
+    modelName: string,
+  ): Promise<void> {
+    if (this.db === undefined) return;
+    this.db.run(
+      `INSERT INTO llm_task_defaults (task_type, provider, model_name, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(task_type) DO UPDATE SET
+         provider = excluded.provider,
+         model_name = excluded.model_name,
+         updated_at = excluded.updated_at`,
+      [taskType, provider, modelName, Date.now()],
+    );
+  }
+
+  getDefault(taskType: string): { provider: string; modelName: string } | undefined {
+    if (this.db === undefined) return undefined;
+    const row = this.db
+      .query("SELECT provider, model_name FROM llm_task_defaults WHERE task_type = ?")
+      .get(taskType) as { provider: string; model_name: string } | undefined;
+    return row === undefined ? undefined : { provider: row.provider, modelName: row.model_name };
+  }
+
   private syncModelsToDb(models: LlmModelInfo[]): void {
     if (this.db === undefined) return;
     const now = Date.now();
