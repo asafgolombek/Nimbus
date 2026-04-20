@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { LlmRouter, type LlmRouterConfig } from "./router.ts";
-import type { LlmModelInfo, LlmProvider } from "./types.ts";
+import type { LlmModelInfo, LlmProvider, PullProgressChunk } from "./types.ts";
 
 export type LlmRegistryOptions = {
   config: LlmRouterConfig;
@@ -59,6 +59,21 @@ export class LlmRegistry {
       }
     }
     return result;
+  }
+
+  async pullModel(
+    provider: "ollama" | "llamacpp",
+    modelName: string,
+    opts: { signal?: AbortSignal; onProgress?: (p: PullProgressChunk) => void } = {},
+  ): Promise<void> {
+    const p = (this.router as unknown as { providers: Map<string, LlmProvider> }).providers?.get(
+      provider,
+    );
+    if (p === undefined) throw new Error(`Provider not registered: ${provider}`);
+    if (typeof p.pullModel !== "function") {
+      throw new Error(`Provider ${provider} does not support pullModel`);
+    }
+    await p.pullModel(modelName, opts);
   }
 
   private syncModelsToDb(models: LlmModelInfo[]): void {

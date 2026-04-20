@@ -345,7 +345,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return phase4RpcSkipped;
     }
     try {
-      const out = await dispatchLlmRpc(method, params, { registry: options.llmRegistry });
+      const out = await dispatchLlmRpc(method, params, {
+        registry: options.llmRegistry,
+        notify: (m, p) => broadcastNotification(m, p as Record<string, unknown>),
+      });
       if (out.kind === "hit") return out.value;
     } catch (e) {
       if (e instanceof LlmRpcError) {

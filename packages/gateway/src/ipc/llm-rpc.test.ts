@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import type { LlmRegistry } from "../llm/registry.ts";
 import type { LlmModelInfo } from "../llm/types.ts";
 import type { LlmRpcContext } from "./llm-rpc.ts";
 import { dispatchLlmRpc } from "./llm-rpc.ts";
@@ -12,13 +13,13 @@ function makeFakeRegistry(models: LlmModelInfo[] = []): LlmRpcContext["registry"
 
 describe("dispatchLlmRpc", () => {
   test("returns miss for unknown method", async () => {
-    const ctx: LlmRpcContext = { registry: makeFakeRegistry() };
+    const ctx: LlmRpcContext = { registry: makeFakeRegistry(), notify: () => {} };
     const result = await dispatchLlmRpc("unknown.method", {}, ctx);
     expect(result.kind).toBe("miss");
   });
 
   test("returns miss for non-llm prefix", async () => {
-    const ctx: LlmRpcContext = { registry: makeFakeRegistry() };
+    const ctx: LlmRpcContext = { registry: makeFakeRegistry(), notify: () => {} };
     const result = await dispatchLlmRpc("connector.list", {}, ctx);
     expect(result.kind).toBe("miss");
   });
@@ -27,7 +28,7 @@ describe("dispatchLlmRpc", () => {
     const models: LlmModelInfo[] = [
       { provider: "ollama", modelName: "llama3.2", contextWindow: 128000 },
     ];
-    const ctx: LlmRpcContext = { registry: makeFakeRegistry(models) };
+    const ctx: LlmRpcContext = { registry: makeFakeRegistry(models), notify: () => {} };
     const result = await dispatchLlmRpc("llm.listModels", {}, ctx);
     expect(result.kind).toBe("hit");
     if (result.kind === "hit") {
@@ -38,7 +39,7 @@ describe("dispatchLlmRpc", () => {
   });
 
   test("llm.getStatus returns availability map", async () => {
-    const ctx: LlmRpcContext = { registry: makeFakeRegistry() };
+    const ctx: LlmRpcContext = { registry: makeFakeRegistry(), notify: () => {} };
     const result = await dispatchLlmRpc("llm.getStatus", {}, ctx);
     expect(result.kind).toBe("hit");
     if (result.kind === "hit") {
@@ -46,5 +47,32 @@ describe("dispatchLlmRpc", () => {
       expect(value.available["ollama"]).toBe(true);
       expect(value.available["llamacpp"]).toBe(false);
     }
+  });
+});
+
+describe("llm.pullModel", () => {
+  test("returns { pullId } and calls registry.pullModel", async () => {
+    const pullModel = mock(async () => {});
+    const registry = { pullModel } as unknown as LlmRegistry;
+    const notify = mock((_m: string, _p: unknown) => {});
+    const result = await dispatchLlmRpc(
+      "llm.pullModel",
+      { provider: "ollama", modelName: "gemma:2b" },
+      { registry, notify },
+    );
+    expect(result.kind).toBe("hit");
+    expect((result as { kind: "hit"; value: { pullId: string } }).value.pullId).toMatch(/^pull_/);
+    expect(pullModel).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects unknown provider with -32602", async () => {
+    const registry = { pullModel: mock(async () => {}) } as unknown as LlmRegistry;
+    await expect(
+      dispatchLlmRpc(
+        "llm.pullModel",
+        { provider: "remote", modelName: "x" },
+        { registry, notify: () => {} },
+      ),
+    ).rejects.toThrow();
   });
 });
