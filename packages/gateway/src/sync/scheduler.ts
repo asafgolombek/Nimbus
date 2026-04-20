@@ -316,11 +316,11 @@ export class SyncScheduler {
   private getDepthForService(serviceId: string): "metadata_only" | "summary" | "full" {
     const row = this.db
       .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
-      .get(serviceId) as { depth: string } | null | undefined;
+      .get(serviceId) as { depth: string | null } | null | undefined;
     if (row == null) {
       return "summary";
     }
-    return row.depth as "metadata_only" | "summary" | "full";
+    return (row.depth ?? "summary") as "metadata_only" | "summary" | "full";
   }
 
   private rowToStatus(serviceId: string, row: SchedulerStateRow, itemCount: number): SyncStatus {
