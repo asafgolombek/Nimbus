@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
+import type { ProfileManager } from "../config/profiles.ts";
 import { Config } from "../config.ts";
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
@@ -36,6 +37,7 @@ import { generatePairingCode, type PairingWindow } from "./lan-pairing.ts";
 import type { LanServer } from "./lan-server.ts";
 import { dispatchLlmRpc, LlmRpcError } from "./llm-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
+import { dispatchProfileRpc, ProfileRpcError } from "./profile-rpc.ts";
 import { dispatchReindexRpc, ReindexRpcError } from "./reindex-rpc.ts";
 import { ClientSession, type SessionWrite } from "./session.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
@@ -175,6 +177,8 @@ export type CreateIpcServerOptions = {
   lanServer?: LanServer;
   /** Pairing window shared with the LAN server (Phase 4 WS4). */
   lanPairingWindow?: PairingWindow;
+  /** Profile manager for profile.* RPCs (Phase 4 WS5-C). */
+  profileManager?: ProfileManager;
 };
 
 function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key: string): string {
@@ -413,6 +417,24 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return phase4RpcSkipped;
   }
 
+  async function tryDispatchProfileRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("profile.")) return phase4RpcSkipped;
+    if (options.profileManager === undefined) {
+      throw new RpcMethodError(-32603, "Profile manager is not available on this gateway");
+    }
+    try {
+      const out = await dispatchProfileRpc(method, params, {
+        manager: options.profileManager,
+        notify: (m, p) => broadcastNotification(m, p as Record<string, unknown>),
+      });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof ProfileRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      throw e;
+    }
+    return phase4RpcSkipped;
+  }
+
   async function tryDispatchDataRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("data.")) return phase4RpcSkipped;
     try {
@@ -515,6 +537,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
     const lanOutcome = await tryDispatchLanRpc(method, params);
     if (lanOutcome !== phase4RpcSkipped) return lanOutcome;
+    const profileOutcome = await tryDispatchProfileRpc(method, params);
+    if (profileOutcome !== phase4RpcSkipped) return profileOutcome;
     return tryDispatchReindexRpc(method, params);
   }
 
