@@ -232,3 +232,64 @@ describe("data.getDeletePreflight", () => {
     }
   });
 });
+
+describe("data.export emits progress notifications", () => {
+  test("emits exportProgress and exportCompleted", async () => {
+    const notifications: { method: string; params: unknown }[] = [];
+    const out = await dispatchDataRpc(
+      "data.export",
+      {
+        output: join(mkdtempSync(join(tmpdir(), "nimbus-rpc-prog-")), "b.tar.gz"),
+        passphrase: "pw",
+        includeIndex: false,
+      },
+      {
+        index: newIndex(),
+        vault: memVault(),
+        platform: "linux",
+        nimbusVersion: "0.1.0",
+        kdfParams: testKdf,
+        notify: (m, p) => notifications.push({ method: m, params: p }),
+      },
+    );
+    expect(out.kind).toBe("hit");
+    expect(notifications.some((n) => n.method === "data.exportProgress")).toBe(true);
+    expect(notifications.some((n) => n.method === "data.exportCompleted")).toBe(true);
+  });
+});
+
+describe("data.import emits progress notifications", () => {
+  test("emits importProgress and importCompleted", async () => {
+    // First create a bundle to import
+    const exportDir = mkdtempSync(join(tmpdir(), "nimbus-rpc-imp-"));
+    const bundlePath = join(exportDir, "bundle.tar.gz");
+    await dispatchDataRpc(
+      "data.export",
+      { output: bundlePath, passphrase: "pw", includeIndex: false },
+      {
+        index: newIndex(),
+        vault: memVault(),
+        platform: "linux",
+        nimbusVersion: "0.1.0",
+        kdfParams: testKdf,
+      },
+    );
+
+    const notifications: { method: string; params: unknown }[] = [];
+    const out = await dispatchDataRpc(
+      "data.import",
+      { bundlePath, passphrase: "pw" },
+      {
+        index: newIndex(),
+        vault: memVault(),
+        platform: "linux",
+        nimbusVersion: "0.1.0",
+        kdfParams: testKdf,
+        notify: (m, p) => notifications.push({ method: m, params: p }),
+      },
+    );
+    expect(out.kind).toBe("hit");
+    expect(notifications.some((n) => n.method === "data.importProgress")).toBe(true);
+    expect(notifications.some((n) => n.method === "data.importCompleted")).toBe(true);
+  });
+});

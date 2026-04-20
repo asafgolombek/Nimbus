@@ -15,6 +15,8 @@ export type DataRpcContext = {
   nimbusVersion: string;
   /** Optional — tests override Argon2id params to keep runtime small. */
   kdfParams?: KdfParams;
+  /** Optional — emit JSON-RPC notifications back to the caller. */
+  notify?: (method: string, params: Record<string, unknown>) => void;
 };
 
 type RpcResult = { kind: "hit"; value: unknown } | { kind: "miss" };
@@ -52,7 +54,8 @@ async function handleDataExport(
     throw new DataRpcError(-32602, "Missing param: output");
   if (typeof passphrase !== "string" || passphrase === "")
     throw new DataRpcError(-32602, "Missing param: passphrase");
-  return runDataExport({
+  ctx.notify?.("data.exportProgress", { stage: "packing", bytesWritten: 0, totalBytes: 0 });
+  const result = await runDataExport({
     output,
     passphrase,
     includeIndex,
@@ -62,6 +65,11 @@ async function handleDataExport(
     nimbusVersion: ctx.nimbusVersion,
     ...(ctx.kdfParams === undefined ? {} : { kdfParams: ctx.kdfParams }),
   });
+  ctx.notify?.("data.exportCompleted", {
+    path: result.outputPath,
+    itemsExported: result.itemsExported,
+  });
+  return result;
 }
 
 async function handleDataImport(
@@ -74,13 +82,16 @@ async function handleDataImport(
   const recoverySeed = rec["recoverySeed"];
   if (typeof bundlePath !== "string" || bundlePath === "")
     throw new DataRpcError(-32602, "Missing param: bundlePath");
-  return runDataImport({
+  ctx.notify?.("data.importProgress", { stage: "unpacking", bytesRead: 0, totalBytes: 0 });
+  const result = await runDataImport({
     bundlePath,
     ...(typeof passphrase === "string" ? { passphrase } : {}),
     ...(typeof recoverySeed === "string" ? { recoverySeed } : {}),
     vault,
     index,
   });
+  ctx.notify?.("data.importCompleted", { credentialsRestored: result.credentialsRestored });
+  return result;
 }
 
 async function handleDataDelete(
