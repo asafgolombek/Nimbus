@@ -98,7 +98,7 @@ export class LlmRegistry {
   }
 
   async setDefault(
-    taskType: "classification" | "embedding" | "reasoning" | "generation",
+    taskType: "classification" | "reasoning" | "summarisation" | "agent_step",
     provider: "ollama" | "llamacpp" | "remote",
     modelName: string,
   ): Promise<void> {

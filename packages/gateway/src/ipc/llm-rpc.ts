@@ -103,7 +103,7 @@ export async function dispatchLlmRpc(
       return { kind: "hit", value: { decisions } };
     }
     case "llm.setDefault": {
-      const VALID_TASKS = new Set(["classification", "embedding", "reasoning", "generation"]);
+      const VALID_TASKS = new Set(["classification", "reasoning", "summarisation", "agent_step"]);
       const VALID_PROVIDERS = new Set(["ollama", "llamacpp", "remote"]);
       const p = params as { taskType?: string; provider?: string; modelName?: string } | null;
       if (
@@ -117,7 +117,7 @@ export async function dispatchLlmRpc(
         throw new LlmRpcError(-32602, "setDefault requires valid taskType, provider, modelName");
       }
       await ctx.registry.setDefault(
-        p.taskType as "classification" | "embedding" | "reasoning" | "generation",
+        p.taskType as "classification" | "reasoning" | "summarisation" | "agent_step",
         p.provider as "ollama" | "llamacpp" | "remote",
         p.modelName,
       );
