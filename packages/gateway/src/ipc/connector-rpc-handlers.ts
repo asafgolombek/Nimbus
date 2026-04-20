@@ -93,6 +93,7 @@ export type ConnectorRpcHandlerContext = {
   openUrl: (url: string) => Promise<void>;
   syncScheduler: SyncScheduler | undefined;
   connectorMesh: LazyConnectorMesh | undefined;
+  notify?: (method: string, params: Record<string, unknown>) => void;
 };
 
 export async function handleConnectorAddMcp(
