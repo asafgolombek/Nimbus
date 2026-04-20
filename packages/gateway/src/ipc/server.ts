@@ -11,6 +11,7 @@ import { type AgentRequestContext, agentRequestContext } from "../engine/agent-r
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import { driftHintsFromIndex } from "../index/drift-hints.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import type { LlmRegistry } from "../llm/registry.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -447,6 +448,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         vault: options.vault,
         platform: rpcPlatform,
         nimbusVersion: options.version ?? "0.1.0",
+        schemaVersion: CURRENT_SCHEMA_VERSION,
       });
       if (out.kind === "hit") return out.value;
     } catch (e) {

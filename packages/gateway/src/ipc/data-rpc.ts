@@ -6,6 +6,7 @@ import { CONNECTOR_VAULT_SECRET_KEYS } from "../connectors/connector-secrets-man
 import type { KdfParams } from "../db/data-vault-crypto.ts";
 import { collectIndexMetrics } from "../db/metrics.ts";
 import type { LocalIndex } from "../index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
 export type DataRpcContext = {
@@ -13,6 +14,7 @@ export type DataRpcContext = {
   vault: NimbusVault | undefined;
   platform: "win32" | "darwin" | "linux";
   nimbusVersion: string;
+  schemaVersion?: number;
   /** Optional — tests override Argon2id params to keep runtime small. */
   kdfParams?: KdfParams;
   /** Optional — emit JSON-RPC notifications back to the caller. */
@@ -63,6 +65,7 @@ async function handleDataExport(
     index,
     platform: ctx.platform,
     nimbusVersion: ctx.nimbusVersion,
+    schemaVersion: ctx.schemaVersion ?? CURRENT_SCHEMA_VERSION,
     ...(ctx.kdfParams === undefined ? {} : { kdfParams: ctx.kdfParams }),
   });
   ctx.notify?.("data.exportCompleted", {

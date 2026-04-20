@@ -262,8 +262,11 @@ export interface LanPeerRow {
   last_seen_at: string | null;
 }
 
+/** Current indexed DB schema version — also accessible as `LocalIndex.SCHEMA_VERSION`. */
+export const CURRENT_SCHEMA_VERSION = 21;
+
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 21;
+  static readonly SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.

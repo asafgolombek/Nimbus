@@ -22,6 +22,7 @@ describe("data import", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams,
     });
 
@@ -49,6 +50,7 @@ describe("data import", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams,
     });
 
@@ -80,6 +82,7 @@ describe("data import", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams,
     });
 

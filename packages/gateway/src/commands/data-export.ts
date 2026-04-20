@@ -17,6 +17,7 @@ export type RunDataExportInput = {
   index: LocalIndex;
   platform: "win32" | "darwin" | "linux";
   nimbusVersion: string;
+  schemaVersion: number;
   /** Override Argon2id params in tests. */
   kdfParams?: KdfParams;
 };
@@ -79,6 +80,7 @@ export async function runDataExport(input: RunDataExportInput): Promise<RunDataE
   const manifest = await buildManifest({
     bundleDir: stage,
     nimbusVersion: input.nimbusVersion,
+    schemaVersion: input.schemaVersion,
     platform: input.platform,
     contents: {
       index_rows: 0,

@@ -23,6 +23,7 @@ describe("backup manifest", () => {
     const m = await buildManifest({
       bundleDir: dir,
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       platform: "linux",
       contents: {
         index_rows: 5,
@@ -40,6 +41,54 @@ describe("backup manifest", () => {
     expect(m.contents.index_included).toBe(true);
   });
 
+  test("buildManifest populates version=2 and schema_version when supplied", async () => {
+    const dir = tmp();
+    const p = join(dir, "test.bin");
+    writeFileSync(p, "hello");
+    const m = await buildManifest({
+      bundleDir: dir,
+      nimbusVersion: "0.1.0",
+      schemaVersion: 21,
+      platform: "linux",
+      contents: {
+        index_rows: 0,
+        vault_entries: 1,
+        watchers: 0,
+        workflows: 0,
+        extensions: 0,
+        profiles: 1,
+      },
+      files: { "test.bin": p },
+      indexIncluded: false,
+    });
+    expect(m.version).toBe(2);
+    expect(m.schema_version).toBe(21);
+  });
+
+  test("verifyManifest accepts both version=1 (legacy) and version=2 (current) shapes", async () => {
+    const dir = tmp();
+    const p = join(dir, "x.bin");
+    writeFileSync(p, "hello");
+    const m1 = {
+      version: 1 as const,
+      nimbus_version: "0.0.9",
+      created_at: "2026-01-01T00:00:00Z",
+      platform: "linux" as const,
+      contents: {
+        index_rows: 0,
+        index_included: false,
+        vault_entries: 0,
+        watchers: 0,
+        workflows: 0,
+        extensions: 0,
+        profiles: 0,
+      },
+      hashes: { "x.bin": await blake3HashFile(p) },
+    };
+    const r1 = await verifyManifest(m1, { "x.bin": p });
+    expect(r1.ok).toBe(true);
+  });
+
   test("verifyManifest rejects a tampered file", async () => {
     const dir = tmp();
     const p = join(dir, "f.bin");
@@ -47,6 +96,7 @@ describe("backup manifest", () => {
     const m = await buildManifest({
       bundleDir: dir,
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       platform: "linux",
       contents: {
         index_rows: 0,

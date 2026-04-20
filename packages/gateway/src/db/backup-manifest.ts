@@ -3,8 +3,9 @@ import { blake3 } from "@noble/hashes/blake3";
 import { bytesToHex } from "@noble/hashes/utils";
 
 export type BackupManifest = {
-  version: 1;
+  version: 2;
   nimbus_version: string;
+  schema_version: number;
   created_at: string;
   platform: "win32" | "darwin" | "linux";
   contents: {
@@ -19,6 +20,11 @@ export type BackupManifest = {
   hashes: Record<string, string>;
 };
 
+/** Legacy shape for archives produced before the V21 schema-version bump. */
+export type LegacyBackupManifestV1 = Omit<BackupManifest, "version" | "schema_version"> & {
+  version: 1;
+};
+
 export async function blake3HashFile(path: string): Promise<string> {
   const buf = await readFile(path);
   return bytesToHex(blake3(new Uint8Array(buf)));
@@ -27,6 +33,7 @@ export async function blake3HashFile(path: string): Promise<string> {
 export async function buildManifest(input: {
   bundleDir: string;
   nimbusVersion: string;
+  schemaVersion: number;
   platform: "win32" | "darwin" | "linux";
   contents: Omit<BackupManifest["contents"], "index_included">;
   files: Record<string, string>;
@@ -37,8 +44,9 @@ export async function buildManifest(input: {
     hashes[name] = await blake3HashFile(absPath);
   }
   return {
-    version: 1,
+    version: 2,
     nimbus_version: input.nimbusVersion,
+    schema_version: input.schemaVersion,
     created_at: new Date().toISOString(),
     platform: input.platform,
     contents: { ...input.contents, index_included: input.indexIncluded },
@@ -49,7 +57,7 @@ export async function buildManifest(input: {
 export type ManifestVerifyResult = { ok: boolean; firstMismatch?: string };
 
 export async function verifyManifest(
-  manifest: BackupManifest,
+  manifest: BackupManifest | LegacyBackupManifestV1,
   files: Record<string, string>,
 ): Promise<ManifestVerifyResult> {
   for (const [name, expected] of Object.entries(manifest.hashes)) {
