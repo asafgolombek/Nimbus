@@ -250,15 +250,14 @@ describe("LocalIndex.setConnectorDepth / getConnectorDepth", () => {
 
   test("setConnectorDepth persists a new depth value", () => {
     const idx = makeIndex();
-    idx.setConnectorDepth("github", "full", Date.now());
+    idx.setConnectorDepth("github", "full");
     expect(idx.getConnectorDepth("github")).toBe("full");
   });
 
   test("setConnectorDepth is idempotent for the same value", () => {
     const idx = makeIndex();
-    const now = Date.now();
-    idx.setConnectorDepth("github", "metadata_only", now);
-    idx.setConnectorDepth("github", "metadata_only", now + 1);
+    idx.setConnectorDepth("github", "metadata_only");
+    idx.setConnectorDepth("github", "metadata_only");
     expect(idx.getConnectorDepth("github")).toBe("metadata_only");
   });
 
@@ -298,9 +297,9 @@ Insert directly after `setConnectorSyncIntervalMs`:
  * explicit depth parameter is supplied. Routine scheduler sync is unaffected.
  * Throws if `serviceId` is not a registered connector.
  */
-setConnectorDepth(serviceId: string, depth: "metadata_only" | "summary" | "full", now: number): void {
+setConnectorDepth(serviceId: string, depth: "metadata_only" | "summary" | "full"): void {
   const rows = this.db
-    .query(`UPDATE sync_state SET depth = ?, last_sync_at = last_sync_at WHERE connector_id = ?`)
+    .query(`UPDATE sync_state SET depth = ? WHERE connector_id = ?`)
     .run(depth, serviceId);
   if (rows.changes === 0) {
     // Row doesn't exist yet — insert with this depth.
@@ -309,8 +308,6 @@ setConnectorDepth(serviceId: string, depth: "metadata_only" | "summary" | "full"
       [serviceId, depth],
     );
   }
-  // Touch-only: `now` is reserved for future audit integration; unused today.
-  void now;
 }
 
 /**
@@ -414,7 +411,7 @@ describe("SyncScheduler.getStatus — depth + enabled shape (V21)", () => {
 
   test("reflects persisted depth after setConnectorDepth", () => {
     const { idx, sched } = setup();
-    idx.setConnectorDepth("github", "full", Date.now());
+    idx.setConnectorDepth("github", "full");
     const gh = sched.getStatus().find((s) => s.serviceId === "github");
     expect(gh?.depth).toBe("full");
   });
@@ -591,6 +588,66 @@ git commit -m "feat(sync): SyncStatus exposes depth + enabled from V21"
 
 ## Phase 4 — `connector.setConfig` accepts `depth` + enforces 60 s minimum
 
+### Task 8.5: Extract `MIN_SYNC_INTERVAL_MS` to a shared constants file
+
+Shared because the CLI (`nimbus connector` subcommand) will eventually want the same validation threshold; inlining in the RPC handler would invite drift.
+
+**Files:**
+- Create: `packages/gateway/src/sync/constants.ts`
+- Test: `packages/gateway/src/sync/constants.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { MIN_SYNC_INTERVAL_MS } from "./constants.ts";
+
+describe("sync constants", () => {
+  test("MIN_SYNC_INTERVAL_MS is 60 seconds", () => {
+    expect(MIN_SYNC_INTERVAL_MS).toBe(60_000);
+  });
+});
+```
+
+- [ ] **Step 2: Run, expect FAIL (module not found)**
+
+```bash
+bun test packages/gateway/src/sync/constants.test.ts
+```
+
+- [ ] **Step 3: Create the module**
+
+```ts
+/**
+ * Sync-scheduler constants shared between Gateway subsystems.
+ *
+ * Centralizing these prevents drift between IPC validation
+ * (`connector.setConfig`), CLI validation (`nimbus connector set-interval`),
+ * and scheduler internals.
+ */
+
+/**
+ * Lower bound for a connector's sync interval. Enforced by
+ * `connector.setConfig` (IPC) and any future `nimbus connector set-interval`
+ * path. Prevents accidental sync-loop abuse against cloud APIs.
+ */
+export const MIN_SYNC_INTERVAL_MS = 60_000;
+```
+
+- [ ] **Step 4: Run, expect PASS**
+
+```bash
+bun test packages/gateway/src/sync/constants.test.ts
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/gateway/src/sync/constants.ts \
+        packages/gateway/src/sync/constants.test.ts
+git commit -m "feat(sync): extract MIN_SYNC_INTERVAL_MS to shared constants module"
+```
+
 ### Task 9: Write failing handler tests
 
 **Files:**
@@ -711,12 +768,17 @@ export type ConnectorRpcHandlerContext = {
 
 Update any dispatcher call sites that construct this context (check `packages/gateway/src/ipc/connector-rpc.ts` and the main `server.ts` dispatch switch) to pass `notify` through. If existing call sites omit `notify`, that's fine — the field is optional.
 
-- [ ] **Step 2: Replace the `handleConnectorSetConfig` body**
+- [ ] **Step 2: Import the shared constant and replace the handler body**
+
+At the top of `packages/gateway/src/ipc/connector-rpc-handlers.ts`, add:
+
+```ts
+import { MIN_SYNC_INTERVAL_MS } from "../sync/constants.ts";
+```
 
 Around line 210, replace the entire function with:
 
 ```ts
-const MIN_SYNC_INTERVAL_MS = 60_000;
 const VALID_DEPTHS = ["metadata_only", "summary", "full"] as const;
 
 export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
@@ -750,11 +812,7 @@ export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): Conne
         `Invalid depth: must be ${VALID_DEPTHS.join("|")}`,
       );
     }
-    localIndex.setConnectorDepth(
-      id,
-      depth as "metadata_only" | "summary" | "full",
-      Date.now(),
-    );
+    localIndex.setConnectorDepth(id, depth as "metadata_only" | "summary" | "full");
   }
 
   if (typeof enabled === "boolean") {
@@ -848,7 +906,7 @@ describe("handleConnectorSetConfig — connector.configChanged notification", ()
   test("payload reflects current persisted state, not just the changed field", () => {
     const { idx, sched } = setup();
     // Pre-set depth; now mutate intervalMs only.
-    idx.setConnectorDepth("github", "full", Date.now());
+    idx.setConnectorDepth("github", "full");
     const notifications: Array<{ method: string; params: Record<string, unknown> }> = [];
     handleConnectorSetConfig({
       rec: { service: "github", intervalMs: 180_000 },
@@ -1655,6 +1713,13 @@ git commit -m "chore(ui): add zxcvbn, react-window, tauri-plugin-dialog, tauri-p
 
 ## Wrap-up
 
+### Policy notes carried forward to the PR description
+
+When Plan 5 opens the single WS5-C UI PR, the description should highlight two points that sit above the feature scope:
+
+1. **Schema-version compatibility is strict for v0.1.0.** Per spec §2.4 #4, `data.import` rejects any archive whose `schema_version` ≠ current — both `archive_newer` and `archive_older_unsupported` produce a terminal error with no retry. Older-but-migratable archives are explicitly out of scope until a migration path ships (documented as a known limitation). This means a V21 → V22 schema bump in a later release will break import of V21 archives until a migration lands; backup users should be advised not to upgrade the Gateway between taking a backup and needing to restore it.
+2. **`DataRpcError` + `RpcMethodError` now carry structured `rpcData`.** The extension (Task 17 Step 3a) is a generic IPC-layer improvement beyond WS5-C. Any future handler that needs to return a typed error payload can attach `rpcData` and the JSON-RPC framer already threads it through `errorResponse(id, code, message, data)`. Worth calling out in the PR so reviewers evaluate it on IPC-contract grounds, not only as a WS5-C-specific hack.
+
 ### Task 20: Run the full test suite once
 
 - [ ] **Step 1: Run everything**
@@ -1680,6 +1745,7 @@ xxxxxxx chore(ui): add zxcvbn, react-window, tauri-plugin-dialog, tauri-plugin-c
 xxxxxxx feat(data): schema_version in backup manifest + import rejects incompatible archives
 xxxxxxx feat(ipc): emit connector.configChanged on every mutation path
 xxxxxxx feat(ipc): connector.setConfig accepts depth + enforces 60s min intervalMs
+xxxxxxx feat(sync): extract MIN_SYNC_INTERVAL_MS to shared constants module
 xxxxxxx feat(sync): SyncStatus exposes depth + enabled from V21
 xxxxxxx feat(index): LocalIndex.setConnectorDepth + getConnectorDepth (V21)
 xxxxxxx feat(index): V21 migration adds sync_state.depth column
