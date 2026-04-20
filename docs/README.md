@@ -153,9 +153,9 @@ Every tool your on-call rotation depends on, unified in one local index. Cross-s
 
 **Phase 3 (shipped):** Jenkins, GitHub Actions, CircleCI, GitLab CI, AWS, Azure, GCP, Kubernetes, Terraform/Pulumi/CloudFormation, Datadog, Grafana, Sentry, PagerDuty, New Relic
 
-**Phase 5 (planned):** Databricks, Apache Airflow, Prefect, Dagster, Metabase, Superset, Kibana / Elasticsearch, CloudWatch Logs, GCP Cloud Logging, BigQuery, Athena, dbt Cloud (data warehouse, orchestration, and BI — personal-auth connectors)
+**Phase 5 (planned):** Databricks, Apache Airflow, Prefect, Dagster, Metabase, Superset, Kibana / Elasticsearch, CloudWatch Logs, GCP Cloud Logging, BigQuery, Athena, dbt Cloud, MLflow, SageMaker, Vertex AI, Great Expectations, and local data-file profiling (Parquet / CSV / JSONL schema — header / footer / line counts only, never cell values)
 
-**Phase 6 (planned, Team tier):** Snowflake, Tableau, Looker, PowerBI (SSO-gated warehouse and BI connectors; depends on Team Vault)
+**Phase 6 (planned, Team tier):** Snowflake, Tableau, Looker, PowerBI, Monte Carlo, Bigeye (SSO-gated warehouse, BI, and data-quality connectors; depends on Team Vault)
 
 See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
