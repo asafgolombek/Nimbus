@@ -263,7 +263,7 @@ export interface LanPeerRow {
 }
 
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 19;
+  static readonly SCHEMA_VERSION = 20;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.

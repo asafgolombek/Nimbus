@@ -346,6 +346,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "sub_task_results (backfilled)",
   "audit_log BLAKE3 chain + _meta (backfilled)",
   "lan_peers (LAN remote-access peer registry) (backfilled)",
+  "llm_task_defaults (per-task-type LLM model defaults) (backfilled)",
 ];
 
 /**
