@@ -1,9 +1,12 @@
 # WS5 Sub-project C — Settings (Design)
 
-> **Status:** Approved design · ready for implementation plan
+> **Status:** Approved design · Gateway IPC plumbing ✅ complete · UI implementation pending
 > **Parent specs:** [WS5-A app-shell foundation](./2026-04-19-ws5a-app-shell-foundation-design.md) · [WS5-B Dashboard & HITL](./2026-04-19-ws5b-dashboard-hitl-design.md)
-> **Feature branch:** `dev/asafgolombek/phase_4_ws5` (umbrella). All WS5-C PRs target this branch; it merges to `main` once WS5 (A–D) is complete.
+> **Related plan:** [WS5-C Gateway IPC plumbing](../plans/2026-04-19-ws5c-gateway-ipc-plumbing.md) — delivered the entire §3 method surface.
+> **Feature branch:** `dev/asafgolombek/phase_4_ws5` (umbrella). The single WS5-C UI PR targets this branch; it merges to `main` once WS5 (A–D) is complete.
 > **Non-negotiables reminder:** No `any` types (use `unknown`), Windows/macOS/Linux parity, AGPL-3.0 for `packages/ui`, HITL is structural, no `vault.*` / raw `db.*` writes from the frontend.
+>
+> **2026-04-20 refinement:** IPC plumbing shipped; this spec was patched to reflect shipped method/notification shapes, add two small Gateway additions required for the Connectors panel (§2.4), and collapse the delivery breakdown to a single PR (§7). The previous §7 plan-writing checklist was removed — every item resolved.
 
 ---
 
@@ -116,13 +119,19 @@ Additive over WS5-A/B. Three-layer split matches prior sub-projects: TypeScript/
 
 ### 2.4 Gateway — `packages/gateway/src/`
 
-**No new methods planned.** WS1–4 already expose the full IPC surface. We verify this during plan-writing; any gap (e.g., `connector.setConfig` not yet exposed) becomes a small documented Gateway-side addition in the implementation plan, not in this spec.
+The WS5-C Gateway IPC plumbing plan (merged on `dev/asafgolombek/phase_4_ws5`) shipped every §3 method. Two small additions remain — required by the ConnectorsPanel — and land as the **first commit** of the single WS5-C UI PR:
+
+1. **`connector.setConfig` accepts optional `depth`** — extend the handler in `packages/gateway/src/ipc/connector-rpc-handlers.ts` to pass `depth: "metadata_only" | "summary" | "full"` through to the existing connector manager (depth is already a connector-config field; only the IPC surface lacks it). Param becomes `{ service, intervalMs?, depth?, enabled? }` — partial update, all writable fields optional.
+
+2. **`connector.configChanged` notification emitted** — after any successful `setConfig` / `pause` / `resume` / `setInterval`, the Gateway broadcasts `connector.configChanged { service, intervalMs, depth, enabled }`. Enables the Connectors panel to reconcile state when another client (CLI, second UI window) changes config. Unit-tested at the dispatcher level alongside `setConfig`.
+
+No other Gateway code is touched by WS5-C.
 
 ---
 
 ## 3. IPC contract & `ALLOWED_METHODS` additions
 
-WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 15 write methods → allowlist grows to **37**. Every method is verified against `packages/gateway/src/ipc/` during plan-writing.
+WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 15 write methods → allowlist grows to **37**. All methods shipped on the `dev/asafgolombek/ws5c-gateway-ipc` branch and are verified against `packages/gateway/src/ipc/` as of 2026-04-20.
 
 ### 3.1 Read methods (12)
 
@@ -130,7 +139,7 @@ WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 15 write methods → al
 |---|---|---|
 | `llm.listModels` | Model | installed models + task-type defaults |
 | `llm.getRouterStatus` | Model | current routing decisions per task type |
-| `connector.list` | Connectors | connector config (interval, depth) — verify existence vs re-using `connector.listStatus` |
+| `connector.listStatus` | Connectors | reused from WS5-B — returns `SyncStatus[]` including interval, depth, enabled |
 | `profile.list` | Profiles | profile summaries + active |
 | `audit.getSummary` | Audit | counts by outcome/service for filter chips |
 | `telemetry.getStatus` | Telemetry | enabled state + counters |
@@ -151,7 +160,7 @@ WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 15 write methods → al
 | `llm.loadModel` | Model | none (reversible) |
 | `llm.unloadModel` | Model | none |
 | `llm.setDefault` | Model | none |
-| `connector.setConfig` | Connectors | inline save with toast |
+| `connector.setConfig` | Connectors | inline save with toast · param: `{ service, intervalMs?, depth?, enabled? }` (partial update) |
 | `profile.create` | Profiles | dialog |
 | `profile.switch` | Profiles | confirmation ("reloads UI") |
 | `profile.delete` | Profiles | typed-name confirmation |
@@ -167,14 +176,20 @@ WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 15 write methods → al
 
 | Event | Panel | Handler |
 |---|---|---|
-| `llm.pullProgress` | Model | update `pullProgress[modelId]` in store |
-| `llm.modelLoaded` / `llm.modelUnloaded` | Model | patch installed list |
-| `data.exportProgress` | Data | update export progress bar |
-| `data.importProgress` | Data | update import progress bar |
+| `llm.pullProgress` | Model | update `pullProgress[pullId]` in store — payload: `{ pullId, provider, modelName, status, completedBytes?, totalBytes? }` |
+| `llm.pullCompleted` | Model | clear `pullProgress[pullId]`, refetch `llm.listModels`, success toast |
+| `llm.pullFailed` | Model | clear `pullProgress[pullId]`, error toast carrying `error` field |
+| `llm.modelLoaded` / `llm.modelUnloaded` | Model | patch `isLoaded` on the matching row in store |
+| `data.exportProgress` | Data | update export progress bar — payload: `{ stage, bytesWritten, totalBytes }` |
+| `data.exportCompleted` | Data | drive wizard's final step (seed modal) instead of waiting on RPC response |
+| `data.importProgress` | Data | update import progress bar — payload: `{ stage, bytesRead, totalBytes }` |
+| `data.importCompleted` | Data | drive wizard success toast + auto-trigger restart sequence (§4.2) |
 | `updater.updateAvailable` | Updates | surface banner on app start (app-wide via store) |
-| `updater.downloadProgress` (if emitted by Gateway) | Updates | download progress bar |
-| `updater.rolledBack` | Updates | surface rollback toast |
-| `connector.configChanged` | Connectors | optimistic-update reconciliation |
+| `updater.downloadProgress` | Updates | download progress bar — payload: `{ bytes, total }` |
+| `updater.restarting` | Updates | **explicit** transition to reconnect overlay — see §4.3 |
+| `updater.rolledBack` | Updates | surface rollback toast — payload: `{ reason: "download_failed" \| "hash_mismatch" \| "signature_invalid" \| "installer_failed" }` |
+| `connector.configChanged` | Connectors | optimistic-update reconciliation (Gateway emit added per §2.4) |
+| `profile.switched` | Profiles | trigger UI reload — replaces the optimistic reload timer referenced in §5.2 |
 
 ### 3.4 Hard forbiddens (unchanged)
 
@@ -268,14 +283,14 @@ idle ──check──▶ checking ──manifest──▶ up-to-date
                                                         ▼
                                                     verified ──apply──▶ applying
                                                                             │
-                                                                            ▼
-                                                                        [socket disconnects]
+                                                                            ▼ notification: updater.restarting { fromVersion, toVersion }
                                                                             │
                                                                             ▼ UI overlay:
                                                                          "Restarting Nimbus — up to 30 seconds"
                                                                             │
-                                                                            ▼ socket reconnects
-                                                                         diag.getVersion → matches manifest?
+                                                                            ▼ [socket disconnects, then reconnects]
+                                                                            │
+                                                                            ▼ diag.getVersion → matches toVersion?
                                                                             │  no
                                                                             ├──▶ rolled-back + rollback toast
                                                                             │  yes
@@ -285,7 +300,8 @@ idle ──check──▶ checking ──manifest──▶ up-to-date
 
 Reconnect logic already exists in `gateway_bridge.rs` for generic disconnect. WS5-C adds:
 
-- A post-reconnect **version check** (`diag.getVersion`) on the next connect after state `applying`.
+- The overlay is triggered by the **`updater.restarting`** notification, not by raw socket disconnect — this fires before the socket closes, avoiding the 1–2 s gap where the UI would otherwise look frozen.
+- A post-reconnect **version check** (`diag.getVersion`) on the next connect after state `applying`; the expected version is `toVersion` from the `updater.restarting` payload.
 - A **2-minute timeout** on `applying` → `reconnecting`: if socket never returns, surface "Gateway failed to restart — try `nimbus start` in terminal".
 
 ### 4.4 GDPR delete flow
@@ -357,7 +373,7 @@ WS5-B's coverage baseline (Vitest ≥ 80 % lines / ≥ 75 % branches) carries fo
 | File under test | Test file | Priority behaviours |
 |---|---|---|
 | `ModelPanel.tsx` | `model-panel.test.tsx` | renders installed list; default picker fires `setDefault`; "Pull…" opens dialog |
-| `PullDialog.tsx` | `pull-dialog.test.tsx` | progress bar reacts to streamed `pullProgress`; cancel fires `llm.cancelPull` (or close-without-cancel if method absent); error state on failure |
+| `PullDialog.tsx` | `pull-dialog.test.tsx` | progress bar reacts to streamed `pullProgress`; cancel fires `llm.cancelPull`; error state on failure; provider filter honors `llm.getStatus` availability map |
 | `ConnectorsPanel.tsx` | `connectors-panel.test.tsx` | interval edit debounces + persists via `setConfig`; offline disables controls |
 | `ProfilesPanel.tsx` | `profiles-panel.test.tsx` | create dialog validates name uniqueness; delete requires typed confirmation |
 | `AuditPanel.tsx` | `audit-panel.test.tsx` | filter chips narrow list; verify toast fires on success and failure; export triggers save dialog |
@@ -385,7 +401,7 @@ WS5-B's coverage baseline (Vitest ≥ 80 % lines / ≥ 75 % branches) carries fo
 Follows the WS5-B template.
 
 - Navigate Settings sidebar → each panel renders within 2 s of click.
-- **Model**: pull a small model (`gemma:2b`) end-to-end, watch progress, cancel; load/unload; setDefault per task type.
+- **Model**: pull a small model (`gemma:2b`) end-to-end, watch progress, cancel; load/unload; setDefault per task type; provider filter in Pull dialog honors `llm.getStatus` availability map (llama.cpp row hidden when provider unavailable).
 - **Connectors**: edit sync interval, confirm next poll reflects new value.
 - **Profiles**: create → switch → delete round-trip; UI reloads on switch.
 - **Audit**: filter by outcome, verify chain, export to `.json`, re-open in a text editor.
@@ -404,33 +420,23 @@ Follows the WS5-B template.
 
 ### 6.5 Coverage gate
 
-`packages/ui` Vitest ≥ 80 % lines / ≥ 75 % branches (unchanged from WS5-B). No new threshold added for `packages/gateway` unless a Gateway change surfaces during plan-writing.
+`packages/ui` Vitest ≥ 80 % lines / ≥ 75 % branches (unchanged from WS5-B). The two §2.4 Gateway additions ship with dispatcher-level unit tests and fold into the existing engine/config/connector coverage gates; no new `packages/gateway` threshold is added.
 
 ---
 
-## 7. Plan-writing verification checklist
+## 7. Delivery breakdown (PR shape)
 
-Items to verify during the implementation plan phase (any gap becomes a small documented Gateway change or a scope cut):
+**Single PR:** `dev/ws5c-ui` off `dev/asafgolombek/phase_4_ws5`. Commits are grouped by panel in increasing sensitivity order so review can proceed commit-by-commit even though the PR lands atomically:
 
-- [ ] `connector.list` exists and returns the shape `ConnectorsPanel` needs (or reuse `connector.listStatus`).
-- [ ] `connector.setConfig` (or equivalent) exists and accepts `{ service, intervalMs, depth, enabled }`.
-- [ ] `profile.list` / `profile.create` / `profile.switch` / `profile.delete` all exist over IPC (Phase 3.5 CLI exists — verify IPC surface parity).
-- [ ] `telemetry.getStatus` / `telemetry.setEnabled` exist (CLI `nimbus telemetry show/disable` exists — verify IPC).
-- [ ] `audit.verify` / `audit.export` / `audit.getSummary` exist over IPC.
-- [ ] `data.getExportPreflight` / `data.getDeletePreflight` exist.
-- [ ] `updater.downloadProgress` notification emitted (else progress bar is indeterminate).
-- [ ] `diag.getVersion` exists (else pick an equivalent method returning gateway build id).
-- [ ] `llm.cancelPull` exists (else the Pull dialog's cancel button becomes close-without-cancel).
+1. **Gateway prerequisite** — `connector.setConfig` accepts `depth`; `connector.configChanged` emitted on mutations (§2.4). Unit tests added at the dispatcher level.
+2. **Shell** — Settings route + `SettingsSidebar` + nested-route redirect + `settings.ts` store slice + IPC type additions in `packages/ui/src/ipc/types.ts` + `ALLOWED_METHODS` growth in `gateway_bridge.rs`.
+3. **Profiles panel** — fully wired (list / create / switch / delete); consumes `profile.switched` for reload.
+4. **Telemetry panel** — toggle + counters + payload sample expander.
+5. **Connectors panel** — interval editor + depth selector + enable toggle; consumes `connector.configChanged`.
+6. **Model panel** — installed list + default picker + router status + `PullDialog` with `llm.getStatus` provider filter and `cancelPull` button.
+7. **Audit panel** — virtualized list + filter chips + `verify` toast + `export` save dialog.
+8. **Updates panel** — state machine + `updater.restarting` overlay + reconnect + `diag.getVersion` check + rollback.
+9. **Data panel** — ExportWizard + ImportWizard + DeleteServiceDialog (last because most security-sensitive; benefits from other panels' patterns being settled).
+10. **Docs + smoke** — add `docs/manual-smoke-ws5c.md`; update `roadmap.md` WS5-C rows; update `packages/ui` coverage report if needed.
 
----
-
-## 8. Delivery breakdown (PR shape)
-
-Mirrors the WS5-B pattern of four focused PRs landing on the `dev/asafgolombek/phase_4_ws5` umbrella branch. Order respects dependencies (chrome first, then panels in increasing sensitivity):
-
-1. **`dev/ws5c-chrome-ipc`** — Settings route + sidebar + nested-route redirect + IPC type additions + `ALLOWED_METHODS` growth + skeleton panels (all "coming soon" except Profiles + Telemetry which are fully wired as the easiest two).
-2. **`dev/ws5c-model-connectors`** — ModelPanel (full manager with PullDialog) + ConnectorsPanel.
-3. **`dev/ws5c-audit-updates`** — AuditPanel (list + filter + verify toast + export) + UpdatesPanel (state machine + reconnect overlay + rollback).
-4. **`dev/ws5c-data`** — DataPanel (ExportWizard + ImportWizard + DeleteServiceDialog); last because it's the most security-sensitive and benefits from having the other panels' patterns settled.
-
-Each PR includes its own Vitest additions and keeps coverage green; the final PR adds `docs/manual-smoke-ws5c.md` and updates `roadmap.md` WS5-C rows.
+Vitest coverage stays ≥ 80 % lines / ≥ 75 % branches throughout; CI fails the PR if any commit regresses the gate.
