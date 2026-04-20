@@ -154,29 +154,31 @@ export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): Conn
 }
 
 export function handleConnectorPause(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
-  const { rec, localIndex, syncScheduler } = ctx;
+  const { rec, localIndex, syncScheduler, notify } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.pauseConnectorSync(id);
   } else {
     syncScheduler.pause(id);
   }
+  emitConfigChanged(notify, localIndex, id);
   return { kind: "hit", value: { ok: true } };
 }
 
 export function handleConnectorResume(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
-  const { rec, localIndex, syncScheduler } = ctx;
+  const { rec, localIndex, syncScheduler, notify } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.resumeConnectorSync(id);
   } else {
     syncScheduler.resume(id);
   }
+  emitConfigChanged(notify, localIndex, id);
   return { kind: "hit", value: { ok: true } };
 }
 
 export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
-  const { rec, localIndex, syncScheduler } = ctx;
+  const { rec, localIndex, syncScheduler, notify } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const msRaw = rec?.["intervalMs"];
   if (typeof msRaw !== "number" || !Number.isFinite(msRaw) || msRaw < 1) {
@@ -187,7 +189,25 @@ export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): Con
   if (syncScheduler !== undefined) {
     syncScheduler.setInterval(id, ms);
   }
+  emitConfigChanged(notify, localIndex, id);
   return { kind: "hit", value: { ok: true } };
+}
+
+function emitConfigChanged(
+  notify: ((method: string, params: Record<string, unknown>) => void) | undefined,
+  localIndex: LocalIndex,
+  serviceId: string,
+): void {
+  if (notify === undefined) return;
+  const statuses = localIndex.persistedConnectorStatuses(serviceId);
+  const current = statuses[0];
+  if (current === undefined) return;
+  notify("connector.configChanged", {
+    service: serviceId,
+    intervalMs: current.intervalMs,
+    depth: current.depth,
+    enabled: current.enabled,
+  });
 }
 
 function applyEnabledChange(
@@ -212,7 +232,7 @@ function applyEnabledChange(
 const VALID_DEPTHS = ["metadata_only", "summary", "full"] as const;
 
 export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
-  const { rec, localIndex, syncScheduler } = ctx;
+  const { rec, localIndex, syncScheduler, notify } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const intervalMs = rec?.["intervalMs"];
   const depth = rec?.["depth"];
@@ -245,6 +265,8 @@ export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): Conne
   if (typeof enabled === "boolean") {
     applyEnabledChange(enabled, id, syncScheduler, localIndex);
   }
+
+  emitConfigChanged(notify, localIndex, id);
 
   return {
     kind: "hit",

@@ -708,6 +708,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         openUrl: openUrl ?? (async () => {}),
         syncScheduler: options.syncScheduler,
         ...(options.connectorMesh === undefined ? {} : { connectorMesh: options.connectorMesh }),
+        notify: broadcastNotification,
       });
       if (out.kind === "hit") {
         return out.value;
