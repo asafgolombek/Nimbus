@@ -26,9 +26,10 @@ Phase 4 Workstream 5 delivers the Tauri desktop application in sub-projects. WS5
    - **Telemetry** — toggle, counter cards, payload sample expander.
    - **Updates** — check / download / apply with reconnect overlay; rollback surface when applicable.
 3. **Nav chrome** — `SettingsSidebar` component (vertical left column) rendering `<Outlet />`.
-4. **ALLOWED_METHODS additions** — 12 read + 15 write methods (net +27 → 37 total).
+4. **ALLOWED_METHODS additions** — 12 read + 16 write methods (net +28 → 38 total).
 5. **Deep-link entry points** — Dashboard's degraded connector tile links to `/settings/connectors?highlight=<service>`; WS5-A offline banner deep-links to `/settings/updates` when an update is the proximate cause.
-6. **Gateway-offline handling** — every panel renders cached data with a `StaleChip`; write controls disabled.
+6. **Gateway-offline handling** — every panel renders cached data with a `StaleChip`; write controls disabled. Cache is persisted to `localStorage` (non-sensitive list slices only) so cold-opening the app with the Gateway already down shows last-known data instead of empty state.
+7. **Re-attach to in-flight `llm.pullModel`** — the active `pullId` is persisted to `localStorage`; on UI reload the Model panel re-subscribes to `llm.pullProgress` and resumes the progress bar from the current chunk. (Export/import re-attach remains out of scope per §1.2.)
 
 ### 1.2 Non-goals (explicitly deferred)
 
@@ -39,7 +40,7 @@ Phase 4 Workstream 5 delivers the Tauri desktop application in sub-projects. WS5
 - **Multi-selection bulk ops** in any list (audit, connectors).
 - **Real-time collaboration / sync** across panels.
 - **Agent surfaces** — sub-task plan viewer, multi-agent decomposition inspector (WS5-D).
-- **Operation-handle-based resumable exports / imports** — if Gateway `data.*` methods run-to-completion in a single RPC, a gateway kill mid-export means the user starts over. Adding operation handles is deferred.
+- **Operation-handle-based resumable exports / imports** — if Gateway `data.*` methods run-to-completion in a single RPC, a gateway kill mid-export (or a UI reload) means the user starts over. Adding operation handles for `data.*` is deferred. (LLM pulls are exempt: see §1.1 deliverable #7 — `pullId` persistence gives re-attach for model pulls only, since the Gateway exposes the pull as a resumable stream via `llm.pullProgress + pullId`.)
 - **Automated three-OS E2E for data export → import round-trip** — lives in the manual smoke checklist; automating it requires ephemeral Vault fixtures per OS (WS5-D territory).
 
 ### 1.3 Success gates
@@ -85,8 +86,18 @@ Additive over WS5-A/B. Three-layer split matches prior sub-projects: TypeScript/
 **Store slices** (added to `store/slices/`):
 
 - `settings.ts` — active panel route, last-visited timestamp per panel, transient dialog open state.
-- `model.ts` — installed models, pull progress map keyed by `modelId`, router status snapshot.
+- `model.ts` — installed models, pull progress map keyed by `pullId`, active `pullId` (persisted), router status snapshot.
 - `updater.ts` — current version, manifest status, download progress, apply state (`idle` / `downloading` / `verifying` / `applying` / `reconnecting` / `rolled-back`).
+
+**Persistence layer** — Zustand `persist` middleware is applied to three slices only, each with an explicit `partialize` whitelist:
+
+| Slice | Persisted fields | Purpose |
+|---|---|---|
+| `connectors` | `list` (service id, intervalMs, depth, enabled, last health snapshot) | cold-open offline still shows connector grid |
+| `model` | `installedModels`, `activePullId` | cold-open shows last-known models; re-subscribe to in-flight pull on reload |
+| `profile` | `active`, `profiles` (names only) | cold-open shows active profile pill |
+
+Everything else (HITL queue, audit list, transient dialog state, pull progress map, export/import progress, router status, telemetry counters) is memory-only. **Passphrase, recovery seed, mnemonic, private key, and encrypted vault manifest fields are never part of any persisted slice** — enforced by a `persist`-middleware unit test that imports each slice's `partialize` output and asserts these keys are absent.
 
 **Hooks:**
 
@@ -123,7 +134,9 @@ The WS5-C Gateway IPC plumbing plan (merged on `dev/asafgolombek/phase_4_ws5`) s
 
 1. **`connector.setConfig` accepts optional `depth`** — extend the handler in `packages/gateway/src/ipc/connector-rpc-handlers.ts` to pass `depth: "metadata_only" | "summary" | "full"` through to the existing connector manager (depth is already a connector-config field; only the IPC surface lacks it). Param becomes `{ service, intervalMs?, depth?, enabled? }` — partial update, all writable fields optional.
 
-2. **`connector.configChanged` notification emitted** — after any successful `setConfig` / `pause` / `resume` / `setInterval`, the Gateway broadcasts `connector.configChanged { service, intervalMs, depth, enabled }`. Enables the Connectors panel to reconcile state when another client (CLI, second UI window) changes config. Unit-tested at the dispatcher level alongside `setConfig`.
+2. **`connector.setConfig` enforces a 60 s minimum `intervalMs`** — the handler rejects any `intervalMs < 60_000` with JSON-RPC error code `-32602` and message `"intervalMs must be >= 60000 (60 seconds)"`. Prevents accidental sync-loop abuse against cloud APIs. UI mirrors the rule with inline validation (disabled save button + helper text) so the error is never reached in the happy path. Unit-tested at the dispatcher level.
+
+3. **`connector.configChanged` notification emitted** — after any successful `setConfig` / `pause` / `resume` / `setInterval`, the Gateway broadcasts `connector.configChanged { service, intervalMs, depth, enabled }`. Enables the Connectors panel to reconcile state when another client (CLI, second UI window) changes config. Unit-tested at the dispatcher level alongside `setConfig`.
 
 No other Gateway code is touched by WS5-C.
 
@@ -131,7 +144,7 @@ No other Gateway code is touched by WS5-C.
 
 ## 3. IPC contract & `ALLOWED_METHODS` additions
 
-WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 15 write methods → allowlist grows to **37**. All methods shipped on the `dev/asafgolombek/ws5c-gateway-ipc` branch and are verified against `packages/gateway/src/ipc/` as of 2026-04-20.
+WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 16 write methods → allowlist grows to **38**. All methods shipped on the `dev/asafgolombek/ws5c-gateway-ipc` branch and are verified against `packages/gateway/src/ipc/` as of 2026-04-20.
 
 ### 3.1 Read methods (12)
 
@@ -152,11 +165,12 @@ WS5-B's allowlist holds 10 methods. WS5-C adds 12 read + 15 write methods → al
 
 (`audit.list` is already in the WS5-B allowlist and is reused here unchanged.)
 
-### 3.2 Write methods (15)
+### 3.2 Write methods (16)
 
 | Method | Panel | Gate |
 |---|---|---|
 | `llm.pullModel` | Model | confirmation dialog + progress stream |
+| `llm.cancelPull` | Model | none (button inside progress card) · param: `{ pullId }` · returns `{ cancelled: boolean }` |
 | `llm.loadModel` | Model | none (reversible) |
 | `llm.unloadModel` | Model | none |
 | `llm.setDefault` | Model | none |
@@ -217,14 +231,24 @@ The Data panel and the Updater are the two flows that warrant explicit state-mac
    ▼
 [Step 3: Destination]  ── Tauri native save dialog (.tar.gz filter)
    │
+   ▼ pre-flight via Tauri FS: does target path exist?
+   │
+   ├─── yes ──▶ [Overwrite warning dialog: "<filename> already exists. Overwrite?"]
+   │                │ cancel ──▶ back to save dialog
+   │                │ overwrite
+   │                ▼
    ▼
 [IPC: data.export { path, passphrase, includeIndex }]  ←── passphrase transits IPC in-memory only
    │
    ├─── notification: data.exportProgress { bytesWritten, totalBytes, stage }
+   ▼ notification: data.exportCompleted { path, itemsExported }
    ▼
 [Step 4: Recovery seed modal]
    - 12-word BIP39 seed displayed on gray background
-   - "Copy" button (writes to clipboard, auto-clears after 30 s via Tauri clipboard plugin)
+   - "Copy" button (writes to clipboard via Tauri clipboard plugin)
+     - On click: auto-clear scheduled at +30 s via `setTimeout`
+     - Visible countdown ring below the button ("Clipboard clears in 0:28")
+     - Countdown is cancelled if modal is closed, the seed is re-copied, or the OS clipboard already changed
    - Checkbox: "I have stored this seed somewhere safe"
    - "Done" button disabled until checkbox ticked
    - Modal is non-dismissable (no X, no backdrop-close); only "Done" closes it
@@ -233,12 +257,12 @@ The Data panel and the Updater are the two flows that warrant explicit state-mac
 [Toast: "Backup saved to <path>"]
 ```
 
-**Passphrase handling:**
+**Passphrase / seed handling:**
 
 - Stored in React state only, never logged.
 - Cleared on dialog unmount via `useEffect` return.
-- Never written to Zustand (avoids persistence-middleware exposure).
-- IPC wrapper redacts `passphrase` field in any error thrown (extend `parseError`).
+- Never written to Zustand — enforced structurally by Zustand `persist` middleware's `partialize` whitelist (§2.1 Persistence layer). Persisted slices are `connectors` / `model` / `profile` only, and each slice's `partialize` output is unit-tested to assert `passphrase`, `recoverySeed`, `mnemonic`, `privateKey`, and `encryptedVaultManifest` keys are absent.
+- IPC wrapper redacts `passphrase`, `recoverySeed`, `mnemonic`, `privateKey`, `encryptedVaultManifest` fields in any error thrown (extend `parseError`).
 
 ### 4.2 Import flow
 
@@ -347,20 +371,21 @@ Reconnect logic already exists in `gateway_bridge.rs` for generic disconnect. WS
 - **Updater signature verify fails** — "Update rejected: signature invalid. Your Nimbus is safe." + "Report issue" link; no retry button.
 - **Updater socket never returns** — after 2 min in `applying`, overlay transitions to error state: "Gateway failed to restart. Run `nimbus start` in terminal, then reload this window." `cmd+R` / `ctrl+R` reloads the UI.
 - **Data.delete fails after partial delete** — atomicity is the Gateway's responsibility (transaction). If `data.delete` returns error, no audit row appears and UI shows "Delete failed — data unchanged".
-- **Profile.switch in-flight** — disable other profile actions until response returns; on success the whole UI reloads (profile switch changes the Vault key prefix, invalidating cached state).
+- **Data.import fails mid-stream** — atomicity is the Gateway's responsibility: import must stage to a temporary DB + Vault namespace and swap on success, so a failure leaves the original machine state intact. The UI trusts this contract and, on error, shows "Import failed — your data was not changed". **Gateway review-gate:** before the WS5-C UI PR merges, confirm the shipped `data.import` handler implements stage-and-swap (review `packages/gateway/src/ipc/data-rpc.ts` against this requirement; file a follow-up Gateway patch if missing).
+- **Profile.switch in-flight** — disable other profile actions until response returns. On success, the Profiles panel listens for the `profile.switched` notification (§3.3) and calls **Tauri `app.restart()`** (or `window.location.reload()` as a fallback when running outside Tauri, e.g., the Vitest environment). A React-only state reset is not sufficient: the Vault key prefix change invalidates MCP client singletons, IPC subscription channels, and any module-scope cache — `app.restart()` is the only clean cut.
 
 ### 5.3 Offline behavior
 
 Every panel handles `ConnectionState.disconnected`:
 
-- Cached read data stays visible with `StaleChip`.
+- Cached read data stays visible with `StaleChip`. Cache survives UI reload and cold-start via Zustand `persist` (see §2.1) — so opening the app with the Gateway already down still shows the last-known connector grid, model list, and profile pill, each tagged with `StaleChip` + "offline since <timestamp>". Panels without persisted cache (Audit, Telemetry, Updates) show `PanelError` with a retry hint.
 - All write controls disabled with a tooltip "Gateway offline".
 - In-flight write call cancelled via `AbortController` when possible; otherwise the error toast surfaces on reconnect if the Gateway never acknowledged.
-- Pull / export / import / apply in progress: the client-side progress bar freezes; on reconnect the status is re-queried. If `data.export` / `data.import` do not return operation handles, a gateway kill mid-export means "start over" — this is accepted for v0.1.0 and documented as a non-goal (§1.2).
+- Pull / export / import / apply in progress: the client-side progress bar freezes; on reconnect the status is re-queried. For `llm.pullModel`, the UI re-subscribes via the persisted `activePullId` (§1.1, §2.1) and resumes from the current chunk. For `data.export` / `data.import` / `updater.applyUpdate`, there are no operation handles — a gateway kill mid-operation means "start over", accepted for v0.1.0 and documented as a non-goal (§1.2).
 
 ### 5.4 Security-failure user messaging
 
-Goal: never leak internal detail into user-facing error text. IPC `parseError` helper already redacts `passphrase`, `seed`, `accessToken`, `refreshToken`; WS5-C extends with `privateKey`, `mnemonic`, and `encryptedVaultManifest`. Unit test asserts each redaction.
+Goal: never leak internal detail into user-facing error text. IPC `parseError` helper already redacts `passphrase`, `seed`, `accessToken`, `refreshToken`; WS5-C extends with `recoverySeed`, `privateKey`, `mnemonic`, and `encryptedVaultManifest`. Unit test asserts each redaction and the same list is referenced by the Zustand `partialize` blacklist test (§2.1).
 
 ---
 
@@ -393,7 +418,7 @@ WS5-B's coverage baseline (Vitest ≥ 80 % lines / ≥ 75 % branches) carries fo
 
 | Unit | Test |
 |---|---|
-| `gateway_bridge::ALLOWED_METHODS` | 27 new methods present; list is alphabetized |
+| `gateway_bridge::ALLOWED_METHODS` | 28 new methods present; list is alphabetized |
 | `updater.rs` | reconnect helper emits `restart-started` on disconnect during `applying`; emits `restart-complete` on reconnect within 2 min; emits `restart-timeout` after 2 min |
 
 ### 6.3 Manual smoke — `docs/manual-smoke-ws5c.md`
@@ -428,15 +453,16 @@ Follows the WS5-B template.
 
 **Single PR:** `dev/ws5c-ui` off `dev/asafgolombek/phase_4_ws5`. Commits are grouped by panel in increasing sensitivity order so review can proceed commit-by-commit even though the PR lands atomically:
 
-1. **Gateway prerequisite** — `connector.setConfig` accepts `depth`; `connector.configChanged` emitted on mutations (§2.4). Unit tests added at the dispatcher level.
-2. **Shell** — Settings route + `SettingsSidebar` + nested-route redirect + `settings.ts` store slice + IPC type additions in `packages/ui/src/ipc/types.ts` + `ALLOWED_METHODS` growth in `gateway_bridge.rs`.
-3. **Profiles panel** — fully wired (list / create / switch / delete); consumes `profile.switched` for reload.
-4. **Telemetry panel** — toggle + counters + payload sample expander.
-5. **Connectors panel** — interval editor + depth selector + enable toggle; consumes `connector.configChanged`.
-6. **Model panel** — installed list + default picker + router status + `PullDialog` with `llm.getStatus` provider filter and `cancelPull` button.
-7. **Audit panel** — virtualized list + filter chips + `verify` toast + `export` save dialog.
-8. **Updates panel** — state machine + `updater.restarting` overlay + reconnect + `diag.getVersion` check + rollback.
-9. **Data panel** — ExportWizard + ImportWizard + DeleteServiceDialog (last because most security-sensitive; benefits from other panels' patterns being settled).
-10. **Docs + smoke** — add `docs/manual-smoke-ws5c.md`; update `roadmap.md` WS5-C rows; update `packages/ui` coverage report if needed.
+1. **Gateway prerequisite** — `connector.setConfig` accepts `depth` + enforces 60 s minimum `intervalMs`; `connector.configChanged` emitted on mutations (§2.4). Unit tests added at the dispatcher level.
+2. **UI dependency install** — `bun add` to `packages/ui/package.json`: `zxcvbn` (passphrase strength meter, §4.1), `react-window` (virtualized audit list, §2.1). No other deps change.
+3. **Shell** — Settings route + `SettingsSidebar` + nested-route redirect + `settings.ts` store slice + Zustand `persist` wrapper on `connectors` / `model` / `profile` slices with tested `partialize` whitelist (§2.1) + IPC type additions in `packages/ui/src/ipc/types.ts` + `ALLOWED_METHODS` growth in `gateway_bridge.rs`.
+4. **Profiles panel** — fully wired (list / create / switch / delete); consumes `profile.switched` and calls Tauri `app.restart()` (§5.2).
+5. **Telemetry panel** — toggle + counters + payload sample expander.
+6. **Connectors panel** — interval editor (60 s min validation) + depth selector + enable toggle; consumes `connector.configChanged`.
+7. **Model panel** — installed list + default picker + router status + `PullDialog` with `llm.getStatus` provider filter + `cancelPull` button + persisted `activePullId` re-attach (§1.1).
+8. **Audit panel** — virtualized list + filter chips + `verify` toast + `export` save dialog.
+9. **Updates panel** — state machine + `updater.restarting` overlay + reconnect + `diag.getVersion` check + rollback.
+10. **Data panel** — ExportWizard (overwrite pre-flight + clipboard countdown) + ImportWizard + DeleteServiceDialog (last because most security-sensitive; benefits from other panels' patterns being settled). Includes a **pre-merge Gateway review-gate**: confirm shipped `data.import` handler implements stage-and-swap atomicity (§5.2). File a separate Gateway patch if not.
+11. **Docs + smoke** — add `docs/manual-smoke-ws5c.md`; update `roadmap.md` WS5-C rows; update `packages/ui` coverage report if needed.
 
 Vitest coverage stays ≥ 80 % lines / ≥ 75 % branches throughout; CI fails the PR if any commit regresses the gate.
