@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-20 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Phase 5+ roadmap refined with additional connector categories, cross-user conflict detection, biometric HITL, and enterprise DLP/isolation controls.
+> **Last updated:** 2026-04-20 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Phase 5+ roadmap refined with additional connector categories, cross-user conflict detection, biometric HITL, and enterprise DLP/isolation controls. Phase 5 and Phase 6 extended with data warehouse, orchestration, and BI connectors (personal-auth in Phase 5; SSO-gated in Phase 6).
  Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) merged to `main`:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) merged to `main`:** BLAKE3-chained audit log (`audit.verify`/`audit.exportAll`), portable encrypted backups (`nimbus data export/import`, BIP39 recovery seed, Argon2id envelope encryption), service-scoped GDPR deletion (`nimbus data delete`), and connector reindex depth control (`nimbus connector reindex`). **WS4 (Release Infrastructure) implemented:** Ed25519 signing plumbing + CI release workflow, `Updater` state machine with `nimbus update` CLI, `@nimbus-dev/sdk` frozen at v1.0.0 (Plugin API v1), opt-in encrypted LAN remote access (`lan-crypto`, `lan-pairing`, `lan-rate-limit`, `lan-server`, `lan-rpc`, `nimbus lan` CLI), V19 `lan_peers` migration. Pending: cert procurement, Gatekeeper/SmartScreen sign-off, mDNS host discovery (post-v0.1.0 point release). **WS5-A (App Shell Foundation) implemented:** React 19 + Tailwind v4 + Radix + Zustand + React Router v7 frontend scaffolding, Rust Tauri bridge with compile-time `ALLOWED_METHODS` allowlist, system tray + `Ctrl/Cmd+Shift+N` global-hotkey Quick Query popup, three-step onboarding wizard (Welcome → Connect → Syncing), first-run routing logic, CI coverage gate (≥80% lines / ≥75% branches on `packages/ui`). **WS5-B (System Tray & Dashboard) implemented:** System tray enhancements (health dot, pending-HITL badge, connectors menu), Dashboard page (metrics, connectors, audit feed), HITL consent dialogs (frameless popup, XSS-safe preview, deny-list autoFocus).
 
 ---
@@ -469,6 +469,18 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **ArgoCD** — applications, sync status, rollout history, health state, manifests; API token or kubeconfig; sync/rollback behind HITL; `gitops_app` item type indexed with repo, target revision, sync status, health; enables deployment correlation without Jenkins for k8s-first teams
 - [ ] **Flux** — kustomizations, helm releases, sources, image automations; kubeconfig; reconcile behind HITL; read-only health and history index; complements ArgoCD coverage for teams mixing both
 
+#### Data Warehouses, Orchestration & BI (Personal-Auth)
+
+- [ ] **Databricks** (PAT) — workspaces, notebooks (metadata only), jobs, clusters, SQL warehouses; `data_pipeline` item type indexed with job name, status, triggering user, cluster id, started_at, duration; `job.trigger`, `job.cancel`, `cluster.restart` behind HITL
+- [ ] **Metabase** (API key) — saved questions, dashboards, collections; `dashboard` item type; read-only index
+- [ ] **Superset** (API key) — saved queries, dashboards, charts, datasets; `dashboard` item type; read-only index
+- [ ] **Apache Airflow (OSS) / Prefect / Dagster** (API token) — DAGs/flows, tasks, task groups, run statuses, logs; `data_pipeline` item type; `orchestration.run.trigger` / `orchestration.run.cancel` behind HITL
+- [ ] **Kibana / Elasticsearch** — saved searches, dashboards, Watcher alerts; `log_alarm` item type; read-only index; agent can query specific indices for error patterns during incident correlation
+- [ ] **AWS CloudWatch Logs / GCP Cloud Logging** — log groups, alarms, metric filters, dashboards; `log_alarm` item type; `alarm.acknowledge` / `alarm.silence` behind HITL; agent fetches error-level logs for a service when a PagerDuty alert fires
+- [ ] **BigQuery** (Application Default Credentials) — dataset / table / view schema metadata, column tags, recent expensive-query log; `data_model` item type; strictly no row data
+- [ ] **AWS Athena** — catalog metadata, saved queries, recent queries; read-only
+- [ ] **dbt Cloud** (API token) — projects, models, runs, tests, exposures; `data_model` item type indexed with model name, owner, tags, last-run status, upstream/downstream refs; `dbt.job.trigger` behind HITL
+
 #### Security & Vulnerability Tooling
 
 - [ ] **Snyk** — open source vulnerabilities, licence issues, container scan results, IaC misconfigs; API token; `vulnerability` item type indexed with severity, CVE ID, affected package, fix availability; enables CVE-to-repo-to-open-PR correlation queries from the local index
@@ -513,6 +525,8 @@ These items resolve deferred decisions from Phase 3.
 - `nimbus ask "which repos have critical Snyk vulnerabilities with open PRs touching the affected packages?"` returns results from the local index without any live API call
 - `nimbus metrics dora --service payment-service --since 30d` returns all four DORA metrics computed from indexed GitHub and PagerDuty data
 - An ArgoCD application sync failure is indexed and correlatable with the triggering Git commit within one sync cycle
+- `nimbus ask "which dbt models feed the failing Tableau dashboard?"` returns a lineage chain once Phase 6 Tableau lands; intermediate Phase 5 variant works end-to-end against Metabase / Superset dashboards linked to dbt models
+- No raw row data or binary extract crosses the connector boundary for any warehouse or BI connector — verified by a contract test that asserts the absence of row-fetch tools on each connector's MCP surface
 
 ---
 
@@ -542,6 +556,15 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Role-based access control** — `owner`, `editor`, `viewer` roles per shared namespace; enforced at the federation protocol layer, not just the UI
 - [ ] **Multi-user HITL** — workspace owner delegates HITL approval rights to a named team member for a specific workflow; delegate sees a pending approval queue; every delegation recorded in audit log
 
+### Data Warehouses & BI (SSO-gated)
+
+Depends on Team Vault (above) so service-account / SSO credentials can be shared across a workspace without each user re-authenticating.
+
+- [ ] **Snowflake** (SSO / OAuth / Key-Pair) — databases, schemas, tables / views (column names + tags only), tasks, pipe status, recent query history metadata; `data_model` item type indexed with database, schema, table, column tags, row-count estimate, last-altered; `warehouse.task.run` / `warehouse.pipe.resume` behind HITL; strictly no row data
+- [ ] **Tableau Server / Cloud** — dashboards, reports, views, workbooks, authors, folders, extract refresh status; `dashboard` item type; read-only except `bi.comment.post` behind HITL; links Tableau views to upstream Snowflake tables via data-source metadata
+- [ ] **Looker** — dashboards, Looks, Explores, LookML models, content folders; `dashboard` + `data_model` item types; read-only; `bi.schedule.send` behind HITL; links Looker Views to the underlying dbt models in GitHub via LookML `sql_table_name`
+- [ ] **PowerBI** — workspaces, reports, dashboards, datasets (schema only), dataflows; `dashboard` item type; read-only except `bi.dataset.refresh` behind HITL
+
 ### Shared Workflows & Policy
 
 - [ ] **Team-owned workflow pipelines** — pipelines in a shared namespace; any team member can trigger; write steps require HITL from the triggering user; no credentials embedded in pipeline YAML
@@ -569,6 +592,7 @@ These items resolve deferred decisions from Phase 3.
 - Revoking a peer's federation access removes their read access within one sync cycle; no data retained on their machine after revocation
 - An org policy disallowing the Slack connector prevents `nimbus connector auth slack` from succeeding on any member's machine while the policy is active
 - A `@nimbus rollback` command issued in Slack routes to the on-call engineer's HITL queue and does not execute until they approve; the approval is recorded in the audit log with their identity
+- Cross-warehouse lineage query `nimbus ask "why is the Q1 revenue Tableau dashboard stale?"` resolves the chain Tableau view → Looker view → dbt model → Snowflake table → Airflow DAG → failing PR from the local index in under 500 ms; no live warehouse or BI API call is made during the query
 
 ---
 
@@ -628,7 +652,7 @@ These items resolve deferred decisions from Phase 3.
 
 - [ ] **Autonomous drift detection** — agent continuously compares IaC declared state against indexed live cloud state; flags drift in the dashboard without waiting for a user query
 - [ ] **Remediation proposals** — agent drafts `terraform plan` or equivalent for detected drift; user reviews diff in HITL dialog; no cloud mutation without approval
-- [ ] **Cost anomaly detection** — monitors Cost Explorer / Azure Cost Management / GCP Billing daily spend; alerts when 24h spend exceeds 7-day rolling average by a configurable threshold
+- [ ] **Cost anomaly detection** — monitors Cost Explorer / Azure Cost Management / GCP Billing daily spend; alerts when 24h spend exceeds 7-day rolling average by a configurable threshold; once Phase 6 BI connectors land, the same detection window covers Snowflake credit consumption and Databricks DBU usage
 - [ ] **Runbook automation** — common SRE runbooks registered as named HITL-gated actions; agent proposes the right runbook when an incident matches a known pattern
 
 ### Acceptance Criteria (core items only)
