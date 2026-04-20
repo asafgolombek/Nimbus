@@ -339,6 +339,12 @@ const HITL_REQUIRED: ReadonlySet<string> = Object.freeze(new Set([
   "orchestration.run.trigger", "orchestration.run.cancel",
   "dbt.job.trigger",
   "bi.comment.post", "bi.dataset.refresh", "bi.schedule.send",
+  // ML / MLOps (Phase 5 — forward-looking)
+  "ml.model.promote", "ml.model.transition-stage",
+  "ml.endpoint.update", "ml.endpoint.delete",
+  "ml.job.stop", "ml.pipeline.cancel",
+  // Data Quality (Phase 5/6 — forward-looking)
+  "dq.incident.resolve", "dq.sla.acknowledge",
 ]));
 
 export class ToolExecutor {
@@ -601,7 +607,7 @@ Alerts are indexed with: `monitor_name`, `severity`, `status`, `service`, `fired
 
 #### Data Warehouse, Orchestration & BI (Phase 5/6)
 
-Warehouse, orchestration, and BI connectors ingest **metadata only** — schema definitions (DDL), column tags, job statuses, run history, and query plans. Row data, binary extracts, and result sets are forbidden at the connector boundary: there is no code path in any connector that fetches them, and a contract test asserts the absence of row-fetch tools on each connector's MCP surface.
+Warehouse, orchestration, and BI connectors ingest **metadata only** — schema definitions (DDL), column tags, job statuses, run history, and query plans. Row data, binary extracts, and result sets are forbidden at the connector boundary: there is no code path in any connector that fetches them, and a contract test asserts the absence of row-fetch tools on each connector's MCP surface. The same boundary applies to the Phase 5 local data-file profiler (Parquet / CSV / JSONL / ORC under `[[filesystem.roots]]`): it reads footers, header rows, and line counts to derive column names, types, and row-count estimates — it never reads row groups, samples rows, or captures cell values.
 
 **Warehouse & compute** (Databricks, Snowflake, BigQuery, Athena):
 
@@ -614,8 +620,9 @@ Warehouse, orchestration, and BI connectors ingest **metadata only** — schema 
 | `warehouse.job.trigger` / `warehouse.job.cancel` | **Always** | — |
 | `warehouse.task.run` / `warehouse.pipe.resume` | **Always** | — |
 | `warehouse.cluster.restart` | **Always** | — |
+| `fs.dataset.profile` (local files) | No | `data_model` |
 
-`data_model` items are indexed with: `provider`, `database`, `schema`, `object_name`, `object_type` (`table` / `view` / `model`), `column_tags`, `owner`, `last_altered_at`, `row_count_estimate`.
+`data_model` items are indexed with: `provider`, `database`, `schema`, `object_name`, `object_type` (`table` / `view` / `model`), `column_tags`, `owner`, `last_altered_at`, `row_count_estimate`. For local files, `provider = "filesystem"`, `database = <root id>`, `schema = <relative dir>`, `object_name = <file name>`, and `row_count_estimate` is derived from the Parquet footer or line count — never from reading row contents.
 
 **Orchestration** (Airflow, Prefect, Dagster, dbt Cloud):
 
@@ -642,6 +649,23 @@ Warehouse, orchestration, and BI connectors ingest **metadata only** — schema 
 | `alarm.acknowledge` / `alarm.silence` | **Always** | — |
 
 `dashboard` items are indexed with: `provider`, `name`, `folder`, `author`, `upstream_models`, `last_refreshed_at`, `refresh_status`, `url`. Cross-stack lineage (Tableau → Looker view → dbt model → Snowflake table → Airflow DAG → PR) resolves via the Memory Layer's hybrid search plus `traverseGraph` over `upstream_refs` / `downstream_refs` relations in the graph substrate.
+
+**ML / MLOps & Data Quality** (MLflow, SageMaker, Vertex AI, Great Expectations, Monte Carlo, Bigeye):
+
+| Tool | HITL Required | Indexed Item Type |
+|---|---|---|
+| `ml.experiment.list` / `ml.experiment.get` | No | `ml_model` |
+| `ml.run.list` / `ml.run.get` / `ml.run.metrics` | No | `ml_model` |
+| `ml.model.list` / `ml.model.version.get` | No | `ml_model` |
+| `ml.endpoint.list` / `ml.endpoint.describe` | No | — |
+| `ml.model.promote` / `ml.model.transition-stage` | **Always** | — |
+| `ml.endpoint.update` / `ml.endpoint.delete` | **Always** | — |
+| `ml.job.stop` / `ml.pipeline.cancel` | **Always** | — |
+| `dq.test.list` / `dq.test.result.get` | No | `data_quality_test` |
+| `dq.incident.list` / `dq.incident.get` | No | `data_quality_test` |
+| `dq.incident.resolve` / `dq.sla.acknowledge` | **Always** | — |
+
+`ml_model` items are indexed with: `provider`, `experiment`, `run_id`, `framework`, `registered_model`, `stage`, `metric_snapshot`, `last_updated_at`. `data_quality_test` items are indexed with: `provider`, `suite_or_monitor_name`, `target_table`, `last_run_at`, `status`, `severity`, `first_seen_at`.
 
 ### Delta Sync
 
@@ -956,6 +980,7 @@ const streamReq: JSONRPCRequest = {
 --                   "pr" | "issue" | "pipeline_run" | "deployment"
 --                   "alert" | "incident" | "infra_resource"
 --                   "data_model" | "data_pipeline" | "dashboard" | "log_alarm"  -- Phase 5/6
+--                   "ml_model" | "data_quality_test"                             -- Phase 5/6 (pass 2)
 -- Note: "task" is not a currently emitted item_type; use "issue" for Linear/Jira items.
 CREATE TABLE indexed_items (
     id          TEXT PRIMARY KEY,   -- "<service>:<native_id>"
@@ -1156,6 +1181,7 @@ PRs that drop below threshold are blocked when checks are required.
 | Index exfiltration | SQLite stores metadata only (not content); protected by OS file permissions | OS file ACL |
 | Extension sandbox escape | **Partial:** process isolation + scoped env today; full syscall isolation planned (Phase 5) | Extension Registry / risk register |
 | Row-data exfiltration via warehouse or BI connector (Phase 5/6) | Connector boundary forbids row / binary / result-set fetches; only DDL, column tags, job status, and query plans cross into the index; contract test asserts absence of row-fetch tools on each connector's MCP surface | MCP connector contract |
+| Row-data exfiltration via local file profiling (Phase 5) | Filesystem profiler reads Parquet footers, CSV / JSONL header lines, and line counts only; no code path reads row groups, samples rows, or captures cell values; contract test asserts the profiler tool surface has no row-sample method | Filesystem connector contract |
 
 ---
 
