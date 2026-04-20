@@ -39,6 +39,7 @@ import {
 import { createUserMcpSyncable } from "../connectors/user-mcp-sync.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
+import { MIN_SYNC_INTERVAL_MS } from "../sync/constants.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import { listRecentSyncTelemetry } from "../sync/scheduler-store.ts";
 import type { SyncStatus } from "../sync/types.ts";
@@ -207,29 +208,49 @@ function applyEnabledChange(
   }
 }
 
+const VALID_DEPTHS = ["metadata_only", "summary", "full"] as const;
+
 export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const intervalMs = rec?.["intervalMs"];
+  const depth = rec?.["depth"];
   const enabled = rec?.["enabled"];
+
   if (typeof intervalMs === "number") {
-    if (!Number.isFinite(intervalMs) || intervalMs < 1) {
+    if (!Number.isFinite(intervalMs)) {
       throw new ConnectorRpcError(-32602, "Invalid intervalMs");
     }
     const ms = Math.floor(intervalMs);
+    if (ms < MIN_SYNC_INTERVAL_MS) {
+      throw new ConnectorRpcError(
+        -32602,
+        `intervalMs must be >= ${MIN_SYNC_INTERVAL_MS} (60 seconds)`,
+      );
+    }
     localIndex.setConnectorSyncIntervalMs(id, ms, Date.now());
     if (syncScheduler !== undefined) {
       syncScheduler.setInterval(id, ms);
     }
   }
+
+  if (typeof depth === "string") {
+    if (!VALID_DEPTHS.includes(depth as (typeof VALID_DEPTHS)[number])) {
+      throw new ConnectorRpcError(-32602, `Invalid depth: must be ${VALID_DEPTHS.join("|")}`);
+    }
+    localIndex.setConnectorDepth(id, depth as "metadata_only" | "summary" | "full");
+  }
+
   if (typeof enabled === "boolean") {
     applyEnabledChange(enabled, id, syncScheduler, localIndex);
   }
+
   return {
     kind: "hit",
     value: {
       service: id,
       intervalMs: typeof intervalMs === "number" ? Math.floor(intervalMs) : null,
+      depth: typeof depth === "string" ? depth : null,
       enabled: typeof enabled === "boolean" ? enabled : null,
     },
   };
