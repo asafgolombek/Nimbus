@@ -76,3 +76,24 @@ describe("llm.pullModel", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("llm.cancelPull", () => {
+  test("returns cancelled:false for unknown pullId", async () => {
+    const r = await dispatchLlmRpc(
+      "llm.cancelPull",
+      { pullId: "pull_unknown_000" },
+      { registry: {} as unknown as LlmRegistry, notify: () => {} },
+    );
+    expect(r.kind).toBe("hit");
+    expect((r as { kind: "hit"; value: { cancelled: boolean } }).value.cancelled).toBe(false);
+  });
+
+  test("rejects missing pullId with -32602", async () => {
+    await expect(
+      dispatchLlmRpc("llm.cancelPull", null, {
+        registry: {} as unknown as LlmRegistry,
+        notify: () => {},
+      }),
+    ).rejects.toThrow();
+  });
+});

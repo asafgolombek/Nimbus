@@ -39,21 +39,21 @@ export async function dispatchLlmRpc(
       if (provider !== "ollama" && provider !== "llamacpp") {
         throw new LlmRpcError(-32602, `Unsupported provider: ${provider}`);
       }
+      const modelName = p.modelName;
       const pullId = `pull_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const controller = new AbortController();
       activePulls.set(pullId, controller);
       void ctx.registry
-        .pullModel(provider, p.modelName, {
+        .pullModel(provider, modelName, {
           signal: controller.signal,
-          onProgress: (c) =>
-            ctx.notify("llm.pullProgress", { pullId, provider, modelName: p.modelName, ...c }),
+          onProgress: (c) => ctx.notify("llm.pullProgress", { pullId, provider, modelName, ...c }),
         })
-        .then(() => ctx.notify("llm.pullCompleted", { pullId, provider, modelName: p.modelName }))
+        .then(() => ctx.notify("llm.pullCompleted", { pullId, provider, modelName }))
         .catch((err: unknown) =>
           ctx.notify("llm.pullFailed", {
             pullId,
             provider,
-            modelName: p.modelName,
+            modelName,
             error: err instanceof Error ? err.message : String(err),
           }),
         )
