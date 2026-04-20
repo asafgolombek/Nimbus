@@ -454,6 +454,17 @@ export function dispatchDiagnosticsRpc(
       }
       return { kind: "hit", value: { enabled: p.enabled } };
     }
+    case "diag.getVersion": {
+      return {
+        kind: "hit",
+        value: {
+          version: ctx.gatewayVersion,
+          commit: process.env["NIMBUS_BUILD_COMMIT"] ?? null,
+          buildId: process.env["NIMBUS_BUILD_ID"] ?? null,
+          uptimeMs: Date.now() - ctx.startedAtMs,
+        },
+      };
+    }
     default:
       return { kind: "miss" };
   }

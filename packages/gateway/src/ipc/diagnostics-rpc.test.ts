@@ -71,3 +71,19 @@ describe("telemetry.setEnabled", () => {
     }
   });
 });
+
+describe("diag.getVersion", () => {
+  test("returns gateway version string", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-ver-"));
+    try {
+      const r = dispatchDiagnosticsRpc("diag.getVersion", null, makeCtx(dir));
+      expect(r.kind).toBe("hit");
+      const v = (r as { kind: "hit"; value: { version: string; uptimeMs: number } }).value;
+      expect(typeof v.version).toBe("string");
+      expect(v.version.length).toBeGreaterThan(0);
+      expect(typeof v.uptimeMs).toBe("number");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
