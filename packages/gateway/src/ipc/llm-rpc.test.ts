@@ -148,7 +148,7 @@ describe("llm.getRouterStatus", () => {
     const r = await dispatchLlmRpc("llm.getRouterStatus", null, { registry, notify: () => {} });
     expect(r.kind).toBe("hit");
     const val = (r as { kind: "hit"; value: { decisions: Record<string, unknown> } }).value;
-    expect(Object.keys(val.decisions).sort()).toEqual([
+    expect(Object.keys(val.decisions).sort((a, b) => a.localeCompare(b))).toEqual([
       "agent_step",
       "classification",
       "reasoning",

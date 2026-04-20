@@ -82,30 +82,7 @@ export class Updater {
     this.state = "downloading";
     let bytes: Uint8Array;
     try {
-      const resp = await fetch(asset.url, { redirect: "follow" });
-      if (!resp.ok) {
-        throw new Error(`download HTTP ${resp.status}`);
-      }
-      const total = Number(resp.headers.get("content-length") ?? 0);
-      const reader = resp.body?.getReader();
-      if (reader === undefined) throw new Error("No response body from download");
-      const chunks: Uint8Array[] = [];
-      let downloaded = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value !== undefined) {
-          chunks.push(value);
-          downloaded += value.byteLength;
-          this.opts.emit("updater.downloadProgress", { bytes: downloaded, total });
-        }
-      }
-      bytes = new Uint8Array(downloaded);
-      let off = 0;
-      for (const c of chunks) {
-        bytes.set(c, off);
-        off += c.byteLength;
-      }
+      bytes = await this.downloadAsset(asset.url);
     } catch (err) {
       this.state = "failed";
       this.lastError = err instanceof Error ? err.message : String(err);
@@ -146,6 +123,32 @@ export class Updater {
       this.opts.emit("updater.rolledBack", { reason: "installer_failed" });
       throw err;
     }
+  }
+
+  private async downloadAsset(url: string): Promise<Uint8Array> {
+    const resp = await fetch(url, { redirect: "follow" });
+    if (!resp.ok) throw new Error(`download HTTP ${resp.status}`);
+    const total = Number(resp.headers.get("content-length") ?? 0);
+    const reader = resp.body?.getReader();
+    if (reader === undefined) throw new Error("No response body from download");
+    const chunks: Uint8Array[] = [];
+    let downloaded = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value !== undefined) {
+        chunks.push(value);
+        downloaded += value.byteLength;
+        this.opts.emit("updater.downloadProgress", { bytes: downloaded, total });
+      }
+    }
+    const bytes = new Uint8Array(downloaded);
+    let off = 0;
+    for (const c of chunks) {
+      bytes.set(c, off);
+      off += c.byteLength;
+    }
+    return bytes;
   }
 
   getStatus(): UpdaterStatus {

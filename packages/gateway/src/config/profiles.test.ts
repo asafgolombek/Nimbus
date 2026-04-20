@@ -27,7 +27,10 @@ describe("ProfileManager", () => {
     await mgr.create("personal");
     await mgr.switchTo("personal");
     const profiles = await mgr.list();
-    expect(profiles.map((p) => p.name).sort()).toEqual(["personal", "work"]);
+    expect(profiles.map((p) => p.name).sort((a, b) => a.localeCompare(b))).toEqual([
+      "personal",
+      "work",
+    ]);
     expect(profiles.find((p) => p.active)?.name).toBe("personal");
   });
 

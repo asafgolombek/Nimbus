@@ -188,6 +188,25 @@ export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): Con
   return { kind: "hit", value: { ok: true } };
 }
 
+function applyEnabledChange(
+  enabled: boolean,
+  id: string,
+  syncScheduler: SyncScheduler | undefined,
+  localIndex: LocalIndex,
+): void {
+  if (enabled) {
+    if (syncScheduler === undefined) {
+      localIndex.resumeConnectorSync(id);
+    } else {
+      syncScheduler.resume(id);
+    }
+  } else if (syncScheduler === undefined) {
+    localIndex.pauseConnectorSync(id);
+  } else {
+    syncScheduler.pause(id);
+  }
+}
+
 export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex, syncScheduler } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
@@ -204,19 +223,7 @@ export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): Conne
     }
   }
   if (typeof enabled === "boolean") {
-    if (enabled) {
-      if (syncScheduler === undefined) {
-        localIndex.resumeConnectorSync(id);
-      } else {
-        syncScheduler.resume(id);
-      }
-    } else {
-      if (syncScheduler === undefined) {
-        localIndex.pauseConnectorSync(id);
-      } else {
-        syncScheduler.pause(id);
-      }
-    }
+    applyEnabledChange(enabled, id, syncScheduler, localIndex);
   }
   return {
     kind: "hit",

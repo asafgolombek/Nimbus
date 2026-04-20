@@ -77,7 +77,7 @@ describe("RootLayout", () => {
       fire("consent://request", {
         request_id: "r1",
         prompt: "Delete file?",
-        details: { path: "/tmp/a" },
+        details: { path: "/home/nimbus-test/a" },
         received_at_ms: 1,
       });
     });

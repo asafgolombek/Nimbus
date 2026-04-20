@@ -162,7 +162,7 @@ describe("OllamaProvider.pullModel", () => {
     });
     const p = new OllamaProvider(`http://127.0.0.1:${server.port}`);
     const received: PullProgressChunk[] = [];
-    await p.pullModel!("llama3.2:1b", { onProgress: (c) => received.push(c) });
+    await p.pullModel("llama3.2:1b", { onProgress: (c) => received.push(c) });
     server.stop();
     expect(received.at(-1)?.status).toBe("success");
     expect(received.some((c) => c.completedBytes === 1000)).toBe(true);

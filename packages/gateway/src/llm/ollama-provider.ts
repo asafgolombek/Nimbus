@@ -216,24 +216,27 @@ export class OllamaProvider implements LlmProvider {
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed === "") continue;
-        try {
-          const chunk = JSON.parse(trimmed) as {
-            status?: unknown;
-            completed?: unknown;
-            total?: unknown;
-          };
-          const progress: PullProgressChunk = {
-            status: typeof chunk.status === "string" ? chunk.status : "",
-            ...(typeof chunk.completed === "number" && { completedBytes: chunk.completed }),
-            ...(typeof chunk.total === "number" && { totalBytes: chunk.total }),
-          };
-          opts.onProgress?.(progress);
-        } catch {
-          /* ignore malformed chunk */
-        }
+        const progress = parseOllamaPullChunk(line.trim());
+        if (progress !== null) opts.onProgress?.(progress);
       }
     }
+  }
+}
+
+function parseOllamaPullChunk(trimmed: string): PullProgressChunk | null {
+  if (trimmed === "") return null;
+  try {
+    const chunk = JSON.parse(trimmed) as {
+      status?: unknown;
+      completed?: unknown;
+      total?: unknown;
+    };
+    return {
+      status: typeof chunk.status === "string" ? chunk.status : "",
+      ...(typeof chunk.completed === "number" && { completedBytes: chunk.completed }),
+      ...(typeof chunk.total === "number" && { totalBytes: chunk.total }),
+    };
+  } catch {
+    return null;
   }
 }

@@ -168,7 +168,7 @@ describe("Updater state machine", () => {
     expect(progressEvents.length).toBeGreaterThanOrEqual(1);
     // total comes from content-length header; some servers omit it for streaming (ok to be 0)
     expect(typeof progressEvents[0]?.total).toBe("number");
-    const last = progressEvents[progressEvents.length - 1]!;
+    const last = progressEvents.at(-1)!;
     expect(last.bytes).toBe(512);
   });
 });

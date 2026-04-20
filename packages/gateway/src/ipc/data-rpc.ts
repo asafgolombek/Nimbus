@@ -152,7 +152,7 @@ function handleGetDeletePreflight(params: unknown, ctx: DataRpcContext): DeleteP
   const service = p["service"];
   if (ctx.index === undefined) {
     const serviceId = normalizeConnectorServiceId(service);
-    const vaultKeyCount = serviceId !== null ? CONNECTOR_VAULT_SECRET_KEYS[serviceId].length : 0;
+    const vaultKeyCount = serviceId === null ? 0 : CONNECTOR_VAULT_SECRET_KEYS[serviceId].length;
     return { service, itemCount: 0, embeddingCount: 0, vaultKeyCount };
   }
   const db = ctx.index.getDatabase();
@@ -165,7 +165,7 @@ function handleGetDeletePreflight(params: unknown, ctx: DataRpcContext): DeleteP
     .get(service) as { c: number } | undefined;
   const embeddingCount = embRow?.c ?? 0;
   const serviceId = normalizeConnectorServiceId(service);
-  const vaultKeyCount = serviceId !== null ? CONNECTOR_VAULT_SECRET_KEYS[serviceId].length : 0;
+  const vaultKeyCount = serviceId === null ? 0 : CONNECTOR_VAULT_SECRET_KEYS[serviceId].length;
   return { service, itemCount, embeddingCount, vaultKeyCount };
 }
 

@@ -92,7 +92,7 @@ export class LlmRegistry {
     );
     if (p === undefined) throw new Error(`Provider not registered: ${provider}`);
     if (typeof p.pullModel !== "function") {
-      throw new Error(`Provider ${provider} does not support pullModel`);
+      throw new TypeError(`Provider ${provider} does not support pullModel`);
     }
     await p.pullModel(modelName, opts);
   }
