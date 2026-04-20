@@ -313,6 +313,16 @@ export class SyncScheduler {
 
   // ── Internal scheduling ───────────────────────────────────────────────────
 
+  private getDepthForService(serviceId: string): "metadata_only" | "summary" | "full" {
+    const row = this.db
+      .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
+      .get(serviceId) as { depth: string } | null | undefined;
+    if (row == null) {
+      return "summary";
+    }
+    return row.depth as "metadata_only" | "summary" | "full";
+  }
+
   private rowToStatus(serviceId: string, row: SchedulerStateRow, itemCount: number): SyncStatus {
     let status: SyncStatus["status"] = "ok";
     if (row.paused === 1) {
@@ -325,6 +335,7 @@ export class SyncScheduler {
       status = "backoff";
     }
     const health = getConnectorHealth(this.db, serviceId);
+    const depth = this.getDepthForService(serviceId);
     return {
       serviceId,
       status,
@@ -336,6 +347,8 @@ export class SyncScheduler {
       consecutiveFailures: row.consecutive_failures,
       healthState: health.state,
       healthRetryAfterMs: health.retryAfter === undefined ? null : health.retryAfter.getTime(),
+      depth,
+      enabled: status !== "paused",
     };
   }
 

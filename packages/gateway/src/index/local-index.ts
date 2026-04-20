@@ -314,6 +314,10 @@ export class LocalIndex {
       status = "backoff";
     }
     const health = getConnectorHealth(db, row.service_id);
+    const depthRow = db
+      .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
+      .get(row.service_id) as { depth: string | null } | null | undefined;
+    const depth = (depthRow?.depth ?? "summary") as "metadata_only" | "summary" | "full";
     return {
       serviceId: row.service_id,
       status,
@@ -325,6 +329,8 @@ export class LocalIndex {
       consecutiveFailures: row.consecutive_failures,
       healthState: health.state,
       healthRetryAfterMs: health.retryAfter === undefined ? null : health.retryAfter.getTime(),
+      depth,
+      enabled: status !== "paused",
     };
   }
 
