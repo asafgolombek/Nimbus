@@ -4,7 +4,8 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-04-19 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) merged to `main`:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) merged to `main`:** BLAKE3-chained audit log (`audit.verify`/`audit.exportAll`), portable encrypted backups (`nimbus data export/import`, BIP39 recovery seed, Argon2id envelope encryption), service-scoped GDPR deletion (`nimbus data delete`), and connector reindex depth control (`nimbus connector reindex`). **WS4 (Release Infrastructure) implemented:** Ed25519 signing plumbing + CI release workflow, `Updater` state machine with `nimbus update` CLI, `@nimbus-dev/sdk` frozen at v1.0.0 (Plugin API v1), opt-in encrypted LAN remote access (`lan-crypto`, `lan-pairing`, `lan-rate-limit`, `lan-server`, `lan-rpc`, `nimbus lan` CLI), V19 `lan_peers` migration. Pending: cert procurement, Gatekeeper/SmartScreen sign-off, mDNS host discovery (post-v0.1.0 point release). **WS5-A (App Shell Foundation) implemented:** React 19 + Tailwind v4 + Radix + Zustand + React Router v7 frontend scaffolding, Rust Tauri bridge with compile-time `ALLOWED_METHODS` allowlist, system tray + `Ctrl/Cmd+Shift+N` global-hotkey Quick Query popup, three-step onboarding wizard (Welcome → Connect → Syncing), first-run routing logic, CI coverage gate (≥80% lines / ≥75% branches on `packages/ui`). **WS5-B (System Tray & Dashboard) implemented:** System tray enhancements (health dot, pending-HITL badge, connectors menu), Dashboard page (metrics, connectors, audit feed), HITL consent dialogs (frameless popup, XSS-safe preview, deny-list autoFocus).
+> **Last updated:** 2026-04-20 — Phase 3 and Phase 3.5 complete on `main`; **Phase 4 (Presence)** is active. Phase 5+ roadmap refined with additional connector categories, cross-user conflict detection, biometric HITL, and enterprise DLP/isolation controls.
+ Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) merged to `main`:** LLM provider layer (`OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`), `llm.*` IPC dispatcher, multi-agent infrastructure (`AgentCoordinator`, `runSubAgent`, V16/V17 schema migrations), and `engine.askStream` streaming. **WS2 (Voice Interface) merged to `main`:** Gateway-based voice service (`VoiceService`, `NativeTtsProvider`, `dispatchVoiceRpc`), `voice.*` IPC methods, `nimbus doctor` voice checks. **WS3 (Data Sovereignty) merged to `main`:** BLAKE3-chained audit log (`audit.verify`/`audit.exportAll`), portable encrypted backups (`nimbus data export/import`, BIP39 recovery seed, Argon2id envelope encryption), service-scoped GDPR deletion (`nimbus data delete`), and connector reindex depth control (`nimbus connector reindex`). **WS4 (Release Infrastructure) implemented:** Ed25519 signing plumbing + CI release workflow, `Updater` state machine with `nimbus update` CLI, `@nimbus-dev/sdk` frozen at v1.0.0 (Plugin API v1), opt-in encrypted LAN remote access (`lan-crypto`, `lan-pairing`, `lan-rate-limit`, `lan-server`, `lan-rpc`, `nimbus lan` CLI), V19 `lan_peers` migration. Pending: cert procurement, Gatekeeper/SmartScreen sign-off, mDNS host discovery (post-v0.1.0 point release). **WS5-A (App Shell Foundation) implemented:** React 19 + Tailwind v4 + Radix + Zustand + React Router v7 frontend scaffolding, Rust Tauri bridge with compile-time `ALLOWED_METHODS` allowlist, system tray + `Ctrl/Cmd+Shift+N` global-hotkey Quick Query popup, three-step onboarding wizard (Welcome → Connect → Syncing), first-run routing logic, CI coverage gate (≥80% lines / ≥75% branches on `packages/ui`). **WS5-B (System Tray & Dashboard) implemented:** System tray enhancements (health dot, pending-HITL badge, connectors menu), Dashboard page (metrics, connectors, audit feed), HITL consent dialogs (frameless popup, XSS-safe preview, deny-list autoFocus).
 
 ---
 
@@ -403,9 +404,10 @@ These items resolve deferred decisions from Phase 3.
 #### Browser & Reading
 
 - [ ] **Pocket / Readwise / Raindrop** — saved articles, highlights, reading lists, tags; read-only index
-- [ ] **Browser history connector** — local browser extension (Chrome/Firefox/Safari) pushes visited URLs + page titles to Gateway over local HTTP; no cloud relay; opt-in; history stored locally only
-- [ ] **Web clipper** — browser extension saves a page into the Nimbus index with a tag; surfaced in `nimbus search` alongside Drive files and emails
+- [ ] **Browser history connector** — local browser extension (Chrome/Firefox/Safari) pushes visited URLs + page titles to Gateway over local HTTP; includes explicit support for local-only SQLite history indexing for Arc, Brave, and Vivaldi; no cloud relay; opt-in; history stored locally only
+- [ ] **Web clipper** — browser extension saves a page into the Nimbus index with a tag; includes a browser "sidecar" UI (overlay) to show related local items without leaving the tab; surfaced in `nimbus search` alongside Drive files and emails
 - [ ] **Obsidian vault connector** — indexes local Markdown vaults with frontmatter metadata, backlinks, and daily notes; uses `[[filesystem.roots]]` as the discovery mechanism; `obsidian_note` item type; backlinks surfaced in the relationship graph; append to daily note behind HITL; no network call required — fully local
+- [ ] **Zotero / Mendeley** — index whitepapers, PDFs, and citations alongside technical docs; `research_paper` item type; read-only
 
 #### Email via IMAP/SMTP
 
@@ -433,6 +435,11 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Salesforce** — Lead, Contact, Account, Opportunity, Case; OAuth; write behind HITL
 - [ ] **Pipedrive** — deals, persons, organisations, activities, notes; API key; write behind HITL
 
+#### Support & Community
+
+- [ ] **Zendesk / Intercom** — tickets, conversations, help articles; read-only index; correlate customer history with code/PR changes
+- [ ] **Stack Overflow (Teams/Private)** — index internal knowledge base, questions, and answers; read-only
+
 #### HR & Recruiting
 
 - [ ] **Greenhouse** — jobs, candidates, applications, scorecards, offers; write (move stage, post feedback) behind HITL
@@ -444,6 +451,13 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **Figma** — files, frames, comments, version history, FigJam boards; OAuth; comment post behind HITL
 - [ ] **Miro** — boards, cards, sticky notes, comments; OAuth; write behind HITL
 - [ ] **Canva** — designs, folders, shared projects; OAuth; read-only index
+
+#### Databases & Infrastructure
+
+- [ ] **Local DB Schema Indexing** — index saved queries or schema documentation from local DB tools (pgAdmin, DBeaver, DataGrip); enables semantic recall of "that one SQL query I wrote last month"
+- [ ] **Vercel / Netlify** — deployment status, preview URLs, project metadata; correlate deploys with PR/Slack history
+
+#### Feature Flags
 
 #### Feature Flags
 
@@ -516,6 +530,7 @@ These items resolve deferred decisions from Phase 3.
 ### Shared Infrastructure
 
 - [ ] **Nimbus-to-Nimbus federation** — two Gateways share a scoped index namespace over E2E-encrypted channel (NaCl box); no relay server; each side controls which `item` types and services it exposes; revocable per peer
+- [ ] **Cross-user conflict detection** — use the federated index to detect "Work-in-Progress collisions" (e.g., Alice editing `auth.ts` while Bob is assigned to the related Jira ticket); notifies the user before starting changes
 - [ ] **Team Vault** — shared credential store; one Gateway acts as trust anchor; role-based read/write access to named vault entries; credentials never leave the LAN
 - [ ] **Shared index namespaces** — user publishes a named namespace (e.g. `project:zurich`) as a filtered slice of their index; teammates subscribe over the federation channel; changes propagate on next sync cycle
 - [ ] **LAN discovery** — Gateways advertise each other via mDNS; `nimbus team discover` lists available peers; pairing requires explicit mutual approval
@@ -530,6 +545,7 @@ These items resolve deferred decisions from Phase 3.
 ### Shared Workflows & Policy
 
 - [ ] **Team-owned workflow pipelines** — pipelines in a shared namespace; any team member can trigger; write steps require HITL from the triggering user; no credentials embedded in pipeline YAML
+- [ ] **Team "Huddle" Briefing** — aggregate morning briefing summarizing team achievements across PRs, tickets, and incidents without manual status reporting
 - [ ] **Org-level policy engine** — `nimbus.policy.toml` enforces: connector allowlists, `retentionDays` floor, HITL threshold overrides, audit log shipping destination; interacts with per-user profile config from Phase 3.5
 - [ ] **Policy enforcement at the Gateway** — policy loaded on startup; connectors not in the allowlist disabled before the mesh starts; violations logged to audit trail
 
@@ -573,10 +589,12 @@ These items resolve deferred decisions from Phase 3.
 
 - [ ] **Standing approval rules** — users pre-authorise specific recurring write patterns; stored in SQLite with explicit scope, expiry, and item count ceiling; agent checks standing rules before prompting for HITL
 - [ ] **Approval learning** — after N consecutive identical approvals (configurable; default: 5), Nimbus suggests a standing rule; user must explicitly confirm; suggestion is logged
+- [ ] **Confidence Score for standing approvals** — standing rules require a confidence score based on contextual similarity (same service, time of day, user location) to prevent over-permissioning
 - [ ] **Standing rule management** — `nimbus approve list`, `pause`, `revoke`; each rule shows match scope, expiry, action count, last-fired timestamp
 - [ ] **Audit trail for standing approvals** — every action taken under a standing rule logged with rule ID, matched scope, and timestamp; `nimbus audit standing` shows per-rule history
 - [ ] **Scheduled workflows** — watchers trigger workflow pipelines on `schedule` condition (cron syntax); read-only workflows run unattended; write workflows with standing-approved steps also run unattended; HITL-required steps without a standing rule block and notify
 - [ ] **Morning briefing** — built-in scheduled workflow: cross-service summary (open PRs, active incidents, overdue tickets, unread threads) delivered via notification system at a configured time
+- [ ] **Privacy-preserving agent-to-agent scheduling** — one user's agent negotiates meeting times with another's over the Phase 6 federated channel; returns mutually available slots without leaking full calendar details
 - [ ] **Deadline tracking** — monitors items with due dates across Linear, Jira, GitHub, and Calendar; fires notification 24h before deadline when no recent activity is detected on the item
 - [ ] **`nimbus schedule list`** — shows all active scheduled workflows with next fire time and last run status
 
@@ -584,6 +602,7 @@ These items resolve deferred decisions from Phase 3.
 
 - [ ] **Automatic incident assembly** — when a monitoring alert fires, agent automatically queries the local index for: last deployment before the alert, associated PR, triggering commit, CI run result, Slack/Teams threads mentioning the affected service; assembles a structured incident summary without any user query
 - [ ] **Incident timeline** — structured Markdown timeline (alert → deploy → commit → PR → CI); exported via `nimbus incident show <alert-id>` or surfaced in the Tauri dashboard
+- [ ] **Proactive technical debt detection** — agent flags code symbols that haven't been touched in months but are frequently referenced in failing pipelines or incident logs
 - [ ] **Suggested remediation** — agent proposes a remediation action (rollback, restart, scale-up) based on indexed history of similar incidents; always HITL-gated before execution
 - [ ] **Post-mortem generation** — after incident resolution, agent drafts a structured post-mortem (timeline, root cause, contributing factors, action items) from the assembled incident record and HITL decision log; user reviews and edits before HITL-gated push to Notion or Confluence; template is configurable
 - [ ] **On-call schedule awareness** — indexes PagerDuty/OpsGenie on-call schedules; answers `nimbus ask "who's on call for payment-service right now?"` from the local index; feeds on-call context into the morning briefing and incident assembly so the agent can route notifications to the right engineer without an additional API call
@@ -592,6 +611,7 @@ These items resolve deferred decisions from Phase 3.
 
 - [ ] **Long-term episodic memory** — agent stores summarised observations from past sessions in a dedicated SQLite table; recalled at query time via semantic similarity
 - [ ] **Personalization layer** — agent adapts communication style and tool selection priority based on observed user preferences; preferences are explicit (configurable), not inferred silently
+- [ ] **Automated PR pre-review** — agent performs "lint-plus" review based on team's historical review patterns (e.g., "In this repo, we usually ask for Y when X is changed")
 - [ ] **Decision pattern recognition** — agent identifies repeated HITL decision patterns across history; surfaces them as standing rule candidates
 
 ### Stretch — Local Model Fine-Tuning
@@ -644,11 +664,13 @@ These items resolve deferred decisions from Phase 3.
 - [ ] **iOS app** — connects to home Gateway over E2EE LAN or WireGuard tunnel; no cloud relay; natural language queries, HITL approval queue, watcher notifications, read-only connector status
 - [ ] **Android app** — same feature set as iOS
 - [ ] **Push notifications** — via local push (LAN) or WireGuard; no third-party push service required; opt-in to cloud push (APNs/FCM) for out-of-LAN reachability
-- [ ] **Mobile HITL** — approvals cryptographically signed with a device key stored in the phone's secure enclave
+- [ ] **Biometric HITL** — use the Mobile Companion as the primary HITL gate; approvals cryptographically signed with a device key and authorized via FaceID/TouchID for a superior security/UX balance
+- [ ] **Mobile HITL signature** — approvals cryptographically signed with a device key stored in the phone's secure enclave
 
 ### Physical Sovereignty
 
 - [ ] **Hardware vault integration** — YubiKey and Ledger as a second factor; FIDO2/WebAuthn locally; unlock requires physical device presence
+- [ ] **Hardware audit-log signing** — support for Nitrokey or OpenPGP cards to cryptographically sign the BLAKE3 audit chain, making it physically tamper-proof
 - [ ] **Air-gapped secret management** — credentials for sensitive connectors stored exclusively on a hardware key; Gateway requests them via USB/NFC at sync time; never written to disk even temporarily
 - [ ] **Decentralized Identifiers (DIDs)** — self-sovereign DIDs for Nimbus-to-Nimbus authentication; DID document stored locally; no central registry required
 
@@ -692,8 +714,10 @@ These items resolve deferred decisions from Phase 3.
 ### Centralized Policy & Compliance
 
 - [ ] **Policy-as-code** — `nimbus.policy.toml` extended for enterprise: per-user role assignments, connector allowlists, data classification labels, mandatory audit log shipping, HITL threshold overrides per user group
+- [ ] **Data Loss Prevention (DLP) Gate** — pre-dispatch scanner that flags PII, secrets, or "Internal Only" content before it is sent to remote LLMs or exported
 - [ ] **Audit log shipping** — `audit_log` rows streamed (append-only, tamper-evident) to SIEM targets (Splunk, Elastic, Datadog Logs), S3/GCS/Azure Blob, or a mounted file path; fire-and-forget with local retention as fallback
 - [ ] **Compliance posture tooling** — `nimbus compliance check` reports: credential storage status, audit log integrity, plaintext credential scan result, connector scope minimization status; structured JSON output suitable for auditors
+- [ ] **Legal Hold & Discovery** — compliance mode to "freeze" index state or export an immutable subset of the audit log for legal discovery
 - [ ] **Data residency controls** — per-connector restriction to a named geographic boundary; Gateway enforces at ingest; non-compliant items flagged and excluded from the index
 - [ ] **Formal security audit** — third-party penetration test of Gateway, IPC surface, Vault, and extension sandbox; published report; responsible disclosure programme and bug bounty
 
@@ -701,6 +725,7 @@ These items resolve deferred decisions from Phase 3.
 
 - [ ] **Enterprise SSO** — SAML 2.0 and OIDC; tokens in enterprise Vault, not browser cookies; session binding to machine identity
 - [ ] **SCIM 2.0 provisioning** — automated user lifecycle driven by IdP; deprovisioned users' Vault entries and shared namespaces revoked within one sync cycle
+- [ ] **Knowledge Isolation (Project Boundaries)** — strict index partitioning to ensure context from one client/project never bleeds into another
 - [ ] **Privileged access management** — named admin users can view (not export) any team member's connector health and audit log; cannot view index content or credentials
 
 ### Admin Console (Enterprise)
