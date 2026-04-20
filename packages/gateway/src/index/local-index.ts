@@ -407,6 +407,29 @@ export class LocalIndex {
     upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, true);
   }
 
+  setConnectorDepth(serviceId: string, depth: "metadata_only" | "summary" | "full"): void {
+    const rows = this.db
+      .query(`UPDATE sync_state SET depth = ? WHERE connector_id = ?`)
+      .run(depth, serviceId);
+    if (rows.changes === 0) {
+      // Row doesn't exist yet — insert with this depth.
+      this.db.run(
+        `INSERT INTO sync_state (connector_id, last_sync_at, next_sync_token, depth) VALUES (?, NULL, NULL, ?)`,
+        [serviceId, depth],
+      );
+    }
+  }
+
+  getConnectorDepth(serviceId: string): "metadata_only" | "summary" | "full" {
+    const row = this.db
+      .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
+      .get(serviceId) as { depth: string } | null | undefined;
+    if (row == null) {
+      throw new Error(`unknown connector: ${serviceId}`);
+    }
+    return row.depth as "metadata_only" | "summary" | "full";
+  }
+
   clearConnectorSyncCursor(serviceId: string): void {
     if (loadSchedulerState(this.db, serviceId) === null) {
       throw new Error(`Unknown connector: ${serviceId}`);
