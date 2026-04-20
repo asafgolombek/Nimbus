@@ -1,7 +1,10 @@
 import { runDataDelete } from "../commands/data-delete.ts";
 import { runDataExport } from "../commands/data-export.ts";
 import { runDataImport } from "../commands/data-import.ts";
+import { normalizeConnectorServiceId } from "../connectors/connector-catalog.ts";
+import { CONNECTOR_VAULT_SECRET_KEYS } from "../connectors/connector-secrets-manifest.ts";
 import type { KdfParams } from "../db/data-vault-crypto.ts";
+import { collectIndexMetrics } from "../db/metrics.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
@@ -92,6 +95,69 @@ async function handleDataDelete(
   return runDataDelete({ service, dryRun, vault, index });
 }
 
+export type ExportPreflightResult = {
+  lastExportAt: number | null;
+  estimatedSizeBytes: number;
+  itemCount: number;
+};
+
+export type DeletePreflightResult = {
+  service: string;
+  itemCount: number;
+  embeddingCount: number;
+  vaultKeyCount: number;
+};
+
+function handleGetExportPreflight(ctx: DataRpcContext): ExportPreflightResult {
+  if (ctx.index === undefined) {
+    return { lastExportAt: null, estimatedSizeBytes: 0, itemCount: 0 };
+  }
+  const db = ctx.index.getDatabase();
+  const metrics = collectIndexMetrics(db);
+  let lastExportAt: number | null = null;
+  try {
+    const row = db
+      .query(
+        "SELECT MAX(timestamp) AS ts FROM audit_log WHERE action_type = 'data.export' AND hitl_status = 'approved'",
+      )
+      .get() as { ts: number | null } | undefined;
+    lastExportAt = row?.ts ?? null;
+  } catch {
+    // audit_log may not exist in older schemas — ignore
+  }
+  return {
+    lastExportAt,
+    estimatedSizeBytes: metrics.indexSizeBytes,
+    itemCount: metrics.totalItems,
+  };
+}
+
+function handleGetDeletePreflight(params: unknown, ctx: DataRpcContext): DeletePreflightResult {
+  const p =
+    params !== null && typeof params === "object" ? (params as Record<string, unknown>) : null;
+  if (p === null || typeof p["service"] !== "string" || p["service"] === "") {
+    throw new DataRpcError(-32602, "data.getDeletePreflight requires service:string");
+  }
+  const service = p["service"];
+  if (ctx.index === undefined) {
+    const serviceId = normalizeConnectorServiceId(service);
+    const vaultKeyCount = serviceId !== null ? CONNECTOR_VAULT_SECRET_KEYS[serviceId].length : 0;
+    return { service, itemCount: 0, embeddingCount: 0, vaultKeyCount };
+  }
+  const db = ctx.index.getDatabase();
+  const metrics = collectIndexMetrics(db);
+  const itemCount = metrics.itemCountByService[service] ?? 0;
+  const embRow = db
+    .query(
+      "SELECT COUNT(DISTINCT ec.item_id) AS c FROM embedding_chunk ec JOIN item i ON ec.item_id = i.id WHERE i.service = ?",
+    )
+    .get(service) as { c: number } | undefined;
+  const embeddingCount = embRow?.c ?? 0;
+  const serviceId = normalizeConnectorServiceId(service);
+  const vaultKeyCount = serviceId !== null ? CONNECTOR_VAULT_SECRET_KEYS[serviceId].length : 0;
+  return { service, itemCount, embeddingCount, vaultKeyCount };
+}
+
 export async function dispatchDataRpc(
   method: string,
   params: unknown,
@@ -101,5 +167,9 @@ export async function dispatchDataRpc(
   if (method === "data.export") return { kind: "hit", value: await handleDataExport(rec, ctx) };
   if (method === "data.import") return { kind: "hit", value: await handleDataImport(rec, ctx) };
   if (method === "data.delete") return { kind: "hit", value: await handleDataDelete(rec, ctx) };
+  if (method === "data.getExportPreflight")
+    return { kind: "hit", value: handleGetExportPreflight(ctx) };
+  if (method === "data.getDeletePreflight")
+    return { kind: "hit", value: handleGetDeletePreflight(params, ctx) };
   return { kind: "miss" };
 }
