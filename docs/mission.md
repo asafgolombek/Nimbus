@@ -103,6 +103,18 @@ Security engineers face the same fragmentation problem, with higher stakes: the 
 
 ---
 
+## The Data Engineering Dimension
+
+Analytics engineers and data scientists live in a stack that is, if anything, more fragmented than the DevOps surface: source code in dbt, orchestration in Airflow, compute in Databricks or Snowflake, visualisation in Tableau or Looker. When a production dashboard goes red, the failure is usually five systems away from the person looking at it.
+
+**Unified metadata layer across the data stack.** One local index spans dbt models, Airflow or Dagster DAGs, Databricks notebooks, Snowflake tables and views, and Tableau / Looker dashboards. "Which dashboards depend on this model?" and "which notebooks read this table?" are answered in one query against the local index.
+
+**Root-cause correlation from dashboard to commit.** When a production Tableau or Looker dashboard fails, the agent assembles the chain — failing dashboard → upstream view → dbt model → warehouse table → orchestration DAG failure → the GitHub PR that changed the model — from indexed metadata. The same correlation that works for incidents works for broken pipelines.
+
+**Metadata-only by construction.** Warehouse and BI connectors ingest schema definitions (DDL), column tags, job statuses, and query plans. They do not ingest rows, result sets, or binary extracts — there is no code path in any connector that fetches them. The agent has a data catalog's visibility without the data-exfiltration surface of a SaaS catalog.
+
+**Sovereign data context for local LLMs.** Lineage reasoning and schema-aware query generation happen fully locally via Ollama. Schema structures and column names — which themselves can be sensitive — never leave the machine.
+
 ## The Security Compact
 
 Sovereignty requires responsibility. When your machine is the source of truth, the perimeter of trust is the machine itself — not a remote server with a dedicated security team.
@@ -134,6 +146,8 @@ This is the direct consequence of local sovereignty. The cloud model outsources 
 **Not a cloud management console.** Nimbus does not provision resources or manage IAM. It reads infrastructure state, surfaces drift, and executes specific consent-gated actions against your existing cloud tooling.
 
 **Not a log aggregator or APM.** Nimbus does not ingest or store your application logs or metrics. It queries summaries from the tools that already do — Datadog, Grafana, CloudWatch — and correlates them against the rest of your development context.
+
+**Not a data catalog or lineage server.** Nimbus indexes metadata about your data stack — schemas, column tags, DAGs, dashboards — so the agent can reason across it. It does not replace Atlan, Collibra, or DataHub; it does not ingest row data, run reconciliation pipelines, or publish a governed glossary.
 
 **Not a prototype.** Every design decision is tested and held to production standards — because for the person running it, it is production software.
 
