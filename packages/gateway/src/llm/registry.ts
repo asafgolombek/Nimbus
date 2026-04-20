@@ -114,6 +114,10 @@ export class LlmRegistry {
     );
   }
 
+  async getRouterStatus(): Promise<Awaited<ReturnType<LlmRouter["getStatus"]>>> {
+    return await this.router.getStatus();
+  }
+
   getDefault(taskType: string): { provider: string; modelName: string } | undefined {
     if (this.db === undefined) return undefined;
     const row = this.db

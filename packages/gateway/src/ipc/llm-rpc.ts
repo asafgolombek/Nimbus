@@ -98,6 +98,10 @@ export async function dispatchLlmRpc(
       ctx.notify("llm.modelUnloaded", { provider, modelName });
       return { kind: "hit", value: { isLoaded: false } };
     }
+    case "llm.getRouterStatus": {
+      const decisions = await ctx.registry.getRouterStatus();
+      return { kind: "hit", value: { decisions } };
+    }
     case "llm.setDefault": {
       const VALID_TASKS = new Set(["classification", "embedding", "reasoning", "generation"]);
       const VALID_PROVIDERS = new Set(["ollama", "llamacpp", "remote"]);

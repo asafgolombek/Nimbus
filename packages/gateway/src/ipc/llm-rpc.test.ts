@@ -136,6 +136,27 @@ describe("llm.loadModel / llm.unloadModel", () => {
   });
 });
 
+describe("llm.getRouterStatus", () => {
+  test("returns a routing decision per task type", async () => {
+    const getRouterStatus = mock(async () => ({
+      classification: { providerId: "ollama", modelName: "gemma:2b", reason: "default" },
+      reasoning: { providerId: "remote", modelName: "claude", reason: "air-gap off" },
+      summarisation: { providerId: "ollama", modelName: "llama3.2", reason: "default" },
+      agent_step: { providerId: "ollama", modelName: "llama3.2", reason: "default" },
+    }));
+    const registry = { getRouterStatus } as unknown as LlmRegistry;
+    const r = await dispatchLlmRpc("llm.getRouterStatus", null, { registry, notify: () => {} });
+    expect(r.kind).toBe("hit");
+    const val = (r as { kind: "hit"; value: { decisions: Record<string, unknown> } }).value;
+    expect(Object.keys(val.decisions).sort()).toEqual([
+      "agent_step",
+      "classification",
+      "reasoning",
+      "summarisation",
+    ]);
+  });
+});
+
 describe("llm.setDefault", () => {
   test("persists default per task type and echoes back", async () => {
     const setDefault = mock(async () => {});
