@@ -70,6 +70,34 @@ export async function dispatchLlmRpc(
       controller?.abort();
       return { kind: "hit", value: { cancelled } };
     }
+    case "llm.loadModel": {
+      const p = params as { provider?: string; modelName?: string } | null;
+      if (p === null || typeof p.modelName !== "string") {
+        throw new LlmRpcError(-32602, "loadModel requires modelName");
+      }
+      const provider = p.provider ?? "ollama";
+      if (provider !== "ollama" && provider !== "llamacpp") {
+        throw new LlmRpcError(-32602, `Unsupported provider: ${provider}`);
+      }
+      const modelName = p.modelName;
+      await ctx.registry.loadModel(provider, modelName);
+      ctx.notify("llm.modelLoaded", { provider, modelName });
+      return { kind: "hit", value: { isLoaded: true } };
+    }
+    case "llm.unloadModel": {
+      const p = params as { provider?: string; modelName?: string } | null;
+      if (p === null || typeof p.modelName !== "string") {
+        throw new LlmRpcError(-32602, "unloadModel requires modelName");
+      }
+      const provider = p.provider ?? "ollama";
+      if (provider !== "ollama" && provider !== "llamacpp") {
+        throw new LlmRpcError(-32602, `Unsupported provider: ${provider}`);
+      }
+      const modelName = p.modelName;
+      await ctx.registry.unloadModel(provider, modelName);
+      ctx.notify("llm.modelUnloaded", { provider, modelName });
+      return { kind: "hit", value: { isLoaded: false } };
+    }
     default:
       return { kind: "miss" };
   }

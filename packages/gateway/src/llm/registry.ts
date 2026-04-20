@@ -61,6 +61,27 @@ export class LlmRegistry {
     return result;
   }
 
+  async loadModel(provider: "ollama" | "llamacpp", modelName: string): Promise<void> {
+    const p = (this.router as unknown as { providers: Map<string, LlmProvider> }).providers?.get(
+      provider,
+    );
+    if (p === undefined) throw new Error(`Provider not registered: ${provider}`);
+    if (typeof (p as unknown as { loadModel?: unknown }).loadModel === "function") {
+      await (p as unknown as { loadModel: (m: string) => Promise<void> }).loadModel(modelName);
+    }
+    // Ollama auto-loads on first generate; this is a no-op for Ollama.
+  }
+
+  async unloadModel(provider: "ollama" | "llamacpp", modelName: string): Promise<void> {
+    const p = (this.router as unknown as { providers: Map<string, LlmProvider> }).providers?.get(
+      provider,
+    );
+    if (p === undefined) throw new Error(`Provider not registered: ${provider}`);
+    if (typeof (p as unknown as { unloadModel?: unknown }).unloadModel === "function") {
+      await (p as unknown as { unloadModel: (m: string) => Promise<void> }).unloadModel(modelName);
+    }
+  }
+
   async pullModel(
     provider: "ollama" | "llamacpp",
     modelName: string,

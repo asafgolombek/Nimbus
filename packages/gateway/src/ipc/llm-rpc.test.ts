@@ -97,3 +97,41 @@ describe("llm.cancelPull", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("llm.loadModel / llm.unloadModel", () => {
+  test("loadModel marks the model as loaded and returns isLoaded: true", async () => {
+    const loadModel = mock(async () => {});
+    const registry = { loadModel } as unknown as LlmRegistry;
+    const r = await dispatchLlmRpc(
+      "llm.loadModel",
+      { provider: "ollama", modelName: "gemma:2b" },
+      { registry, notify: () => {} },
+    );
+    expect(r.kind).toBe("hit");
+    expect((r as { kind: "hit"; value: { isLoaded: boolean } }).value.isLoaded).toBe(true);
+    expect(loadModel).toHaveBeenCalledWith("ollama", "gemma:2b");
+  });
+
+  test("unloadModel returns isLoaded: false", async () => {
+    const unloadModel = mock(async () => {});
+    const registry = { unloadModel } as unknown as LlmRegistry;
+    const r = await dispatchLlmRpc(
+      "llm.unloadModel",
+      { provider: "ollama", modelName: "gemma:2b" },
+      { registry, notify: () => {} },
+    );
+    expect((r as { kind: "hit"; value: { isLoaded: boolean } }).value.isLoaded).toBe(false);
+    expect(unloadModel).toHaveBeenCalledWith("ollama", "gemma:2b");
+  });
+
+  test("loadModel rejects unsupported provider", async () => {
+    const registry = { loadModel: mock(async () => {}) } as unknown as LlmRegistry;
+    await expect(
+      dispatchLlmRpc(
+        "llm.loadModel",
+        { provider: "remote", modelName: "x" },
+        { registry, notify: () => {} },
+      ),
+    ).rejects.toThrow();
+  });
+});
