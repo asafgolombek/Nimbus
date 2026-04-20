@@ -859,6 +859,32 @@ export class LocalIndex {
     this.db.close();
   }
 
+  getAuditSummary(): {
+    byOutcome: Record<string, number>;
+    byService: Record<string, number>;
+    total: number;
+  } {
+    const byOutcome: Record<string, number> = {};
+    const byService: Record<string, number> = {};
+    let total = 0;
+    const outcomes = this.db
+      .query("SELECT hitl_status AS outcome, COUNT(*) AS c FROM audit_log GROUP BY hitl_status")
+      .all() as { outcome: string; c: number }[];
+    for (const r of outcomes) {
+      byOutcome[r.outcome] = r.c;
+      total += r.c;
+    }
+    // Group by the first segment of action_type (e.g. "github.sync" → "github")
+    const services = this.db
+      .query("SELECT action_type, COUNT(*) AS c FROM audit_log GROUP BY action_type")
+      .all() as { action_type: string; c: number }[];
+    for (const r of services) {
+      const prefix = r.action_type.split(".")[0] ?? r.action_type;
+      byService[prefix] = (byService[prefix] ?? 0) + r.c;
+    }
+    return { byOutcome, byService, total };
+  }
+
   listAudit(limit: number): AuditEntry[] {
     const capped = Math.min(1000, Math.max(1, Math.floor(limit)));
     const rows = this.db

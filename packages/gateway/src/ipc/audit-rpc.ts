@@ -36,9 +36,13 @@ export async function dispatchAuditRpc(
     if (result.ok) idx.setAuditVerifiedThroughId(result.lastVerifiedId);
     return { kind: "hit", value: result };
   }
-  if (method === "audit.exportAll") {
+  if (method === "audit.exportAll" || method === "audit.export") {
     const idx = ensureIndex(ctx);
     return { kind: "hit", value: idx.listAuditWithChain(10_000) };
+  }
+  if (method === "audit.getSummary") {
+    const idx = ensureIndex(ctx);
+    return { kind: "hit", value: idx.getAuditSummary() };
   }
   return { kind: "miss" };
 }
