@@ -10,6 +10,7 @@ import {
   handleConnectorPause,
   handleConnectorRemove,
   handleConnectorResume,
+  handleConnectorSetConfig,
   handleConnectorSetInterval,
   handleConnectorStatus,
   handleConnectorSync,
@@ -40,6 +41,8 @@ export async function dispatchConnectorRpc(options: {
       return handleConnectorPause(ctx);
     case "connector.resume":
       return handleConnectorResume(ctx);
+    case "connector.setConfig":
+      return handleConnectorSetConfig(ctx);
     case "connector.setInterval":
       return handleConnectorSetInterval(ctx);
     case "connector.status":

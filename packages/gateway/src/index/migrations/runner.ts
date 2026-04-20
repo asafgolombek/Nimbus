@@ -29,6 +29,7 @@ import { GRAPH_RELATION_TYPES_V12_SQL } from "../graph-relation-types-v12-sql.ts
 import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
 import { LAN_PEERS_V19_SQL } from "../lan-peers-v19-sql.ts";
 import { LLM_CONTEXT_WINDOW_V16_ALTER_SQL, LLM_MODELS_V16_SQL } from "../llm-models-v16-sql.ts";
+import { LLM_TASK_DEFAULTS_V20_SQL } from "../llm-task-defaults-v20-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
@@ -294,6 +295,14 @@ function migrateIndexedV18ToV19(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV19ToV20(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(LLM_TASK_DEFAULTS_V20_SQL);
+    db.exec("PRAGMA user_version = 20");
+    recordMigration(db, 20, "llm_task_defaults (per-task-type LLM model defaults)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -314,6 +323,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 16, toVersion: 17, apply: migrateIndexedV16ToV17 },
   { fromVersion: 17, toVersion: 18, apply: migrateIndexedV17ToV18 },
   { fromVersion: 18, toVersion: 19, apply: migrateIndexedV18ToV19 },
+  { fromVersion: 19, toVersion: 20, apply: migrateIndexedV19ToV20 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -336,6 +346,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "sub_task_results (backfilled)",
   "audit_log BLAKE3 chain + _meta (backfilled)",
   "lan_peers (LAN remote-access peer registry) (backfilled)",
+  "llm_task_defaults (per-task-type LLM model defaults) (backfilled)",
 ];
 
 /**

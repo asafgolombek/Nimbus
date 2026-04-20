@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import type { Server } from "bun";
-import type { UpdaterOptions } from "./updater.ts";
+import type { UpdaterEmit, UpdaterOptions } from "./updater.ts";
 import { Updater } from "./updater.ts";
 import { buildSignedManifest, jsonResponse, makeKeypair } from "./updater-test-fixtures.ts";
 
@@ -118,5 +118,57 @@ describe("Updater state machine", () => {
     await expect(u.applyUpdate()).rejects.toThrow(/signature|hash/i);
     expect(invocations).toEqual([]);
     expect(events).toContain("updater.rolledBack");
+  });
+
+  test("applyUpdate emits downloadProgress events during streaming fetch", async () => {
+    const progressEvents: Array<{ bytes: number; total: number }> = [];
+    const emit = mock((name: Parameters<UpdaterEmit>[0], payload?: Record<string, unknown>) => {
+      if (name === "updater.downloadProgress") {
+        progressEvents.push(payload as { bytes: number; total: number });
+      }
+    }) as UpdaterEmit;
+
+    const chunk = new Uint8Array(256);
+    downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => {
+        const stream = new ReadableStream({
+          start(c) {
+            c.enqueue(chunk);
+            c.enqueue(chunk);
+            c.close();
+          },
+        });
+        return new Response(stream, {
+          headers: { "content-length": "512", "content-type": "application/octet-stream" },
+        });
+      },
+    });
+
+    // Use a valid manifest signed against the real binary so verification fails
+    // at hash/sig rather than before progress events are emitted
+    const binary = new Uint8Array(randomBytes(512));
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        jsonResponse(
+          buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`),
+        ),
+    });
+
+    const u = makeUpdater({ emit });
+    await u.checkNow();
+
+    // applyUpdate will throw at hash/sig verification (tampered binary), but
+    // downloadProgress events must have been emitted before that point
+    await u.applyUpdate().catch(() => {});
+
+    expect(progressEvents.length).toBeGreaterThanOrEqual(1);
+    // total comes from content-length header; some servers omit it for streaming (ok to be 0)
+    expect(typeof progressEvents[0]?.total).toBe("number");
+    const last = progressEvents[progressEvents.length - 1]!;
+    expect(last.bytes).toBe(512);
   });
 });

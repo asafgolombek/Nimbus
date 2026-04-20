@@ -110,6 +110,29 @@ export class LlmRouter {
     return meta.parameterCount >= this.config.minReasoningParams;
   }
 
+  async getStatus(): Promise<
+    Record<LlmTaskType, { providerId: string; modelName: string; reason: string } | undefined>
+  > {
+    const tasks: LlmTaskType[] = ["classification", "reasoning", "summarisation", "agent_step"];
+    const out: Partial<
+      Record<LlmTaskType, { providerId: string; modelName: string; reason: string } | undefined>
+    > = {};
+    for (const t of tasks) {
+      const provider = await this.selectProvider(t);
+      if (provider === undefined) {
+        out[t] = undefined;
+        continue;
+      }
+      const isLocal = LOCAL_PROVIDER_IDS.has(provider.providerId);
+      const reason = !isLocal && this.config.enforceAirGap ? "air-gap bypassed" : "default";
+      out[t] = { providerId: provider.providerId, modelName: "", reason };
+    }
+    return out as Record<
+      LlmTaskType,
+      { providerId: string; modelName: string; reason: string } | undefined
+    >;
+  }
+
   private providerPriority(_task: LlmTaskType): LlmProviderKind[] {
     if (this.config.preferLocal) {
       return ["ollama", "llamacpp", "remote"];

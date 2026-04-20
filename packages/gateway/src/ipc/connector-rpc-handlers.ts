@@ -188,6 +188,46 @@ export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): Con
   return { kind: "hit", value: { ok: true } };
 }
 
+export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
+  const { rec, localIndex, syncScheduler } = ctx;
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
+  const intervalMs = rec?.["intervalMs"];
+  const enabled = rec?.["enabled"];
+  if (typeof intervalMs === "number") {
+    if (!Number.isFinite(intervalMs) || intervalMs < 1) {
+      throw new ConnectorRpcError(-32602, "Invalid intervalMs");
+    }
+    const ms = Math.floor(intervalMs);
+    localIndex.setConnectorSyncIntervalMs(id, ms, Date.now());
+    if (syncScheduler !== undefined) {
+      syncScheduler.setInterval(id, ms);
+    }
+  }
+  if (typeof enabled === "boolean") {
+    if (enabled) {
+      if (syncScheduler === undefined) {
+        localIndex.resumeConnectorSync(id);
+      } else {
+        syncScheduler.resume(id);
+      }
+    } else {
+      if (syncScheduler === undefined) {
+        localIndex.pauseConnectorSync(id);
+      } else {
+        syncScheduler.pause(id);
+      }
+    }
+  }
+  return {
+    kind: "hit",
+    value: {
+      service: id,
+      intervalMs: typeof intervalMs === "number" ? Math.floor(intervalMs) : null,
+      enabled: typeof enabled === "boolean" ? enabled : null,
+    },
+  };
+}
+
 export function handleConnectorStatus(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
   const { rec, localIndex } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
