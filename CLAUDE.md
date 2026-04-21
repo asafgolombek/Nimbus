@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C 🔵 Active)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C Plans 1–3 ✅ on branch · Plans 4–5 🔵 Pending)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -95,7 +95,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
 | `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` — includes credential redaction (5 forbidden keys) |
-| `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, `ProfileListResult`, `TelemetryStatus`, error types |
+| `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, `ProfileListResult`, `TelemetryStatus`, `RouterDecision`/`RouterStatusResult`, `LlmModelInfo`/`LlmListModelsResult`, `LlmAvailabilityResult`, `LlmPullStartedResult`/`LlmPullProgressPayload`/`LlmPullTerminalPayload`, error types |
 | `packages/ui/src/store/index.ts` | `useNimbusStore` — Zustand v5 store with `persist` middleware; 11 slices composed; `partialize` whitelist excludes secrets |
 | `packages/ui/src/store/partialize.ts` | `persistPartialize` — 5-key whitelist + 5-key forbidden deep-scrub for Zustand persist |
 | `packages/ui/src/providers/GatewayConnectionProvider.tsx` | `onConnectionState` mirror + first-run routing logic |
@@ -107,6 +107,11 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/ui/src/pages/Settings.tsx` | Settings layout — `SettingsSidebar` + `<Outlet />` for nested panel routes |
 | `packages/ui/src/pages/settings/ProfilesPanel.tsx` | Profiles panel — list, create, switch, delete with typed-name confirm guard |
 | `packages/ui/src/pages/settings/TelemetryPanel.tsx` | Telemetry panel — toggle, counter cards, payload sample expander |
+| `packages/ui/src/pages/settings/ConnectorsPanel.tsx` | Connectors panel — interval editor (60 s min inline-validated), depth selector, enable toggle, `connector.configChanged` reconcile, Dashboard deep-link highlight |
+| `packages/ui/src/pages/settings/connectors/interval-parts.ts` | Interval input parser/formatter shared by `ConnectorsPanel` |
+| `packages/ui/src/pages/settings/ModelPanel.tsx` | Model panel — `RouterStatus` cards, per-task default pickers, load/unload row actions, `PullDialog` launcher, re-attaches to in-flight pull via persisted `activePullId` |
+| `packages/ui/src/components/settings/model/RouterStatus.tsx` | Per-task router decision cards driven by `llm.getRouterStatus`; emits `llm.setDefault` |
+| `packages/ui/src/components/settings/model/PullDialog.tsx` | Streaming model pull dialog — provider radio filtered by `llm.getStatus`, 15 s stall detection via `setTimeout`, cancel via `llm.cancelPull` |
 | `packages/ui/src/components/hitl/HitlPopupPage.tsx` | Head-of-queue consent dialog; Approve / Reject → `consent.respond` |
 | `packages/ui/src/components/hitl/StructuredPreview.tsx` | Recursive, XSS-safe preview of `consent.request` details |
 | `packages/ui/src/components/chrome/Sidebar.tsx` | Labelled sidebar nav with pending-HITL badge |
@@ -126,8 +131,8 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/ui/src/store/slices/settings.ts` | Settings slice — `activePanel` navigation state |
 | `packages/ui/src/store/slices/profile.ts` | Profile slice — list, active, `lastFetchAt`, `actionInFlight`; persisted |
 | `packages/ui/src/store/slices/telemetry.ts` | Telemetry slice — `TelemetryStatus` + `telemetryActionInFlight`; transient |
-| `packages/ui/src/store/slices/connectors.ts` | Connectors stub slice — `PersistedConnectorRow[]`; persisted |
-| `packages/ui/src/store/slices/model.ts` | Model stub slice — `installedModels` + `activePullId`; persisted |
+| `packages/ui/src/store/slices/connectors.ts` | Connectors slice — `PersistedConnectorRow[]` (persisted) + transient `perServiceInFlight` + `highlightService` + `patchConnectorRow` |
+| `packages/ui/src/store/slices/model.ts` | Model slice — `installedModels` + `activePullId` (persisted) + transient `routerStatus`, `pullProgress`, `pullStalled`, `loadedKeys` |
 | `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
 | `docs/manual-smoke-ws5b.md` | WS5-B manual smoke checklist |
 | `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (38), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
