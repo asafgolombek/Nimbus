@@ -41,7 +41,6 @@ function dotClass(h: ConnectorHealth): string {
       return "bg-orange-500";
     case "error":
       return "bg-red-500";
-    case "paused":
     default:
       return "bg-gray-400";
   }
@@ -79,7 +78,6 @@ function ConnectorRow({ row, inFlight, writeDisabled, highlighted, onPatch }: Ro
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Resync when the upstream row changes (e.g. configChanged reconcile).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally resyncing on row intervalMs change
   useEffect(() => {
     const next = fromMs(row.intervalMs);
     setParts(next);
