@@ -1140,6 +1140,13 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
 
   const copyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Tracks whether the clipboard currently holds the recovery seed.
+   * Using a ref (not state) so the unmount-cleanup effect reads the live
+   * value — an empty-deps effect would otherwise capture the initial
+   * `false`/`null` and skip the clear on an early close.
+   */
+  const clipboardActiveRef = useRef(false);
 
   const cancelCountdown = useCallback(() => {
     if (copyTimerRef.current !== null) {
@@ -1150,6 +1157,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       clearTimeout(clearTimerRef.current);
       clearTimerRef.current = null;
     }
+    clipboardActiveRef.current = false;
     setCountdownMs(null);
   }, []);
 
@@ -1158,12 +1166,14 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       // On any unmount: scrub local secrets + clear clipboard if countdown was active.
       setPassphrase("");
       setConfirmPassphrase("");
-      if (countdownMs !== null) {
+      if (clipboardActiveRef.current) {
         void writeText("");
       }
       cancelCountdown();
     };
-    // Intentionally empty deps — runs only on unmount.
+    // Intentionally empty deps — runs only on unmount. `clipboardActiveRef`
+    // is a ref, so its `.current` reads the live value at unmount time
+    // without re-running the effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1237,6 +1247,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
     if (result === null) return;
     await writeText(result.recoverySeed);
     cancelCountdown();
+    clipboardActiveRef.current = true;
     setCountdownMs(30_000);
     copyTimerRef.current = setInterval(() => {
       setCountdownMs((ms) => (ms === null ? null : Math.max(0, ms - 1000)));
@@ -1510,8 +1521,9 @@ Create `packages/ui/src/components/settings/data/ImportWizard.tsx`:
 ```tsx
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createIpcClient } from "../../../ipc/client";
+import { useNavigate } from "react-router-dom";
 import { useIpcSubscription } from "../../../hooks/useIpcSubscription";
+import { createIpcClient } from "../../../ipc/client";
 import type {
   DataImportProgressPayload,
   DataImportVersionIncompatibleData,
@@ -1549,12 +1561,14 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
   const [seedWords, setSeedWords] = useState<string[]>(() => Array<string>(12).fill(""));
   const [typedConfirm, setTypedConfirm] = useState("");
   const [errorCopy, setErrorCopy] = useState<string | null>(null);
+  const [errorDeepLink, setErrorDeepLink] = useState<string | null>(null);
   const [credentialsRestored, setCredentialsRestored] = useState(0);
   const [oauthEntriesFlagged, setOauthEntriesFlagged] = useState(0);
 
   const setImportFlow = useNimbusStore((s) => s.setImportFlow);
   const setImportProgress = useNimbusStore((s) => s.setImportProgress);
   const progress = useNimbusStore((s) => s.importFlow.progress);
+  const navigate = useNavigate();
 
   useEffect(() => {
     return () => {
@@ -1610,11 +1624,15 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
       const rpcErr = err instanceof JsonRpcError ? err : null;
       if (rpcErr !== null && rpcErr.code === -32010) {
         const data = rpcErr.data as DataImportVersionIncompatibleData | undefined;
-        setErrorCopy(
-          data?.relation === "archive_newer"
-            ? "This backup is from a newer Nimbus. Update Nimbus, then retry."
-            : "This backup is from an older, unsupported Nimbus. No migration path in v0.1.0.",
-        );
+        if (data?.relation === "archive_newer") {
+          setErrorCopy("This backup is from a newer Nimbus. Update Nimbus, then retry.");
+          setErrorDeepLink("/settings/updates");
+        } else {
+          setErrorCopy(
+            "This backup is from an older, unsupported Nimbus. No migration path in v0.1.0.",
+          );
+          setErrorDeepLink(null);
+        }
         setImportFlow({ status: "error", errorKind: "terminal" });
         setStep("error-terminal");
         return;
@@ -1712,28 +1730,34 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
                 className="w-full px-2 py-1 border border-[var(--color-border)] rounded"
               />
             ) : (
-              <div className="grid grid-cols-3 gap-2" data-testid="bip39-grid">
-                {seedWords.map((w, i) => (
-                  <input
-                    // eslint-disable-next-line react/no-array-index-key
-                    key={i}
-                    type="text"
-                    aria-label={`Word ${i + 1}`}
-                    value={w}
-                    onChange={(e) => {
-                      const next = [...seedWords];
-                      next[i] = e.target.value.toLowerCase();
-                      setSeedWords(next);
-                    }}
-                    className={[
-                      "px-2 py-1 border rounded text-sm",
-                      w.length === 0 || looksLikeBip39Word(w)
-                        ? "border-[var(--color-border)]"
-                        : "border-[var(--color-danger)]",
-                    ].join(" ")}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-2" data-testid="bip39-grid">
+                  {seedWords.map((w, i) => (
+                    <input
+                      // eslint-disable-next-line react/no-array-index-key
+                      key={i}
+                      type="text"
+                      aria-label={`Word ${i + 1}`}
+                      value={w}
+                      onChange={(e) => {
+                        const next = [...seedWords];
+                        next[i] = e.target.value.toLowerCase();
+                        setSeedWords(next);
+                      }}
+                      className={[
+                        "px-2 py-1 border rounded text-sm",
+                        w.length === 0 || looksLikeBip39Word(w)
+                          ? "border-[var(--color-border)]"
+                          : "border-[var(--color-danger)]",
+                      ].join(" ")}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  Full word validation happens during import — an invalid word surfaces as a
+                  decryption error you can retry.
+                </p>
+              </>
             )}
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setStep("file")}>
@@ -1855,6 +1879,18 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
               >
                 Close
               </button>
+              {errorDeepLink !== null && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    navigate(errorDeepLink);
+                  }}
+                  className="px-3 py-1.5 rounded-md bg-[var(--color-accent)] text-white"
+                >
+                  Go to Updates
+                </button>
+              )}
             </div>
           </>
         )}
@@ -2599,6 +2635,12 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: (...args: unknown[]) => openMock(...(args as [])),
 }));
 
+const navigateMock = vi.fn<(to: string) => void>();
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return { ...actual, useNavigate: () => navigateMock };
+});
+
 function resetStore() {
   useNimbusStore.setState({
     importFlow: { status: "idle" },
@@ -2665,7 +2707,7 @@ describe("ImportWizard — error paths", () => {
     resetStore();
   });
 
-  it("-32010 archive_newer → terminal dialog with 'Update Nimbus' copy", async () => {
+  it("-32010 archive_newer → terminal dialog with 'Update Nimbus' copy + Go-to-Updates deep link", async () => {
     dataImportMock.mockRejectedValue(
       new JsonRpcError(-32010, "version mismatch", {
         kind: "version_incompatible",
@@ -2682,9 +2724,12 @@ describe("ImportWizard — error paths", () => {
       expect(screen.getByText(/newer Nimbus/i)).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: /Retry/ })).not.toBeInTheDocument();
+    const goBtn = screen.getByRole("button", { name: /Go to Updates/ });
+    await user.click(goBtn);
+    expect(navigateMock).toHaveBeenCalledWith("/settings/updates");
   });
 
-  it("-32010 archive_older_unsupported → terminal dialog with 'older, unsupported' copy", async () => {
+  it("-32010 archive_older_unsupported → no Go-to-Updates button", async () => {
     dataImportMock.mockRejectedValue(
       new JsonRpcError(-32010, "version mismatch", {
         kind: "version_incompatible",
@@ -2700,6 +2745,7 @@ describe("ImportWizard — error paths", () => {
     await vi.waitFor(() => {
       expect(screen.getByText(/older, unsupported Nimbus/i)).toBeInTheDocument();
     });
+    expect(screen.queryByRole("button", { name: /Go to Updates/ })).not.toBeInTheDocument();
   });
 
   it("-32002 decryption_failed shows retryable inline error", async () => {
