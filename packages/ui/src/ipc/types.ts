@@ -211,3 +211,113 @@ export interface ConnectorConfigChangedPayload {
   readonly depth: "metadata_only" | "summary" | "full";
   readonly enabled: boolean;
 }
+
+// ---- WS5-C Plan 4 additions (Audit + Updates panels) ----
+
+/** `audit.getSummary` response — counts by outcome and by first-segment service. */
+export interface AuditSummary {
+  readonly byOutcome: Readonly<Record<string, number>>;
+  readonly byService: Readonly<Record<string, number>>;
+  readonly total: number;
+}
+
+/** `audit.verify` success result. */
+export interface AuditVerifyOk {
+  readonly ok: true;
+  readonly lastVerifiedId: number;
+  readonly totalChecked: number;
+}
+
+/** `audit.verify` failure result — chain broken at `brokenAtId`. */
+export interface AuditVerifyBroken {
+  readonly ok: false;
+  readonly brokenAtId: number;
+  readonly expectedHash: string;
+  readonly actualHash: string;
+}
+
+export type AuditVerifyResult = AuditVerifyOk | AuditVerifyBroken;
+
+/**
+ * One row from `audit.export` — includes the BLAKE3 row hash and prev hash.
+ * Distinct from `AuditEntry` (the lighter `audit.list` shape), which omits hashes
+ * and remaps fields for the Dashboard's audit feed.
+ */
+export interface AuditExportRow {
+  readonly id: number;
+  readonly actionType: string;
+  readonly hitlStatus: "approved" | "rejected" | "not_required";
+  readonly actionJson: string;
+  readonly timestamp: number;
+  readonly rowHash: string;
+  readonly prevHash: string;
+}
+
+/** `updater.getStatus` response — mirrors `UpdaterStatus` in `packages/gateway/src/updater/types.ts`. */
+export type UpdaterStateName =
+  | "idle"
+  | "checking"
+  | "downloading"
+  | "verifying"
+  | "applying"
+  | "rolled_back"
+  | "failed";
+
+export interface UpdaterStatus {
+  readonly state: UpdaterStateName;
+  readonly currentVersion: string;
+  readonly configUrl: string;
+  readonly lastCheckAt?: string;
+  readonly lastError?: string;
+}
+
+/** `updater.checkNow` response. */
+export interface UpdaterCheckResult {
+  readonly currentVersion: string;
+  readonly latestVersion: string;
+  readonly updateAvailable: boolean;
+  readonly notes?: string;
+}
+
+/** `updater.applyUpdate` response — `jobId` is opaque, used only for log correlation. */
+export interface UpdaterApplyStarted {
+  readonly jobId: string;
+}
+
+/** `updater.rollback` response. */
+export interface UpdaterRollbackResult {
+  readonly ok: true;
+}
+
+/** `updater.updateAvailable` notification payload. */
+export interface UpdaterUpdateAvailablePayload {
+  readonly version: string;
+  readonly notes?: string;
+}
+
+/** `updater.downloadProgress` notification payload. */
+export interface UpdaterDownloadProgressPayload {
+  readonly receivedBytes: number;
+  readonly totalBytes?: number;
+}
+
+/** `updater.restarting` notification payload — fires *before* the Gateway socket closes. */
+export interface UpdaterRestartingPayload {
+  readonly fromVersion: string;
+  readonly toVersion: string;
+}
+
+/** `updater.rolledBack` notification payload. */
+export interface UpdaterRolledBackPayload {
+  readonly reason: "download_failed" | "hash_mismatch" | "signature_invalid" | "installer_failed";
+}
+
+/** `updater.verifyFailed` notification payload. */
+export interface UpdaterVerifyFailedPayload {
+  readonly reason: "hash_mismatch" | "signature_invalid";
+}
+
+/** `diag.getVersion` response. */
+export interface DiagVersionResult {
+  readonly version: string;
+}

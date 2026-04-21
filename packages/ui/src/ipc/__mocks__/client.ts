@@ -39,6 +39,16 @@ export const llmUnloadModelMock =
 export const llmSetDefaultMock =
   vi.fn<(taskType: string, provider: string, modelName: string) => Promise<unknown>>();
 
+// WS5-C Plan 4 additions
+export const auditGetSummaryMock = vi.fn<() => Promise<unknown>>();
+export const auditVerifyMock = vi.fn<(full?: boolean) => Promise<unknown>>();
+export const auditExportMock = vi.fn<() => Promise<unknown>>();
+export const updaterGetStatusMock = vi.fn<() => Promise<unknown>>();
+export const updaterCheckNowMock = vi.fn<() => Promise<unknown>>();
+export const updaterApplyUpdateMock = vi.fn<() => Promise<unknown>>();
+export const updaterRollbackMock = vi.fn<() => Promise<unknown>>();
+export const diagGetVersionMock = vi.fn<() => Promise<unknown>>();
+
 export const createIpcClient = () => ({
   call: callMock,
   subscribe: subscribeMock,
@@ -62,6 +72,14 @@ export const createIpcClient = () => ({
   llmLoadModel: llmLoadModelMock,
   llmUnloadModel: llmUnloadModelMock,
   llmSetDefault: llmSetDefaultMock,
+  auditGetSummary: auditGetSummaryMock,
+  auditVerify: auditVerifyMock,
+  auditExport: auditExportMock,
+  updaterGetStatus: updaterGetStatusMock,
+  updaterCheckNow: updaterCheckNowMock,
+  updaterApplyUpdate: updaterApplyUpdateMock,
+  updaterRollback: updaterRollbackMock,
+  diagGetVersion: diagGetVersionMock,
 });
 
 export const __resetIpcClientForTests = () => {};

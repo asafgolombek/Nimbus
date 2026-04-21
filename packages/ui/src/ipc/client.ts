@@ -2,9 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   type AuditEntry,
+  type AuditExportRow,
+  type AuditSummary,
+  type AuditVerifyResult,
   type ConnectionState,
   type ConnectorConfigPatch,
   type ConnectorStatus,
+  type DiagVersionResult,
   GatewayOfflineError,
   type IndexMetrics,
   JsonRpcError,
@@ -18,6 +22,10 @@ import {
   type ProfileListResult,
   type RouterStatusResult,
   type TelemetryStatus,
+  type UpdaterApplyStarted,
+  type UpdaterCheckResult,
+  type UpdaterRollbackResult,
+  type UpdaterStatus,
 } from "./types";
 
 export interface NimbusIpcClient {
@@ -57,6 +65,15 @@ export interface NimbusIpcClient {
     provider: "ollama" | "llamacpp" | "remote",
     modelName: string,
   ): Promise<{ taskType: LlmTaskType; provider: string; modelName: string }>;
+  /** WS5-C Plan 4 additions — Audit + Updates panels. */
+  auditGetSummary(): Promise<AuditSummary>;
+  auditVerify(full?: boolean): Promise<AuditVerifyResult>;
+  auditExport(): Promise<ReadonlyArray<AuditExportRow>>;
+  updaterGetStatus(): Promise<UpdaterStatus>;
+  updaterCheckNow(): Promise<UpdaterCheckResult>;
+  updaterApplyUpdate(): Promise<UpdaterApplyStarted>;
+  updaterRollback(): Promise<UpdaterRollbackResult>;
+  diagGetVersion(): Promise<DiagVersionResult>;
 }
 
 const FORBIDDEN_VALUE_KEYS: readonly string[] = [
@@ -209,6 +226,52 @@ export function createIpcClient(): NimbusIpcClient {
     },
     async llmSetDefault(taskType, provider, modelName) {
       return await this.call("llm.setDefault", { taskType, provider, modelName });
+    },
+    async auditGetSummary(): Promise<AuditSummary> {
+      const res = await this.call<unknown>("audit.getSummary", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("audit.getSummary: expected object");
+      return res as AuditSummary;
+    },
+    async auditVerify(full = false): Promise<AuditVerifyResult> {
+      const res = await this.call<unknown>("audit.verify", { full });
+      if (typeof res !== "object" || res === null) throw new Error("audit.verify: expected object");
+      return res as AuditVerifyResult;
+    },
+    async auditExport(): Promise<ReadonlyArray<AuditExportRow>> {
+      const res = await this.call<unknown>("audit.export", {});
+      if (!Array.isArray(res)) throw new Error("audit.export: expected array");
+      return res as ReadonlyArray<AuditExportRow>;
+    },
+    async updaterGetStatus(): Promise<UpdaterStatus> {
+      const res = await this.call<unknown>("updater.getStatus", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("updater.getStatus: expected object");
+      return res as UpdaterStatus;
+    },
+    async updaterCheckNow(): Promise<UpdaterCheckResult> {
+      const res = await this.call<unknown>("updater.checkNow", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("updater.checkNow: expected object");
+      return res as UpdaterCheckResult;
+    },
+    async updaterApplyUpdate(): Promise<UpdaterApplyStarted> {
+      const res = await this.call<unknown>("updater.applyUpdate", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("updater.applyUpdate: expected object");
+      return res as UpdaterApplyStarted;
+    },
+    async updaterRollback(): Promise<UpdaterRollbackResult> {
+      const res = await this.call<unknown>("updater.rollback", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("updater.rollback: expected object");
+      return res as UpdaterRollbackResult;
+    },
+    async diagGetVersion(): Promise<DiagVersionResult> {
+      const res = await this.call<unknown>("diag.getVersion", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("diag.getVersion: expected object");
+      return res as DiagVersionResult;
     },
   };
   singleton = client;
