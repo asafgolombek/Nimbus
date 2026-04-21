@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { persistPartialize } from "./partialize";
+import { type AuditSlice, createAuditSlice } from "./slices/audit";
 import { type ConnectionSlice, createConnectionSlice } from "./slices/connection";
 import { type ConnectorsSlice, createConnectorsSlice } from "./slices/connectors";
 import { createDashboardSlice, type DashboardSlice } from "./slices/dashboard";
@@ -23,7 +24,8 @@ export type NimbusStore = ConnectionSlice &
   ProfileSlice &
   TelemetrySlice &
   ConnectorsSlice &
-  ModelSlice;
+  ModelSlice &
+  AuditSlice;
 
 export const useNimbusStore = create<NimbusStore>()(
   persist(
@@ -39,6 +41,7 @@ export const useNimbusStore = create<NimbusStore>()(
       ...createTelemetrySlice(...a),
       ...createConnectorsSlice(...a),
       ...createModelSlice(...a),
+      ...createAuditSlice(...a),
     }),
     {
       name: "nimbus-ui-store",
