@@ -225,7 +225,7 @@ Each wrapper forwards named params as JSON-RPC params, applies a lightweight run
 | Event | Payload type | Consumer |
 |---|---|---|
 | `data.exportProgress` | `DataExportProgressPayload` | `ExportWizard` → `slice.exportFlow.progress` |
-| `data.exportCompleted` | `{ path: string, itemsExported: number }` | Informational only (export completion carries the seed and comes back via RPC result, not this notification) |
+| `data.exportCompleted` | `{ path: string, itemsExported: number }` | Informational only. Terminal state for the wizard is driven by the `dataExport` RPC's resolution value (which uniquely carries `recoverySeed` + `recoverySeedGenerated`); the notification's `itemsExported` field overlaps with the RPC result and must not be used as a parallel source of truth — the RPC value wins. |
 | `data.importProgress` | `DataImportProgressPayload` | `ImportWizard` → `slice.importFlow.progress` |
 | `data.importCompleted` | `DataImportCompletedPayload` | Informational only — the terminal toast + reload is driven by the `dataImport` RPC's resolution value (which includes `oauthEntriesFlagged`). The notification is subscribed for robustness (e.g., logging) but not load-bearing. |
 
@@ -260,13 +260,13 @@ Panel-level concerns:
 4-step internal state: `"scope" | "passphrase" | "destination" | "exporting" | "seed" | "done" | "error"`.
 
 - **Step 1 · Scope.** Single toggle: "Include search index (.db)" (default on). Cancel | Next.
-- **Step 2 · Passphrase.** Two masked inputs (passphrase + confirm). Live `zxcvbn` strength bar. Gate: `length ≥ 12 && passphrase === confirm && zxcvbn.score ≥ 2`.
-- **Step 3 · Destination.** Tauri `plugin-dialog.save({ filters: [{ name: "Nimbus backup", extensions: ["tar.gz"] }] })`. On return, run `plugin-fs.exists(path)` — if true, render an inline overwrite-warn sub-step ("Overwrite `<filename>`?") before submit.
-- **Apply.** Dispatch `slice.exportFlow = { status: "running" }`. Subscribe to `data.exportProgress` → `setExportProgress`. Call `dataExport({ output, passphrase, includeIndex })`. Progress bar reads from slice.
+- **Step 2 · Passphrase.** Two masked inputs (passphrase + confirm). Live `zxcvbn` strength bar. Gate: `length ≥ 12 && passphrase === confirm && zxcvbn.score ≥ 3`. (Raised from the parent spec's `≥ 2`: this backup contains the entire Vault including OAuth tokens and per-connector PATs; a "Fair" or better passphrase is the correct floor for a file that may sit on cloud-synced disks indefinitely.)
+- **Step 3 · Destination.** Tauri `plugin-dialog.save({ defaultPath: "nimbus-backup-YYYY-MM-DD.tar.gz", filters: [{ name: "Nimbus backup", extensions: ["tar.gz"] }] })` — `defaultPath` uses the local date (ISO `YYYY-MM-DD`) so the user gets a sensible filename out of the box. On return, run `plugin-fs.exists(path)` — if true, render an inline overwrite-warn sub-step ("Overwrite `<filename>`?") before submit.
+- **Apply.** Dispatch `slice.exportFlow = { status: "running" }`. Subscribe to `data.exportProgress` → `setExportProgress`. Call `dataExport({ output, passphrase, includeIndex })`. Progress bar reads from slice; when the latest progress payload has `totalBytes === undefined`, the bar switches to an **indeterminate (pulsing)** variant so the user sees the operation is still active rather than a frozen 0 %.
 - **Step 4 · Seed modal** — branches on `recoverySeedGenerated`:
-  - `true`: non-dismissable modal; mnemonic on gray background; `Copy` button triggers `plugin-clipboard-manager.writeText` and starts a 30-s auto-clear countdown ring (cancellable on modal close or re-copy); "I have stored this seed somewhere safe" required checkbox; `Done` button gated on checkbox.
+  - `true`: non-dismissable modal; mnemonic on gray background; a short warning line above the mnemonic reads "**Nimbus cannot recover this seed for you if you lose it.**"; `Copy` button triggers `plugin-clipboard-manager.writeText` and starts a 30-s auto-clear countdown ring (cancellable on modal close or re-copy); "I have stored this seed somewhere safe" required checkbox; `Done` button gated on checkbox.
   - `false`: small dismissable reminder card ("Recovery seed unchanged — keep your saved copy safe"); no mnemonic; `Done` immediately available.
-- **Unmount cleanup.** `useEffect` return scrubs local `passphrase`, `confirm`, `recoverySeed` React state. Nothing sensitive enters the store slice beyond terminal status.
+- **Unmount cleanup.** `useEffect` return scrubs local `passphrase`, `confirm`, `recoverySeed` React state. **If the 30-s clipboard countdown is still active at unmount** (user clicked Done or the modal closed for any reason before the timer fired), the cleanup calls `plugin-clipboard-manager.writeText("")` immediately so the seed does not linger in the OS clipboard. If the countdown already expired or was never started (user never hit Copy), no clipboard write happens. Nothing sensitive enters the store slice beyond terminal status.
 
 ### 4.3 `ImportWizard.tsx`
 
@@ -277,7 +277,7 @@ Panel-level concerns:
   - Passphrase: single masked input.
   - Seed: 12-cell BIP39 grid; each cell validates against the BIP39 wordlist on blur (red outline + inline "not a BIP39 word" on invalid). Submit disabled until all 12 valid.
 - **Step 3 · Big-red confirmation.** "This replaces your current index and vault." Typed-confirmation input requires exactly `replace my data`.
-- **Apply.** Dispatch `slice.importFlow = { status: "running" }`. Subscribe to `data.importProgress`. Call `dataImport({ bundlePath, passphrase | recoverySeed })`.
+- **Apply.** Dispatch `slice.importFlow = { status: "running" }`. Subscribe to `data.importProgress`. Call `dataImport({ bundlePath, passphrase | recoverySeed })`. Same indeterminate-bar rule as Export: when `totalBytes` is undefined on the latest progress payload, render the bar in pulsing mode.
 - **Completion.** When the `dataImport` RPC resolves with `{ credentialsRestored, oauthEntriesFlagged }`: show toast "Restore complete. Reloading in 3 seconds…" with a secondary line "`<oauthEntriesFlagged>` OAuth connector(s) need re-authorization." when `oauthEntriesFlagged > 0`. After 3 s, call `window.location.reload()`. The `data.importCompleted` notification is treated as informational only; we rely on the RPC resolution for the terminal state so we have the fuller shape.
 - **Errors.**
   - `-32010 version_incompatible`: terminal dialog with copy branching on `relation` (see §5).
@@ -290,8 +290,8 @@ Panel-level concerns:
 3-step internal state: `"pick" | "preview" | "confirming" | "deleting" | "done" | "error"`.
 
 - **Step 1 · Pick service.** Dropdown fed from `connector.listStatus` (reused from the Connectors slice — already in store). Filter to services with `status !== "not_configured"`.
-- **Step 2 · Preview.** Call `dataGetDeletePreflight({ service })` → preflight card: "Deletes N items, M embeddings, K vault keys."
-- **Step 3 · Typed confirmation.** Input requires exact match to selected service string (e.g., user must type `github` — trailing space fails).
+- **Step 2 · Preview.** Call `dataGetDeletePreflight({ service })`. While the call is in flight, render a spinner + "Calculating…" placeholder (large indexes can make this non-instant). On resolve → preflight card: "Deletes N items, M embeddings, K vault keys."
+- **Step 3 · Typed confirmation.** Input requires **case-sensitive exact string match** against the service ID as returned by `connector.listStatus` (e.g., if the wire id is `github`, typing `GitHub` or `github ` with trailing space both fail). The input placeholder shows the exact expected string so the case is never a mystery. Matching is `userInput === serviceId`; no normalization.
 - **Apply.** `dataDelete({ service, dryRun: false })` (explicit `false` for log clarity).
 - **Completion.** Toast: "Deleted `<itemsDeleted>` items from `<service>`." (Count sourced from `result.preflight.itemsToDelete`, which equals the deleted count when `deleted === true`.) `DataPanel` refetches `getExportPreflight` (itemCount changed). Dashboard audit feed refreshes on its own poll and surfaces the new `data.delete` row — no client-side audit id plumbing.
 
@@ -327,6 +327,8 @@ Panel-level concerns:
 
 Derived from slice in `DataPanel.tsx`: while any flow is `running`, the other two cards render disabled with tooltip. Prevents sending a second destructive call mid-flight (Gateway would likely reject it; UI should never try).
 
+**Disconnect-during-running:** the `data` slice subscribes to `connectionState` via the store and, on a transition `connected → disconnected` while any `*Flow.status === "running"`, transitions that flow to `{ status: "error", error: "gateway_disconnected" }`. This unblocks the guard for the two siblings (user may retry the others after reconnect) and drives each wizard into the "Gateway disconnected" copy described in §5.1. Covered by a slice-level unit test.
+
 ### 5.4 Security invariants
 
 - Passphrase, recovery seed, and BIP39 word entries live **only** in React local state inside wizard components; never passed to Zustand; never logged; scrubbed on unmount via `useEffect` return.
@@ -346,10 +348,10 @@ Unchanged gate: `packages/ui` Vitest ≥ 80 % lines / ≥ 75 % branches.
 | Subject | Test file | Priority behaviors |
 |---|---|---|
 | `DataPanel.tsx` | `test/pages/settings/DataPanel.test.tsx` | three cards render; preflight populates Export card; offline disables all buttons; `StaleChip` shows with cached preflight; concurrent-flow guard disables siblings during one flow `running` |
-| `ExportWizard.tsx` | `test/components/settings/data/ExportWizard.test.tsx` | scope toggle; zxcvbn gate; overwrite sub-step from `plugin-fs.exists`; progress bar wired to `exportProgress`; seed modal branching on `recoverySeedGenerated`; clipboard 30-s countdown; unmount scrubs passphrase |
+| `ExportWizard.tsx` | `test/components/settings/data/ExportWizard.test.tsx` | scope toggle; `zxcvbn.score < 3` blocks submit and `≥ 3` allows it; `save` dialog invoked with `defaultPath` matching `nimbus-backup-YYYY-MM-DD.tar.gz`; overwrite sub-step from `plugin-fs.exists`; progress bar wired to `exportProgress`; bar switches to indeterminate mode when `totalBytes` is undefined; seed modal branching on `recoverySeedGenerated` (true: mnemonic + "Nimbus cannot recover…" warning + gated checkbox; false: reminder card, no mnemonic); clipboard 30-s countdown; **unmount-during-active-countdown clears the clipboard immediately** via `plugin-clipboard-manager.writeText("")`; unmount scrubs passphrase |
 | `ImportWizard.tsx` | `test/components/settings/data/ImportWizard.test.tsx` | auth radio toggles input mode; BIP39 cell validation; typed `"replace my data"` gate; `-32010` terminal dialog with copy branch by `relation`; `-32002` inline retry; successful RPC resolution triggers 3-s toast containing `oauthEntriesFlagged` count when `> 0` and `window.location.reload` (mocked) |
-| `DeleteServiceDialog.tsx` | `test/components/settings/data/DeleteServiceDialog.test.tsx` | dropdown filtered by connector status; preflight renders counts; typed service-name gate (trailing space fails); `dataDelete` called with explicit `dryRun: false`; success toast reads `"Deleted <itemsDeleted> items from <service>"` from `result.preflight.itemsToDelete`; handles `deleted: false` defensively (should not happen when we pass `dryRun: false`) |
-| `store/slices/data.ts` | `test/store/slices/data-slice.test.ts` | state transitions monotonic; progress upserts; terminal states reset cleanly |
+| `DeleteServiceDialog.tsx` | `test/components/settings/data/DeleteServiceDialog.test.tsx` | dropdown filtered by connector status; preflight call shows spinner during loading; preflight renders counts; typed service-name gate is case-sensitive and rejects trailing space (assert `GitHub` vs `github` rejection when serviceId is `github`); `dataDelete` called with explicit `dryRun: false`; success toast reads `"Deleted <itemsDeleted> items from <service>"` from `result.preflight.itemsToDelete`; handles `deleted: false` defensively (should not happen when we pass `dryRun: false`) |
+| `store/slices/data.ts` | `test/store/slices/data-slice.test.ts` | state transitions monotonic; progress upserts; terminal states reset cleanly; **`connected → disconnected` while a flow is `running` transitions that flow to `{ status: "error", error: "gateway_disconnected" }`**, freeing the concurrent-flow guard for the other two flows |
 | `store/partialize.ts` | *extend existing test* | Assert `exportFlow`, `importFlow`, `deleteFlow`, `lastExportPreflight` absent; existing five-forbidden-keys assertion preserved |
 
 ### 6.2 Mock strategy
