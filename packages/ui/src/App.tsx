@@ -6,7 +6,6 @@ import {
   Route,
   RouterProvider,
 } from "react-router-dom";
-import { PanelComingSoon } from "./components/settings/PanelComingSoon";
 import { RootLayout } from "./layouts/RootLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { HitlPopup } from "./pages/HitlPopup";
@@ -18,6 +17,7 @@ import { QuickQuery } from "./pages/QuickQuery";
 import { Settings } from "./pages/Settings";
 import { AuditPanel } from "./pages/settings/AuditPanel";
 import { ConnectorsPanel } from "./pages/settings/ConnectorsPanel";
+import { DataPanel } from "./pages/settings/DataPanel";
 import { ModelPanel } from "./pages/settings/ModelPanel";
 import { ProfilesPanel } from "./pages/settings/ProfilesPanel";
 import { TelemetryPanel } from "./pages/settings/TelemetryPanel";
@@ -57,7 +57,7 @@ const router = createBrowserRouter(
         <Route path="connectors" element={<ConnectorsPanel />} />
         <Route path="profiles" element={<ProfilesPanel />} />
         <Route path="audit" element={<AuditPanel />} />
-        <Route path="data" element={<PanelComingSoon title="Data" />} />
+        <Route path="data" element={<DataPanel />} />
         <Route path="telemetry" element={<TelemetryPanel />} />
         <Route path="updates" element={<UpdatesPanel />} />
       </Route>
