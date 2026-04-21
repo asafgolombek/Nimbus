@@ -103,7 +103,7 @@ describe("ExportWizard — destination + overwrite", () => {
   });
 
   it("shows overwrite sub-step when exists() returns true", async () => {
-    saveMock.mockResolvedValue("/tmp/existing.tar.gz");
+    saveMock.mockResolvedValue("/mock-output/existing.tar.gz");
     existsMock.mockResolvedValue(true);
     render(<ExportWizard onClose={() => {}} />);
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -138,7 +138,7 @@ describe("ExportWizard — progress bar", () => {
       },
     } as never);
     dataExportMock.mockImplementation(() => new Promise(() => {}));
-    saveMock.mockResolvedValue("/tmp/nimbus.tar.gz");
+    saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
     render(<ExportWizard onClose={() => {}} />);
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -166,7 +166,7 @@ describe("ExportWizard — progress bar", () => {
       },
     } as never);
     dataExportMock.mockImplementation(() => new Promise(() => {}));
-    saveMock.mockResolvedValue("/tmp/nimbus.tar.gz");
+    saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
     render(<ExportWizard onClose={() => {}} />);
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -191,13 +191,13 @@ describe("ExportWizard — seed branching", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetStore();
-    saveMock.mockResolvedValue("/tmp/nimbus.tar.gz");
+    saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
   });
 
   async function stepToSeed(generated: boolean) {
     dataExportMock.mockResolvedValue({
-      outputPath: "/tmp/nimbus.tar.gz",
+      outputPath: "/mock-output/nimbus.tar.gz",
       recoverySeed:
         "abandon ability able about above absent absorb abstract absurd abuse access accident",
       recoverySeedGenerated: generated,
@@ -245,7 +245,7 @@ describe("ExportWizard — clipboard countdown and unmount scrubs", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     resetStore();
-    saveMock.mockResolvedValue("/tmp/nimbus.tar.gz");
+    saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
   });
   afterEach(() => {
@@ -254,7 +254,7 @@ describe("ExportWizard — clipboard countdown and unmount scrubs", () => {
 
   it("countdown fires writeText('') after 30 s", async () => {
     dataExportMock.mockResolvedValue({
-      outputPath: "/tmp/nimbus.tar.gz",
+      outputPath: "/mock-output/nimbus.tar.gz",
       recoverySeed: "one two three four five six seven eight nine ten eleven twelve",
       recoverySeedGenerated: true,
       itemsExported: 1,
@@ -286,7 +286,7 @@ describe("ExportWizard — clipboard countdown and unmount scrubs", () => {
 
   it("unmounting during active countdown clears clipboard immediately", async () => {
     dataExportMock.mockResolvedValue({
-      outputPath: "/tmp/nimbus.tar.gz",
+      outputPath: "/mock-output/nimbus.tar.gz",
       recoverySeed: "one two three four five six seven eight nine ten eleven twelve",
       recoverySeedGenerated: true,
       itemsExported: 1,

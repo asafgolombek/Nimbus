@@ -42,7 +42,7 @@ async function toConfirmStep(
   user: ReturnType<typeof userEvent.setup>,
   method: "passphrase" | "recoverySeed" = "passphrase",
 ) {
-  openMock.mockResolvedValue("/tmp/nimbus.tar.gz");
+  openMock.mockResolvedValue("/mock-input/nimbus.tar.gz");
   render(<ImportWizard onClose={() => {}} />);
   await user.click(screen.getByRole("button", { name: /Choose file/ }));
   if (method === "recoverySeed") {
@@ -71,7 +71,7 @@ describe("ImportWizard — happy path + reload", () => {
     // Use real timers for the navigation steps, then check setTimeout behaviour
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     // Navigate to confirm step with real-timer user events before fake timers take effect
-    openMock.mockResolvedValue("/tmp/nimbus.tar.gz");
+    openMock.mockResolvedValue("/mock-input/nimbus.tar.gz");
     render(<ImportWizard onClose={() => {}} />);
     await user.click(screen.getByRole("button", { name: /Choose file/ }));
     await vi.waitFor(() => {
