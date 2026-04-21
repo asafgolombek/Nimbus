@@ -78,12 +78,13 @@ export function PullDialog({ open, onClose }: Props) {
     if (!open) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    void createIpcClient()
+    createIpcClient()
       .subscribe(onNotification)
       .then((fn) => {
         if (cancelled) fn();
         else unlisten = fn;
-      });
+      })
+      .catch(() => undefined);
     // Re-attach: if activePullId is persisted but no notifications are flowing, arm stall timer.
     if (activePullId !== null) {
       if (stallTimerRef.current !== null) clearTimeout(stallTimerRef.current);
@@ -139,7 +140,7 @@ export function PullDialog({ open, onClose }: Props) {
 
         <fieldset className="mb-4">
           <legend className="text-sm mb-2">Provider</legend>
-          {available.ollama !== false && (
+          {available.ollama === true && (
             <label className="mr-4 text-sm">
               <input
                 type="radio"
@@ -215,7 +216,7 @@ export function PullDialog({ open, onClose }: Props) {
           {activePullId !== null ? (
             <button
               type="button"
-              onClick={() => void onCancel()}
+              onClick={onCancel}
               aria-label="Cancel pull"
               className="px-3 py-1 rounded border border-[var(--color-danger-border)] text-[var(--color-danger-text)]"
             >
@@ -224,7 +225,7 @@ export function PullDialog({ open, onClose }: Props) {
           ) : (
             <button
               type="button"
-              onClick={() => void onSubmit()}
+              onClick={onSubmit}
               disabled={submitting || modelName.trim() === ""}
               aria-label="Pull"
               className="px-3 py-1 rounded bg-[var(--color-accent)] text-white disabled:opacity-50"

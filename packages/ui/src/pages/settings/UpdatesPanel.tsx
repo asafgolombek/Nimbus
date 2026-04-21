@@ -6,6 +6,16 @@ import { StaleChip } from "../../components/settings/StaleChip";
 import { createIpcClient } from "../../ipc/client";
 import { useNimbusStore } from "../../store";
 
+function failureMessage(reason: string): string {
+  if (reason === "reconnect_timeout") {
+    return "Gateway failed to restart within 2 minutes. Run `nimbus start` in a terminal, then reload.";
+  }
+  if (reason === "signature_invalid")
+    return "Update rejected: signature invalid. Your Nimbus is safe.";
+  if (reason === "hash_mismatch") return "Update rejected: hash mismatch. Your Nimbus is safe.";
+  return `Update rolled back: ${reason}.`;
+}
+
 export function UpdatesPanel() {
   const connectionState = useNimbusStore((s) => s.connectionState);
   const status = useNimbusStore((s) => s.updaterStatus);
@@ -71,7 +81,7 @@ export function UpdatesPanel() {
     } catch (e) {
       setFetchError((e as Error).message);
       setUiState("failed");
-      void invoke("updater_apply_finished").catch(() => undefined);
+      invoke("updater_apply_finished").catch(() => undefined);
     }
   }, [setFailure, setUiState]);
 
@@ -101,7 +111,7 @@ export function UpdatesPanel() {
       />
 
       {fetchError !== null && (
-        <PanelError message={`Updater error: ${fetchError}`} onRetry={() => void refresh()} />
+        <PanelError message={`Updater error: ${fetchError}`} onRetry={refresh} />
       )}
 
       {status !== null && (
@@ -129,7 +139,7 @@ export function UpdatesPanel() {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => void onCheckNow()}
+          onClick={onCheckNow}
           disabled={writeDisabled}
           className="px-3 py-1.5 text-sm rounded bg-[var(--color-accent)] text-white disabled:opacity-50"
         >
@@ -138,7 +148,7 @@ export function UpdatesPanel() {
         {check?.updateAvailable && uiState === "available" && (
           <button
             type="button"
-            onClick={() => void onApply()}
+            onClick={onApply}
             disabled={writeDisabled}
             className="px-3 py-1.5 text-sm rounded border border-[var(--color-accent)] text-[var(--color-accent)] disabled:opacity-50"
           >
@@ -151,7 +161,7 @@ export function UpdatesPanel() {
           status?.state === "failed") && (
           <button
             type="button"
-            onClick={() => void onRollback()}
+            onClick={onRollback}
             disabled={writeDisabled}
             className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] disabled:opacity-50"
           >
@@ -178,7 +188,7 @@ export function UpdatesPanel() {
             <div
               data-testid="download-progress-bar"
               className="h-full bg-[var(--color-accent)] transition-all"
-              style={{ width: downloadPct !== null ? `${downloadPct}%` : "30%" }}
+              style={{ width: downloadPct === null ? "30%" : `${downloadPct}%` }}
             />
           </div>
           {downloadPct !== null && (
@@ -195,13 +205,7 @@ export function UpdatesPanel() {
 
       {failure !== null && (uiState === "rolled_back" || uiState === "failed") && (
         <div role="alert" className="text-sm text-red-600">
-          {failure.reason === "reconnect_timeout"
-            ? "Gateway failed to restart within 2 minutes. Run `nimbus start` in a terminal, then reload."
-            : failure.reason === "signature_invalid"
-              ? "Update rejected: signature invalid. Your Nimbus is safe."
-              : failure.reason === "hash_mismatch"
-                ? "Update rejected: hash mismatch. Your Nimbus is safe."
-                : `Update rolled back: ${failure.reason}.`}
+          {failureMessage(failure.reason)}
         </div>
       )}
     </section>

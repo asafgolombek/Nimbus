@@ -9,7 +9,9 @@ interface Props {
 }
 
 export function RestartOverlay({ state, restarting, elapsedSec }: Props): ReactNode | null {
-  if (state !== "restarting" && state !== "reconnecting") return null;
+  if (state !== "restarting" && state !== "reconnecting") {
+    return null;
+  }
 
   const heading = state === "restarting" ? "Restarting Nimbus…" : "Reconnecting to Gateway…";
   const subline =

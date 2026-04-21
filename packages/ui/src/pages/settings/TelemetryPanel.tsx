@@ -72,10 +72,7 @@ export function TelemetryPanel() {
         livePill={offline ? <StaleChip /> : undefined}
       />
       {fetchError !== null && (
-        <PanelError
-          message={`Failed to load telemetry status: ${fetchError}`}
-          onRetry={() => void refresh()}
-        />
+        <PanelError message={`Failed to load telemetry status: ${fetchError}`} onRetry={refresh} />
       )}
 
       <div className="flex items-center gap-3">

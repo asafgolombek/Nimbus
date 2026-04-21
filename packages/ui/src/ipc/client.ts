@@ -107,7 +107,7 @@ function redactSensitiveSubstrings(input: string): string {
   let out = input;
   for (const key of FORBIDDEN_VALUE_KEYS) {
     // `key=<run-of-non-whitespace-non-comma-non-brace>` — covers raw strings and JSON shards.
-    const assignRe = new RegExp(`${key}\\s*[=:]\\s*"?([^\\s",}]+)"?`, "gi");
+    const assignRe = new RegExp(String.raw`${key}\s*[=:]\s*"?([^\s",}]+)"?`, "gi");
     out = out.replace(assignRe, `${key}=[REDACTED]`);
     // `"key":"value"` explicit JSON form (assignRe alone can miss quoted JSON).
     const jsonRe = new RegExp(`"${key}"\\s*:\\s*"[^"]*"`, "gi");
@@ -369,9 +369,9 @@ export function createIpcClient(): NimbusIpcClient {
         (r) =>
           typeof r.deleted === "boolean" &&
           isRecord(r.preflight) &&
-          typeof (r.preflight as Record<string, unknown>).service === "string" &&
-          typeof (r.preflight as Record<string, unknown>).itemsToDelete === "number" &&
-          typeof (r.preflight as Record<string, unknown>).vaultEntriesToDelete === "number",
+          typeof r.preflight.service === "string" &&
+          typeof r.preflight.itemsToDelete === "number" &&
+          typeof r.preflight.vaultEntriesToDelete === "number",
       );
     },
   };

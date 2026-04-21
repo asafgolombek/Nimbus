@@ -39,8 +39,8 @@ type Whitelisted = (typeof WHITELISTED_PERSIST_KEYS)[number];
  */
 function deepScrubForbidden(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
   if (value === null || typeof value !== "object") return;
-  if (seen.has(value as object)) return;
-  seen.add(value as object);
+  if (seen.has(value)) return;
+  seen.add(value);
   if (Array.isArray(value)) {
     for (const item of value) deepScrubForbidden(item, seen);
     return;

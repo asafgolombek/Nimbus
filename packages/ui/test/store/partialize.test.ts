@@ -29,8 +29,10 @@ describe("persistPartialize", () => {
       setProfileList: () => {},
     } as unknown as Record<string, unknown>;
     const out = persistPartialize(full);
-    expect(Object.keys(out).sort()).toEqual(
-      ["active", "activePullId", "connectorsList", "installedModels", "profiles"].sort(),
+    expect(Object.keys(out).sort((a, b) => a.localeCompare(b))).toEqual(
+      ["active", "activePullId", "connectorsList", "installedModels", "profiles"].sort((a, b) =>
+        a.localeCompare(b),
+      ),
     );
   });
 

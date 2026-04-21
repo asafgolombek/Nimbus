@@ -122,7 +122,7 @@ describe("AuditPanel", () => {
   });
 
   it("Export with .json path writes flattened display rows as JSON", async () => {
-    saveMock.mockResolvedValueOnce("/tmp/audit-test.json");
+    saveMock.mockResolvedValueOnce("/mock-export/audit-test.json");
     auditExportMock.mockResolvedValueOnce([
       {
         id: 3,
@@ -140,7 +140,7 @@ describe("AuditPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export…" }));
     await waitFor(() => expect(writeTextFileMock).toHaveBeenCalled());
     const [path, contents] = writeTextFileMock.mock.calls[0]!;
-    expect(path).toBe("/tmp/audit-test.json");
+    expect(path).toBe("/mock-export/audit-test.json");
     const parsed = JSON.parse(contents as string) as Array<{ service: string; actor: string }>;
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.service).toBe("github");
@@ -148,7 +148,7 @@ describe("AuditPanel", () => {
   });
 
   it("Export with .csv path writes the 6-column CSV", async () => {
-    saveMock.mockResolvedValueOnce("/tmp/audit-test.csv");
+    saveMock.mockResolvedValueOnce("/mock-export/audit-test.csv");
     auditExportMock.mockResolvedValueOnce([
       {
         id: 3,

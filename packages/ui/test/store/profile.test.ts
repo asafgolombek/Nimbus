@@ -29,7 +29,7 @@ describe("profile slice", () => {
     expect(s.profiles.map((p) => p.name)).toEqual(["default", "work"]);
     expect(s.active).toBe("default");
     expect(s.lastFetchAt).not.toBeNull();
-    expect(s.lastFetchAt!).toBeGreaterThanOrEqual(before);
+    expect(s.lastFetchAt ?? 0).toBeGreaterThanOrEqual(before);
   });
 
   it("setActiveProfileOptimistic updates active without altering the list", () => {

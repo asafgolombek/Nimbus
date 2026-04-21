@@ -85,7 +85,7 @@ export function ModelPanel() {
         const p = n.params as LlmPullTerminalPayload;
         clearPullProgress(p.pullId);
         setActivePullId(null);
-        if (n.method === "llm.pullCompleted") void refresh();
+        if (n.method === "llm.pullCompleted") refresh().catch(() => undefined);
       }
     },
     [clearPullProgress, patchLoaded, refresh, setActivePullId, upsertPullProgress],
@@ -94,12 +94,13 @@ export function ModelPanel() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    void createIpcClient()
+    createIpcClient()
       .subscribe(onNotification)
       .then((fn) => {
         if (cancelled) fn();
         else unlisten = fn;
-      });
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
       if (unlisten) unlisten();
@@ -155,10 +156,7 @@ export function ModelPanel() {
         livePill={offline ? <StaleChip /> : undefined}
       />
       {fetchError !== null && (
-        <PanelError
-          message={`Failed to load model status: ${fetchError}`}
-          onRetry={() => void refresh()}
-        />
+        <PanelError message={`Failed to load model status: ${fetchError}`} onRetry={refresh} />
       )}
 
       {routerStatus !== null && <RouterStatus status={routerStatus} />}
@@ -197,7 +195,7 @@ export function ModelPanel() {
                 <button
                   type="button"
                   disabled={writeDisabled || busy || m.provider === "remote"}
-                  onClick={() => void onUnload(m)}
+                  onClick={() => onUnload(m)}
                   aria-label={`Unload ${m.modelName}`}
                   className="px-2 py-1 text-sm rounded border border-[var(--color-border)] disabled:opacity-50"
                 >
@@ -207,7 +205,7 @@ export function ModelPanel() {
                 <button
                   type="button"
                   disabled={writeDisabled || busy || m.provider === "remote"}
-                  onClick={() => void onLoad(m)}
+                  onClick={() => onLoad(m)}
                   aria-label={`Load ${m.modelName}`}
                   className="px-2 py-1 text-sm rounded border border-[var(--color-border)] disabled:opacity-50"
                 >

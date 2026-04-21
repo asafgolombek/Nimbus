@@ -166,19 +166,16 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   }, [result, cancelCountdown]);
 
   const progressPct =
-    progress !== null &&
-    progress !== undefined &&
-    progress.totalBytes !== undefined &&
-    progress.totalBytes > 0
+    progress?.totalBytes !== undefined && progress.totalBytes > 0
       ? Math.min(100, Math.round((progress.bytesWritten / progress.totalBytes) * 100))
       : null;
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       data-testid="export-wizard"
-      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 border-0 max-w-none w-full h-full m-0"
     >
       <div className="bg-[var(--color-bg)] rounded-lg max-w-lg w-full p-6 space-y-4 border border-[var(--color-border)]">
         {step === "scope" && (
@@ -408,6 +405,6 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
           </>
         )}
       </div>
-    </div>
+    </dialog>
   );
 }

@@ -9,12 +9,11 @@ export function StaleChip({ offlineSinceIso }: StaleChipProps) {
       ? `Stale · offline since ${offlineSinceIso}`
       : "Stale · gateway offline";
   return (
-    <span
-      role="status"
+    <output
       aria-label={label}
       className="inline-block px-2 py-0.5 text-xs rounded-full bg-[var(--color-warning-bg)] text-[var(--color-warning-text)] border border-[var(--color-warning-border)]"
     >
       {label}
-    </span>
+    </output>
   );
 }

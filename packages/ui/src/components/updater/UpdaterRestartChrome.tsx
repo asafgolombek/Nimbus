@@ -53,7 +53,7 @@ export function UpdaterRestartChrome() {
         clearInterval(id);
         setFailure({ reason: "reconnect_timeout" });
         setUiState("failed");
-        void invoke("updater_apply_finished").catch(() => undefined);
+        invoke("updater_apply_finished").catch(() => undefined);
       }
     }, 1_000);
     return () => clearInterval(id);
@@ -87,12 +87,12 @@ export function UpdaterRestartChrome() {
         case "updater.rolledBack":
           setFailure(n.params as UpdaterRolledBackPayload);
           setUiState("rolled_back");
-          void invoke("updater_apply_finished").catch(() => undefined);
+          invoke("updater_apply_finished").catch(() => undefined);
           return;
         case "updater.verifyFailed":
           setFailure(n.params as UpdaterVerifyFailedPayload);
           setUiState("failed");
-          void invoke("updater_apply_finished").catch(() => undefined);
+          invoke("updater_apply_finished").catch(() => undefined);
           return;
         default:
           return;
@@ -108,7 +108,7 @@ export function UpdaterRestartChrome() {
   useIpcSubscription<unknown>("updater://restart-started", onRestartStarted);
 
   const onRestartComplete = useCallback(() => {
-    void (async () => {
+    (async () => {
       try {
         const version = await createIpcClient().diagGetVersion();
         const latest = useNimbusStore.getState().updaterRestarting;
@@ -130,7 +130,7 @@ export function UpdaterRestartChrome() {
         setFailure({ reason: "installer_failed" });
         setUiState("failed");
       } finally {
-        void invoke("updater_apply_finished").catch(() => undefined);
+        invoke("updater_apply_finished").catch(() => undefined);
       }
     })();
   }, [setFailure, setStatus, setUiState]);
