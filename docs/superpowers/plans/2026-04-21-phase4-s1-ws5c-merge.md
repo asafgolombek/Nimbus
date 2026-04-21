@@ -37,7 +37,9 @@ Run:
 gh api rate_limit --jq '.resources.core | {limit, remaining, reset: (.reset | todateiso8601)}'
 ```
 
-Expected: an object with `remaining` ≥ 100 and `reset` timestamp. If `remaining` < 100, sleep until the reset timestamp before running any subsequent `gh` command.
+Expected: an object with `remaining` ≥ 100 and `reset` timestamp.
+
+**If `remaining` < 100:** do not idle. The rate-limit window is up to one hour; use it productively by advancing the offline tasks (4 typecheck, 5 lint, 6 bun test, 7 vitest, 8 rust fmt/clippy) — none require the GitHub API. When those are done or when the `reset` timestamp passes, return to the GitHub-API-dependent tasks (the remaining Task 1 steps, Tasks 10, 11, 13). Record where you stopped so you can resume cleanly.
 
 - [ ] **Step 1.2: Confirm current branch and PR state**
 
@@ -51,6 +53,16 @@ Expected:
 - Current branch: `dev/asafgolombek/phase_4_ws5`.
 - PR state: `OPEN`, mergeable: `MERGEABLE`.
 - Record which checks are `FAILURE` / `SUCCESS` / `SKIPPED`. If any non-transient failure surfaces (e.g., Biome, SonarCloud, real test failures), the plan handles them in Task 4–7; flag now.
+
+- [ ] **Step 1.2b: Verify PR scope covers all of WS5-C (Plans 1–5)**
+
+The PR auto-title is generic (`Dev/asafgolombek/phase 4 ws5`). Before trusting it, confirm the commit range contains the five key WS5-C plan landings.
+
+```bash
+gh pr view 57 --json commits --jq '.commits[] | .messageHeadline' | grep -iE 'Plan [1-5]|Data panel|Updates panel|Audit panel|Connectors panel|Model panel|Profiles panel|Telemetry panel' | head -20
+```
+
+Expected: matches for at least `Plan 5` / `Data panel` (most recent, most at risk of being left out), plus earlier plan-landing commits. If any plan is missing, **stop** and ask the user whether the branch is actually ready.
 
 - [ ] **Step 1.3: Confirm working tree diff**
 
@@ -287,7 +299,17 @@ Skip commit if nothing changed.
 
 **Files:** none modified (failures identify tests to debug or coverage gaps)
 
-- [ ] **Step 7.1: Run UI component tests with coverage**
+- [ ] **Step 7.1: Confirm Vitest + coverage provider are installed**
+
+Cheap sanity check — if these deps are absent the `bunx vitest run --coverage` call will fail for an unrelated reason.
+
+```bash
+cd packages/ui && node -e "const p=require('./package.json'); const deps={...p.dependencies,...p.devDependencies}; console.log('vitest:', deps.vitest || 'MISSING'); console.log('coverage-v8:', deps['@vitest/coverage-v8'] || 'MISSING');"
+```
+
+Expected: both present. If `MISSING`, run `bun install` at workspace root and re-check. If still missing, the `packages/ui/package.json` is incomplete — stop and ask the user.
+
+- [ ] **Step 7.2: Run UI component tests with coverage**
 
 ```bash
 cd packages/ui && bunx vitest run --coverage
@@ -295,26 +317,26 @@ cd packages/ui && bunx vitest run --coverage
 
 Expected: all tests pass; coverage summary at the end shows **≥80% lines** and **≥75% branches** on the `packages/ui` scope (the gate enforced in CI).
 
-- [ ] **Step 7.2: If tests fail, debug per-file**
+- [ ] **Step 7.3: If tests fail, debug per-file**
 
 For each failing test:
 1. Use `bunx vitest run <relative-path>` to isolate.
 2. Fix test or implementation per Task 6 logic.
 3. Re-run full suite.
 
-- [ ] **Step 7.3: If coverage gate fails (<80% lines or <75% branches)**
+- [ ] **Step 7.4: If coverage gate fails (<80% lines or <75% branches)**
 
 1. Inspect `packages/ui/coverage/index.html` (browser) or `packages/ui/coverage/coverage-summary.json` to locate uncovered files.
 2. Add tests for the lowest-covered files first. Prefer component-behavior tests over implementation tests (mock IPC at the `NimbusIpcClient` boundary).
 3. Re-run until gate passes.
 
-- [ ] **Step 7.4: Return to workspace root**
+- [ ] **Step 7.5: Return to workspace root**
 
 ```bash
 cd ../..
 ```
 
-- [ ] **Step 7.5: Commit fixes if any**
+- [ ] **Step 7.6: Commit fixes if any**
 
 ```bash
 git add packages/ui/
@@ -519,16 +541,22 @@ After the squash-merge, status documentation must reflect WS5-C as **merged**, n
 git checkout -b dev/asafgolombek/phase4-s1-post-merge-status
 ```
 
-- [ ] **Step 12.2: Update `CLAUDE.md` line 10**
+- [ ] **Step 12.2: Update `CLAUDE.md` status line**
 
-Open `CLAUDE.md` and replace the status line:
+First, confirm the exact current line (the literal string must match byte-for-byte for a successful `Edit`):
 
-From:
+```bash
+grep -n "WS5-C ✅ on branch" CLAUDE.md
+```
+
+Expected: one match, around line 10, reading something like:
 ```
 **Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ on branch, PR pending)
 ```
 
-To:
+If the actual line differs from the above (e.g., because Section 2+ already partially touched it), use the **actual** string as the `old_string` argument to your Edit call. Never guess — always grep first.
+
+Replace with:
 ```
 **Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅)
 ```
@@ -543,10 +571,18 @@ If a matching line exists, apply the same replacement as Step 12.2.
 
 - [ ] **Step 12.4: Update `docs/roadmap.md` Phase 4 summary paragraph**
 
-Open `docs/roadmap.md`. In the long Phase 4 summary paragraph (around line 8), find the substring:
+First confirm the exact substring still matches what's on disk (byte-for-byte exactness matters for `Edit`):
+
+```bash
+grep -n "Plans 4–5) implemented on branch" docs/roadmap.md
+```
+
+Expected: exactly one match, around line 8, containing the substring:
 ```
 **WS5-C (Settings Shell — Plans 4–5) implemented on branch, PR pending:**
 ```
+
+If the grep returns zero matches, the doc has drifted — abort and ask the user what it now says. If the grep returns multiple matches, widen the `old_string` in your Edit call to include surrounding context that disambiguates.
 
 Replace with:
 ```
@@ -664,15 +700,19 @@ Walk the full `docs/manual-smoke-ws5c.md` checklist. Capture screenshots for eac
 
 Every box must tick. Any failure → GitHub issue + new feature branch to fix; do not proceed to Section 2 until resolved.
 
-- [ ] **Step 14.2: Linux smoke via Hyper-V Ubuntu 22.04 VM**
+- [ ] **Step 14.2: Linux smoke via Hyper-V Ubuntu 22.04 VM — USER ACTION REQUIRED**
 
-Prereq: the VM installed as part of Section 0 of the design spec. If it isn't yet:
-1. Install Hyper-V (Windows 11 Pro) or VirtualBox (Home): `Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All` (admin PowerShell).
+The executing agent (Claude or a subagent) cannot reach inside a Hyper-V guest OS from the host CLI without an SSH bridge set up by the user. Treat this step as a handoff.
+
+**Agent action:** emit the exact block below for the user to execute inside the VM, then wait for the user to return results and screenshots.
+
+Prereq: the VM installed per Section 0 of the design spec. If it isn't yet, tell the user:
+1. Enable Hyper-V (Windows 11 Pro): `Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All` in an admin PowerShell (Home edition: install VirtualBox instead).
 2. Download Ubuntu 22.04.4 LTS ISO. Provision a VM with 8 GB RAM, 40 GB disk.
-3. Install Bun + Rust per the root README.
-4. Clone the repo into the VM (`/home/<user>/Nimbus`).
+3. Inside the VM, install Bun (`curl -fsSL https://bun.sh/install | bash`) + Rust (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`) per the root README.
+4. Clone the repo into the VM (`git clone https://github.com/asafgolombek/Nimbus.git ~/Nimbus`).
 
-In the VM:
+Commands for the user to run **inside the VM**:
 
 ```bash
 cd ~/Nimbus
@@ -682,29 +722,55 @@ bun run build
 cd packages/ui && bunx tauri dev
 ```
 
-Walk the same checklist. Evidence into `docs/screenshots/ws5c-smoke/linux/`.
+Then ask the user to walk `docs/manual-smoke-ws5c.md` and return one of:
+- A text summary of pass/fail per checklist section.
+- Screenshots exported from the VM (via shared folder, scp, or drag-drop to host) into a local directory the agent can read.
+
+If the user returns screenshots, proceed to Step 14.4. If text-only results, record them in `docs/manual-smoke-ws5c.md` as the sign-off evidence.
 
 - [ ] **Step 14.3: (Deferred) macOS smoke**
 
 Per the Phase 4 design spec, macOS verification happens via Scaleway M1 rental in Section 14 of the overall plan (release-gate verification), not here. Skip this for Section 1.
 
-- [ ] **Step 14.4: Commit evidence**
+- [ ] **Step 14.4: Compress and commit evidence**
 
 If screenshots were captured:
 
 ```bash
 git checkout -b dev/asafgolombek/phase4-s1-smoke-evidence
 mkdir -p docs/screenshots/ws5c-smoke/win docs/screenshots/ws5c-smoke/linux
-# Copy captured screenshots into the respective directories.
+# Copy captured screenshots into the respective directories (from the Windows host and from the VM shared folder / scp).
+```
+
+**Compress before commit** — this pattern is mandated by the Phase 4 completion design spec (Section 14 evidence policy) to keep `.git` size manageable across future releases:
+
+```bash
+# Prefer pngquant if available (lossy, ~70% size reduction, visually indistinguishable):
+pngquant --force --ext .png --quality 80-95 docs/screenshots/ws5c-smoke/**/*.png 2>/dev/null || true
+# Follow up with optipng (lossless finalization):
+optipng -o2 -quiet docs/screenshots/ws5c-smoke/**/*.png 2>/dev/null || true
+# If neither tool is installed, flag the missing tooling but proceed — size bloat is recoverable, a missed release gate is not:
+command -v pngquant >/dev/null || echo "WARN: pngquant not installed — PNGs not lossy-compressed"
+command -v optipng >/dev/null || echo "WARN: optipng not installed — PNGs not lossless-compressed"
+# Sanity-check total size before committing. Flag if the directory is >10 MB:
+du -sh docs/screenshots/ws5c-smoke/
+```
+
+Expected: each PNG is under ~500 KB; total directory size under ~10 MB for the WS5-C section. If either bound is exceeded, re-run with stronger `--quality 60-80` or resize to 1280px wide before compression — walk the user through this if you don't have image-manipulation tools available.
+
+```bash
 git add docs/screenshots/ws5c-smoke/
 git commit -m "$(cat <<'EOF'
 docs: WS5-C smoke evidence on Windows + Linux VM
+
+PNGs optimized via pngquant + optipng per the Phase 4 design spec
+screenshot-compression policy.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 git push -u origin dev/asafgolombek/phase4-s1-smoke-evidence
-gh pr create --base main --title "docs: WS5-C smoke evidence (Win + Linux)" --body "Evidence for WS5-C manual smoke pass on Windows (native) and Linux (Hyper-V Ubuntu 22.04). 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+gh pr create --base main --title "docs: WS5-C smoke evidence (Win + Linux)" --body "Evidence for WS5-C manual smoke pass on Windows (native) and Linux (Hyper-V Ubuntu 22.04). PNGs compressed. 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
 
 Merge with user approval (same pattern as Task 11).
