@@ -16,6 +16,7 @@ import { Syncing } from "./pages/onboarding/Syncing";
 import { Welcome } from "./pages/onboarding/Welcome";
 import { QuickQuery } from "./pages/QuickQuery";
 import { Settings } from "./pages/Settings";
+import { ConnectorsPanel } from "./pages/settings/ConnectorsPanel";
 import { ProfilesPanel } from "./pages/settings/ProfilesPanel";
 import { TelemetryPanel } from "./pages/settings/TelemetryPanel";
 import { HitlStub } from "./pages/stubs/HitlStub";
@@ -50,7 +51,7 @@ const router = createBrowserRouter(
       <Route path="settings" element={<Settings />}>
         <Route index element={<Navigate to="model" replace />} />
         <Route path="model" element={<PanelComingSoon title="Model" />} />
-        <Route path="connectors" element={<PanelComingSoon title="Connectors" />} />
+        <Route path="connectors" element={<ConnectorsPanel />} />
         <Route path="profiles" element={<ProfilesPanel />} />
         <Route path="audit" element={<PanelComingSoon title="Audit" />} />
         <Route path="data" element={<PanelComingSoon title="Data" />} />
