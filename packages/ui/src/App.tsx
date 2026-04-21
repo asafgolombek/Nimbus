@@ -21,6 +21,7 @@ import { ConnectorsPanel } from "./pages/settings/ConnectorsPanel";
 import { ModelPanel } from "./pages/settings/ModelPanel";
 import { ProfilesPanel } from "./pages/settings/ProfilesPanel";
 import { TelemetryPanel } from "./pages/settings/TelemetryPanel";
+import { UpdatesPanel } from "./pages/settings/UpdatesPanel";
 import { HitlStub } from "./pages/stubs/HitlStub";
 import { MarketplaceStub } from "./pages/stubs/MarketplaceStub";
 import { WatchersStub } from "./pages/stubs/WatchersStub";
@@ -58,7 +59,7 @@ const router = createBrowserRouter(
         <Route path="audit" element={<AuditPanel />} />
         <Route path="data" element={<PanelComingSoon title="Data" />} />
         <Route path="telemetry" element={<TelemetryPanel />} />
-        <Route path="updates" element={<PanelComingSoon title="Updates" />} />
+        <Route path="updates" element={<UpdatesPanel />} />
       </Route>
       <Route path="marketplace" element={<MarketplaceStub />} />
       <Route path="watchers" element={<WatchersStub />} />

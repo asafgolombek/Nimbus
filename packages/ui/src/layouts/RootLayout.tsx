@@ -5,6 +5,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "../components/chrome/Sidebar";
 import { GatewayOfflineBanner } from "../components/GatewayOfflineBanner";
 import { HotkeyFailedBanner } from "../components/HotkeyFailedBanner";
+import { UpdaterRestartChrome } from "../components/updater/UpdaterRestartChrome";
 import { useIpcSubscription } from "../hooks/useIpcSubscription";
 import type { HitlRequest } from "../ipc/types";
 import { restartApp } from "../lib/restart";
@@ -103,6 +104,7 @@ export function RootLayout() {
     <div className="h-screen flex flex-col">
       {offline && <GatewayOfflineBanner />}
       <HotkeyFailedBanner />
+      <UpdaterRestartChrome />
       <div className="flex flex-1 min-h-0">
         <Sidebar />
         <main className="flex-1 overflow-auto">
