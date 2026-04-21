@@ -1,5 +1,5 @@
-import { blake3 } from "@noble/hashes/blake3";
-import { bytesToHex } from "@noble/hashes/utils";
+import { blake3 } from "@noble/hashes/blake3.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 
 /** Genesis hash used for the first audit row. 64 hex zeros. */
 export const GENESIS_HASH = "0".repeat(64);

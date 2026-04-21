@@ -242,8 +242,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
                 <div className="grid grid-cols-3 gap-2" data-testid="bip39-grid">
                   {seedWords.map((w, i) => (
                     <input
-                      // biome-ignore lint/suspicious/noArrayIndexKey: seed words are positionally stable
-                      key={i}
+                      key={`seed-${i}`}
                       type="text"
                       aria-label={`Word ${i + 1}`}
                       value={w}

@@ -60,12 +60,12 @@ async function advanceToDestination(user: UserActions = userEvent): Promise<void
   await user.click(screen.getByRole("button", { name: /Choose file/ }));
 }
 
-describe("ExportWizard — passphrase gate", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetStore();
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetStore();
+});
 
+describe("ExportWizard — passphrase gate", () => {
   it("blocks Next when zxcvbn score < 3", async () => {
     render(<ExportWizard onClose={() => {}} />);
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -92,11 +92,6 @@ describe("ExportWizard — passphrase gate", () => {
 });
 
 describe("ExportWizard — destination + overwrite", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetStore();
-  });
-
   it("save dialog is called with a YYYY-MM-DD default filename", async () => {
     saveMock.mockResolvedValue(null);
     render(<ExportWizard onClose={() => {}} />);
@@ -120,11 +115,6 @@ describe("ExportWizard — destination + overwrite", () => {
 });
 
 describe("ExportWizard — progress bar", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetStore();
-  });
-
   it("renders the indeterminate bar when totalBytes is undefined", async () => {
     useNimbusStore.setState({
       exportFlow: {
@@ -162,8 +152,6 @@ describe("ExportWizard — progress bar", () => {
 
 describe("ExportWizard — seed branching", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    resetStore();
     saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
   });
@@ -205,8 +193,6 @@ describe("ExportWizard — seed branching", () => {
 describe("ExportWizard — clipboard countdown and unmount scrubs", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.clearAllMocks();
-    resetStore();
     saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
   });

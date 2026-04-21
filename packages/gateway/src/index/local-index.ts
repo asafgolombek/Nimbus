@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 import { getConnectorHealth } from "../connectors/health.ts";
+import type { ReindexDepth } from "../connectors/reindex.ts";
 import { computeAuditRowHash, GENESIS_HASH } from "../db/audit-chain.ts";
 import {
   DEFAULT_SLOW_QUERY_THRESHOLD_MS,
@@ -320,8 +321,7 @@ export class LocalIndex {
     const depthRow = db
       .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
       .get(row.service_id) as { depth: string | null } | null | undefined;
-    type ConnectorDepth = "metadata_only" | "summary" | "full";
-    const depth = (depthRow?.depth ?? "summary") as ConnectorDepth;
+    const depth = (depthRow?.depth ?? "summary") as ReindexDepth;
     return {
       serviceId: row.service_id,
       status,
@@ -417,7 +417,7 @@ export class LocalIndex {
     upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, true);
   }
 
-  setConnectorDepth(serviceId: string, depth: "metadata_only" | "summary" | "full"): void {
+  setConnectorDepth(serviceId: string, depth: ReindexDepth): void {
     const rows = this.db
       .query(`UPDATE sync_state SET depth = ? WHERE connector_id = ?`)
       .run(depth, serviceId);
@@ -430,14 +430,14 @@ export class LocalIndex {
     }
   }
 
-  getConnectorDepth(serviceId: string): "metadata_only" | "summary" | "full" {
+  getConnectorDepth(serviceId: string): ReindexDepth {
     const row = this.db
       .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
       .get(serviceId) as { depth: string } | null | undefined;
     if (row == null) {
       throw new Error(`unknown connector: ${serviceId}`);
     }
-    return row.depth as "metadata_only" | "summary" | "full";
+    return row.depth as ReindexDepth;
   }
 
   clearConnectorSyncCursor(serviceId: string): void {

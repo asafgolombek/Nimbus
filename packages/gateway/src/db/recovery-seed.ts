@@ -1,5 +1,5 @@
 import { generateMnemonic, validateMnemonic } from "@scure/bip39";
-import { wordlist } from "@scure/bip39/wordlists/english";
+import { wordlist } from "@scure/bip39/wordlists/english.js";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
 export const RECOVERY_SEED_VAULT_KEY = "backup.recovery_seed";

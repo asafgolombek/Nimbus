@@ -210,19 +210,24 @@ function emitConfigChanged(
   });
 }
 
-function applyEnabledChange(
-  enabled: boolean,
+function resumeConnector(
   id: string,
   syncScheduler: SyncScheduler | undefined,
   localIndex: LocalIndex,
 ): void {
-  if (enabled) {
-    if (syncScheduler === undefined) {
-      localIndex.resumeConnectorSync(id);
-    } else {
-      syncScheduler.resume(id);
-    }
-  } else if (syncScheduler === undefined) {
+  if (syncScheduler === undefined) {
+    localIndex.resumeConnectorSync(id);
+  } else {
+    syncScheduler.resume(id);
+  }
+}
+
+function pauseConnector(
+  id: string,
+  syncScheduler: SyncScheduler | undefined,
+  localIndex: LocalIndex,
+): void {
+  if (syncScheduler === undefined) {
     localIndex.pauseConnectorSync(id);
   } else {
     syncScheduler.pause(id);
@@ -262,8 +267,10 @@ export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): Conne
     localIndex.setConnectorDepth(id, depth as "metadata_only" | "summary" | "full");
   }
 
-  if (typeof enabled === "boolean") {
-    applyEnabledChange(enabled, id, syncScheduler, localIndex);
+  if (enabled === true) {
+    resumeConnector(id, syncScheduler, localIndex);
+  } else if (enabled === false) {
+    pauseConnector(id, syncScheduler, localIndex);
   }
 
   emitConfigChanged(notify, localIndex, id);

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { blake3 } from "@noble/hashes/blake3";
-import { bytesToHex } from "@noble/hashes/utils";
+import { blake3 } from "@noble/hashes/blake3.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 
 export type BackupManifest = {
   version: 2;

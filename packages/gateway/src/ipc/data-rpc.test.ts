@@ -7,6 +7,10 @@ import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
 
 const testKdf = { t: 1, m: 1024, p: 1 } as const;
 
+function emptyCtx(): Parameters<typeof dispatchDataRpc>[2] {
+  return { index: undefined, vault: undefined, platform: "linux", nimbusVersion: "0.0.0-test" };
+}
+
 describe("dispatchDataRpc", () => {
   test("returns miss for non-data method", async () => {
     const out = await dispatchDataRpc(
@@ -95,13 +99,7 @@ describe("dispatchDataRpc", () => {
 
 describe("data.getExportPreflight", () => {
   test("returns zero values when index is undefined", async () => {
-    const ctx: Parameters<typeof dispatchDataRpc>[2] = {
-      index: undefined,
-      vault: undefined,
-      platform: "linux",
-      nimbusVersion: "0.0.0-test",
-    };
-    const r = await dispatchDataRpc("data.getExportPreflight", null, ctx);
+    const r = await dispatchDataRpc("data.getExportPreflight", null, emptyCtx());
     expect(r.kind).toBe("hit");
     if (r.kind === "hit") {
       const v = r.value as { lastExportAt: unknown; estimatedSizeBytes: number; itemCount: number };
@@ -118,12 +116,7 @@ describe("data.getExportPreflight", () => {
        VALUES ('github-1', 'github', 'test', 'ext-1', 't', ?, ?, 0)`,
       [Date.now(), Date.now()],
     );
-    const ctx: Parameters<typeof dispatchDataRpc>[2] = {
-      index: idx,
-      vault: memVault(),
-      platform: "linux",
-      nimbusVersion: "0.0.0-test",
-    };
+    const ctx = { ...emptyCtx(), index: idx, vault: memVault() };
     const r = await dispatchDataRpc("data.getExportPreflight", null, ctx);
     expect(r.kind).toBe("hit");
     if (r.kind === "hit") {
@@ -137,13 +130,7 @@ describe("data.getExportPreflight", () => {
 
 describe("data.getDeletePreflight", () => {
   test("returns zero counts when index is undefined", async () => {
-    const ctx: Parameters<typeof dispatchDataRpc>[2] = {
-      index: undefined,
-      vault: undefined,
-      platform: "linux",
-      nimbusVersion: "0.0.0-test",
-    };
-    const r = await dispatchDataRpc("data.getDeletePreflight", { service: "github" }, ctx);
+    const r = await dispatchDataRpc("data.getDeletePreflight", { service: "github" }, emptyCtx());
     expect(r.kind).toBe("hit");
     if (r.kind === "hit") {
       const v = r.value as {
@@ -167,12 +154,7 @@ describe("data.getDeletePreflight", () => {
        VALUES ('github-1', 'github', 'test', 'ext-1', 't', ?, ?, 0)`,
       [Date.now(), Date.now()],
     );
-    const ctx: Parameters<typeof dispatchDataRpc>[2] = {
-      index: idx,
-      vault: memVault(),
-      platform: "linux",
-      nimbusVersion: "0.0.0-test",
-    };
+    const ctx = { ...emptyCtx(), index: idx, vault: memVault() };
     const r = await dispatchDataRpc("data.getDeletePreflight", { service: "github" }, ctx);
     expect(r.kind).toBe("hit");
     if (r.kind === "hit") {
@@ -190,40 +172,22 @@ describe("data.getDeletePreflight", () => {
   });
 
   test("rejects null params (missing service)", async () => {
-    const ctx: Parameters<typeof dispatchDataRpc>[2] = {
-      index: undefined,
-      vault: undefined,
-      platform: "linux",
-      nimbusVersion: "0.0.0-test",
-    };
-    await expect(dispatchDataRpc("data.getDeletePreflight", null, ctx)).rejects.toBeInstanceOf(
-      DataRpcError,
-    );
+    await expect(
+      dispatchDataRpc("data.getDeletePreflight", null, emptyCtx()),
+    ).rejects.toBeInstanceOf(DataRpcError);
   });
 
   test("rejects empty service string", async () => {
-    const ctx: Parameters<typeof dispatchDataRpc>[2] = {
-      index: undefined,
-      vault: undefined,
-      platform: "linux",
-      nimbusVersion: "0.0.0-test",
-    };
     await expect(
-      dispatchDataRpc("data.getDeletePreflight", { service: "" }, ctx),
+      dispatchDataRpc("data.getDeletePreflight", { service: "" }, emptyCtx()),
     ).rejects.toBeInstanceOf(DataRpcError);
   });
 
   test("returns zero vaultKeyCount for unknown service", async () => {
-    const ctx: Parameters<typeof dispatchDataRpc>[2] = {
-      index: undefined,
-      vault: undefined,
-      platform: "linux",
-      nimbusVersion: "0.0.0-test",
-    };
     const r = await dispatchDataRpc(
       "data.getDeletePreflight",
       { service: "unknown_service_xyz" },
-      ctx,
+      emptyCtx(),
     );
     expect(r.kind).toBe("hit");
     if (r.kind === "hit") {
