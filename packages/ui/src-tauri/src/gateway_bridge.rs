@@ -106,6 +106,8 @@ pub fn is_method_allowed(method: &str) -> bool {
     ALLOWED_METHODS.contains(&method)
 }
 
+const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Methods that must **not** be subject to the default `rpc_call` timeout — they are
 /// run-to-completion or fire-and-forget-with-progress-notifications. The UI relies
 /// on streamed notifications (`llm.pullProgress`, `data.exportProgress`, etc.) for
@@ -125,8 +127,10 @@ pub fn is_no_timeout_method(method: &str) -> bool {
 /// Notification methods rebroadcast as **global** Tauri events (received by every
 /// window) rather than as window-scoped `gateway://notification`. Keep this tight —
 /// noisy methods (HITL, health changes) stay scoped to avoid fan-out.
+#[allow(dead_code)]
 pub const GLOBAL_BROADCAST_METHODS: &[&str] = &["profile.switched"];
 
+#[allow(dead_code)]
 pub fn is_global_broadcast_method(method: &str) -> bool {
     GLOBAL_BROADCAST_METHODS.contains(&method)
 }
@@ -291,10 +295,22 @@ pub async fn rpc_call(
         return Err("ERR_GATEWAY_OFFLINE".into());
     }
 
-    match resp_rx.await {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => Err("ERR_GATEWAY_OFFLINE".into()),
+    if is_no_timeout_method(&method) {
+        match resp_rx.await {
+            Ok(Ok(v)) => Ok(v),
+            Ok(Err(e)) => Err(e.to_string()),
+            Err(_) => Err("ERR_GATEWAY_OFFLINE".into()),
+        }
+    } else {
+        match tokio::time::timeout(DEFAULT_RPC_TIMEOUT, resp_rx).await {
+            Ok(Ok(Ok(v))) => Ok(v),
+            Ok(Ok(Err(e))) => Err(e.to_string()),
+            Ok(Err(_)) => Err("ERR_GATEWAY_OFFLINE".into()),
+            Err(_elapsed) => {
+                state.pending.lock().await.remove(&id);
+                Err("ERR_TIMEOUT".into())
+            }
+        }
     }
 }
 

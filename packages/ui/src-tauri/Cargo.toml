@@ -30,4 +30,4 @@ tauri-plugin-fs = "2"
 tauri-plugin-clipboard-manager = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "net", "sync", "time", "macros"] }
 interprocess = { version = "2", features = ["tokio"] }
-thiserror = "1"
+thiserror = "2"

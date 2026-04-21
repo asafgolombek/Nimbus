@@ -161,7 +161,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
           setImportFlow({
             status: "error",
             errorKind: "rpc_failed",
-            errorMessage: classified.errorMessage,
+            errorMessage: classified.errorMessage ?? null,
           });
         } else {
           setImportFlow({ status: "error", errorKind: "validation" });
