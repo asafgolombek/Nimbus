@@ -17,6 +17,7 @@
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-clear",
     "dialog:allow-save",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "fs:allow-write-text-file"
   ]
 }

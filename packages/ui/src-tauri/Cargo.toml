@@ -26,6 +26,7 @@ tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 tauri-plugin-clipboard-manager = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "net", "sync", "time", "macros"] }
 interprocess = { version = "2", features = ["tokio"] }

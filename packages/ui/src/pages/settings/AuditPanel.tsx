@@ -1,0 +1,293 @@
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FixedSizeList, type ListChildComponentProps } from "react-window";
+import { AuditFilterChips } from "../../components/settings/audit/AuditFilterChips";
+import { PanelError } from "../../components/settings/PanelError";
+import { PanelHeader } from "../../components/settings/PanelHeader";
+import { StaleChip } from "../../components/settings/StaleChip";
+import { useIpcQuery } from "../../hooks/useIpcQuery";
+import { useIpcSubscription } from "../../hooks/useIpcSubscription";
+import { createIpcClient } from "../../ipc/client";
+import type { AuditExportRow, AuditVerifyResult, JsonRpcNotification } from "../../ipc/types";
+import { useNimbusStore } from "../../store";
+import { rowsToCsv, splitActionType, toDisplayRow } from "./audit/audit-row-utils";
+
+const ROW_HEIGHT = 32;
+const LIST_HEIGHT = 480;
+const POLL_MS = 60_000;
+const MAX_ROWS = 1_000;
+
+interface ToastState {
+  readonly kind: "success" | "error" | "info";
+  readonly text: string;
+}
+
+function VerifyToast({ toast, onDismiss }: { toast: ToastState; onDismiss: () => void }) {
+  const colorClass =
+    toast.kind === "success"
+      ? "bg-green-700"
+      : toast.kind === "error"
+        ? "bg-red-700"
+        : "bg-blue-700";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`mt-3 rounded px-3 py-2 text-sm text-white flex items-start justify-between ${colorClass}`}
+    >
+      <span data-testid="audit-toast-text">{toast.text}</span>
+      <button type="button" aria-label="Dismiss" onClick={onDismiss} className="ml-2 underline">
+        ×
+      </button>
+    </div>
+  );
+}
+
+export function AuditPanel() {
+  const connectionState = useNimbusStore((s) => s.connectionState);
+  const filter = useNimbusStore((s) => s.auditFilter);
+  const summary = useNimbusStore((s) => s.auditSummary);
+  const inFlight = useNimbusStore((s) => s.auditActionInFlight);
+  const setFilter = useNimbusStore((s) => s.setAuditFilter);
+  const resetFilter = useNimbusStore((s) => s.resetAuditFilter);
+  const setSummary = useNimbusStore((s) => s.setAuditSummary);
+  const setInFlight = useNimbusStore((s) => s.setAuditActionInFlight);
+  const offline = connectionState === "disconnected";
+  const writeDisabled = offline || inFlight;
+
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // 60 s polling for the row list — gives near-real-time visibility without thrashing.
+  const {
+    data: rawRows,
+    error: listError,
+    refetch: refetchList,
+  } = useIpcQuery<
+    Array<{
+      id: number;
+      actionType: string;
+      hitlStatus: "approved" | "rejected" | "not_required";
+      actionJson: string;
+      timestamp: number;
+    }>
+  >("audit.list", POLL_MS, { limit: MAX_ROWS });
+
+  // Summary refresh whenever the row count changes (cheap server-side aggregation).
+  const refreshSummary = useCallback(async () => {
+    try {
+      const next = await createIpcClient().auditGetSummary();
+      setSummary(next);
+    } catch {
+      // Summary failure is non-fatal — keep the prior snapshot, just don't update it.
+    }
+  }, [setSummary]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rawRows?.length is a trigger for summary refresh, not read inside the effect
+  useEffect(() => {
+    void refreshSummary();
+  }, [refreshSummary, rawRows?.length]);
+
+  // New audit rows arriving via the gateway notification channel → refetch list immediately.
+  // Filter on the message method so we don't re-fetch on unrelated traffic.
+  const onNotification = useCallback(
+    (n: JsonRpcNotification) => {
+      if (n.method === "audit.entryAppended" || n.method === "data.delete.completed") {
+        refetchList();
+      }
+    },
+    [refetchList],
+  );
+  useIpcSubscription<JsonRpcNotification>("gateway://notification", onNotification);
+
+  const displayRows = useMemo(() => {
+    if (rawRows === null) return [];
+    return rawRows.map((r) => {
+      const { service, action } = splitActionType(r.actionType);
+      return {
+        id: r.id,
+        tsIso: new Date(r.timestamp).toISOString(),
+        service,
+        action,
+        outcome: r.hitlStatus,
+        rowHash: "", // not present in `audit.list`; populated only in the export pipeline
+        actor: "",
+      };
+    });
+  }, [rawRows]);
+
+  const filteredRows = useMemo(() => {
+    return displayRows.filter((row) => {
+      if (filter.service !== "" && row.service !== filter.service) return false;
+      if (filter.outcome !== "all" && row.outcome !== filter.outcome) return false;
+      const ms = Date.parse(row.tsIso);
+      if (filter.sinceMs !== null && ms < filter.sinceMs) return false;
+      if (filter.untilMs !== null && ms > filter.untilMs + 86_399_000) return false; // inclusive end-of-day
+      return true;
+    });
+  }, [displayRows, filter]);
+
+  const availableServices = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of displayRows) set.add(r.service);
+    return Array.from(set).sort();
+  }, [displayRows]);
+
+  const onVerify = useCallback(async () => {
+    setInFlight(true);
+    setToast({ kind: "info", text: "Verifying audit chain…" });
+    try {
+      const result: AuditVerifyResult = await createIpcClient().auditVerify(true);
+      if (result.ok) {
+        setToast({
+          kind: "success",
+          text: `Chain verified — ${result.totalChecked} rows through id ${result.lastVerifiedId}.`,
+        });
+      } else {
+        setToast({
+          kind: "error",
+          text: `Chain BROKEN at id ${result.brokenAtId}: expected ${result.expectedHash.slice(0, 12)}…, got ${result.actualHash.slice(0, 12)}…`,
+        });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ kind: "error", text: `Verify failed: ${msg}` });
+    } finally {
+      setInFlight(false);
+    }
+  }, [setInFlight]);
+
+  const onExport = useCallback(async () => {
+    setInFlight(true);
+    setExportError(null);
+    try {
+      const path = await save({
+        title: "Export audit log",
+        defaultPath: `audit-${Date.now()}.json`,
+        filters: [
+          { name: "JSON", extensions: ["json"] },
+          { name: "CSV", extensions: ["csv"] },
+        ],
+      });
+      if (path === null) return; // user cancelled
+      const rows: ReadonlyArray<AuditExportRow> = await createIpcClient().auditExport();
+      const isCsv = path.toLowerCase().endsWith(".csv");
+      const contents = isCsv ? rowsToCsv(rows) : JSON.stringify(rows.map(toDisplayRow), null, 2);
+      await writeTextFile(path, contents);
+      setToast({ kind: "success", text: `Exported ${rows.length} rows to ${path}` });
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInFlight(false);
+    }
+  }, [setInFlight]);
+
+  const Row = useCallback(
+    ({ index, style }: ListChildComponentProps) => {
+      const row = filteredRows[index];
+      if (!row) return null;
+      return (
+        <div
+          style={style}
+          className="grid grid-cols-[180px_120px_1fr_100px] items-center px-3 text-xs border-b border-[var(--color-border)]"
+          data-testid="audit-row"
+        >
+          <span className="font-mono text-[var(--color-text-muted)]">{row.tsIso}</span>
+          <span className="font-medium">{row.service}</span>
+          <span>{row.action}</span>
+          <span
+            className={
+              row.outcome === "rejected"
+                ? "text-red-500 font-medium"
+                : row.outcome === "approved"
+                  ? "text-green-600 font-medium"
+                  : "text-[var(--color-text-muted)]"
+            }
+          >
+            {row.outcome}
+          </span>
+        </div>
+      );
+    },
+    [filteredRows],
+  );
+
+  return (
+    <section className="p-6 space-y-3">
+      <PanelHeader
+        title="Audit"
+        description="Tamper-evident BLAKE3-chained audit log. Up to 1,000 most recent rows shown; verify or export the full chain below."
+        livePill={offline ? <StaleChip /> : undefined}
+      />
+
+      {summary !== null && (
+        <div className="text-xs text-[var(--color-text-muted)]">
+          Total rows: {summary.total} · approved: {summary.byOutcome.approved ?? 0} · rejected:{" "}
+          {summary.byOutcome.rejected ?? 0} · auto: {summary.byOutcome.not_required ?? 0}
+        </div>
+      )}
+
+      <AuditFilterChips
+        filter={filter}
+        availableServices={availableServices}
+        onChange={setFilter}
+        onReset={resetFilter}
+        disabled={offline}
+      />
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void onVerify()}
+          disabled={writeDisabled}
+          className="px-3 py-1.5 text-sm rounded bg-[var(--color-accent)] text-white disabled:opacity-50"
+        >
+          Verify chain
+        </button>
+        <button
+          type="button"
+          onClick={() => void onExport()}
+          disabled={writeDisabled}
+          className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] disabled:opacity-50"
+        >
+          Export…
+        </button>
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {filteredRows.length} of {displayRows.length} rows
+        </span>
+      </div>
+
+      {listError !== null && (
+        <PanelError
+          message={`Failed to load audit log: ${listError}`}
+          onRetry={() => refetchList()}
+        />
+      )}
+      {exportError !== null && (
+        <PanelError
+          message={`Export failed: ${exportError}`}
+          onRetry={() => setExportError(null)}
+        />
+      )}
+      {toast !== null && <VerifyToast toast={toast} onDismiss={() => setToast(null)} />}
+
+      <div className="border border-[var(--color-border)] rounded">
+        <div className="grid grid-cols-[180px_120px_1fr_100px] px-3 py-1.5 text-xs font-semibold border-b border-[var(--color-border)] bg-[var(--color-bg-subtle)]">
+          <span>Timestamp</span>
+          <span>Service</span>
+          <span>Action</span>
+          <span>Outcome</span>
+        </div>
+        <FixedSizeList
+          height={LIST_HEIGHT}
+          itemCount={filteredRows.length}
+          itemSize={ROW_HEIGHT}
+          width="100%"
+        >
+          {Row}
+        </FixedSizeList>
+      </div>
+    </section>
+  );
+}
