@@ -215,7 +215,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
                 <div className="grid grid-cols-3 gap-2" data-testid="bip39-grid">
                   {seedWords.map((w, i) => (
                     <input
-                      // eslint-disable-next-line react/no-array-index-key
+                      // biome-ignore lint/suspicious/noArrayIndexKey: seed words are positionally stable
                       key={i}
                       type="text"
                       aria-label={`Word ${i + 1}`}

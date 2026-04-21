@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ImportWizard } from "../../../../src/components/settings/data/ImportWizard";
 import { dataImportMock } from "../../../../src/ipc/__mocks__/client";
 import { JsonRpcError } from "../../../../src/ipc/types";

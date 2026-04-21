@@ -77,8 +77,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       }
       cancelCountdown();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cancelCountdown]);
 
   const onNotification = useCallback(
     (n: JsonRpcNotification) => {

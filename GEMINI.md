@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C Plans 1–3 ✅ on branch · Plans 4–5 🔵 Pending)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ on branch, PR pending)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -137,6 +137,12 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
 | `docs/manual-smoke-ws5a.md` | WS5-A manual smoke checklist |
 | `docs/manual-smoke-ws5b.md` | WS5-B manual smoke checklist |
+| `docs/manual-smoke-ws5c.md` | WS5-C manual smoke checklist |
+| `packages/ui/src/pages/settings/DataPanel.tsx` | Data panel — Export/Import/Delete wizard launcher with preflight stats |
+| `packages/ui/src/components/settings/data/ExportWizard.tsx` | Export wizard — passphrase gate, zxcvbn, overwrite confirm, progress, seed display |
+| `packages/ui/src/components/settings/data/ImportWizard.tsx` | Import wizard — passphrase + recovery-seed auth, version-compat error handling |
+| `packages/ui/src/components/settings/data/DeleteServiceDialog.tsx` | Delete service dialog — preflight preview, typed-name confirm, `data.delete` call |
+| `packages/ui/src/store/slices/data.ts` | Data store slice — exportFlow / importFlow / deleteFlow state machines + markDisconnected |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
