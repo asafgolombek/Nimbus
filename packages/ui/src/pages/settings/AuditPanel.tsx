@@ -23,13 +23,20 @@ interface ToastState {
   readonly text: string;
 }
 
-function VerifyToast({ toast, onDismiss }: { toast: ToastState; onDismiss: () => void }) {
-  const colorClass =
-    toast.kind === "success"
-      ? "bg-green-700"
-      : toast.kind === "error"
-        ? "bg-red-700"
-        : "bg-blue-700";
+function toastColorClass(kind: "success" | "error" | "info"): string {
+  if (kind === "success") return "bg-green-700";
+  if (kind === "error") return "bg-red-700";
+  return "bg-blue-700";
+}
+
+function VerifyToast({
+  toast,
+  onDismiss,
+}: {
+  readonly toast: ToastState;
+  readonly onDismiss: () => void;
+}) {
+  const colorClass = toastColorClass(toast.kind);
   return (
     <div
       role="status"
@@ -92,7 +99,7 @@ export function AuditPanel() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: rawRows?.length is a trigger for summary refresh, not read inside the effect
   useEffect(() => {
-    void refreshSummary();
+    refreshSummary().catch(() => undefined);
   }, [refreshSummary, rawRows?.length]);
 
   // New audit rows arriving via the gateway notification channel → refetch list immediately.
@@ -137,7 +144,7 @@ export function AuditPanel() {
   const availableServices = useMemo(() => {
     const set = new Set<string>();
     for (const r of displayRows) set.add(r.service);
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [displayRows]);
 
   const onVerify = useCallback(async () => {

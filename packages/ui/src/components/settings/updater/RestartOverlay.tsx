@@ -15,9 +15,9 @@ export function RestartOverlay({ state, restarting, elapsedSec }: Props): ReactN
 
   const heading = state === "restarting" ? "Restarting Nimbus…" : "Reconnecting to Gateway…";
   const subline =
-    restarting !== null
-      ? `Updating from ${restarting.fromVersion} → ${restarting.toVersion}.`
-      : "Apply in progress.";
+    restarting === null
+      ? "Apply in progress."
+      : `Updating from ${restarting.fromVersion} → ${restarting.toVersion}.`;
   const hint =
     state === "reconnecting" ? `Up to 2 minutes — elapsed ${elapsedSec}s.` : "Up to 30 seconds.";
 

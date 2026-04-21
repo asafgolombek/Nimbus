@@ -42,11 +42,11 @@ export function useConfirm(): ((options: ConfirmOptions) => Promise<boolean>) & 
 
   const modal: ReactNode =
     state === null ? null : (
-      <div
-        role="dialog"
+      <dialog
+        open
         aria-modal="true"
         aria-label={state.options.title}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 border-0 max-w-none w-full h-full m-0 p-0"
       >
         <div className="bg-[var(--color-bg)] rounded-md p-6 w-[420px] max-w-[90vw] border border-[var(--color-border)]">
           <h3 className="text-lg font-semibold mb-2">{state.options.title}</h3>
@@ -78,7 +78,7 @@ export function useConfirm(): ((options: ConfirmOptions) => Promise<boolean>) & 
             </button>
           </div>
         </div>
-      </div>
+      </dialog>
     );
 
   return Object.assign(confirm, { modal });

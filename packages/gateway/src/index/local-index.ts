@@ -320,7 +320,8 @@ export class LocalIndex {
     const depthRow = db
       .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
       .get(row.service_id) as { depth: string | null } | null | undefined;
-    const depth = (depthRow?.depth ?? "summary") as "metadata_only" | "summary" | "full";
+    type ConnectorDepth = "metadata_only" | "summary" | "full";
+    const depth = (depthRow?.depth ?? "summary") as ConnectorDepth;
     return {
       serviceId: row.service_id,
       status,

@@ -32,12 +32,63 @@ function looksLikeBip39Word(v: string): boolean {
   return /^[a-z]{3,8}$/.test(v.trim());
 }
 
+type ImportErrorResult =
+  | { step: "error-terminal"; copy: string; deepLink: string | null; errorKind: "terminal" }
+  | {
+      step: "error-retryable";
+      copy: string;
+      errorKind: "validation" | "rpc_failed";
+      errorMessage?: string;
+    };
+
+function classifyImportError(err: unknown, authMethod: AuthMethod): ImportErrorResult {
+  const rpcErr = err instanceof JsonRpcError ? err : null;
+  if (rpcErr?.payload.code === -32010) {
+    const data = rpcErr.payload.data as DataImportVersionIncompatibleData | undefined;
+    if (data?.relation === "archive_newer") {
+      return {
+        step: "error-terminal",
+        copy: "This backup is from a newer Nimbus. Update Nimbus, then retry.",
+        deepLink: "/settings/updates",
+        errorKind: "terminal",
+      };
+    }
+    return {
+      step: "error-terminal",
+      copy: "This backup is from an older, unsupported Nimbus. No migration path in v0.1.0.",
+      deepLink: null,
+      errorKind: "terminal",
+    };
+  }
+  if (rpcErr?.payload.code === -32003) {
+    return {
+      step: "error-terminal",
+      copy: "Archive is corrupt or tampered. No changes made.",
+      deepLink: null,
+      errorKind: "terminal",
+    };
+  }
+  if (rpcErr?.payload.code === -32002) {
+    const copy =
+      authMethod === "passphrase"
+        ? "Could not decrypt with that passphrase. Check and retry."
+        : "Could not decrypt with that recovery seed. Check each word and retry.";
+    return { step: "error-retryable", copy, errorKind: "validation" };
+  }
+  return {
+    step: "error-retryable",
+    copy: `Import failed — your data was not changed. ${(err as Error).message}`,
+    errorKind: "rpc_failed",
+    errorMessage: (err as Error).message,
+  };
+}
+
 export function ImportWizard({ onClose }: ImportWizardProps) {
   const [step, setStep] = useState<Step>("file");
   const [bundlePath, setBundlePath] = useState<string | null>(null);
   const [authMethod, setAuthMethod] = useState<AuthMethod>("passphrase");
   const [passphrase, setPassphrase] = useState("");
-  const [seedWords, setSeedWords] = useState<string[]>(() => Array<string>(12).fill(""));
+  const [seedWords, setSeedWords] = useState<string[]>(() => new Array<string>(12).fill(""));
   const [typedConfirm, setTypedConfirm] = useState("");
   const [errorCopy, setErrorCopy] = useState<string | null>(null);
   const [errorDeepLink, setErrorDeepLink] = useState<string | null>(null);
@@ -52,7 +103,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
   useEffect(() => {
     return () => {
       setPassphrase("");
-      setSeedWords(Array<string>(12).fill(""));
+      setSeedWords(new Array<string>(12).fill(""));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -96,48 +147,27 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
       setImportFlow({ status: "idle" });
       setStep("done");
       setTimeout(() => {
-        window.location.reload();
+        globalThis.location.reload();
       }, RELOAD_DELAY_MS);
     } catch (err) {
-      const rpcErr = err instanceof JsonRpcError ? err : null;
-      if (rpcErr !== null && rpcErr.payload.code === -32010) {
-        const data = rpcErr.payload.data as DataImportVersionIncompatibleData | undefined;
-        if (data?.relation === "archive_newer") {
-          setErrorCopy("This backup is from a newer Nimbus. Update Nimbus, then retry.");
-          setErrorDeepLink("/settings/updates");
+      const classified = classifyImportError(err, authMethod);
+      setErrorCopy(classified.copy);
+      if (classified.step === "error-terminal") {
+        setErrorDeepLink(classified.deepLink);
+        setImportFlow({ status: "error", errorKind: "terminal" });
+        setStep("error-terminal");
+      } else {
+        if (classified.errorKind === "rpc_failed") {
+          setImportFlow({
+            status: "error",
+            errorKind: "rpc_failed",
+            errorMessage: classified.errorMessage,
+          });
         } else {
-          setErrorCopy(
-            "This backup is from an older, unsupported Nimbus. No migration path in v0.1.0.",
-          );
-          setErrorDeepLink(null);
+          setImportFlow({ status: "error", errorKind: "validation" });
         }
-        setImportFlow({ status: "error", errorKind: "terminal" });
-        setStep("error-terminal");
-        return;
-      }
-      if (rpcErr !== null && rpcErr.payload.code === -32003) {
-        setErrorCopy("Archive is corrupt or tampered. No changes made.");
-        setImportFlow({ status: "error", errorKind: "terminal" });
-        setStep("error-terminal");
-        return;
-      }
-      if (rpcErr !== null && rpcErr.payload.code === -32002) {
-        setErrorCopy(
-          authMethod === "passphrase"
-            ? "Could not decrypt with that passphrase. Check and retry."
-            : "Could not decrypt with that recovery seed. Check each word and retry.",
-        );
-        setImportFlow({ status: "error", errorKind: "validation" });
         setStep("error-retryable");
-        return;
       }
-      setErrorCopy(`Import failed — your data was not changed. ${(err as Error).message}`);
-      setImportFlow({
-        status: "error",
-        errorKind: "rpc_failed",
-        errorMessage: (err as Error).message,
-      });
-      setStep("error-retryable");
     }
   }, [bundlePath, authMethod, passphrase, seedWords, setImportFlow]);
 
@@ -163,7 +193,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
               </button>
               <button
                 type="button"
-                onClick={() => void onPickFile()}
+                onClick={onPickFile}
                 className="px-3 py-1.5 rounded-md bg-[var(--color-accent)] text-white"
               >
                 Choose file…
@@ -185,7 +215,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
                   name="auth-method"
                   checked={authMethod === "passphrase"}
                   onChange={() => setAuthMethod("passphrase")}
-                />
+                />{" "}
                 Passphrase
               </label>
               <label className="flex items-center gap-2 text-sm">
@@ -194,7 +224,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
                   name="auth-method"
                   checked={authMethod === "recoverySeed"}
                   onChange={() => setAuthMethod("recoverySeed")}
-                />
+                />{" "}
                 Recovery seed (12 words)
               </label>
             </fieldset>

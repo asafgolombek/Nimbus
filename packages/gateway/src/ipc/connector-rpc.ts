@@ -39,7 +39,7 @@ export async function dispatchConnectorRpc(options: {
     openUrl,
     syncScheduler,
     connectorMesh,
-    ...(notify !== undefined ? { notify } : {}),
+    ...(notify === undefined ? {} : { notify }),
   };
 
   switch (method) {

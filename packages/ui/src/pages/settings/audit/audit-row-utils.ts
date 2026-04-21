@@ -56,7 +56,7 @@ export function toDisplayRow(row: AuditExportRow): AuditDisplayRow {
 export function csvEscape(field: string): string {
   if (field === "") return "";
   const needsQuote = /[",\r\n]/.test(field);
-  const escaped = field.replace(/"/g, '""');
+  const escaped = field.replaceAll('"', '""');
   return needsQuote ? `"${escaped}"` : escaped;
 }
 

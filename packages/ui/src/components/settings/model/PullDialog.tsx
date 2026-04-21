@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createIpcClient } from "../../../ipc/client";
 import type {
@@ -8,6 +9,21 @@ import type {
 import { useNimbusStore } from "../../../store";
 
 const STALL_MS = 15_000;
+
+function pullStatusText(
+  pullStalled: boolean,
+  activeRow: LlmPullProgressPayload | undefined,
+  percent: number,
+): ReactNode {
+  if (pullStalled) return <span className="text-amber-500">Connecting…</span>;
+  if (activeRow !== undefined)
+    return (
+      <span>
+        {activeRow.status} · {percent}%
+      </span>
+    );
+  return null;
+}
 
 interface Props {
   readonly open: boolean;
@@ -129,8 +145,8 @@ export function PullDialog({ open, onClose }: Props) {
       : 0;
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       aria-label="Pull model"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -182,23 +198,17 @@ export function PullDialog({ open, onClose }: Props) {
 
         {(activeRow !== undefined || activePullId !== null) && (
           <div className="mb-4">
-            <div
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={percent}
-              className="w-full h-2 rounded-full bg-[var(--color-border)] overflow-hidden"
-            >
-              <div className="h-full bg-[var(--color-accent)]" style={{ width: `${percent}%` }} />
+            <div className="w-full h-2 rounded-full bg-[var(--color-border)] overflow-hidden">
+              <progress
+                value={percent}
+                max={100}
+                aria-valuenow={percent}
+                className="h-full bg-[var(--color-accent)]"
+                style={{ width: `${percent}%` }}
+              />
             </div>
             <div className="mt-1 text-xs text-[var(--color-text-muted)]">
-              {pullStalled ? (
-                <span className="text-amber-500">Connecting…</span>
-              ) : activeRow !== undefined ? (
-                <span>
-                  {activeRow.status} · {percent}%
-                </span>
-              ) : null}
+              {pullStatusText(pullStalled, activeRow, percent)}
             </div>
           </div>
         )}
@@ -235,6 +245,6 @@ export function PullDialog({ open, onClose }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

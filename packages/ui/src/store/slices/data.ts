@@ -8,22 +8,24 @@ import type {
 /** Reason string attached to transient error state. Keyed so tests can match against constants. */
 export type DataFlowErrorKind = "gateway_disconnected" | "rpc_failed" | "validation" | "terminal";
 
+type FlowStatus = "idle" | "running" | "error";
+
 export interface ExportFlowState {
-  readonly status: "idle" | "running" | "error";
+  readonly status: FlowStatus;
   readonly progress: DataExportProgressPayload | null;
   readonly errorKind: DataFlowErrorKind | null;
   readonly errorMessage: string | null;
 }
 
 export interface ImportFlowState {
-  readonly status: "idle" | "running" | "error";
+  readonly status: FlowStatus;
   readonly progress: DataImportProgressPayload | null;
   readonly errorKind: DataFlowErrorKind | null;
   readonly errorMessage: string | null;
 }
 
 export interface DeleteFlowState {
-  readonly status: "idle" | "running" | "error";
+  readonly status: FlowStatus;
   readonly service: string | null;
   readonly errorKind: DataFlowErrorKind | null;
   readonly errorMessage: string | null;

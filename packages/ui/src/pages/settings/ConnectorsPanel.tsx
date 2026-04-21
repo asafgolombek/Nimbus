@@ -56,6 +56,8 @@ function asPersistedRow(s: ConnectorStatus): PersistedConnectorRow {
   };
 }
 
+type ConnectorDepth = "metadata_only" | "summary" | "full";
+
 interface RowProps {
   readonly row: PersistedConnectorRow;
   readonly inFlight: boolean;
@@ -63,7 +65,7 @@ interface RowProps {
   readonly highlighted: boolean;
   readonly onPatch: (patch: {
     intervalMs?: number;
-    depth?: "metadata_only" | "summary" | "full";
+    depth?: ConnectorDepth;
     enabled?: boolean;
   }) => Promise<void>;
 }

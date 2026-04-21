@@ -62,7 +62,7 @@ export function ModelPanel() {
   }, [setRouterStatus]);
 
   useEffect(() => {
-    void refresh();
+    refresh().catch(() => undefined);
   }, [refresh]);
 
   const onNotification = useCallback(
@@ -137,7 +137,7 @@ export function ModelPanel() {
     [refresh],
   );
 
-  const activeRow = activePullId !== null ? pullProgress[activePullId] : undefined;
+  const activeRow = activePullId === null ? undefined : pullProgress[activePullId];
   const activePercent = useMemo(() => {
     if (
       activeRow?.completedBytes === undefined ||
@@ -218,7 +218,7 @@ export function ModelPanel() {
                 onChange={(e) => {
                   const t = e.target.value;
                   if (t === "") return;
-                  void onSetDefault(m, t as LlmTaskType);
+                  onSetDefault(m, t as LlmTaskType).catch(() => undefined);
                   e.target.value = "";
                 }}
                 aria-label={`${m.modelName} default-for`}

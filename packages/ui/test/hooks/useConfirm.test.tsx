@@ -4,7 +4,7 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { useConfirm } from "../../src/hooks/useConfirm";
 
-function Harness({ expected }: { expected: string }) {
+function Harness({ expected }: { readonly expected: string }) {
   const confirm = useConfirm();
   const [result, setResult] = useState<string>("idle");
   return (

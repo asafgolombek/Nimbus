@@ -10,6 +10,12 @@ import { useNimbusStore } from "../../store";
 
 type OpenWizard = "none" | "export" | "import" | "delete";
 
+function getDisabledReason(offline: boolean, anyRunning: boolean): string | null {
+  if (offline) return "Gateway offline";
+  if (anyRunning) return "An export / import / delete is already in progress.";
+  return null;
+}
+
 function formatTs(ms: number | null): string {
   if (ms === null) return "Never";
   const d = new Date(ms);
@@ -59,11 +65,7 @@ export function DataPanel() {
     if (offline && anyRunning) markDisconnected();
   }, [offline, anyRunning, markDisconnected]);
 
-  const disabledReason = offline
-    ? "Gateway offline"
-    : anyRunning
-      ? "An export / import / delete is already in progress."
-      : null;
+  const disabledReason = getDisabledReason(offline, anyRunning);
   const writeDisabled = disabledReason !== null;
 
   return (
@@ -163,7 +165,7 @@ export function DataPanel() {
         <ExportWizard
           onClose={() => {
             setOpen("none");
-            void refreshPreflight();
+            refreshPreflight().catch(() => undefined);
           }}
         />
       )}
@@ -172,7 +174,7 @@ export function DataPanel() {
         <DeleteServiceDialog
           onClose={() => {
             setOpen("none");
-            void refreshPreflight();
+            refreshPreflight().catch(() => undefined);
           }}
         />
       )}

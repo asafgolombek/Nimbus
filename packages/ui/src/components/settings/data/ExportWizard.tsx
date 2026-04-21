@@ -73,7 +73,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       setPassphrase("");
       setConfirmPassphrase("");
       if (clipboardActiveRef.current) {
-        void writeText("");
+        Promise.resolve(writeText("")).catch(() => undefined);
       }
       cancelCountdown();
     };
@@ -140,7 +140,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       setStep("overwrite-confirm");
     } else {
       setDestPath(picked);
-      void runExportRef.current(picked);
+      runExportRef.current(picked).catch(() => undefined);
     }
   }, []);
 
@@ -160,7 +160,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       setCountdownMs((ms) => (ms === null ? null : Math.max(0, ms - 1000)));
     }, 1000);
     clearTimerRef.current = setTimeout(() => {
-      void writeText("");
+      Promise.resolve(writeText("")).catch(() => undefined);
       cancelCountdown();
     }, 30_000);
   }, [result, cancelCountdown]);
@@ -259,7 +259,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
               </button>
               <button
                 type="button"
-                onClick={() => void onPickDestination()}
+                onClick={onPickDestination}
                 className="px-3 py-1.5 rounded-md bg-[var(--color-accent)] text-white"
               >
                 Choose file…
@@ -292,19 +292,19 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
         {step === "exporting" && (
           <>
             <h2 className="text-xl font-semibold">Creating backup…</h2>
-            {progressPct !== null ? (
-              <progress
-                data-testid="export-progress-bar"
-                value={progressPct ?? 0}
-                max={100}
-                aria-valuenow={progressPct ?? 0}
-                className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden"
-              />
-            ) : (
+            {progressPct === null ? (
               <progress
                 data-testid="export-progress-indeterminate"
                 aria-valuetext="indeterminate"
                 className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden animate-pulse"
+              />
+            ) : (
+              <progress
+                data-testid="export-progress-bar"
+                value={progressPct}
+                max={100}
+                aria-valuenow={progressPct}
+                className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden"
               />
             )}
             <p className="text-xs text-[var(--color-text-muted)]">

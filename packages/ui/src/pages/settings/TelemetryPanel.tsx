@@ -47,7 +47,7 @@ export function TelemetryPanel() {
   }, [setStatus]);
 
   useEffect(() => {
-    void refresh();
+    refresh().catch(() => undefined);
   }, [refresh]);
 
   const onToggle = useCallback(async () => {
@@ -81,7 +81,7 @@ export function TelemetryPanel() {
           role="switch"
           aria-checked={enabled}
           aria-label="Telemetry"
-          onClick={() => void onToggle()}
+          onClick={onToggle}
           disabled={writeDisabled || status === null}
           className={[
             "relative inline-block w-12 h-6 rounded-full transition-colors",

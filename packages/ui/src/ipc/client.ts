@@ -110,7 +110,7 @@ function redactSensitiveSubstrings(input: string): string {
     const assignRe = new RegExp(String.raw`${key}\s*[=:]\s*"?([^\s",}]+)"?`, "gi");
     out = out.replace(assignRe, `${key}=[REDACTED]`);
     // `"key":"value"` explicit JSON form (assignRe alone can miss quoted JSON).
-    const jsonRe = new RegExp(`"${key}"\\s*:\\s*"[^"]*"`, "gi");
+    const jsonRe = new RegExp(String.raw`"${key}"\s*:\s*"[^"]*"`, "gi");
     out = out.replace(jsonRe, `"${key}":"[REDACTED]"`);
   }
   return out;
