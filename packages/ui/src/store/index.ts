@@ -13,6 +13,7 @@ import { createQuickQuerySlice, type QuickQuerySlice } from "./slices/quickQuery
 import { createSettingsSlice, type SettingsSlice } from "./slices/settings";
 import { createTelemetrySlice, type TelemetrySlice } from "./slices/telemetry";
 import { createTraySlice, type TraySlice } from "./slices/tray";
+import { createUpdaterSlice, type UpdaterSlice } from "./slices/updater";
 
 export type NimbusStore = ConnectionSlice &
   TraySlice &
@@ -25,7 +26,8 @@ export type NimbusStore = ConnectionSlice &
   TelemetrySlice &
   ConnectorsSlice &
   ModelSlice &
-  AuditSlice;
+  AuditSlice &
+  UpdaterSlice;
 
 export const useNimbusStore = create<NimbusStore>()(
   persist(
@@ -42,6 +44,7 @@ export const useNimbusStore = create<NimbusStore>()(
       ...createConnectorsSlice(...a),
       ...createModelSlice(...a),
       ...createAuditSlice(...a),
+      ...createUpdaterSlice(...a),
     }),
     {
       name: "nimbus-ui-store",
