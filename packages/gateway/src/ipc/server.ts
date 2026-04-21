@@ -11,6 +11,7 @@ import { type AgentRequestContext, agentRequestContext } from "../engine/agent-r
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import { driftHintsFromIndex } from "../index/drift-hints.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import type { LlmRegistry } from "../llm/registry.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -48,10 +49,14 @@ import type { WorkflowRunContext, WorkflowRunHandler } from "./workflow-invoke.t
 
 class RpcMethodError extends Error {
   readonly rpcCode: number;
-  constructor(rpcCode: number, message: string) {
+  readonly rpcData?: Record<string, unknown>;
+  constructor(rpcCode: number, message: string, rpcData?: Record<string, unknown>) {
     super(message);
     this.rpcCode = rpcCode;
     this.name = "RpcMethodError";
+    if (rpcData !== undefined) {
+      this.rpcData = rpcData;
+    }
   }
 }
 
@@ -266,7 +271,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       session.writeOutbound({ jsonrpc: "2.0", id, result });
     } catch (e) {
       if (e instanceof RpcMethodError) {
-        session.writeOutbound(errorResponse(id, e.rpcCode, e.message));
+        session.writeOutbound(errorResponse(id, e.rpcCode, e.message, e.rpcData));
       } else {
         const message = e instanceof Error ? e.message : "Internal error";
         session.writeOutbound(errorResponse(id, -32603, message));
@@ -447,10 +452,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         vault: options.vault,
         platform: rpcPlatform,
         nimbusVersion: options.version ?? "0.1.0",
+        schemaVersion: CURRENT_SCHEMA_VERSION,
       });
       if (out.kind === "hit") return out.value;
     } catch (e) {
-      if (e instanceof DataRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      if (e instanceof DataRpcError) throw new RpcMethodError(e.rpcCode, e.message, e.rpcData);
       throw e;
     }
     return phase4RpcSkipped;
@@ -708,6 +714,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         openUrl: openUrl ?? (async () => {}),
         syncScheduler: options.syncScheduler,
         ...(options.connectorMesh === undefined ? {} : { connectorMesh: options.connectorMesh }),
+        notify: broadcastNotification,
       });
       if (out.kind === "hit") {
         return out.value;

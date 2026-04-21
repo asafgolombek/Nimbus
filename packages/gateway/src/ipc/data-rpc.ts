@@ -1,11 +1,12 @@
 import { runDataDelete } from "../commands/data-delete.ts";
 import { runDataExport } from "../commands/data-export.ts";
-import { runDataImport } from "../commands/data-import.ts";
+import { DataImportVersionError, runDataImport } from "../commands/data-import.ts";
 import { normalizeConnectorServiceId } from "../connectors/connector-catalog.ts";
 import { CONNECTOR_VAULT_SECRET_KEYS } from "../connectors/connector-secrets-manifest.ts";
 import type { KdfParams } from "../db/data-vault-crypto.ts";
 import { collectIndexMetrics } from "../db/metrics.ts";
 import type { LocalIndex } from "../index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 
 export type DataRpcContext = {
@@ -13,6 +14,7 @@ export type DataRpcContext = {
   vault: NimbusVault | undefined;
   platform: "win32" | "darwin" | "linux";
   nimbusVersion: string;
+  schemaVersion?: number;
   /** Optional — tests override Argon2id params to keep runtime small. */
   kdfParams?: KdfParams;
   /** Optional — emit JSON-RPC notifications back to the caller. */
@@ -23,10 +25,14 @@ type RpcResult = { kind: "hit"; value: unknown } | { kind: "miss" };
 
 export class DataRpcError extends Error {
   readonly rpcCode: number;
-  constructor(rpcCode: number, message: string) {
+  readonly rpcData?: Record<string, unknown>;
+  constructor(rpcCode: number, message: string, rpcData?: Record<string, unknown>) {
     super(message);
     this.name = "DataRpcError";
     this.rpcCode = rpcCode;
+    if (rpcData !== undefined) {
+      this.rpcData = rpcData;
+    }
   }
 }
 
@@ -63,6 +69,7 @@ async function handleDataExport(
     index,
     platform: ctx.platform,
     nimbusVersion: ctx.nimbusVersion,
+    schemaVersion: ctx.schemaVersion ?? CURRENT_SCHEMA_VERSION,
     ...(ctx.kdfParams === undefined ? {} : { kdfParams: ctx.kdfParams }),
   });
   ctx.notify?.("data.exportCompleted", {
@@ -83,15 +90,27 @@ async function handleDataImport(
   if (typeof bundlePath !== "string" || bundlePath === "")
     throw new DataRpcError(-32602, "Missing param: bundlePath");
   ctx.notify?.("data.importProgress", { stage: "unpacking", bytesRead: 0, totalBytes: 0 });
-  const result = await runDataImport({
-    bundlePath,
-    ...(typeof passphrase === "string" ? { passphrase } : {}),
-    ...(typeof recoverySeed === "string" ? { recoverySeed } : {}),
-    vault,
-    index,
-  });
-  ctx.notify?.("data.importCompleted", { credentialsRestored: result.credentialsRestored });
-  return result;
+  try {
+    const result = await runDataImport({
+      bundlePath,
+      ...(typeof passphrase === "string" ? { passphrase } : {}),
+      ...(typeof recoverySeed === "string" ? { recoverySeed } : {}),
+      vault,
+      index,
+    });
+    ctx.notify?.("data.importCompleted", { credentialsRestored: result.credentialsRestored });
+    return result;
+  } catch (err) {
+    if (err instanceof DataImportVersionError) {
+      throw new DataRpcError(-32010, err.message, {
+        kind: "version_incompatible",
+        archiveSchemaVersion: err.archiveSchemaVersion,
+        currentSchemaVersion: err.currentSchemaVersion,
+        relation: err.relation,
+      });
+    }
+    throw err;
+  }
 }
 
 async function handleDataDelete(

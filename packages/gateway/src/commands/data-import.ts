@@ -1,11 +1,48 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type BackupManifest, verifyManifest } from "../db/backup-manifest.ts";
+import {
+  type BackupManifest,
+  type LegacyBackupManifestV1,
+  verifyManifest,
+} from "../db/backup-manifest.ts";
 import { decryptVaultManifest, type VaultManifestBlob } from "../db/data-vault-crypto.ts";
 import { unpackBundle } from "../db/tar-bundle.ts";
 import type { LocalIndex } from "../index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+
+export class DataImportVersionError extends Error {
+  readonly archiveSchemaVersion: number;
+  readonly currentSchemaVersion: number;
+  readonly relation: "archive_newer" | "archive_older_unsupported";
+  constructor(
+    archiveSchemaVersion: number,
+    currentSchemaVersion: number,
+    relation: "archive_newer" | "archive_older_unsupported",
+  ) {
+    super(
+      `Data archive is from an incompatible Nimbus schema version ` +
+        `(archive=${archiveSchemaVersion}, current=${currentSchemaVersion}, ${relation})`,
+    );
+    this.name = "DataImportVersionError";
+    this.archiveSchemaVersion = archiveSchemaVersion;
+    this.currentSchemaVersion = currentSchemaVersion;
+    this.relation = relation;
+  }
+}
+
+function checkSchemaVersion(manifest: BackupManifest | LegacyBackupManifestV1): void {
+  const current = CURRENT_SCHEMA_VERSION;
+  const archive =
+    manifest.version === 2 && typeof manifest.schema_version === "number"
+      ? manifest.schema_version
+      : 0;
+  if (archive === current) return;
+  const relation: "archive_newer" | "archive_older_unsupported" =
+    archive > current ? "archive_newer" : "archive_older_unsupported";
+  throw new DataImportVersionError(archive, current, relation);
+}
 
 export type RunDataImportInput = {
   bundlePath: string;
@@ -28,7 +65,9 @@ export async function runDataImport(input: RunDataImportInput): Promise<RunDataI
   const stage = mkdtempSync(join(tmpdir(), "nimbus-import-stage-"));
   await unpackBundle(input.bundlePath, stage);
 
-  const manifest = JSON.parse(readFileSync(join(stage, "manifest.json"), "utf8")) as BackupManifest;
+  const manifest = JSON.parse(readFileSync(join(stage, "manifest.json"), "utf8")) as
+    | BackupManifest
+    | LegacyBackupManifestV1;
   const files: Record<string, string> = Object.fromEntries(
     Object.keys(manifest.hashes).map((name) => [name, join(stage, name)]),
   );
@@ -36,6 +75,8 @@ export async function runDataImport(input: RunDataImportInput): Promise<RunDataI
   if (!verify.ok) {
     throw new Error(`bundle integrity check failed at ${verify.firstMismatch ?? "unknown"}`);
   }
+
+  checkSchemaVersion(manifest);
 
   const encrypted = JSON.parse(
     readFileSync(join(stage, "vault-manifest.json.enc"), "utf8"),

@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C 🔵 Active)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ on branch, PR pending)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -94,27 +94,54 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
-| `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` |
-| `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, error types |
-| `packages/ui/src/store/index.ts` | `useNimbusStore` — Zustand v5 store composed from 4 slices |
+| `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` — includes credential redaction (5 forbidden keys) |
+| `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, `ProfileListResult`, `TelemetryStatus`, `RouterDecision`/`RouterStatusResult`, `LlmModelInfo`/`LlmListModelsResult`, `LlmAvailabilityResult`, `LlmPullStartedResult`/`LlmPullProgressPayload`/`LlmPullTerminalPayload`, error types |
+| `packages/ui/src/store/index.ts` | `useNimbusStore` — Zustand v5 store with `persist` middleware; 11 slices composed; `partialize` whitelist excludes secrets |
+| `packages/ui/src/store/partialize.ts` | `persistPartialize` — 5-key whitelist + 5-key forbidden deep-scrub for Zustand persist |
 | `packages/ui/src/providers/GatewayConnectionProvider.tsx` | `onConnectionState` mirror + first-run routing logic |
-| `packages/ui/src/App.tsx` | `createBrowserRouter` — all UI routes |
+| `packages/ui/src/App.tsx` | `createBrowserRouter` — all UI routes including nested `/settings/*` |
 | `packages/ui/src/pages/QuickQuery.tsx` | Quick Query popup page — stream + auto-close |
 | `packages/ui/src/pages/Onboarding.tsx` | Onboarding wizard frame + step pills |
 | `packages/ui/src/pages/Dashboard.tsx` | Dashboard page (metrics strip + connector grid + audit feed) |
 | `packages/ui/src/pages/HitlPopup.tsx` | HITL popup page hosted inside the `hitl-popup` Tauri window |
+| `packages/ui/src/pages/Settings.tsx` | Settings layout — `SettingsSidebar` + `<Outlet />` for nested panel routes |
+| `packages/ui/src/pages/settings/ProfilesPanel.tsx` | Profiles panel — list, create, switch, delete with typed-name confirm guard |
+| `packages/ui/src/pages/settings/TelemetryPanel.tsx` | Telemetry panel — toggle, counter cards, payload sample expander |
+| `packages/ui/src/pages/settings/ConnectorsPanel.tsx` | Connectors panel — interval editor (60 s min inline-validated), depth selector, enable toggle, `connector.configChanged` reconcile, Dashboard deep-link highlight |
+| `packages/ui/src/pages/settings/connectors/interval-parts.ts` | Interval input parser/formatter shared by `ConnectorsPanel` |
+| `packages/ui/src/pages/settings/ModelPanel.tsx` | Model panel — `RouterStatus` cards, per-task default pickers, load/unload row actions, `PullDialog` launcher, re-attaches to in-flight pull via persisted `activePullId` |
+| `packages/ui/src/components/settings/model/RouterStatus.tsx` | Per-task router decision cards driven by `llm.getRouterStatus`; emits `llm.setDefault` |
+| `packages/ui/src/components/settings/model/PullDialog.tsx` | Streaming model pull dialog — provider radio filtered by `llm.getStatus`, 15 s stall detection via `setTimeout`, cancel via `llm.cancelPull` |
 | `packages/ui/src/components/hitl/HitlPopupPage.tsx` | Head-of-queue consent dialog; Approve / Reject → `consent.respond` |
 | `packages/ui/src/components/hitl/StructuredPreview.tsx` | Recursive, XSS-safe preview of `consent.request` details |
 | `packages/ui/src/components/chrome/Sidebar.tsx` | Labelled sidebar nav with pending-HITL badge |
 | `packages/ui/src/components/chrome/PageHeader.tsx` | Page title + profile/health pill |
 | `packages/ui/src/components/dashboard/ConnectorTile.tsx` | Single connector card with health dot + degradation tooltip |
+| `packages/ui/src/components/settings/SettingsSidebar.tsx` | Settings secondary nav — 7 panel entries with `NavLink` active styling |
+| `packages/ui/src/components/settings/PanelHeader.tsx` | Shared panel title + description + optional live-status pill |
+| `packages/ui/src/components/settings/PanelError.tsx` | Error state with optional Retry button |
+| `packages/ui/src/components/settings/StaleChip.tsx` | Offline / stale indicator chip |
+| `packages/ui/src/components/settings/PanelComingSoon.tsx` | Placeholder for panels not yet implemented |
 | `packages/ui/src/hooks/useIpcQuery.ts` | Typed polling hook (pauses on hidden / disconnected) |
 | `packages/ui/src/hooks/useIpcSubscription.ts` | Typed Tauri event listener hook |
+| `packages/ui/src/hooks/useConfirm.tsx` | Inline confirm dialog hook — supports typed-name confirmation |
+| `packages/ui/src/lib/restart.ts` | `restartApp()` — invokes Tauri `plugin:app\|restart`; fallback to `location.reload()` |
 | `packages/ui/src/store/slices/dashboard.ts` | Dashboard store slice (metrics / connectors / audit / highlight) |
 | `packages/ui/src/store/slices/hitl.ts` | HITL pending-request FIFO queue |
+| `packages/ui/src/store/slices/settings.ts` | Settings slice — `activePanel` navigation state |
+| `packages/ui/src/store/slices/profile.ts` | Profile slice — list, active, `lastFetchAt`, `actionInFlight`; persisted |
+| `packages/ui/src/store/slices/telemetry.ts` | Telemetry slice — `TelemetryStatus` + `telemetryActionInFlight`; transient |
+| `packages/ui/src/store/slices/connectors.ts` | Connectors slice — `PersistedConnectorRow[]` (persisted) + transient `perServiceInFlight` + `highlightService` + `patchConnectorRow` |
+| `packages/ui/src/store/slices/model.ts` | Model slice — `installedModels` + `activePullId` (persisted) + transient `routerStatus`, `pullProgress`, `pullStalled`, `loadedKeys` |
 | `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
 | `docs/manual-smoke-ws5b.md` | WS5-B manual smoke checklist |
-| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS`, `rpc_call`, reconnect loop |
+| `docs/manual-smoke-ws5c.md` | WS5-C manual smoke checklist |
+| `packages/ui/src/pages/settings/DataPanel.tsx` | Data panel — Export/Import/Delete wizard launcher with preflight stats |
+| `packages/ui/src/components/settings/data/ExportWizard.tsx` | Export wizard — passphrase gate, zxcvbn, overwrite confirm, progress, seed display |
+| `packages/ui/src/components/settings/data/ImportWizard.tsx` | Import wizard — passphrase + recovery-seed auth, version-compat error handling |
+| `packages/ui/src/components/settings/data/DeleteServiceDialog.tsx` | Delete service dialog — preflight preview, typed-name confirm, `data.delete` call |
+| `packages/ui/src/store/slices/data.ts` | Data store slice — exportFlow / importFlow / deleteFlow state machines + markDisconnected |
+| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (38), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
 | `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
 | `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
 | `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |

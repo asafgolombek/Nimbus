@@ -20,6 +20,7 @@ describe("data export", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
 
@@ -41,6 +42,7 @@ describe("data export", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
     const second = await runDataExport({
@@ -51,6 +53,7 @@ describe("data export", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
     expect(second.recoverySeedGenerated).toBe(false);

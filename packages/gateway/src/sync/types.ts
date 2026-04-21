@@ -117,4 +117,8 @@ export interface SyncStatus {
   healthState?: string;
   /** Epoch ms for `sync_state.retry_after` when rate-limited; otherwise `null`. */
   healthRetryAfterMs?: number | null;
+  /** Phase 4 WS5-C — per-connector default reindex depth (V21). */
+  depth: "metadata_only" | "summary" | "full";
+  /** Phase 4 WS5-C — true when the connector is NOT paused. */
+  enabled: boolean;
 }

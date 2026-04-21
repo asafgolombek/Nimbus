@@ -262,8 +262,11 @@ export interface LanPeerRow {
   last_seen_at: string | null;
 }
 
+/** Current indexed DB schema version — also accessible as `LocalIndex.SCHEMA_VERSION`. */
+export const CURRENT_SCHEMA_VERSION = 21;
+
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 20;
+  static readonly SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -314,6 +317,11 @@ export class LocalIndex {
       status = "backoff";
     }
     const health = getConnectorHealth(db, row.service_id);
+    const depthRow = db
+      .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
+      .get(row.service_id) as { depth: string | null } | null | undefined;
+    type ConnectorDepth = "metadata_only" | "summary" | "full";
+    const depth = (depthRow?.depth ?? "summary") as ConnectorDepth;
     return {
       serviceId: row.service_id,
       status,
@@ -325,6 +333,8 @@ export class LocalIndex {
       consecutiveFailures: row.consecutive_failures,
       healthState: health.state,
       healthRetryAfterMs: health.retryAfter === undefined ? null : health.retryAfter.getTime(),
+      depth,
+      enabled: status !== "paused",
     };
   }
 
@@ -405,6 +415,29 @@ export class LocalIndex {
 
   setConnectorSyncIntervalMs(serviceId: string, intervalMs: number, now: number): void {
     upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, true);
+  }
+
+  setConnectorDepth(serviceId: string, depth: "metadata_only" | "summary" | "full"): void {
+    const rows = this.db
+      .query(`UPDATE sync_state SET depth = ? WHERE connector_id = ?`)
+      .run(depth, serviceId);
+    if (rows.changes === 0) {
+      // Row doesn't exist yet — insert with this depth.
+      this.db.run(
+        `INSERT INTO sync_state (connector_id, last_sync_at, next_sync_token, depth) VALUES (?, NULL, NULL, ?)`,
+        [serviceId, depth],
+      );
+    }
+  }
+
+  getConnectorDepth(serviceId: string): "metadata_only" | "summary" | "full" {
+    const row = this.db
+      .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
+      .get(serviceId) as { depth: string } | null | undefined;
+    if (row == null) {
+      throw new Error(`unknown connector: ${serviceId}`);
+    }
+    return row.depth as "metadata_only" | "summary" | "full";
   }
 
   clearConnectorSyncCursor(serviceId: string): void {

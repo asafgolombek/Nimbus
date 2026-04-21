@@ -1,0 +1,255 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../../src/ipc/client");
+
+import { callMock, connectorSetConfigMock, subscribeMock } from "../../../src/ipc/__mocks__/client";
+import { ConnectorsPanel } from "../../../src/pages/settings/ConnectorsPanel";
+import { useNimbusStore } from "../../../src/store";
+
+function renderPanel(initialEntries: string[] = ["/settings/connectors"]) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <ConnectorsPanel />
+    </MemoryRouter>,
+  );
+}
+
+/**
+ * Helper: stub `callMock` so `useIpcQuery("connector.listStatus")` returns `rows`.
+ */
+function stubListStatus(rows: unknown): void {
+  callMock.mockImplementation(async (method: string) => {
+    if (method === "connector.listStatus") return rows;
+    throw new Error(`unexpected method in test: ${method}`);
+  });
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  callMock.mockReset();
+  connectorSetConfigMock.mockReset();
+  subscribeMock.mockReset();
+  subscribeMock.mockResolvedValue(() => {});
+  useNimbusStore.setState({
+    connectorsList: [],
+    perServiceInFlight: {},
+    highlightService: null,
+    connectionState: "connected",
+  } as never);
+});
+
+describe("ConnectorsPanel", () => {
+  it("fetches listStatus on mount and renders one row per connector with the current fields", async () => {
+    stubListStatus([
+      {
+        name: "github",
+        health: "healthy",
+        intervalMs: 120000,
+        depth: "summary",
+        enabled: true,
+      },
+      {
+        name: "slack",
+        health: "rate_limited",
+        intervalMs: 300000,
+        depth: "metadata_only",
+        enabled: false,
+      },
+    ]);
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText("github")).toBeInTheDocument();
+      expect(screen.getByText("slack")).toBeInTheDocument();
+    });
+    // interval shown as the unit-appropriate number — 120000 ms == 2 min.
+    expect(screen.getByLabelText("github interval value")).toHaveValue(2);
+    expect(screen.getByLabelText("github interval unit")).toHaveValue("min");
+    // slack is paused → enable checkbox unchecked.
+    expect(screen.getByLabelText("slack enabled")).not.toBeChecked();
+  });
+
+  it("editing the interval debounces by 500 ms then calls setConfig in ms", async () => {
+    vi.useFakeTimers();
+    try {
+      stubListStatus([
+        {
+          name: "github",
+          health: "healthy",
+          intervalMs: 120000,
+          depth: "summary",
+          enabled: true,
+        },
+      ]);
+      connectorSetConfigMock.mockResolvedValueOnce({
+        service: "github",
+        intervalMs: 180000,
+        depth: null,
+        enabled: null,
+      });
+      renderPanel();
+      await waitFor(() => screen.getByLabelText("github interval value"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const input = screen.getByLabelText("github interval value");
+      await user.clear(input);
+      await user.type(input, "3");
+      // before the debounce fires, no call
+      expect(connectorSetConfigMock).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(500);
+      await waitFor(() =>
+        expect(connectorSetConfigMock).toHaveBeenCalledWith("github", { intervalMs: 180000 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("below-60-second interval shows inline error and never calls setConfig", async () => {
+    vi.useFakeTimers();
+    try {
+      stubListStatus([
+        {
+          name: "github",
+          health: "healthy",
+          intervalMs: 120000,
+          depth: "summary",
+          enabled: true,
+        },
+      ]);
+      renderPanel();
+      await waitFor(() => screen.getByLabelText("github interval value"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const input = screen.getByLabelText("github interval value");
+      const unit = screen.getByLabelText("github interval unit");
+      await user.selectOptions(unit, "sec");
+      await user.clear(input);
+      await user.type(input, "30");
+      vi.advanceTimersByTime(500);
+      expect(screen.getByText(/minimum 60 seconds/i)).toBeInTheDocument();
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(connectorSetConfigMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("changing the depth select fires setConfig with the new depth", async () => {
+    stubListStatus([
+      {
+        name: "github",
+        health: "healthy",
+        intervalMs: 120000,
+        depth: "summary",
+        enabled: true,
+      },
+    ]);
+    connectorSetConfigMock.mockResolvedValueOnce({
+      service: "github",
+      intervalMs: null,
+      depth: "full",
+      enabled: null,
+    });
+    renderPanel();
+    await waitFor(() => screen.getByLabelText("github depth"));
+    await userEvent.selectOptions(screen.getByLabelText("github depth"), "full");
+    await waitFor(() =>
+      expect(connectorSetConfigMock).toHaveBeenCalledWith("github", { depth: "full" }),
+    );
+  });
+
+  it("toggling the enabled checkbox fires setConfig with the flipped value", async () => {
+    stubListStatus([
+      {
+        name: "github",
+        health: "healthy",
+        intervalMs: 120000,
+        depth: "summary",
+        enabled: true,
+      },
+    ]);
+    connectorSetConfigMock.mockResolvedValueOnce({
+      service: "github",
+      intervalMs: null,
+      depth: null,
+      enabled: false,
+    });
+    renderPanel();
+    await waitFor(() => screen.getByLabelText("github enabled"));
+    await userEvent.click(screen.getByLabelText("github enabled"));
+    await waitFor(() =>
+      expect(connectorSetConfigMock).toHaveBeenCalledWith("github", { enabled: false }),
+    );
+  });
+
+  it("disables write controls when connectionState=disconnected (renders cached rows)", async () => {
+    useNimbusStore.setState({
+      connectionState: "disconnected",
+      connectorsList: [
+        {
+          service: "github",
+          intervalMs: 120000,
+          depth: "summary",
+          enabled: true,
+          health: "healthy",
+        },
+      ],
+    } as never);
+    stubListStatus([]); // never invoked because useIpcQuery is paused
+    renderPanel();
+    await waitFor(() => screen.getByLabelText("github enabled"));
+    expect(screen.getByLabelText("github enabled")).toBeDisabled();
+    expect(screen.getByLabelText("github depth")).toBeDisabled();
+    expect(screen.getByLabelText("github interval value")).toBeDisabled();
+  });
+
+  it("rings the row whose service matches ?highlight=<name>", async () => {
+    stubListStatus([
+      {
+        name: "slack",
+        health: "rate_limited",
+        intervalMs: 300000,
+        depth: "metadata_only",
+        enabled: true,
+      },
+    ]);
+    renderPanel(["/settings/connectors?highlight=slack"]);
+    await waitFor(() => screen.getByText("slack"));
+    const row = screen.getByTestId("connector-row-slack");
+    expect(row.className).toMatch(/ring-2/);
+  });
+});
+
+describe("ConnectorsPanel — connector.configChanged reconcile", () => {
+  it("patches the matching row when a configChanged notification arrives", async () => {
+    stubListStatus([
+      {
+        name: "github",
+        health: "healthy",
+        intervalMs: 120000,
+        depth: "summary",
+        enabled: true,
+      },
+    ]);
+    // Capture the subscribe handler so the test can fire a notification.
+    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
+    subscribeMock.mockImplementation(async (handler) => {
+      captured = handler;
+      return () => {};
+    });
+    renderPanel();
+    await waitFor(() => screen.getByLabelText("github depth"));
+    expect(captured).not.toBeNull();
+    captured?.({
+      method: "connector.configChanged",
+      params: { service: "github", intervalMs: 600000, depth: "full", enabled: false },
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("github depth")).toHaveValue("full");
+      expect(screen.getByLabelText("github enabled")).not.toBeChecked();
+      expect(screen.getByLabelText("github interval value")).toHaveValue(10);
+      expect(screen.getByLabelText("github interval unit")).toHaveValue("min");
+    });
+  });
+});
