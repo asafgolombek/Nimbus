@@ -10,6 +10,8 @@ import {
   type JsonRpcErrorPayload,
   type JsonRpcNotification,
   MethodNotAllowedError,
+  type ProfileListResult,
+  type TelemetryStatus,
 } from "./types";
 
 export interface NimbusIpcClient {
@@ -20,6 +22,34 @@ export interface NimbusIpcClient {
   indexMetrics(): Promise<IndexMetrics>;
   auditList(limit?: number): Promise<AuditEntry[]>;
   consentRespond(requestId: string, approved: boolean): Promise<void>;
+  /** WS5-C Plan 2 additions. */
+  profileList(): Promise<ProfileListResult>;
+  profileCreate(name: string): Promise<{ name: string }>;
+  profileSwitch(name: string): Promise<{ active: string }>;
+  profileDelete(name: string): Promise<{ deleted: string }>;
+  telemetryGetStatus(): Promise<TelemetryStatus>;
+  telemetrySetEnabled(enabled: boolean): Promise<{ enabled: boolean }>;
+}
+
+const FORBIDDEN_VALUE_KEYS: readonly string[] = [
+  "passphrase",
+  "recoverySeed",
+  "mnemonic",
+  "privateKey",
+  "encryptedVaultManifest",
+];
+
+function redactSensitiveSubstrings(input: string): string {
+  let out = input;
+  for (const key of FORBIDDEN_VALUE_KEYS) {
+    // `key=<run-of-non-whitespace-non-comma-non-brace>` — covers raw strings and JSON shards.
+    const assignRe = new RegExp(`${key}\\s*[=:]\\s*"?([^\\s",}]+)"?`, "gi");
+    out = out.replace(assignRe, `${key}=[REDACTED]`);
+    // `"key":"value"` explicit JSON form (assignRe alone can miss quoted JSON).
+    const jsonRe = new RegExp(`"${key}"\\s*:\\s*"[^"]*"`, "gi");
+    out = out.replace(jsonRe, `"${key}":"[REDACTED]"`);
+  }
+  return out;
 }
 
 function parseError(err: unknown): Error {
@@ -31,6 +61,7 @@ function parseError(err: unknown): Error {
   } else {
     msg = JSON.stringify(err);
   }
+  msg = redactSensitiveSubstrings(msg);
   if (msg.startsWith("ERR_METHOD_NOT_ALLOWED")) {
     const method = msg.split(":")[1] ?? "unknown";
     return new MethodNotAllowedError(method);
@@ -87,6 +118,29 @@ export function createIpcClient(): NimbusIpcClient {
       await this.call<unknown>("consent.respond", { requestId, approved });
       // Notify Rust to clear its inbox and fan `consent://resolved` out to all windows.
       await invoke("hitl_resolved", { requestId, approved });
+    },
+    async profileList(): Promise<ProfileListResult> {
+      const res = await this.call<unknown>("profile.list", {});
+      if (typeof res !== "object" || res === null) throw new Error("profile.list: expected object");
+      return res as ProfileListResult;
+    },
+    async profileCreate(name: string): Promise<{ name: string }> {
+      return await this.call<{ name: string }>("profile.create", { name });
+    },
+    async profileSwitch(name: string): Promise<{ active: string }> {
+      return await this.call<{ active: string }>("profile.switch", { name });
+    },
+    async profileDelete(name: string): Promise<{ deleted: string }> {
+      return await this.call<{ deleted: string }>("profile.delete", { name });
+    },
+    async telemetryGetStatus(): Promise<TelemetryStatus> {
+      const res = await this.call<unknown>("telemetry.getStatus", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("telemetry.getStatus: expected object");
+      return res as TelemetryStatus;
+    },
+    async telemetrySetEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+      return await this.call<{ enabled: boolean }>("telemetry.setEnabled", { enabled });
     },
   };
   singleton = client;
