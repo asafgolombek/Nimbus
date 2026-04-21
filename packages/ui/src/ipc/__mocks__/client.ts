@@ -49,6 +49,20 @@ export const updaterApplyUpdateMock = vi.fn<() => Promise<unknown>>();
 export const updaterRollbackMock = vi.fn<() => Promise<unknown>>();
 export const diagGetVersionMock = vi.fn<() => Promise<unknown>>();
 
+// WS5-C Plan 5 additions — Data panel
+export const dataGetExportPreflightMock = vi.fn<() => Promise<unknown>>();
+export const dataGetDeletePreflightMock = vi.fn<(args: { service: string }) => Promise<unknown>>();
+export const dataExportMock =
+  vi.fn<
+    (args: { output: string; passphrase: string; includeIndex: boolean }) => Promise<unknown>
+  >();
+export const dataImportMock =
+  vi.fn<
+    (args: { bundlePath: string; passphrase?: string; recoverySeed?: string }) => Promise<unknown>
+  >();
+export const dataDeleteMock =
+  vi.fn<(args: { service: string; dryRun: false }) => Promise<unknown>>();
+
 export const createIpcClient = () => ({
   call: callMock,
   subscribe: subscribeMock,
@@ -80,6 +94,11 @@ export const createIpcClient = () => ({
   updaterApplyUpdate: updaterApplyUpdateMock,
   updaterRollback: updaterRollbackMock,
   diagGetVersion: diagGetVersionMock,
+  dataGetExportPreflight: dataGetExportPreflightMock,
+  dataGetDeletePreflight: dataGetDeletePreflightMock,
+  dataExport: dataExportMock,
+  dataImport: dataImportMock,
+  dataDelete: dataDeleteMock,
 });
 
 export const __resetIpcClientForTests = () => {};

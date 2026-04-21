@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { FORBIDDEN_PERSIST_KEYS, persistPartialize } from "../../src/store/partialize";
+import {
+  FORBIDDEN_PERSIST_KEYS,
+  persistPartialize,
+  WHITELISTED_PERSIST_KEYS,
+} from "../../src/store/partialize";
 
 describe("persistPartialize", () => {
   it("output contains ONLY the whitelisted slice-root fields", () => {
@@ -94,5 +98,29 @@ describe("persistPartialize", () => {
     expect([...FORBIDDEN_PERSIST_KEYS].sort()).toEqual(
       ["encryptedVaultManifest", "mnemonic", "passphrase", "privateKey", "recoverySeed"].sort(),
     );
+  });
+});
+
+describe("persistPartialize — Data slice (Plan 5)", () => {
+  it("does not persist any data-slice fields", () => {
+    const state = {
+      // transient data-slice fields
+      exportFlow: { status: "running", progress: { stage: "packing", bytesWritten: 0 } },
+      importFlow: { status: "error", errorKind: "rpc_failed" },
+      deleteFlow: { status: "running", service: "github" },
+      lastExportPreflight: { lastExportAt: 123, estimatedSizeBytes: 456, itemCount: 789 },
+      // plus one whitelisted key so the output isn't empty
+      profiles: ["default"],
+    };
+    const out = persistPartialize(state as unknown as Record<string, unknown>);
+    expect(out).not.toHaveProperty("exportFlow");
+    expect(out).not.toHaveProperty("importFlow");
+    expect(out).not.toHaveProperty("deleteFlow");
+    expect(out).not.toHaveProperty("lastExportPreflight");
+    expect(out).toHaveProperty("profiles", ["default"]);
+  });
+
+  it("still has WHITELISTED_PERSIST_KEYS at exactly 5 entries", () => {
+    expect(WHITELISTED_PERSIST_KEYS).toHaveLength(5);
   });
 });

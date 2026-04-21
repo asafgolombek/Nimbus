@@ -331,3 +331,78 @@ export interface UpdaterVerifyFailedPayload {
 export interface DiagVersionResult {
   readonly version: string;
 }
+
+// ---- WS5-C Plan 5 additions (Data panel) ----
+
+/** `data.getExportPreflight` response. */
+export interface ExportPreflightResult {
+  readonly lastExportAt: number | null;
+  readonly estimatedSizeBytes: number;
+  readonly itemCount: number;
+}
+
+/** `data.getDeletePreflight` response. */
+export interface DeletePreflightResult {
+  readonly service: string;
+  readonly itemCount: number;
+  readonly embeddingCount: number;
+  readonly vaultKeyCount: number;
+}
+
+/** `data.export` response. `recoverySeedGenerated === true` only on the first-ever export. */
+export interface DataExportResult {
+  readonly outputPath: string;
+  readonly recoverySeed: string;
+  readonly recoverySeedGenerated: boolean;
+  readonly itemsExported: number;
+}
+
+/** `data.import` response. */
+export interface DataImportResult {
+  readonly credentialsRestored: number;
+  readonly oauthEntriesFlagged: number;
+}
+
+/** Mirrors the Gateway's `DataDeletePreflight` from `packages/gateway/src/commands/data-delete.ts`. */
+export interface DataDeletePreflight {
+  readonly service: string;
+  readonly itemsToDelete: number;
+  readonly vecRowsToDelete: number;
+  readonly syncTokensToDelete: number;
+  readonly vaultEntriesToDelete: number;
+  readonly vaultKeys: readonly string[];
+  readonly peopleUnlinked: number;
+}
+
+/** `data.delete` response. `deleted === true` when a real deletion ran. */
+export interface DataDeleteResult {
+  readonly preflight: DataDeletePreflight;
+  readonly deleted: boolean;
+}
+
+/** `data.exportProgress` notification payload. */
+export interface DataExportProgressPayload {
+  readonly stage: string;
+  readonly bytesWritten: number;
+  readonly totalBytes?: number;
+}
+
+/** `data.importProgress` notification payload. */
+export interface DataImportProgressPayload {
+  readonly stage: string;
+  readonly bytesRead: number;
+  readonly totalBytes?: number;
+}
+
+/** `data.importCompleted` notification payload — informational only, RPC result is the source of truth. */
+export interface DataImportCompletedPayload {
+  readonly credentialsRestored: number;
+}
+
+/** `-32010` JSON-RPC error payload for version-mismatched import archives. */
+export interface DataImportVersionIncompatibleData {
+  readonly kind: "version_incompatible";
+  readonly archiveSchemaVersion: number;
+  readonly currentSchemaVersion: number;
+  readonly relation: "archive_newer" | "archive_older_unsupported";
+}

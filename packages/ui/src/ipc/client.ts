@@ -8,7 +8,12 @@ import {
   type ConnectionState,
   type ConnectorConfigPatch,
   type ConnectorStatus,
+  type DataDeleteResult,
+  type DataExportResult,
+  type DataImportResult,
+  type DeletePreflightResult,
   type DiagVersionResult,
+  type ExportPreflightResult,
   GatewayOfflineError,
   type IndexMetrics,
   JsonRpcError,
@@ -74,6 +79,20 @@ export interface NimbusIpcClient {
   updaterApplyUpdate(): Promise<UpdaterApplyStarted>;
   updaterRollback(): Promise<UpdaterRollbackResult>;
   diagGetVersion(): Promise<DiagVersionResult>;
+  /** WS5-C Plan 5 additions — Data panel. */
+  dataGetExportPreflight(): Promise<ExportPreflightResult>;
+  dataGetDeletePreflight(args: { service: string }): Promise<DeletePreflightResult>;
+  dataExport(args: {
+    output: string;
+    passphrase: string;
+    includeIndex: boolean;
+  }): Promise<DataExportResult>;
+  dataImport(args: {
+    bundlePath: string;
+    passphrase?: string;
+    recoverySeed?: string;
+  }): Promise<DataImportResult>;
+  dataDelete(args: { service: string; dryRun: false }): Promise<DataDeleteResult>;
 }
 
 const FORBIDDEN_VALUE_KEYS: readonly string[] = [
@@ -95,6 +114,21 @@ function redactSensitiveSubstrings(input: string): string {
     out = out.replace(jsonRe, `"${key}":"[REDACTED]"`);
   }
   return out;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function assertShape<T>(
+  v: unknown,
+  name: string,
+  check: (r: Record<string, unknown>) => boolean,
+): T {
+  if (!isRecord(v) || !check(v)) {
+    throw new Error(`IPC response for ${name} has unexpected shape`);
+  }
+  return v as unknown as T;
 }
 
 function parseError(err: unknown): Error {
@@ -272,6 +306,73 @@ export function createIpcClient(): NimbusIpcClient {
       if (typeof res !== "object" || res === null)
         throw new Error("diag.getVersion: expected object");
       return res as DiagVersionResult;
+    },
+    async dataGetExportPreflight() {
+      const raw = await this.call<unknown>("data.getExportPreflight", {});
+      return assertShape<ExportPreflightResult>(
+        raw,
+        "data.getExportPreflight",
+        (r) =>
+          (r.lastExportAt === null || typeof r.lastExportAt === "number") &&
+          typeof r.estimatedSizeBytes === "number" &&
+          typeof r.itemCount === "number",
+      );
+    },
+    async dataGetDeletePreflight(args) {
+      const raw = await this.call<unknown>("data.getDeletePreflight", { service: args.service });
+      return assertShape<DeletePreflightResult>(
+        raw,
+        "data.getDeletePreflight",
+        (r) =>
+          typeof r.service === "string" &&
+          typeof r.itemCount === "number" &&
+          typeof r.embeddingCount === "number" &&
+          typeof r.vaultKeyCount === "number",
+      );
+    },
+    async dataExport(args) {
+      const raw = await this.call<unknown>("data.export", {
+        output: args.output,
+        passphrase: args.passphrase,
+        includeIndex: args.includeIndex,
+      });
+      return assertShape<DataExportResult>(
+        raw,
+        "data.export",
+        (r) =>
+          typeof r.outputPath === "string" &&
+          typeof r.recoverySeed === "string" &&
+          typeof r.recoverySeedGenerated === "boolean" &&
+          typeof r.itemsExported === "number",
+      );
+    },
+    async dataImport(args) {
+      const params: Record<string, unknown> = { bundlePath: args.bundlePath };
+      if (args.passphrase !== undefined) params.passphrase = args.passphrase;
+      if (args.recoverySeed !== undefined) params.recoverySeed = args.recoverySeed;
+      const raw = await this.call<unknown>("data.import", params);
+      return assertShape<DataImportResult>(
+        raw,
+        "data.import",
+        (r) =>
+          typeof r.credentialsRestored === "number" && typeof r.oauthEntriesFlagged === "number",
+      );
+    },
+    async dataDelete(args) {
+      const raw = await this.call<unknown>("data.delete", {
+        service: args.service,
+        dryRun: args.dryRun,
+      });
+      return assertShape<DataDeleteResult>(
+        raw,
+        "data.delete",
+        (r) =>
+          typeof r.deleted === "boolean" &&
+          isRecord(r.preflight) &&
+          typeof (r.preflight as Record<string, unknown>).service === "string" &&
+          typeof (r.preflight as Record<string, unknown>).itemsToDelete === "number" &&
+          typeof (r.preflight as Record<string, unknown>).vaultEntriesToDelete === "number",
+      );
     },
   };
   singleton = client;
