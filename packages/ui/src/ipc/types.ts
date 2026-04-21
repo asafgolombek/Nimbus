@@ -73,13 +73,23 @@ export interface IndexMetrics {
   indexSizeBytes: number;
 }
 
+/**
+ * Wire shape of `audit.list` — mirrors the Gateway's `AuditEntry` exported from
+ * `packages/gateway/src/index/local-index.ts`. Distinct from `AuditExportRow` (the
+ * `audit.export` shape with `rowHash` + `prevHash`), which is added in this plan.
+ *
+ * Field names match the underlying SQLite columns: `actionType`, `hitlStatus`,
+ * `actionJson`, `timestamp` (ms epoch). Display logic (e.g., splitting
+ * `actionType` into service + action, or extracting `actor` from `actionJson`)
+ * lives in the consumer, not the wire shape.
+ */
 export interface AuditEntry {
-  id: number;
-  ts: string;
-  action: string;
-  outcome: "approved" | "rejected" | "auto" | "info";
-  subject?: string;
-  hitlRejectReason?: string;
+  readonly id: number;
+  readonly actionType: string;
+  readonly hitlStatus: "approved" | "rejected" | "not_required";
+  readonly actionJson: string;
+  /** Milliseconds since the Unix epoch. */
+  readonly timestamp: number;
 }
 
 export interface HitlRequest {
