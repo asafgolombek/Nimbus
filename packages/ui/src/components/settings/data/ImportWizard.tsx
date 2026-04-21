@@ -88,7 +88,9 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
   const [bundlePath, setBundlePath] = useState<string | null>(null);
   const [authMethod, setAuthMethod] = useState<AuthMethod>("passphrase");
   const [passphrase, setPassphrase] = useState("");
-  const [seedWords, setSeedWords] = useState<string[]>(() => new Array<string>(12).fill(""));
+  const [seedWords, setSeedWords] = useState<{ id: string; value: string }[]>(() =>
+    new Array(12).fill(null).map(() => ({ id: crypto.randomUUID(), value: "" })),
+  );
   const [typedConfirm, setTypedConfirm] = useState("");
   const [errorCopy, setErrorCopy] = useState<string | null>(null);
   const [errorDeepLink, setErrorDeepLink] = useState<string | null>(null);
@@ -103,7 +105,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
   useEffect(() => {
     return () => {
       setPassphrase("");
-      setSeedWords(new Array<string>(12).fill(""));
+      setSeedWords(new Array(12).fill(null).map(() => ({ id: crypto.randomUUID(), value: "" })));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -118,7 +120,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
   );
   useIpcSubscription<JsonRpcNotification>("gateway://notification", onNotification);
 
-  const seedValid = useMemo(() => seedWords.every(looksLikeBip39Word), [seedWords]);
+  const seedValid = useMemo(() => seedWords.every((w) => looksLikeBip39Word(w.value)), [seedWords]);
   const authValid = authMethod === "passphrase" ? passphrase.length > 0 : seedValid;
 
   const onPickFile = useCallback(async () => {
@@ -140,7 +142,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
       const res = await client.dataImport({
         bundlePath,
         ...(authMethod === "passphrase" ? { passphrase } : {}),
-        ...(authMethod === "recoverySeed" ? { recoverySeed: seedWords.join(" ") } : {}),
+        ...(authMethod === "recoverySeed" ? { recoverySeed: seedWords.map((w) => w.value).join(" ") } : {}),
       });
       setCredentialsRestored(res.credentialsRestored);
       setOauthEntriesFlagged(res.oauthEntriesFlagged);
@@ -242,18 +244,18 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
                 <div className="grid grid-cols-3 gap-2" data-testid="bip39-grid">
                   {seedWords.map((w, i) => (
                     <input
-                      key={`seed-${i}`}
+                      key={w.id}
                       type="text"
                       aria-label={`Word ${i + 1}`}
-                      value={w}
+                      value={w.value}
                       onChange={(e) => {
                         const next = [...seedWords];
-                        next[i] = e.target.value.toLowerCase();
+                        next[i] = { ...w, value: e.target.value.toLowerCase() };
                         setSeedWords(next);
                       }}
                       className={[
                         "px-2 py-1 border rounded text-sm",
-                        w.length === 0 || looksLikeBip39Word(w)
+                        w.value.length === 0 || looksLikeBip39Word(w.value)
                           ? "border-[var(--color-border)]"
                           : "border-[var(--color-danger)]",
                       ].join(" ")}
