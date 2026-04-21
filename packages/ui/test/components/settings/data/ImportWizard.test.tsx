@@ -66,7 +66,7 @@ describe("ImportWizard — happy path + reload", () => {
   it("shows oauthEntriesFlagged copy when > 0 and triggers reload after 3 s", async () => {
     vi.useFakeTimers();
     const reload = vi.fn();
-    vi.stubGlobal("location", { ...window.location, reload });
+    vi.stubGlobal("location", { ...globalThis.location, reload });
     dataImportMock.mockResolvedValue({ credentialsRestored: 4, oauthEntriesFlagged: 2 });
     // Use real timers for the navigation steps, then check setTimeout behaviour
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

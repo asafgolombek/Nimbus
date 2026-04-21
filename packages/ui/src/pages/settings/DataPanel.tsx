@@ -52,7 +52,7 @@ export function DataPanel() {
   }, [setLastExportPreflight]);
 
   useEffect(() => {
-    if (!offline) void refreshPreflight();
+    if (!offline) refreshPreflight().catch(() => undefined);
   }, [offline, refreshPreflight]);
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export function DataPanel() {
       {fetchError !== null && (
         <PanelError
           message={`Failed to load preflight: ${fetchError}`}
-          onRetry={() => void refreshPreflight()}
+          onRetry={refreshPreflight}
         />
       )}
 

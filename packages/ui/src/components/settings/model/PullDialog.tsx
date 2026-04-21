@@ -120,7 +120,7 @@ export function PullDialog({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  const activeRow = activePullId !== null ? pullProgress[activePullId] : undefined;
+  const activeRow = activePullId === null ? undefined : pullProgress[activePullId];
   const percent =
     activeRow?.completedBytes !== undefined &&
     activeRow.totalBytes !== undefined &&
@@ -213,16 +213,7 @@ export function PullDialog({ open, onClose }: Props) {
           >
             Close
           </button>
-          {activePullId !== null ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label="Cancel pull"
-              className="px-3 py-1 rounded border border-[var(--color-danger-border)] text-[var(--color-danger-text)]"
-            >
-              Cancel pull
-            </button>
-          ) : (
+          {activePullId === null ? (
             <button
               type="button"
               onClick={onSubmit}
@@ -231,6 +222,15 @@ export function PullDialog({ open, onClose }: Props) {
               className="px-3 py-1 rounded bg-[var(--color-accent)] text-white disabled:opacity-50"
             >
               Pull
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Cancel pull"
+              className="px-3 py-1 rounded border border-[var(--color-danger-border)] text-[var(--color-danger-text)]"
+            >
+              Cancel pull
             </button>
           )}
         </div>

@@ -52,7 +52,7 @@ export function UpdatesPanel() {
   }, [setStatus]);
 
   useEffect(() => {
-    void refresh();
+    refresh().catch(() => undefined);
   }, [refresh]);
 
   // No subscriptions, no timer here — `UpdaterRestartChrome` (mounted in RootLayout)
@@ -198,9 +198,9 @@ export function UpdatesPanel() {
       )}
 
       {uiState === "success" && (
-        <div role="status" className="text-sm text-green-600">
+        <output className="block text-sm text-green-600">
           Update applied successfully. Now running {status?.currentVersion ?? "new version"}.
-        </div>
+        </output>
       )}
 
       {failure !== null && (uiState === "rolled_back" || uiState === "failed") && (

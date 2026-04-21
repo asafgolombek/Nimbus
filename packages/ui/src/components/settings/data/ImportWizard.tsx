@@ -142,19 +142,16 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
   }, [bundlePath, authMethod, passphrase, seedWords, setImportFlow]);
 
   const progressPct =
-    progress !== null &&
-    progress !== undefined &&
-    progress.totalBytes !== undefined &&
-    progress.totalBytes > 0
+    progress?.totalBytes !== undefined && progress.totalBytes > 0
       ? Math.min(100, Math.round((progress.bytesRead / progress.totalBytes) * 100))
       : null;
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       data-testid="import-wizard"
-      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 border-0 max-w-none w-full h-full m-0"
     >
       <div className="bg-[var(--color-bg)] rounded-lg max-w-lg w-full p-6 space-y-4 border border-[var(--color-border)]">
         {step === "file" && (
@@ -277,7 +274,7 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
               <button
                 type="button"
                 disabled={typedConfirm !== TYPED_CONFIRM_PHRASE}
-                onClick={() => void runImport()}
+                onClick={() => runImport()}
                 className="px-3 py-1.5 rounded-md bg-[var(--color-danger)] text-white disabled:opacity-50"
               >
                 Replace my data
@@ -289,22 +286,19 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
         {step === "importing" && (
           <>
             <h2 className="text-xl font-semibold">Restoring backup…</h2>
-            {progressPct !== null ? (
-              <div className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden">
-                <div
-                  data-testid="import-progress-bar"
-                  role="progressbar"
-                  aria-valuenow={progressPct}
-                  style={{ width: `${progressPct}%` }}
-                  className="h-full bg-[var(--color-accent)] transition-all"
-                />
-              </div>
-            ) : (
-              <div
+            {progressPct === null ? (
+              <progress
                 data-testid="import-progress-indeterminate"
-                role="progressbar"
                 aria-valuetext="indeterminate"
                 className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden animate-pulse"
+              />
+            ) : (
+              <progress
+                data-testid="import-progress-bar"
+                value={progressPct}
+                max={100}
+                aria-valuenow={progressPct}
+                className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden"
               />
             )}
             <p className="text-xs text-[var(--color-text-muted)]">
@@ -376,6 +370,6 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
           </>
         )}
       </div>
-    </div>
+    </dialog>
   );
 }

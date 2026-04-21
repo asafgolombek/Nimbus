@@ -147,7 +147,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   const onOverwriteConfirm = useCallback(() => {
     if (overwriteTarget === null) return;
     setDestPath(overwriteTarget);
-    void runExportRef.current(overwriteTarget);
+    runExportRef.current(overwriteTarget).catch(() => undefined);
   }, [overwriteTarget]);
 
   const onCopySeed = useCallback(async () => {
@@ -186,7 +186,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
                 type="checkbox"
                 checked={includeIndex}
                 onChange={(e) => setIncludeIndex(e.target.checked)}
-              />
+              />{" "}
               Include search index (.db)
             </label>
             <div className="flex gap-2 justify-end">
@@ -293,19 +293,16 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
           <>
             <h2 className="text-xl font-semibold">Creating backup…</h2>
             {progressPct !== null ? (
-              <div className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden">
-                <div
-                  data-testid="export-progress-bar"
-                  role="progressbar"
-                  aria-valuenow={progressPct}
-                  style={{ width: `${progressPct}%` }}
-                  className="h-full bg-[var(--color-accent)] transition-all"
-                />
-              </div>
+              <progress
+                data-testid="export-progress-bar"
+                value={progressPct ?? 0}
+                max={100}
+                aria-valuenow={progressPct ?? 0}
+                className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden"
+              />
             ) : (
-              <div
+              <progress
                 data-testid="export-progress-indeterminate"
-                role="progressbar"
                 aria-valuetext="indeterminate"
                 className="w-full h-2 bg-[var(--color-bg-subtle)] rounded overflow-hidden animate-pulse"
               />
@@ -331,7 +328,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => void onCopySeed()}
+                onClick={() => onCopySeed()}
                 className="px-2 py-1 rounded border border-[var(--color-border)] text-sm"
               >
                 Copy
@@ -347,7 +344,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
                 type="checkbox"
                 checked={seedChecked}
                 onChange={(e) => setSeedChecked(e.target.checked)}
-              />
+              />{" "}
               I have stored this seed somewhere safe.
             </label>
             <div className="flex gap-2 justify-end">

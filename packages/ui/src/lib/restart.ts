@@ -14,7 +14,7 @@ export async function restartApp(): Promise<void> {
   try {
     await invoke("plugin:app|restart");
   } catch {
-    if (typeof globalThis.location !== "undefined") {
+    if (globalThis.location !== undefined) {
       globalThis.location.reload();
     }
   }

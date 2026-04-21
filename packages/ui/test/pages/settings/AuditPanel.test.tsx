@@ -79,6 +79,11 @@ afterEach(() => {
   } as never);
 });
 
+async function renderAndWaitForRows(): Promise<void> {
+  render(<AuditPanel />);
+  await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
+}
+
 describe("AuditPanel", () => {
   it("renders summary and one row per fetched entry", async () => {
     render(<AuditPanel />);
@@ -88,8 +93,7 @@ describe("AuditPanel", () => {
   });
 
   it("filters by service via the chip", async () => {
-    render(<AuditPanel />);
-    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
+    await renderAndWaitForRows();
     const select = screen.getByLabelText("Service filter") as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "github" } });
     await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(1));
@@ -98,8 +102,7 @@ describe("AuditPanel", () => {
 
   it("Verify chain success surfaces a green toast", async () => {
     auditVerifyMock.mockResolvedValueOnce({ ok: true, lastVerifiedId: 3, totalChecked: 3 });
-    render(<AuditPanel />);
-    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
+    await renderAndWaitForRows();
     fireEvent.click(screen.getByRole("button", { name: "Verify chain" }));
     await waitFor(() =>
       expect(screen.getByTestId("audit-toast-text").textContent).toMatch(/Chain verified/),
@@ -113,8 +116,7 @@ describe("AuditPanel", () => {
       expectedHash: "expected_hash_value",
       actualHash: "actual_hash_value",
     });
-    render(<AuditPanel />);
-    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
+    await renderAndWaitForRows();
     fireEvent.click(screen.getByRole("button", { name: "Verify chain" }));
     await waitFor(() =>
       expect(screen.getByTestId("audit-toast-text").textContent).toMatch(/BROKEN at id 7/),
@@ -135,8 +137,7 @@ describe("AuditPanel", () => {
       },
     ]);
     writeTextFileMock.mockResolvedValueOnce(undefined);
-    render(<AuditPanel />);
-    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
+    await renderAndWaitForRows();
     fireEvent.click(screen.getByRole("button", { name: "Export…" }));
     await waitFor(() => expect(writeTextFileMock).toHaveBeenCalled());
     const [path, contents] = writeTextFileMock.mock.calls[0]!;
@@ -161,8 +162,7 @@ describe("AuditPanel", () => {
       },
     ]);
     writeTextFileMock.mockResolvedValueOnce(undefined);
-    render(<AuditPanel />);
-    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
+    await renderAndWaitForRows();
     fireEvent.click(screen.getByRole("button", { name: "Export…" }));
     await waitFor(() => expect(writeTextFileMock).toHaveBeenCalled());
     const [, contents] = writeTextFileMock.mock.calls[0]!;
@@ -175,8 +175,7 @@ describe("AuditPanel", () => {
 
   it("Export cancelled (save returns null) writes nothing", async () => {
     saveMock.mockResolvedValueOnce(null);
-    render(<AuditPanel />);
-    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
+    await renderAndWaitForRows();
     fireEvent.click(screen.getByRole("button", { name: "Export…" }));
     await waitFor(() => expect(saveMock).toHaveBeenCalled());
     expect(writeTextFileMock).not.toHaveBeenCalled();

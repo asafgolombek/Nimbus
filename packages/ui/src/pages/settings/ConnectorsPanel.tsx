@@ -167,9 +167,9 @@ function ConnectorRow({ row, inFlight, writeDisabled, highlighted, onPatch }: Ro
           aria-invalid={validationError !== null ? true : undefined}
           className={[
             "w-16 px-2 py-1 rounded border bg-[var(--color-bg-subtle)] disabled:opacity-50",
-            validationError !== null
-              ? "border-[var(--color-danger-border)]"
-              : "border-[var(--color-border)]",
+            validationError === null
+              ? "border-[var(--color-border)]"
+              : "border-[var(--color-danger-border)]",
           ].join(" ")}
         />
         <select

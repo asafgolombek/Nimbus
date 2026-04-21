@@ -33,7 +33,7 @@ export function ProfilesPanel() {
   }, [setProfileList]);
 
   useEffect(() => {
-    void refresh();
+    refresh().catch(() => undefined);
   }, [refresh]);
 
   const onCreate = useCallback(async () => {
@@ -90,10 +90,7 @@ export function ProfilesPanel() {
         livePill={offline ? <StaleChip /> : undefined}
       />
       {fetchError !== null && (
-        <PanelError
-          message={`Failed to load profiles: ${fetchError}`}
-          onRetry={() => void refresh()}
-        />
+        <PanelError message={`Failed to load profiles: ${fetchError}`} onRetry={refresh} />
       )}
       <div className="flex justify-end">
         <button
@@ -124,7 +121,7 @@ export function ProfilesPanel() {
               <button
                 type="button"
                 aria-label={`Switch to ${p.name}`}
-                onClick={() => void onSwitch(p.name)}
+                onClick={() => onSwitch(p.name)}
                 disabled={writeDisabled || p.name === active}
                 className="px-2 py-1 text-sm rounded border border-[var(--color-border)] disabled:opacity-50"
               >
@@ -133,7 +130,7 @@ export function ProfilesPanel() {
               <button
                 type="button"
                 aria-label={`Delete ${p.name}`}
-                onClick={() => void onDelete(p.name)}
+                onClick={() => onDelete(p.name)}
                 disabled={writeDisabled || p.name === active}
                 className="px-2 py-1 text-sm rounded border border-[var(--color-danger-border)] text-[var(--color-danger-text)] disabled:opacity-50"
               >
@@ -145,9 +142,8 @@ export function ProfilesPanel() {
       </ul>
 
       {createOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
+        <dialog
+          open
           aria-label="Create profile"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
         >
@@ -176,7 +172,7 @@ export function ProfilesPanel() {
               </button>
               <button
                 type="button"
-                onClick={() => void onCreate()}
+                onClick={onCreate}
                 disabled={newName.trim() === "" || actionInFlight}
                 className="px-3 py-1 rounded bg-[var(--color-accent)] text-white disabled:opacity-50"
               >
@@ -184,7 +180,7 @@ export function ProfilesPanel() {
               </button>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
       {confirm.modal}
     </section>

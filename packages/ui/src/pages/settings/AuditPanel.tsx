@@ -44,6 +44,12 @@ function VerifyToast({ toast, onDismiss }: { toast: ToastState; onDismiss: () =>
   );
 }
 
+function outcomeClass(outcome: string): string {
+  if (outcome === "rejected") return "text-red-500 font-medium";
+  if (outcome === "approved") return "text-green-600 font-medium";
+  return "text-[var(--color-text-muted)]";
+}
+
 export function AuditPanel() {
   const connectionState = useNimbusStore((s) => s.connectionState);
   const filter = useNimbusStore((s) => s.auditFilter);
@@ -196,17 +202,7 @@ export function AuditPanel() {
           <span className="font-mono text-[var(--color-text-muted)]">{row.tsIso}</span>
           <span className="font-medium">{row.service}</span>
           <span>{row.action}</span>
-          <span
-            className={
-              row.outcome === "rejected"
-                ? "text-red-500 font-medium"
-                : row.outcome === "approved"
-                  ? "text-green-600 font-medium"
-                  : "text-[var(--color-text-muted)]"
-            }
-          >
-            {row.outcome}
-          </span>
+          <span className={outcomeClass(row.outcome)}>{row.outcome}</span>
         </div>
       );
     },
@@ -239,7 +235,7 @@ export function AuditPanel() {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => void onVerify()}
+          onClick={onVerify}
           disabled={writeDisabled}
           className="px-3 py-1.5 text-sm rounded bg-[var(--color-accent)] text-white disabled:opacity-50"
         >
@@ -247,7 +243,7 @@ export function AuditPanel() {
         </button>
         <button
           type="button"
-          onClick={() => void onExport()}
+          onClick={onExport}
           disabled={writeDisabled}
           className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] disabled:opacity-50"
         >

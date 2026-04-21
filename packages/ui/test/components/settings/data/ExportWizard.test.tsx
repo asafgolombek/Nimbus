@@ -43,6 +43,23 @@ function resetStore() {
   } as never);
 }
 
+type UserActions = Pick<typeof userEvent, "click" | "type">;
+
+async function advanceToDestination(user: UserActions = userEvent): Promise<void> {
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.type(
+    screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
+    "reasonably-strong-example-phrase!",
+  );
+  await user.type(
+    screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
+    "reasonably-strong-example-phrase!",
+  );
+  const nextBtns = screen.getAllByRole("button", { name: "Next" });
+  await user.click(nextBtns[nextBtns.length - 1] as HTMLElement);
+  await user.click(screen.getByRole("button", { name: /Choose file/ }));
+}
+
 describe("ExportWizard — passphrase gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,18 +100,7 @@ describe("ExportWizard — destination + overwrite", () => {
   it("save dialog is called with a YYYY-MM-DD default filename", async () => {
     saveMock.mockResolvedValue(null);
     render(<ExportWizard onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    const nextBtns = screen.getAllByRole("button", { name: "Next" });
-    await userEvent.click(nextBtns[nextBtns.length - 1] as HTMLElement);
-    await userEvent.click(screen.getByRole("button", { name: /Choose file/ }));
+    await advanceToDestination();
     expect(saveMock).toHaveBeenCalledWith(
       expect.objectContaining({
         defaultPath: expect.stringMatching(/^nimbus-backup-\d{4}-\d{2}-\d{2}\.tar\.gz$/),
@@ -106,18 +112,7 @@ describe("ExportWizard — destination + overwrite", () => {
     saveMock.mockResolvedValue("/mock-output/existing.tar.gz");
     existsMock.mockResolvedValue(true);
     render(<ExportWizard onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    const nextBtns = screen.getAllByRole("button", { name: "Next" });
-    await userEvent.click(nextBtns[nextBtns.length - 1] as HTMLElement);
-    await userEvent.click(screen.getByRole("button", { name: /Choose file/ }));
+    await advanceToDestination();
     await vi.waitFor(() => {
       expect(screen.getByText(/already exists/i)).toBeInTheDocument();
     });
@@ -141,18 +136,7 @@ describe("ExportWizard — progress bar", () => {
     saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
     render(<ExportWizard onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    const nextBtns = screen.getAllByRole("button", { name: "Next" });
-    await userEvent.click(nextBtns[nextBtns.length - 1] as HTMLElement);
-    await userEvent.click(screen.getByRole("button", { name: /Choose file/ }));
+    await advanceToDestination();
     await vi.waitFor(() => {
       expect(screen.getByTestId("export-progress-indeterminate")).toBeInTheDocument();
     });
@@ -169,18 +153,7 @@ describe("ExportWizard — progress bar", () => {
     saveMock.mockResolvedValue("/mock-output/nimbus.tar.gz");
     existsMock.mockResolvedValue(false);
     render(<ExportWizard onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    const nextBtns = screen.getAllByRole("button", { name: "Next" });
-    await userEvent.click(nextBtns[nextBtns.length - 1] as HTMLElement);
-    await userEvent.click(screen.getByRole("button", { name: /Choose file/ }));
+    await advanceToDestination();
     await vi.waitFor(() => {
       expect(screen.getByTestId("export-progress-bar")).toBeInTheDocument();
     });
@@ -204,18 +177,7 @@ describe("ExportWizard — seed branching", () => {
       itemsExported: 7,
     });
     render(<ExportWizard onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    await userEvent.type(
-      screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    const nextBtns = screen.getAllByRole("button", { name: "Next" });
-    await userEvent.click(nextBtns[nextBtns.length - 1] as HTMLElement);
-    await userEvent.click(screen.getByRole("button", { name: /Choose file/ }));
+    await advanceToDestination();
   }
 
   it("first-time: shows mnemonic + 'Nimbus cannot recover' warning + gated checkbox", async () => {
@@ -261,18 +223,7 @@ describe("ExportWizard — clipboard countdown and unmount scrubs", () => {
     });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<ExportWizard onClose={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.type(
-      screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    await user.type(
-      screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    const nextBtns = screen.getAllByRole("button", { name: "Next" });
-    await user.click(nextBtns[nextBtns.length - 1] as HTMLElement);
-    await user.click(screen.getByRole("button", { name: /Choose file/ }));
+    await advanceToDestination(user);
     await vi.waitFor(() => {
       expect(screen.getByTestId("recovery-seed")).toBeInTheDocument();
     });
@@ -293,18 +244,7 @@ describe("ExportWizard — clipboard countdown and unmount scrubs", () => {
     });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { unmount } = render(<ExportWizard onClose={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.type(
-      screen.getAllByPlaceholderText(/assphrase/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    await user.type(
-      screen.getAllByPlaceholderText(/Confirm/)[0] as HTMLInputElement,
-      "reasonably-strong-example-phrase!",
-    );
-    const nextBtns = screen.getAllByRole("button", { name: "Next" });
-    await user.click(nextBtns[nextBtns.length - 1] as HTMLElement);
-    await user.click(screen.getByRole("button", { name: /Choose file/ }));
+    await advanceToDestination(user);
     await vi.waitFor(() => {
       expect(screen.getByTestId("recovery-seed")).toBeInTheDocument();
     });

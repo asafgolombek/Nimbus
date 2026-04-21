@@ -97,8 +97,10 @@ describe("persistPartialize", () => {
   });
 
   it("FORBIDDEN_PERSIST_KEYS lists the five spec-mandated keys", () => {
-    expect([...FORBIDDEN_PERSIST_KEYS].sort()).toEqual(
-      ["encryptedVaultManifest", "mnemonic", "passphrase", "privateKey", "recoverySeed"].sort(),
+    expect([...FORBIDDEN_PERSIST_KEYS].sort((a, b) => a.localeCompare(b))).toEqual(
+      ["encryptedVaultManifest", "mnemonic", "passphrase", "privateKey", "recoverySeed"].sort(
+        (a, b) => a.localeCompare(b),
+      ),
     );
   });
 });

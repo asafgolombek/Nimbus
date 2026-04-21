@@ -5,9 +5,9 @@ export interface StaleChipProps {
 
 export function StaleChip({ offlineSinceIso }: StaleChipProps) {
   const label =
-    offlineSinceIso !== undefined
-      ? `Stale · offline since ${offlineSinceIso}`
-      : "Stale · gateway offline";
+    offlineSinceIso === undefined
+      ? "Stale · gateway offline"
+      : `Stale · offline since ${offlineSinceIso}`;
   return (
     <output
       aria-label={label}

@@ -51,6 +51,12 @@ describe("DeleteServiceDialog — dropdown population", () => {
   });
 });
 
+async function renderAndAdvanceToProceed(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  render(<DeleteServiceDialog onClose={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(await screen.findByRole("button", { name: "Proceed" }));
+}
+
 describe("DeleteServiceDialog — preflight + typed confirmation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -82,9 +88,7 @@ describe("DeleteServiceDialog — preflight + typed confirmation", () => {
       vaultKeyCount: 0,
     });
     const user = userEvent.setup();
-    render(<DeleteServiceDialog onClose={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(await screen.findByRole("button", { name: "Proceed" }));
+    await renderAndAdvanceToProceed(user);
     const input = screen.getByPlaceholderText("github") as HTMLInputElement;
     const deleteBtn = screen.getByRole("button", { name: "Delete" });
     await user.type(input, "GitHub");
@@ -117,9 +121,7 @@ describe("DeleteServiceDialog — preflight + typed confirmation", () => {
       deleted: true,
     });
     const user = userEvent.setup();
-    render(<DeleteServiceDialog onClose={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(await screen.findByRole("button", { name: "Proceed" }));
+    await renderAndAdvanceToProceed(user);
     await user.type(screen.getByPlaceholderText("github"), "github");
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(dataDeleteMock).toHaveBeenCalledWith({ service: "github", dryRun: false });
@@ -145,9 +147,7 @@ describe("DeleteServiceDialog — preflight + typed confirmation", () => {
       deleted: true,
     });
     const user = userEvent.setup();
-    render(<DeleteServiceDialog onClose={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(await screen.findByRole("button", { name: "Proceed" }));
+    await renderAndAdvanceToProceed(user);
     await user.type(screen.getByPlaceholderText("github"), "github");
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await vi.waitFor(() => {

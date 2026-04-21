@@ -31,6 +31,25 @@ beforeEach(() => {
   } as never);
 });
 
+function captureSubscription(): {
+  getCaptured: () => ((n: { method: string; params: unknown }) => void) | null;
+} {
+  let captured: ((n: { method: string; params: unknown }) => void) | null = null;
+  subscribeMock.mockImplementation(async (handler) => {
+    captured = handler;
+    return () => {};
+  });
+  return { getCaptured: () => captured };
+}
+
+async function renderAndStartPull(): Promise<void> {
+  render(<PullDialog open onClose={() => {}} />);
+  await waitFor(() => screen.getByLabelText(/model name/i));
+  await userEvent.type(screen.getByLabelText(/model name/i), "gemma:2b");
+  await userEvent.click(screen.getByRole("button", { name: /pull/i }));
+  await waitFor(() => expect(llmPullModelMock).toHaveBeenCalledWith("ollama", "gemma:2b"));
+}
+
 describe("PullDialog", () => {
   it("hides the llama.cpp radio when availability reports it unavailable", async () => {
     llmGetStatusMock.mockResolvedValueOnce({ available: { ollama: true, llamacpp: false } });
@@ -49,17 +68,9 @@ describe("PullDialog", () => {
   it("submitting calls llmPullModel, then pullProgress notifications update the bar", async () => {
     llmGetStatusMock.mockResolvedValueOnce({ available: { ollama: true, llamacpp: true } });
     llmPullModelMock.mockResolvedValueOnce({ pullId: "pull_abc" });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
-    render(<PullDialog open onClose={() => {}} />);
-    await waitFor(() => screen.getByLabelText(/model name/i));
-    await userEvent.type(screen.getByLabelText(/model name/i), "gemma:2b");
-    await userEvent.click(screen.getByRole("button", { name: /pull/i }));
-    await waitFor(() => expect(llmPullModelMock).toHaveBeenCalledWith("ollama", "gemma:2b"));
-    captured?.({
+    const { getCaptured } = captureSubscription();
+    await renderAndStartPull();
+    getCaptured()?.({
       method: "llm.pullProgress",
       params: {
         pullId: "pull_abc",
@@ -80,10 +91,7 @@ describe("PullDialog", () => {
     llmGetStatusMock.mockResolvedValueOnce({ available: { ollama: true, llamacpp: true } });
     llmPullModelMock.mockResolvedValueOnce({ pullId: "pull_abc" });
     llmCancelPullMock.mockResolvedValueOnce({ cancelled: true });
-    render(<PullDialog open onClose={() => {}} />);
-    await waitFor(() => screen.getByLabelText(/model name/i));
-    await userEvent.type(screen.getByLabelText(/model name/i), "gemma:2b");
-    await userEvent.click(screen.getByRole("button", { name: /pull/i }));
+    await renderAndStartPull();
     await waitFor(() => screen.getByRole("button", { name: /cancel pull/i }));
     await userEvent.click(screen.getByRole("button", { name: /cancel pull/i }));
     await waitFor(() => expect(llmCancelPullMock).toHaveBeenCalledWith("pull_abc"));
@@ -156,17 +164,9 @@ describe("PullDialog", () => {
   it("llm.pullFailed clears the pullId and shows an error toast-style message", async () => {
     llmGetStatusMock.mockResolvedValueOnce({ available: { ollama: true } });
     llmPullModelMock.mockResolvedValueOnce({ pullId: "pull_abc" });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
-    render(<PullDialog open onClose={() => {}} />);
-    await waitFor(() => screen.getByLabelText(/model name/i));
-    await userEvent.type(screen.getByLabelText(/model name/i), "gemma:2b");
-    await userEvent.click(screen.getByRole("button", { name: /pull/i }));
-    await waitFor(() => expect(llmPullModelMock).toHaveBeenCalled());
-    captured?.({
+    const { getCaptured } = captureSubscription();
+    await renderAndStartPull();
+    getCaptured()?.({
       method: "llm.pullFailed",
       params: {
         pullId: "pull_abc",

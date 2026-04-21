@@ -35,8 +35,8 @@ export class DataImportVersionError extends Error {
 function checkSchemaVersion(manifest: BackupManifest | LegacyBackupManifestV1): void {
   const current = CURRENT_SCHEMA_VERSION;
   const archive =
-    manifest.version === 2 && typeof (manifest as BackupManifest).schema_version === "number"
-      ? (manifest as BackupManifest).schema_version
+    manifest.version === 2 && typeof manifest.schema_version === "number"
+      ? manifest.schema_version
       : 0;
   if (archive === current) return;
   const relation: "archive_newer" | "archive_older_unsupported" =
