@@ -7,6 +7,7 @@ import { GatewayOfflineBanner } from "../components/GatewayOfflineBanner";
 import { HotkeyFailedBanner } from "../components/HotkeyFailedBanner";
 import { useIpcSubscription } from "../hooks/useIpcSubscription";
 import type { HitlRequest } from "../ipc/types";
+import { restartApp } from "../lib/restart";
 import { useNimbusStore } from "../store";
 
 interface ConsentRequestPayload {
@@ -75,6 +76,11 @@ export function RootLayout() {
     [resolveHitl],
   );
   useIpcSubscription<ConsentResolvedPayload>("consent://resolved", onConsentResolved);
+
+  const onProfileSwitched = useCallback(() => {
+    void restartApp();
+  }, []);
+  useIpcSubscription<{ name: string }>("profile://switched", onProfileSwitched);
 
   useEffect(() => {
     invoke<ConsentRequestPayload[]>("get_pending_hitl")

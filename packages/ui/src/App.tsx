@@ -6,6 +6,7 @@ import {
   Route,
   RouterProvider,
 } from "react-router-dom";
+import { PanelComingSoon } from "./components/settings/PanelComingSoon";
 import { RootLayout } from "./layouts/RootLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { HitlPopup } from "./pages/HitlPopup";
@@ -14,9 +15,11 @@ import { Connect } from "./pages/onboarding/Connect";
 import { Syncing } from "./pages/onboarding/Syncing";
 import { Welcome } from "./pages/onboarding/Welcome";
 import { QuickQuery } from "./pages/QuickQuery";
+import { Settings } from "./pages/Settings";
+import { ProfilesPanel } from "./pages/settings/ProfilesPanel";
+import { TelemetryPanel } from "./pages/settings/TelemetryPanel";
 import { HitlStub } from "./pages/stubs/HitlStub";
 import { MarketplaceStub } from "./pages/stubs/MarketplaceStub";
-import { SettingsStub } from "./pages/stubs/SettingsStub";
 import { WatchersStub } from "./pages/stubs/WatchersStub";
 import { WorkflowsStub } from "./pages/stubs/WorkflowsStub";
 import { GatewayConnectionProvider } from "./providers/GatewayConnectionProvider";
@@ -44,7 +47,16 @@ const router = createBrowserRouter(
       <Route path="quick" element={<QuickQuery />} />
       <Route path="hitl-popup" element={<HitlPopup />} />
       <Route path="hitl" element={<HitlStub />} />
-      <Route path="settings" element={<SettingsStub />} />
+      <Route path="settings" element={<Settings />}>
+        <Route index element={<Navigate to="model" replace />} />
+        <Route path="model" element={<PanelComingSoon title="Model" />} />
+        <Route path="connectors" element={<PanelComingSoon title="Connectors" />} />
+        <Route path="profiles" element={<ProfilesPanel />} />
+        <Route path="audit" element={<PanelComingSoon title="Audit" />} />
+        <Route path="data" element={<PanelComingSoon title="Data" />} />
+        <Route path="telemetry" element={<TelemetryPanel />} />
+        <Route path="updates" element={<PanelComingSoon title="Updates" />} />
+      </Route>
       <Route path="marketplace" element={<MarketplaceStub />} />
       <Route path="watchers" element={<WatchersStub />} />
       <Route path="workflows" element={<WorkflowsStub />} />
