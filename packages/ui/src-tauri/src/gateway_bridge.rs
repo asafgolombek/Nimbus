@@ -84,6 +84,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "index.metrics",
     "llm.cancelPull",
     "llm.getRouterStatus",
+    "llm.getStatus",
     "llm.listModels",
     "llm.loadModel",
     "llm.pullModel",
@@ -326,6 +327,11 @@ mod tests {
     }
 
     #[test]
+    fn allowlist_ws5c_llm_availability_read() {
+        assert!(is_method_allowed("llm.getStatus"));
+    }
+
+    #[test]
     fn allowlist_ws5c_llm_writes() {
         assert!(is_method_allowed("llm.pullModel"));
         assert!(is_method_allowed("llm.cancelPull"));
@@ -391,7 +397,8 @@ mod tests {
 
     #[test]
     fn allowlist_exact_size() {
-        // Plan 2 target: 10 (WS5-A+B) + 28 (WS5-C) = 38.
+        // Plan 2 added 37 methods (spec miscounted connector.listStatus as a new addition —
+        // it was already in WS5-B). Plan 3 adds llm.getStatus → 38.
         assert_eq!(ALLOWED_METHODS.len(), 38);
     }
 
