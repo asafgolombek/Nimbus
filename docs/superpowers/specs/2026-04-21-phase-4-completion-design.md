@@ -109,7 +109,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - S2 → S5 (Watchers UI consumes A.1 IPC).
 - S3 → S6 (Workflows UI consumes A.2 IPC).
 - S4 independent of A.1/A.2.
-- S7/S8 and S9/S10 are independent surfaces but kept strictly serial per project preference.
+- S7/S8 (TUI) and S9/S10 (VS Code) are independent of S4/S5/S6 (Tauri UI) and could theoretically run in parallel — saving ~2–3 calendar weeks if a second worker (or a parallel Claude session) is available. Kept strictly serial here per current solo-maintainer preference; this is a one-line decision to revisit later if velocity matters more than focus.
 - S13 requires S0 outputs (signing keys, accounts, domain) in hand.
 
 ---
@@ -122,7 +122,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 
 **Scope:**
 - **DROP:** Apple Developer Program, EV Authenticode cert, SSL.com eSigner.
-- **KEEP:** `nimbus.dev` domain (Cloudflare Registrar), GPG master + signing subkey, Ed25519 updater keypair, Cloudflare Pages `nimbus-registry` repo + deployment, VS Code Marketplace publisher + PAT, Open VSX namespace + token, npm `@nimbus-dev` org + granular token, GitHub repo config (branch protection, release environment, secrets).
+- **KEEP:** `nimbus.dev` domain (Cloudflare Registrar — verify availability at WHOIS first; if taken or premium-priced > $100/yr, escalate to a domain-pivot decision before proceeding), GPG master + signing subkey (master key generated on offline/air-gapped machine, exported to two USB drives stored separately, **wiped from CI machine** — only the signing subkey appears in `GPG_SIGNING_SUBKEY` GHA secret), Ed25519 updater keypair, Cloudflare Pages `nimbus-registry` repo + deployment, VS Code Marketplace publisher + PAT, Open VSX namespace + token, npm `@nimbus-dev` org + granular token, GitHub repo config (branch protection, release environment with explicit "required reviewers = project owner" gate, secrets).
 - **ADD:** Hyper-V on Windows dev machine + Ubuntu 22.04 ISO; Scaleway account + SSH key for macOS verification rentals (~$0.11/hr).
 - Amend `docs/release/v0.1.0-prerequisites.md` to reflect removed rows and added hardware items.
 
@@ -139,6 +139,8 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - `gpg --verify docs/release/index.json.asc docs/release/index.json` passes locally.
 - `openssl pkeyutl -sign` over a test binary verifies against the updated `public-key.ts` in a unit test.
 - Branch protection blocks direct push to `main`.
+- `release` GitHub environment requires manual reviewer approval; deployment branches restricted to `main` only; protected tags `v*`, `client-v*`, `vscode-v*`. Verified by attempting to dispatch `release.yml` against a pre-release tag and observing the approval gate halt the run before publish jobs execute.
+- GPG master key wiped from CI machine; offline backup verified by importing on a clean machine.
 - Amended prerequisites runbook committed.
 
 **Estimated effort:** 3–5 business days wall-clock, ~4 hours keyboard time.
@@ -204,7 +206,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 **Scope:**
 - Extend `packages/gateway/src/automation/workflow-store.ts` step schema: optional `when: <expression>` evaluated against prior-step outputs and session context.
 - Extend `workflow-runner.ts`: skip steps whose `when` is falsy; skipped steps write `status = "skipped"` (not `failed`). Existing linear pipelines forward-compatible.
-- Expression language — strict subset: `$.step_id.field`, comparison operators, `&&`/`||`/`!`, string/number literals. **No function calls, no arbitrary eval.** Parser in `workflow-expression.ts`.
+- Expression language — strict subset: `$.step_id.field`, comparison operators, `&&`/`||`/`!`, string/number literals, **plus a fixed whitelist of pure side-effect-free functions:** `contains(haystack, needle)`, `startsWith(s, prefix)`, `endsWith(s, suffix)`, `lower(s)`, `upper(s)`, `length(value)`. Parser in `workflow-expression.ts` resolves these via a hard-coded function table — no dynamic dispatch, no user-defined functions, no regex (DOS risk), no `eval`/`Function`. Anything outside the whitelist is a parse error at workflow save time, not runtime. **Rationale:** the whitelist removes the verbose `field == "x" || field == "y" || field == "z"` pain without opening attack surface; each function is < 10 lines of TypeScript with bounded execution.
 - Extend `workflow-hitl-preview.ts`: steps whose `when` depends on runtime values are tagged `CONDITIONAL — may be skipped at runtime`.
 - New IPC `workflow.simulate` — dry-run with sample inputs returns concrete execution path.
 - Schema migration **V21:** `ALTER TABLE workflow_steps ADD COLUMN when_expression TEXT NULL`; `ALTER TABLE workflow_runs ADD COLUMN branching_path_json TEXT NULL`.
@@ -215,7 +217,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 
 **Acceptance criteria:**
 - Linear workflows without `when` execute identically — regression covered by existing `workflow-runner-execution.test.ts`.
-- New `workflow-branching.test.ts`: `when: true`, `when: false`, expression referencing prior step, nested `&&`/`||`, malformed → rejected at save time.
+- New `workflow-branching.test.ts`: `when: true`, `when: false`, expression referencing prior step, nested `&&`/`||`, each whitelisted function (`contains`, `startsWith`, `endsWith`, `lower`, `upper`, `length`), malformed → rejected at save time, attempt to call non-whitelisted function (`eval`, `regex`, user-defined) → rejected at save time.
 - HITL preview surfaces conditional HITL steps with `may-skip` marker.
 - Expression parser has no code path executing arbitrary JS (explicit test asserts `eval`, `Function`, template literals throw).
 - `automation/` coverage stays ≥80%.
@@ -235,13 +237,13 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - New route `/marketplace` → `packages/ui/src/pages/Marketplace.tsx` with **Browse** + **Installed** tabs.
 - Backend addition: `packages/gateway/src/extensions/catalog.ts` — fetches + GPG-verifies signed registry index; returns parsed JSON or `ERR_REGISTRY_UNTRUSTED`.
 - Browse tab: `extension.catalog.list` IPC → grid of `ExtensionCard` (name, author, version, permissions badges, hitlRequired badges, sandbox-level badge [`process-isolated` for v0.1.0; component accepts future `syscall-isolated`], Install button).
-- Installed tab: `extension.list` IPC → rows with Enable/Disable, Remove, Update-available pill, last-sync timestamp.
+- Installed tab: `extension.list` IPC → rows with Enable/Disable, Remove, Update-available pill, last-sync timestamp, **and a "Setup Required" pill + Configure secondary action when the extension's required Vault keys are absent or its first sync has never succeeded.** Clicking Configure routes to the existing connector auth flow (`/connectors` deep-link with the extension's connector pre-selected) instead of forcing the user to discover that the extension is broken on first invocation. Backend dependency: `extension.list` response gains a `setupRequired: boolean` + `setupHint: string` field — small change in `packages/gateway/src/extensions/index.ts`.
 - Install flow: HITL consent → `extension.installProgress` notification → success toast → tab auto-switch.
 - Update flow: Update-available pill → HITL → single `extension.update` IPC (version bump + manifest hash re-verification).
 - Remove flow: typed-name confirm (reuse `useConfirm`) → `extension.remove`.
 - Categories filter from manifest `tags[]`.
 - Empty states: registry unreachable → offline banner + cached catalog note; no installed → CTA.
-- Install flow first-auth step: **deferred to post-v0.1.0.** Each extension handles its own auth on first invocation via the existing connector flow; no special UI in install wizard.
+- Install flow first-auth step: **inline wizard deferred to post-v0.1.0.** v0.1.0 path is install → "Setup Required" pill on the Installed row → Configure click → `/connectors` deep-link. Avoids extending the install wizard while still routing the user to the right place — no "I installed it, why does it say nothing works" moment.
 
 **New files:** `pages/Marketplace.tsx`, `components/marketplace/{ExtensionCard,SandboxBadge,PermissionsBadges}.tsx`, `store/slices/extensions.ts`, gateway `extensions/catalog.ts` + `catalog.test.ts`, co-located `*.test.tsx`.
 
@@ -299,13 +301,14 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - Workflow list: `workflow.list` IPC.
 - `components/workflows/WorkflowEditor.tsx` — **step-list** view (each step as a card; simpler + ships faster than graph canvas; still visually compelling). Cards show prompt, optional label, optional `when:` input, `continue-on-error` toggle, HITL-required badge auto-computed. Add/remove/reorder steps. Save → `workflow.save` IPC.
 - Branching affordance: non-empty `when:` renders indented branch visual with expression shown. Live validation via `workflow.parseExpression` IPC — invalid expression blocks save.
+- **Read-only Mermaid graph view:** alongside the editor, a "Visualize" tab renders the workflow as a Mermaid `flowchart TD` diagram via `mermaid.js` (~150 KB, client-side only, already on npm — no server dependency). Each step is a node; `when:`-conditional steps render as diamond decisions with truthy/falsy edges. Pure read-only (no graph-canvas editing in v0.1.0); makes complex nested branching intelligible without indentation eye-strain. Auto-rebuilds on every save. Generation is deterministic — small helper `components/workflows/workflow-to-mermaid.ts`. Test coverage proves Mermaid output round-trips for fixture workflows.
 - Dry-run toggle: `workflow.simulate` (S3) shows full execution preview including skipped conditional steps. Editable sample inputs. Toggling off reverts to real-run.
 - `components/workflows/RunHistory.tsx`: prior runs with status, branching path taken, HITL decisions, outcome. Drawer expands to step-by-step trace.
 - HITL preview before Run: lists every HITL step that WILL or MAY hit; conditional HITL tagged `— may require approval`.
 
-**New files:** `pages/Workflows.tsx`, `components/workflows/{WorkflowEditor,StepCard,BranchingAffordance,RunHistory,DryRunPanel,HitlPreview}.tsx`, `store/slices/workflows.ts`, specs.
+**New files:** `pages/Workflows.tsx`, `components/workflows/{WorkflowEditor,StepCard,BranchingAffordance,RunHistory,DryRunPanel,HitlPreview,VisualizeTab}.tsx`, `components/workflows/workflow-to-mermaid.ts`, `store/slices/workflows.ts`, specs.
 
-**Modified files:** `App.tsx`, `Sidebar.tsx`, `gateway_bridge.rs` `ALLOWED_METHODS` (add `workflow.list`, `workflow.save`, `workflow.delete`, `workflow.run`, `workflow.runHistory`, `workflow.simulate`, `workflow.parseExpression`).
+**Modified files:** `App.tsx`, `Sidebar.tsx`, `packages/ui/package.json` (add `mermaid` dependency), `gateway_bridge.rs` `ALLOWED_METHODS` (add `workflow.list`, `workflow.save`, `workflow.delete`, `workflow.run`, `workflow.runHistory`, `workflow.simulate`, `workflow.parseExpression`).
 
 **Acceptance criteria:**
 - Vitest coverage ≥80% / ≥75% on new files.
@@ -317,7 +320,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 **Docs:** `docs/architecture.md` — Workflow subsystem update with branching. `docs/README.md` — continuation of the `weekly-cleanup.yml` showcase. `CLAUDE.md`, `docs/roadmap.md` — A.2 + Workflows UI delivered.
 
 **Branch:** `dev/asafgolombek/phase4-s6-workflows-ui`.
-**Effort:** 7–9 days.
+**Effort:** 8–10 days (uplifted from 7–9 to absorb the Mermaid Visualize tab).
 
 ---
 
@@ -365,7 +368,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - `components/HitlOverlay.tsx`: subscribes to `consent.request` notifications; full-width modal with structured action preview; Approve/Reject → `consent.respond`. QueryInput disabled while open.
 - `lib/query-history.ts`: reads/writes PAL-resolved history path (`%APPDATA%\Nimbus\query_history.json` on Windows, `~/.config/nimbus/query_history.json` elsewhere). Cap 100 entries. Up/Down arrows scrub. Duplicate-suppression. Writes on submit.
 - `SubTaskProgress` becomes live: subscribes to `agent.subTaskProgress`; progress bar per running sub-task; `pending → running → done` transitions; distinct colors for `skipped` vs `failed`.
-- Fallback: at `tui.ts` entrypoint, detect `TERM=dumb` / `NO_COLOR` / non-TTY stdin. Any match → print fallback notice and `exec` the Phase 3 REPL entrypoint. **No `--no-tui` flag**; pure automatic detection.
+- Fallback: at `tui.ts` entrypoint, detect `TERM=dumb` / `NO_COLOR` / non-TTY stdin **/ legacy Windows console** (Windows + `process.env.WT_SESSION` absent + `process.env.TERM_PROGRAM` not set — heuristic for `cmd.exe`/`conhost.exe` outside Windows Terminal, where Ink's flexbox layout breaks). Any match → print fallback notice (`"Rich TUI unavailable in this terminal — falling back to REPL. Tip: use Windows Terminal for the full experience."` on Windows) and `exec` the Phase 3 REPL entrypoint. **No `--no-tui` flag**; pure automatic detection.
 - `WatcherPane.tsx` (moved here from S7 for balance): polls `watcher.list` every 30 s; read-only summary.
 
 **New files:** `packages/cli/src/tui/{HitlOverlay,WatcherPane}.tsx`, `packages/cli/src/tui/lib/{query-history,fallback-detect}.ts`, co-located tests.
@@ -374,7 +377,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 
 **Acceptance criteria:**
 - HITL query shows overlay mid-stream; approve resumes stream + completes action; reject aborts cleanly.
-- `TERM=dumb nimbus tui` falls back to Phase 3 REPL without error.
+- `TERM=dumb nimbus tui` falls back to Phase 3 REPL without error. Legacy `cmd.exe` (Windows + no `WT_SESSION`) also triggers fallback. Windows Terminal launches the full TUI.
 - History file updates on submit; 101st entry displaces oldest.
 - SubTaskPane shows per-sub-task bars during multi-agent query.
 - Coverage ≥80% / ≥75%.
@@ -392,10 +395,10 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 **Objective:** Minimum-wow VS Code extension that connects to local Gateway, runs `Nimbus: Ask` with streaming response into an editor tab, and shows profile + connector health in the status bar.
 
 **Scope:**
-- New package `packages/vscode-extension/` with `package.json` (extension manifest, `engines.vscode: ^1.90.0`, `activationEvents`, `contributes.commands`, `publisher: "nimbus-dev"`, `categories: ["AI","Other"]`, MIT-licensed), `tsconfig.json`, `.vscodeignore`, `.vscode/launch.json`.
+- New package `packages/vscode-extension/` with `package.json` (extension manifest, `engines.vscode: ^X.Y.0` — **pin to `min(current Cursor stable VS Code API base, 1.90)` after verifying Cursor's actual API version at S9 start; document the verification result in the PR description.** Cursor frequently lags VS Code by 2–4 minor versions and has historically been on 1.86–1.89 at points where VS Code stable was 1.92+. Wrong pin = silent install failure on Cursor), `activationEvents`, `contributes.commands`, `publisher: "nimbus-dev"`, `categories: ["AI","Other"]`, MIT-licensed), `tsconfig.json`, `.vscodeignore`, `.vscode/launch.json`.
 - `src/extension.ts` — `activate()` / `deactivate()`: creates `GatewayClient`, registers commands, wires status bar.
 - `src/gateway-client.ts` — wraps `@nimbus-dev/client`, auto-detects socket path, reconnects with exponential backoff (1 s → 30 s), emits `gateway:connected` / `gateway:disconnected` events.
-- `src/commands/ask.ts` — `Nimbus: Ask` command; **no default keybinding** (user-configurable via VS Code settings). Prompts via `window.showInputBox`, opens new untitled Markdown editor tab, streams tokens appended. Cancel CodeLens at top.
+- `src/commands/ask.ts` — `Nimbus: Ask` command; **no default keybinding** (user-configurable via VS Code settings). Prompts via `window.showInputBox`, **opens new untitled Markdown editor tab in `vscode.ViewColumn.Beside` (side-by-side, Editor Group 2)** so the user keeps their code visible while the answer streams. Streams tokens appended at end of buffer. Cancel CodeLens at top of buffer.
 - `src/status-bar.ts` — left-side status bar: `◉ nimbus · <profile> · <health-dot>`. Click opens output channel. Subscribes to `profile.switched` + polls `connector.list` every 30 s.
 - HITL → status bar flashes amber + info message `"Nimbus: consent required — approve in the Tauri app or CLI"` (S10 fixes with inline HITL).
 - `tsup` bundling to `dist/extension.js`. Node.js runtime in VS Code — no Bun runtime dep at user machine.
@@ -463,8 +466,9 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 
 **Updater manifest:**
 - `release.yml` generates `update-manifest-<version>.json` (per-platform URLs, versions, SHA-256, Ed25519 sigs).
-- Upload to GitHub Release + mirror to `registry.nimbus.dev/updates/latest.json` via second Cloudflare Pages path.
-- Version tag regex enforced: `v\d+\.\d+\.\d+(-(rc|alpha|beta)\.\d+)?`.
+- Upload to GitHub Release as a release asset.
+- **Auto-mirror to `registry.nimbus.dev/updates/latest.json` via a dedicated job in `release.yml`** that runs only after the `release` environment manual approval clears: the job clones the `nimbus-registry` repo, writes the new manifest into `updates/latest.json` (and an immutable archive copy at `updates/v<version>.json`), commits, pushes. Cloudflare Pages auto-deploys on the registry repo push. The same Ed25519 private key signs the manifest before commit; Cloudflare serves the resulting `.sig` alongside.
+- Version tag regex enforced: `v\d+\.\d+\.\d+(-(rc|alpha|beta)\.\d+)?`. RC tags do **not** trigger the registry-mirror job (the `if:` guard in the job definition checks tag pattern); production tags only.
 
 **Linux packaging + GPG:**
 - Build `.deb` (existing `packages:installers:linux` script) + AppImage.
@@ -473,8 +477,9 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 
 **Windows packaging (unsigned):**
 - Build `nimbus-cli.exe`, `nimbus-gateway.exe`, Tauri `.exe` installer.
+- **Also build a `nimbus-windows-x64-portable.zip`** containing both binaries + a `README.txt` ("Run nimbus-gateway.exe to start; add this folder to PATH for the `nimbus` CLI"). Plain ZIPs typically attract fewer SmartScreen reputation flags than `.exe` installers, giving users a guaranteed path even if SmartScreen hard-blocks the installer. README links to both.
 - **No signtool attempt.** Workflow logs explicit "UNSIGNED" banner.
-- Emit SHA-256.
+- Emit SHA-256 for installer, binaries, and ZIP.
 
 **macOS packaging (unsigned):**
 - Build `nimbus-gateway`, `nimbus-cli`, Tauri `.app` on `macos-14` runner.
@@ -483,7 +488,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - Emit SHA-256.
 
 **SBOM:**
-- Generate CycloneDX SBOM per artifact via `CycloneDX/gh-node-module-generatebom` (or `anchore/sbom-action` for full binary). Attach to Release.
+- Generate **CycloneDX JSON v1.5+** SBOM per artifact via `CycloneDX/gh-node-module-generatebom` (for npm dependency graph) plus `anchore/sbom-action` (for compiled binary's full transitive closure). Attach both to Release. Pinning to CycloneDX JSON 1.5+ ensures compatibility with modern security scanners (Snyk, Trivy, Grype, Dependency-Track) which prefer JSON over XML and have first-class 1.5 schema support.
 
 **Minisign signatures:**
 - Emit `SHA256SUMS.minisig` alongside `SHA256SUMS.asc`. ~20 lines of shell; uses the same Ed25519 key material in minisign envelope format for `minisign` CLI verification.
@@ -571,7 +576,8 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
   - SHA-256 verify all artifacts.
   - `gpg --verify SHA256SUMS.asc SHA256SUMS` with repo public key.
   - `openssl pkeyutl -verify` on `update-manifest-0.1.0-rc1.json.sig`.
-  - Boot Windows `.exe` locally — confirm SmartScreen warning, `Run anyway` launches.
+  - Boot Windows `.exe` installer locally — confirm SmartScreen warning, `Run anyway` launches.
+  - Extract `nimbus-windows-x64-portable.zip` and run `nimbus-gateway.exe` directly — confirm no SmartScreen, or note the warning behavior. ZIP path is the SmartScreen-mitigation fallback if the installer hard-blocks.
 - Iteration: workflow failure → fix PR to `main` → re-tag `rc2`, `rc3`, etc. No hard cap on RC iterations but plan notes "three RCs without clean output → halt and reassess the pipeline" as a sanity check.
 - Updater end-to-end: install `rc1` Gateway locally; seed updater config to mirror for `rc2`; confirm `updater.updateAvailable` notification, `updater.applyUpdate`, then deliberately tamper a binary (flip a byte) and confirm rollback event fires.
 
@@ -579,7 +585,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - One or more `v0.1.0-rc*` GitHub Releases (pre-release).
 - `docs/release/v0.1.0-rc-notes.md` log of issues + fixes.
 
-**Risk flag:** SmartScreen hard-block. If Microsoft's very-low-reputation second-tier block fires (disables `Run anyway`), project-level decision: (a) negotiate EV cert procurement after all, or (b) ship Windows as `.zip` of binaries + build-from-source instructions. Decision point lives in this section; surfaces in the risk register below.
+**Risk flag:** SmartScreen hard-block. If Microsoft's very-low-reputation second-tier block fires (disables `Run anyway`), the **first fallback is the portable ZIP path** (typically less likely to attract a hard-block than installers). If ZIP also hard-blocks, project-level decision: (a) negotiate EV cert procurement after all, or (b) ship Windows as build-from-source only. Decision point lives in this section; surfaces in the risk register below.
 
 **Acceptance criteria:**
 - Final RC artifact set verifies via SHA-256, GPG, Ed25519, minisign.
@@ -629,7 +635,7 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - `enforce_air_gap = true` → zero outbound HTTP — verify via tcpdump/packet capture.
 - LAN pairing: 5-minute window closes; 3-failed-attempts lockout.
 
-**Failure handling:** any failing cell → GitHub issue tagged `v0.1.0-blocker` → fix → new RC → restart Section 14 from top. No partial credit.
+**Failure handling:** any failing cell → GitHub issue tagged `v0.1.0-blocker` → fix lands on `main` via PR → **a new RC tag (S13 iteration `rc{N+1}`) MUST be cut and the full S13 verification re-run** → only then S14 restarts from row 1. No partial credit; verification must be on the new immutable artifact set, not on patched-locally builds.
 
 **Acceptance criteria:**
 - Every one of 30 cells + 3 stringency verifications has ✅ + evidence path.
@@ -701,6 +707,8 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 | RC iterations exceed ~3 — reveals deeper pipeline issue | Low | Medium | Plan embeds three-RC sanity check; escalate to pipeline-review block if hit. |
 | A.2 expression language proves insufficient once users try it | Medium | Low (can extend later) | Strict subset chosen deliberately; post-v0.1.0 enhancement noted in v0.2.0 milestone. |
 | Tauri build toolchain breaks on `macos-14` runner between RC and real release | Low | High | Pin `tauri-cli` + Rust toolchain versions in `release.yml`; smoke after every Tauri-CLI point upgrade. |
+| `nimbus.dev` unavailable, premium-priced (>$100/yr), or hijacked on secondary market | Low | Medium (rename tech debt) | S0 first action is WHOIS check; pre-approved fallback domain choices documented in `docs/release/v0.1.0-prerequisites.md` (e.g., `getnimbus.dev`, `nimbus.tools`); rename burden bounded — `rg -l 'nimbus\.dev'` lists all references in advance. |
+| Cursor's bundled VS Code API trails the engine pin in extension manifest | Medium | Medium (silent install failure on Cursor) | S9 explicit verification step pins `engines.vscode` to `min(current Cursor stable, 1.90)`; PR description records the verified version; CI-side `vsce ls --tree` smoke against a Cursor-equivalent older API surface. |
 
 ---
 
@@ -730,18 +738,18 @@ Items explicitly deferred out of v0.1.0 and carried into the `v0.2.0` milestone:
 | S3 A.2 workflow branching | 4–5 days | 16 days |
 | S4 Marketplace UI | 5–6 days | 22 days |
 | S5 Watchers UI | 6–7 days | 29 days |
-| S6 Workflows UI | 7–9 days | 38 days |
-| S7 TUI framework | 5–6 days | 44 days |
-| S8 TUI HITL + history | 4–5 days | 49 days |
-| S9 VS Code scaffold | 6–7 days | 56 days |
-| S10 VS Code depth + publish | 6–8 days | 64 days |
-| S11 Release hardening | 4–5 days | 69 days |
-| S12 Docs audit | 2–3 days | 72 days |
-| S13 RC iteration | 2–4 days | 76 days |
-| S14 Manual verification | 2–3 days | 79 days |
-| S15 Tag + publish | 1–2 days | 81 days |
+| S6 Workflows UI | 8–10 days | 39 days |
+| S7 TUI framework | 5–6 days | 45 days |
+| S8 TUI HITL + history | 4–5 days | 50 days |
+| S9 VS Code scaffold | 6–7 days | 57 days |
+| S10 VS Code depth + publish | 6–8 days | 65 days |
+| S11 Release hardening | 4–5 days | 70 days |
+| S12 Docs audit | 2–3 days | 73 days |
+| S13 RC iteration | 2–4 days | 77 days |
+| S14 Manual verification | 2–3 days | 80 days |
+| S15 Tag + publish | 1–2 days | 82 days |
 
-**Total: ~61–81 working days** at serial fine-grained pace (low–high sum across all sections). Real-world calendar with reviews, rework, procurement latency, and occasional context switches: **~4–5 months**.
+**Total: ~62–82 working days** at serial fine-grained pace (low–high sum across all sections, including the S6 Mermaid uplift). Real-world calendar with reviews, rework, procurement latency, and occasional context switches: **~4–5 months**.
 
 ---
 
