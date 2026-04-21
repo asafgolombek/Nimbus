@@ -142,7 +142,9 @@ export function ImportWizard({ onClose }: ImportWizardProps) {
       const res = await client.dataImport({
         bundlePath,
         ...(authMethod === "passphrase" ? { passphrase } : {}),
-        ...(authMethod === "recoverySeed" ? { recoverySeed: seedWords.map((w) => w.value).join(" ") } : {}),
+        ...(authMethod === "recoverySeed"
+          ? { recoverySeed: seedWords.map((w) => w.value).join(" ") }
+          : {}),
       });
       setCredentialsRestored(res.credentialsRestored);
       setOauthEntriesFlagged(res.oauthEntriesFlagged);
