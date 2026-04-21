@@ -25,6 +25,20 @@ export const profileDeleteMock = vi.fn<(name: string) => Promise<unknown>>();
 export const telemetryGetStatusMock = vi.fn<() => Promise<unknown>>();
 export const telemetrySetEnabledMock = vi.fn<(enabled: boolean) => Promise<unknown>>();
 
+// WS5-C Plan 3 additions
+export const connectorSetConfigMock =
+  vi.fn<(service: string, patch: Record<string, unknown>) => Promise<unknown>>();
+export const llmListModelsMock = vi.fn<() => Promise<unknown>>();
+export const llmGetStatusMock = vi.fn<() => Promise<unknown>>();
+export const llmGetRouterStatusMock = vi.fn<() => Promise<unknown>>();
+export const llmPullModelMock = vi.fn<(provider: string, modelName: string) => Promise<unknown>>();
+export const llmCancelPullMock = vi.fn<(pullId: string) => Promise<unknown>>();
+export const llmLoadModelMock = vi.fn<(provider: string, modelName: string) => Promise<unknown>>();
+export const llmUnloadModelMock =
+  vi.fn<(provider: string, modelName: string) => Promise<unknown>>();
+export const llmSetDefaultMock =
+  vi.fn<(taskType: string, provider: string, modelName: string) => Promise<unknown>>();
+
 export const createIpcClient = () => ({
   call: callMock,
   subscribe: subscribeMock,
@@ -39,6 +53,15 @@ export const createIpcClient = () => ({
   profileDelete: profileDeleteMock,
   telemetryGetStatus: telemetryGetStatusMock,
   telemetrySetEnabled: telemetrySetEnabledMock,
+  connectorSetConfig: connectorSetConfigMock,
+  llmListModels: llmListModelsMock,
+  llmGetStatus: llmGetStatusMock,
+  llmGetRouterStatus: llmGetRouterStatusMock,
+  llmPullModel: llmPullModelMock,
+  llmCancelPull: llmCancelPullMock,
+  llmLoadModel: llmLoadModelMock,
+  llmUnloadModel: llmUnloadModelMock,
+  llmSetDefault: llmSetDefaultMock,
 });
 
 export const __resetIpcClientForTests = () => {};

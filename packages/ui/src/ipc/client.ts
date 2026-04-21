@@ -3,14 +3,20 @@ import { listen } from "@tauri-apps/api/event";
 import {
   type AuditEntry,
   type ConnectionState,
+  type ConnectorConfigPatch,
   type ConnectorStatus,
   GatewayOfflineError,
   type IndexMetrics,
   JsonRpcError,
   type JsonRpcErrorPayload,
   type JsonRpcNotification,
+  type LlmAvailabilityResult,
+  type LlmListModelsResult,
+  type LlmPullStartedResult,
+  type LlmTaskType,
   MethodNotAllowedError,
   type ProfileListResult,
+  type RouterStatusResult,
   type TelemetryStatus,
 } from "./types";
 
@@ -29,6 +35,28 @@ export interface NimbusIpcClient {
   profileDelete(name: string): Promise<{ deleted: string }>;
   telemetryGetStatus(): Promise<TelemetryStatus>;
   telemetrySetEnabled(enabled: boolean): Promise<{ enabled: boolean }>;
+  /** WS5-C Plan 3 additions — Connectors + Model panels. */
+  connectorSetConfig(
+    service: string,
+    patch: ConnectorConfigPatch,
+  ): Promise<{
+    service: string;
+    intervalMs: number | null;
+    depth: "metadata_only" | "summary" | "full" | null;
+    enabled: boolean | null;
+  }>;
+  llmListModels(): Promise<LlmListModelsResult>;
+  llmGetStatus(): Promise<LlmAvailabilityResult>;
+  llmGetRouterStatus(): Promise<RouterStatusResult>;
+  llmPullModel(provider: "ollama" | "llamacpp", modelName: string): Promise<LlmPullStartedResult>;
+  llmCancelPull(pullId: string): Promise<{ cancelled: boolean }>;
+  llmLoadModel(provider: "ollama" | "llamacpp", modelName: string): Promise<{ isLoaded: true }>;
+  llmUnloadModel(provider: "ollama" | "llamacpp", modelName: string): Promise<{ isLoaded: false }>;
+  llmSetDefault(
+    taskType: LlmTaskType,
+    provider: "ollama" | "llamacpp" | "remote",
+    modelName: string,
+  ): Promise<{ taskType: LlmTaskType; provider: string; modelName: string }>;
 }
 
 const FORBIDDEN_VALUE_KEYS: readonly string[] = [
@@ -141,6 +169,46 @@ export function createIpcClient(): NimbusIpcClient {
     },
     async telemetrySetEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
       return await this.call<{ enabled: boolean }>("telemetry.setEnabled", { enabled });
+    },
+    async connectorSetConfig(service, patch) {
+      const params: Record<string, unknown> = { service };
+      if (patch.intervalMs !== undefined) params.intervalMs = patch.intervalMs;
+      if (patch.depth !== undefined) params.depth = patch.depth;
+      if (patch.enabled !== undefined) params.enabled = patch.enabled;
+      return await this.call("connector.setConfig", params);
+    },
+    async llmListModels(): Promise<LlmListModelsResult> {
+      const res = await this.call<unknown>("llm.listModels", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("llm.listModels: expected object");
+      return res as LlmListModelsResult;
+    },
+    async llmGetStatus(): Promise<LlmAvailabilityResult> {
+      const res = await this.call<unknown>("llm.getStatus", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("llm.getStatus: expected object");
+      return res as LlmAvailabilityResult;
+    },
+    async llmGetRouterStatus(): Promise<RouterStatusResult> {
+      const res = await this.call<unknown>("llm.getRouterStatus", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("llm.getRouterStatus: expected object");
+      return res as RouterStatusResult;
+    },
+    async llmPullModel(provider, modelName) {
+      return await this.call("llm.pullModel", { provider, modelName });
+    },
+    async llmCancelPull(pullId) {
+      return await this.call("llm.cancelPull", { pullId });
+    },
+    async llmLoadModel(provider, modelName) {
+      return await this.call("llm.loadModel", { provider, modelName });
+    },
+    async llmUnloadModel(provider, modelName) {
+      return await this.call("llm.unloadModel", { provider, modelName });
+    },
+    async llmSetDefault(taskType, provider, modelName) {
+      return await this.call("llm.setDefault", { taskType, provider, modelName });
     },
   };
   singleton = client;
