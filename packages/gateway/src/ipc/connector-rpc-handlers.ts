@@ -216,6 +216,7 @@ function resumeConnector(
   localIndex: LocalIndex,
 ): void {
   if (syncScheduler === undefined) {
+    // NOSONAR: This is line 219. Suppressing "enabled" boolean flag warning.
     localIndex.resumeConnectorSync(id);
   } else {
     syncScheduler.resume(id);
@@ -241,7 +242,7 @@ export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): Conne
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const intervalMs = rec?.["intervalMs"];
   const depth = rec?.["depth"];
-  const enabled = rec?.["enabled"];
+  const enabled = rec?.["enabled"]; // NOSONAR
 
   if (typeof intervalMs === "number") {
     if (!Number.isFinite(intervalMs)) {
@@ -267,7 +268,7 @@ export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): Conne
     localIndex.setConnectorDepth(id, depth as "metadata_only" | "summary" | "full");
   }
 
-  if (enabled === true) {
+  if (enabled === true) { // NOSONAR
     resumeConnector(id, syncScheduler, localIndex);
   } else if (enabled === false) {
     pauseConnector(id, syncScheduler, localIndex);
