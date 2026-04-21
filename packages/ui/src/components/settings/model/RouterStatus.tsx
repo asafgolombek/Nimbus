@@ -36,10 +36,10 @@ export function RouterStatus({ status }: Props) {
             {d === undefined ? (
               <div className="text-[var(--color-text-muted)]">no provider available</div>
             ) : (
-              <div>
-                <span className="font-medium">{d.modelName || d.providerId}</span>
-                <span className="ml-2 text-xs text-[var(--color-text-muted)]">
-                  {d.providerId} · {d.reason}
+              <div className="font-medium">
+                {d.providerId}/{d.modelName || d.providerId}
+                <span className="ml-2 text-xs font-normal text-[var(--color-text-muted)]">
+                  {d.reason}
                 </span>
               </div>
             )}
