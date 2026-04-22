@@ -48,10 +48,10 @@ export function RunWithParamsDialog({
   }
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-label={`Run ${workflowName} with params override`}
-      className="fixed inset-0 flex items-center justify-center bg-black/40 z-50"
+      className="fixed inset-0 flex items-center justify-center bg-black/40 z-50 w-full h-full max-w-none max-h-none"
     >
       <div className="bg-white dark:bg-neutral-900 rounded p-4 w-[520px] flex flex-col gap-3">
         <h2 className="text-base font-semibold">Run "{workflowName}" with parameter override</h2>
@@ -83,6 +83,6 @@ export function RunWithParamsDialog({
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

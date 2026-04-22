@@ -39,9 +39,9 @@ function buildGraphPredicateJson(fields: GraphPredicateFields): string {
 }
 
 interface GraphConditionBuilderProps {
-  value: GraphPredicateFields;
-  onChange: (v: GraphPredicateFields) => void;
-  candidateRelations: readonly CandidateRelation[];
+  readonly value: GraphPredicateFields;
+  readonly onChange: (v: GraphPredicateFields) => void;
+  readonly candidateRelations: readonly CandidateRelation[];
 }
 
 function GraphConditionBuilder({
@@ -332,12 +332,12 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
 // ---------------------------------------------------------------------------
 
 interface WatcherRowProps {
-  watcher: WatcherSummary;
-  disabled: boolean;
-  historyOpen: boolean;
-  onToggle: (w: WatcherSummary) => void;
-  onDelete: (w: WatcherSummary) => void;
-  onToggleHistory: (id: string) => void;
+  readonly watcher: WatcherSummary;
+  readonly disabled: boolean;
+  readonly historyOpen: boolean;
+  readonly onToggle: (w: WatcherSummary) => void;
+  readonly onDelete: (w: WatcherSummary) => void;
+  readonly onToggleHistory: (id: string) => void;
 }
 
 function WatcherRow({

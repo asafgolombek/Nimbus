@@ -192,6 +192,96 @@ async function executeWorkflowStep(
 }
 
 /**
+ * Close out a completed run: write the finished row, emit the chained audit
+ * entry, and prune the retention window. The three gateway-side effects always
+ * fire together, in that order, at every completion site.
+ */
+function finalizeRun(
+  p: RunWorkflowExecutionParams,
+  wf: { id: string; name: string },
+  runId: string,
+  status: string,
+  startedAt: number,
+  errorMsg: string | null,
+): void {
+  finishWorkflowRunRow(p.db, runId, status, Date.now(), errorMsg);
+  emitRunCompletedAudit({
+    db: p.db,
+    runId,
+    workflowName: wf.name,
+    status,
+    startedAt,
+    dryRun: p.dryRun,
+    ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
+    ...(errorMsg !== null && { errorMsg }),
+  });
+  pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
+}
+
+/** Dry-run branch: persist + finalize the preview row, return the preview results. */
+function executeDryRun(
+  p: RunWorkflowExecutionParams,
+  wf: { id: string; name: string },
+  steps: WorkflowStep[],
+  runId: string,
+  now: number,
+  paramsOverrideJson: string | null,
+): RunWorkflowExecutionResult {
+  insertWorkflowRunRow(p.db, {
+    id: runId,
+    workflowId: wf.id,
+    triggeredBy: p.triggeredBy,
+    status: "preview",
+    startedAt: now,
+    dryRun: true,
+    paramsOverrideJson,
+  });
+  finalizeRun(p, wf, runId, "preview", now, null);
+  return {
+    runId,
+    dryRun: true,
+    stepResults: steps.map((s, i) => ({
+      label: s.label ?? `step-${String(i + 1)}`,
+      status: "preview",
+      output: s.run,
+      hitlActions: previewHitlActionsForStepText(s.run),
+    })),
+  };
+}
+
+/**
+ * Real-run step loop. Returns either a completed result (all steps done, or a
+ * halt-on-error) or a directive to continue — used to keep runWorkflowExecution
+ * flat.
+ */
+async function executeRealRunSteps(
+  p: RunWorkflowExecutionParams,
+  wf: { id: string; name: string },
+  steps: WorkflowStep[],
+  runId: string,
+  now: number,
+): Promise<RunWorkflowExecutionResult> {
+  const outputs: string[] = [];
+  const stepResults: RunWorkflowExecutionResult["stepResults"] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (step === undefined) continue;
+    const outcome = await executeWorkflowStep(p, runId, i, step, outputs);
+    if (outcome.kind === "ok") {
+      stepResults.push({ label: outcome.label, status: "done", output: outcome.reply });
+      continue;
+    }
+    stepResults.push({ label: outcome.label, status: "error", error: outcome.message });
+    if (outcome.halt) {
+      finalizeRun(p, wf, runId, "error", now, outcome.message);
+      return { runId, dryRun: false, stepResults };
+    }
+  }
+  finalizeRun(p, wf, runId, "done", now, null);
+  return { runId, dryRun: false, stepResults };
+}
+
+/**
  * Executes a saved workflow sequentially via the conversational agent (tools allowed per step).
  */
 export async function runWorkflowExecution(
@@ -211,36 +301,7 @@ export async function runWorkflowExecution(
     p.paramsOverride === undefined ? null : JSON.stringify(p.paramsOverride);
 
   if (p.dryRun) {
-    insertWorkflowRunRow(p.db, {
-      id: runId,
-      workflowId: wf.id,
-      triggeredBy: p.triggeredBy,
-      status: "preview",
-      startedAt: now,
-      dryRun: true,
-      paramsOverrideJson,
-    });
-    finishWorkflowRunRow(p.db, runId, "preview", Date.now(), null);
-    emitRunCompletedAudit({
-      db: p.db,
-      runId,
-      workflowName: wf.name,
-      status: "preview",
-      startedAt: now,
-      dryRun: true,
-      ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
-    });
-    pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
-    return {
-      runId,
-      dryRun: true,
-      stepResults: steps.map((s, i) => ({
-        label: s.label ?? `step-${String(i + 1)}`,
-        status: "preview",
-        output: s.run,
-        hitlActions: previewHitlActionsForStepText(s.run),
-      })),
-    };
+    return executeDryRun(p, wf, steps, runId, now, paramsOverrideJson);
   }
 
   insertWorkflowRunRow(p.db, {
@@ -252,64 +313,11 @@ export async function runWorkflowExecution(
     paramsOverrideJson,
   });
 
-  const outputs: string[] = [];
-  const stepResults: RunWorkflowExecutionResult["stepResults"] = [];
-
   try {
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      if (step === undefined) {
-        continue;
-      }
-      const outcome = await executeWorkflowStep(p, runId, i, step, outputs);
-      if (outcome.kind === "ok") {
-        stepResults.push({ label: outcome.label, status: "done", output: outcome.reply });
-        continue;
-      }
-      stepResults.push({ label: outcome.label, status: "error", error: outcome.message });
-      if (outcome.halt) {
-        finishWorkflowRunRow(p.db, runId, "error", Date.now(), outcome.message);
-        emitRunCompletedAudit({
-          db: p.db,
-          runId,
-          workflowName: wf.name,
-          status: "error",
-          startedAt: now,
-          dryRun: false,
-          ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
-          errorMsg: outcome.message,
-        });
-        pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
-        return { runId, dryRun: false, stepResults };
-      }
-    }
-
-    finishWorkflowRunRow(p.db, runId, "done", Date.now(), null);
-    emitRunCompletedAudit({
-      db: p.db,
-      runId,
-      workflowName: wf.name,
-      status: "done",
-      startedAt: now,
-      dryRun: false,
-      ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
-    });
-    pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
-    return { runId, dryRun: false, stepResults };
+    return await executeRealRunSteps(p, wf, steps, runId, now);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    finishWorkflowRunRow(p.db, runId, "error", Date.now(), msg);
-    emitRunCompletedAudit({
-      db: p.db,
-      runId,
-      workflowName: wf.name,
-      status: "error",
-      startedAt: now,
-      dryRun: false,
-      ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
-      errorMsg: msg,
-    });
-    pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
+    finalizeRun(p, wf, runId, "error", now, msg);
     throw err;
   }
 }

@@ -17,10 +17,14 @@ interface StepDraft {
   paramsJson: string;
 }
 
+// Monotonic counter for StepDraft ids — uniqueness is only required within a
+// single workflow editor instance's lifetime (these ids never persist and are
+// not exposed to any network/security boundary). crypto.randomUUID() would be
+// overkill; a counter is simpler and doesn't trip linters for pseudorandom use.
+let stepIdCounter = 0;
 function newStepId(): string {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `step-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  stepIdCounter += 1;
+  return `step-${String(stepIdCounter)}`;
 }
 
 function emptyStep(): StepDraft {
@@ -60,8 +64,8 @@ function stepsToJson(steps: StepDraft[]): string {
 }
 
 interface StepListEditorProps {
-  steps: StepDraft[];
-  onChange: (steps: StepDraft[]) => void;
+  readonly steps: StepDraft[];
+  readonly onChange: (steps: StepDraft[]) => void;
 }
 
 function StepListEditor({ steps, onChange }: StepListEditorProps) {
@@ -228,15 +232,14 @@ function SaveWorkflowDialog({ initial, onClose, onSaved }: SaveDialogProps) {
 // ---------------------------------------------------------------------------
 
 interface WorkflowRowProps {
-  workflow: WorkflowSummary;
-  dryRun: boolean;
-  disabled: boolean;
-  historyOpen: boolean;
-  onRun: (w: WorkflowSummary) => void;
-  onEdit: (w: WorkflowSummary) => void;
-  onDelete: (w: WorkflowSummary) => void;
-  onToggleHistory: (name: string) => void;
-  onRunWithParams: (w: WorkflowSummary) => void;
+  readonly workflow: WorkflowSummary;
+  readonly dryRun: boolean;
+  readonly disabled: boolean;
+  readonly onRun: (w: WorkflowSummary) => void;
+  readonly onEdit: (w: WorkflowSummary) => void;
+  readonly onDelete: (w: WorkflowSummary) => void;
+  readonly onToggleHistory: (name: string) => void;
+  readonly onRunWithParams: (w: WorkflowSummary) => void;
 }
 
 function WorkflowRow({
@@ -388,7 +391,6 @@ export function Workflows() {
                   workflow={w}
                   dryRun={dryRun}
                   disabled={offline || actionInFlight !== null}
-                  historyOpen={openHistoryForName === w.name}
                   onRun={handleRun}
                   onEdit={(wf) => setShowSave(wf)}
                   onDelete={handleDelete}

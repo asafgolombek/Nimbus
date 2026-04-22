@@ -96,6 +96,30 @@ function lastRunCompletedAudit<T>(db: Database, columns: string): T {
     .get() as T;
 }
 
+/**
+ * Seed `count` historical (already-finished) workflow_run rows for a given
+ * workflow_id. Used by the retention tests to push totals near/past the cap.
+ */
+function seedHistoricalRuns(
+  db: Database,
+  workflowId: string,
+  count: number,
+  startedAtBase: number,
+  idPrefix: string,
+): void {
+  for (let i = 0; i < count; i++) {
+    insertWorkflowRunRow(db, {
+      id: `${idPrefix}-${i}`,
+      workflowId,
+      triggeredBy: "user",
+      status: "done",
+      startedAt: startedAtBase + i,
+      dryRun: false,
+    });
+    finishWorkflowRunRow(db, `${idPrefix}-${i}`, "done", startedAtBase + 10 + i, null);
+  }
+}
+
 describe("parseWorkflowStepsJson", () => {
   test("parses run steps", () => {
     const steps = parseWorkflowStepsJson(
@@ -289,30 +313,6 @@ describe("runWorkflowExecution (dry run and validation)", () => {
 });
 
 describe("runWorkflowExecution — run retention", () => {
-  /**
-   * Seed `count` historical (already-finished) workflow_run rows for a given
-   * workflow_id. Used by the retention tests to push totals near/past the cap.
-   */
-  function seedHistoricalRuns(
-    db: Database,
-    workflowId: string,
-    count: number,
-    startedAtBase: number,
-    idPrefix: string,
-  ): void {
-    for (let i = 0; i < count; i++) {
-      insertWorkflowRunRow(db, {
-        id: `${idPrefix}-${i}`,
-        workflowId,
-        triggeredBy: "user",
-        status: "done",
-        startedAt: startedAtBase + i,
-        dryRun: false,
-      });
-      finishWorkflowRunRow(db, `${idPrefix}-${i}`, "done", startedAtBase + 10 + i, null);
-    }
-  }
-
   test("workflow run completion prunes to the last 100 runs per workflow", async () => {
     const db = freshDb();
     const { id: workflowId } = seedOneStepWorkflow(db, "retention-test", {
