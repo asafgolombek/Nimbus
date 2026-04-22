@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import { RunWithParamsDialog } from "../components/workflows/RunWithParamsDialog";
 import { WorkflowRunHistoryDrawer } from "../components/workflows/WorkflowRunHistoryDrawer";
 import { useIpcQuery } from "../hooks/useIpcQuery";
 import { createIpcClient } from "../ipc/client";
@@ -227,6 +228,7 @@ interface WorkflowRowProps {
   onEdit: (w: WorkflowSummary) => void;
   onDelete: (w: WorkflowSummary) => void;
   onToggleHistory: (name: string) => void;
+  onRunWithParams: (w: WorkflowSummary) => void;
 }
 
 function WorkflowRow({
@@ -237,6 +239,7 @@ function WorkflowRow({
   onEdit,
   onDelete,
   onToggleHistory,
+  onRunWithParams,
 }: WorkflowRowProps) {
   return (
     <tr>
@@ -279,6 +282,15 @@ function WorkflowRow({
         >
           History
         </button>
+        <button
+          type="button"
+          aria-label={`Run with params for ${workflow.name}`}
+          disabled={disabled}
+          onClick={() => onRunWithParams(workflow)}
+          className="px-2 py-0.5 rounded border text-xs disabled:opacity-40"
+        >
+          Run with params…
+        </button>
       </td>
     </tr>
   );
@@ -301,6 +313,7 @@ export function Workflows() {
   const [dryRun, setDryRun] = useState(false);
   const [actionInFlight, setActionInFlight] = useState<string | null>(null);
   const [openHistoryForName, setOpenHistoryForName] = useState<string | null>(null);
+  const [paramsDialogFor, setParamsDialogFor] = useState<WorkflowSummary | null>(null);
 
   async function handleRun(w: WorkflowSummary) {
     if (actionInFlight) return;
@@ -374,6 +387,7 @@ export function Workflows() {
                   onToggleHistory={(name) =>
                     setOpenHistoryForName(openHistoryForName === name ? null : name)
                   }
+                  onRunWithParams={(wf) => setParamsDialogFor(wf)}
                 />
                 {openHistoryForName === w.name && (
                   <WorkflowRunHistoryDrawer
@@ -396,6 +410,15 @@ export function Workflows() {
             setShowSave(null);
             refetch();
           }}
+        />
+      )}
+
+      {paramsDialogFor !== null && (
+        <RunWithParamsDialog
+          workflowName={paramsDialogFor.name}
+          dryRun={dryRun}
+          onClose={() => setParamsDialogFor(null)}
+          onRan={() => setParamsDialogFor(null)}
         />
       )}
     </div>

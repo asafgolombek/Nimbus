@@ -332,3 +332,66 @@ describe("Workflows page — run-history drawer", () => {
     await screen.findByText(/no runs yet/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Run with params dialog
+// ---------------------------------------------------------------------------
+const ALPHA_WORKFLOW = {
+  id: "wf1",
+  name: "alpha",
+  description: null,
+  steps_json: "[]",
+  created_at: 0,
+  updated_at: 0,
+};
+
+describe("Workflows page — run with params dialog", () => {
+  it("Run with params... opens a dialog and forwards paramsOverride to workflow.run", async () => {
+    stubWorkflowList([ALPHA_WORKFLOW]);
+    workflowRunMock.mockResolvedValue({});
+
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(await screen.findByRole("button", { name: /run with params for alpha/i }));
+
+    const textbox = await screen.findByRole("textbox", { name: /params override json/i });
+    fireEvent.change(textbox, {
+      target: { value: '{"step-1":{"greeting":"hello"}}' },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /confirm run/i }));
+
+    await waitFor(() =>
+      expect(workflowRunMock).toHaveBeenCalledWith({
+        name: "alpha",
+        dryRun: false,
+        paramsOverride: { "step-1": { greeting: "hello" } },
+      }),
+    );
+  });
+
+  it("Run with params... rejects invalid JSON with an inline error", async () => {
+    stubWorkflowList([ALPHA_WORKFLOW]);
+
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(await screen.findByRole("button", { name: /run with params for alpha/i }));
+    const textbox = await screen.findByRole("textbox", { name: /params override json/i });
+    fireEvent.change(textbox, { target: { value: "not json" } });
+    fireEvent.click(screen.getByRole("button", { name: /confirm run/i }));
+    expect(await screen.findByText(/invalid json/i)).toBeInTheDocument();
+    expect(workflowRunMock).not.toHaveBeenCalled();
+  });
+
+  it("Run with params... rejects a top-level array as invalid (must be an object)", async () => {
+    stubWorkflowList([ALPHA_WORKFLOW]);
+
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(await screen.findByRole("button", { name: /run with params for alpha/i }));
+    const textbox = await screen.findByRole("textbox", { name: /params override json/i });
+    fireEvent.change(textbox, { target: { value: "[1,2,3]" } });
+    fireEvent.click(screen.getByRole("button", { name: /confirm run/i }));
+    expect(await screen.findByText(/invalid json|must be a json object/i)).toBeInTheDocument();
+    expect(workflowRunMock).not.toHaveBeenCalled();
+  });
+});
