@@ -73,7 +73,7 @@ function GraphConditionBuilder({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [value.relation, value.targetType, value.targetId]);
+  }, [value]);
 
   return (
     <div className="flex flex-col gap-3">

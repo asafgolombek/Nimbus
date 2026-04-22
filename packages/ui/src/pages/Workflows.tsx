@@ -11,12 +11,20 @@ import { useNimbusStore } from "../store";
 // ---------------------------------------------------------------------------
 
 interface StepDraft {
+  /** Synthetic stable key — assigned at creation, used only for React list rendering. */
+  id: string;
   tool: string;
   paramsJson: string;
 }
 
+function newStepId(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `step-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
 function emptyStep(): StepDraft {
-  return { tool: "", paramsJson: "{}" };
+  return { id: newStepId(), tool: "", paramsJson: "{}" };
 }
 
 function stepsFromJson(json: string): StepDraft[] {
@@ -27,6 +35,7 @@ function stepsFromJson(json: string): StepDraft[] {
       if (typeof s !== "object" || s === null) return emptyStep();
       const step = s as { tool?: unknown; params?: unknown };
       return {
+        id: newStepId(),
         tool: typeof step.tool === "string" ? step.tool : "",
         paramsJson: step.params !== undefined ? JSON.stringify(step.params, null, 2) : "{}",
       };
@@ -72,9 +81,8 @@ function StepListEditor({ steps, onChange }: StepListEditorProps) {
   return (
     <div className="flex flex-col gap-3">
       {steps.map((step, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: stable draft list keyed by position
         <div
-          key={index}
+          key={step.id}
           className="border rounded p-3 flex flex-col gap-2 bg-neutral-50 dark:bg-neutral-900"
         >
           <div className="flex items-center justify-between">
