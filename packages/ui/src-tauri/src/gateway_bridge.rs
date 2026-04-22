@@ -1,7 +1,6 @@
-use interprocess::local_socket::{
-    tokio::{prelude::*, Stream},
-    GenericFilePath, ToFsName,
-};
+use interprocess::local_socket::tokio::{prelude::*, Stream};
+#[cfg(not(target_os = "windows"))]
+use interprocess::local_socket::{GenericFilePath, ToFsName};
 #[cfg(target_os = "windows")]
 use interprocess::local_socket::{GenericNamespaced, ToNsName};
 use serde_json::{json, Value};
