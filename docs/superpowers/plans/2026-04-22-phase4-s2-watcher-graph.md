@@ -154,6 +154,52 @@ git commit -m "feat(gateway): wire V22 watcher-graph migration into runner"
 
 ---
 
+## Task 2b: Bump `CURRENT_SCHEMA_VERSION` to 22
+
+**Why:** `LocalIndex.ensureSchema()` at `packages/gateway/src/index/local-index.ts:275` calls `runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION, …)`. If `CURRENT_SCHEMA_VERSION` remains `21`, runtime DBs never step from 21 → 22 — the new column ships as dead code. The constant is also the single source of truth consumed by `data-import.ts` (version-compat gate), `data-rpc.ts` (export manifest), and `ipc/server.ts` (diag). Without the bump, exports record the wrong version.
+
+**Files:**
+- Modify: `packages/gateway/src/index/local-index.ts`
+
+- [ ] **Step 1: Bump the constant**
+
+In `packages/gateway/src/index/local-index.ts` line 267, change:
+
+```ts
+export const CURRENT_SCHEMA_VERSION = 21;
+```
+
+to:
+
+```ts
+export const CURRENT_SCHEMA_VERSION = 22;
+```
+
+- [ ] **Step 2: Run the full-chain migration test**
+
+```bash
+bun test packages/gateway/test/unit/db/migration-rollback.test.ts
+```
+
+Expected: `migrates a fresh in-memory db to SCHEMA_VERSION without backup` passes — confirms the full 0 → 22 chain works through `LocalIndex.ensureSchema`.
+
+- [ ] **Step 3: Typecheck**
+
+```bash
+bun run typecheck
+```
+
+Expected: green. Any consumer that did `=== 21` (none found during plan authorship, but re-verify via `rg "SCHEMA_VERSION" packages/ -n`) would need a follow-up.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/gateway/src/index/local-index.ts
+git commit -m "feat(gateway): bump CURRENT_SCHEMA_VERSION to 22 for watcher-graph migration"
+```
+
+---
+
 ## Task 3: V22 Migration Tests
 
 **Files:**
@@ -1436,10 +1482,16 @@ function evaluateOneWatcher(
 
   // Apply graph predicate if present and enabled. Invalid JSON or parse
   // errors drop the watcher to "no match" rather than firing — fail closed.
+  // A console.error makes malformed stored predicates visible; the UI's
+  // `watcher.validateCondition` is the first line of defence (users should
+  // never reach this branch through normal flows).
   let predicate: GraphPredicate | null = null;
   if (graphEnabled && w.graph_predicate_json !== null && w.graph_predicate_json !== "") {
     const parsed = parseGraphPredicate(w.graph_predicate_json);
     if (!parsed.ok) {
+      console.error(
+        `watcher ${w.id} (${w.name}): graph_predicate_json parse failed — ${parsed.error}`,
+      );
       return null;
     }
     predicate = parsed.predicate;
@@ -2103,3 +2155,47 @@ No inline fixes required.
 ## Open Decisions (none blocking)
 
 None. The plan follows the spec verbatim apart from the mandatory V20→V22 / V21→V23 version-number fix.
+
+---
+
+## Review Response — 2026-04-22 (external review `2026-04-22-phase4-s2-watcher-graph-review.md`)
+
+Claims were verified against `main` before accepting or deferring. Each disposition is justified below.
+
+### Fixed inline
+
+- **Sugg 4 — "update verify.ts / schema snapshot":** partial valid core. The reviewer named the wrong file (`verify.ts` is already parameterised — it takes `expectedVersion` from the caller), but the underlying concern was real: `CURRENT_SCHEMA_VERSION = 21` in `local-index.ts:267` is the load-bearing constant. Without bumping it, `LocalIndex.ensureSchema()` stops at V21 and V22 becomes dead code at runtime. **Added Task 2b.** This is the single most important review outcome — omitting it would have been a latent bug.
+
+- **Sugg 3 — "log on predicate parse failure":** accepted as a minimal `console.error` in Task 8 Step 3d. No new logger, no new `watcher_event` row. Primary defence remains UI preflight via `watcher.validateCondition`.
+
+### Deferred with justification
+
+- **Q1 / Q2 — perf, SQL-level JOIN, checkDirectEdge helper:** Deferred.
+  - Candidate scan is hard-capped at 5 alerts per watcher per sync (existing `LIMIT 5` in the engine SELECT).
+  - `graph_relation` has indexes on both `from_id` and `to_id` (graph-v7-sql.ts:32-33). Each `traverseGraph(depth=1)` call becomes ~2 indexed lookups.
+  - Worst-case for 50 enabled watchers is ~500 indexed edge reads per sync cycle — well below user-perceptible thresholds.
+  - The spec explicitly says "reuse existing `traverseGraph`" (Section 2 scope). A `checkDirectEdge` helper is a valid future optimisation but violates the spec as written. If profiling ever shows this as hot, it's a ~20-line follow-up.
+
+- **Q3 — "return sample titles from `watcher.validateCondition`":** Deferred to Section 5 (Watchers UI). The spec acceptance criterion is `matchCount`; sample titles are a UI-driven nice-to-have that should be designed together with the Condition Builder preview panel. Adding them now would also invalidate the schema-boundary assertion in Task 10 Step 2 test (`json not to contain item content`) — that assertion is deliberately narrow to catch accidental schema growth, and we'd want a UI spec in hand before relaxing it.
+
+- **Q4 — "stale graph entities between sync and watcher eval":** Not an issue on verification.
+  - `item-store.ts:105` calls `syncGraphFromIndexedItem` synchronously inside `upsertIndexedItem`.
+  - `platform/assemble.ts:191` calls `evaluateWatchersAfterSync` only after the sync pass completes.
+  - Ordering is naturally guaranteed at the "all items in this sync pass have their graph edges written before watcher eval" level. No delay or re-check needed.
+  - Separate (pre-existing) gap surfaced during verification: `graph-populator.ts` has no handler for `alert` type even though `alert` is in `ITEM_LINKED_ENTITY_TYPES`. This means `owned_by` predicates on alerts will return `matchCount = 0` until alert-graph population is added. This is out of scope for S2 (watcher-layer plumbing only); captured as a post-v0.1.0 follow-up.
+
+- **Sugg 1 — "checkDirectEdge helper":** Duplicate of Q1/Q2. Deferred with the same justification.
+
+- **Sugg 2 — "add a `version` discriminator to `graph_predicate_json`":** Deferred. YAGNI under the project's "no hypothetical future requirements" rule (`CLAUDE.md` system prompt). The column stores arbitrary JSON, so future `v2` predicates (AND/OR/NOT) can add a `version` discriminator at that time — no schema migration required. Adding it prophylactically now does nothing concrete except expand test surface.
+
+### Not accepted
+
+None. Every claim was either addressed or justifiably deferred.
+
+### Summary
+
+- **1 real fix** (Task 2b — schema constant bump) — load-bearing, would have been a latent bug.
+- **1 small hardening** (Task 8 — `console.error` on parse failure) — low cost, improves operator UX.
+- **6 deferred items** — either scope creep beyond spec, YAGNI, or verified-false on the code.
+
+Plan remains aligned with the spec's "ship as spec'd" directive.
