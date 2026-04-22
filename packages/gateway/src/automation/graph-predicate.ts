@@ -147,6 +147,10 @@ export function itemMatchesGraphPredicate(ctx: ItemMatchContext): boolean {
   // target in the correct direction and relation-type set.
   const ownedBy: readonly string[] = OWNED_BY_UNDERLYING;
   const upstream: readonly string[] = UPSTREAM_UNDERLYING;
+  // `downstream_of` intentionally reuses UPSTREAM_UNDERLYING — same relation types,
+  // direction reversed. `traverseGraph` fetches edges in both directions (from_id OR
+  // to_id = itemEntityId), so the target→item edge appears in the depth=1 result and
+  // is matched by the `rel.from_id === targetEntityId` check in the loop below.
   const typeFilter: readonly string[] = predicate.relation === "owned_by" ? ownedBy : upstream;
   const traversal = traverseGraph(db, itemEntityId, {
     depth: 1,
