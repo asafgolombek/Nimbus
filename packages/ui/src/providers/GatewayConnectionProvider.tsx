@@ -13,6 +13,10 @@ export function GatewayConnectionProvider({ children }: PropsWithChildren) {
     const client = createIpcClient();
     let stopState: (() => void) | null = null;
     let stopNotif: (() => void) | null = null;
+    // Guards against post-unmount work: the retry loop below sleeps for seconds
+    // and would otherwise continue after the component is gone, calling navigate
+    // on a stale closure and consuming IPC against an unrelated test's mock.
+    let cancelled = false;
 
     const runFirstConnect = async () => {
       if (firstConnectHandled.current) return;
@@ -20,11 +24,14 @@ export function GatewayConnectionProvider({ children }: PropsWithChildren) {
       const MAX_ATTEMPTS = 5;
       const BACKOFF_MS = [200, 500, 1000, 2000, 4000];
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (cancelled) return;
         try {
           const snap = await client.call<DiagSnapshot>("diag.snapshot");
+          if (cancelled) return;
           const meta = await client.call<string | null>("db.getMeta", {
             key: "onboarding_completed",
           });
+          if (cancelled) return;
           const fresh = meta == null && snap.connectorCount === 0 && snap.indexTotalItems === 0;
           navigate(fresh ? "/onboarding/welcome" : "/", { replace: true });
           return;
@@ -40,16 +47,23 @@ export function GatewayConnectionProvider({ children }: PropsWithChildren) {
 
     const init = async () => {
       stopState = await client.onConnectionState((state: ConnectionState) => {
+        if (cancelled) return;
         setConnectionState(state);
         if (state === "connected") void runFirstConnect();
       });
+      if (cancelled) {
+        stopState?.();
+        return;
+      }
       stopNotif = await client.subscribe(() => {
         // Sub-projects B/C/D consume notifications
       });
+      if (cancelled) stopNotif?.();
     };
 
     void init();
     return () => {
+      cancelled = true;
       stopState?.();
       stopNotif?.();
     };
