@@ -1,6 +1,7 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { AuditFilterChips } from "../../components/settings/audit/AuditFilterChips";
 import { PanelError } from "../../components/settings/PanelError";
@@ -17,6 +18,21 @@ const ROW_HEIGHT = 32;
 const LIST_HEIGHT = 480;
 const POLL_MS = 60_000;
 const MAX_ROWS = 1_000;
+
+/** Best-effort extraction of `runId` from `action_json` for `workflow.run.completed` rows. */
+function extractRunId(actionType: string, actionJson: string): string | null {
+  if (actionType !== "workflow.run.completed") return null;
+  try {
+    const parsed = JSON.parse(actionJson) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const rec = parsed as Record<string, unknown>;
+      return typeof rec["runId"] === "string" ? rec["runId"] : null;
+    }
+  } catch {
+    // Malformed JSON — treat as no runId.
+  }
+  return null;
+}
 
 interface ToastState {
   readonly kind: "success" | "error" | "info";
@@ -58,6 +74,9 @@ function outcomeClass(outcome: string): string {
 }
 
 export function AuditPanel() {
+  const [searchParams] = useSearchParams();
+  const runIdFilter = searchParams.get("runId");
+
   const connectionState = useNimbusStore((s) => s.connectionState);
   const filter = useNimbusStore((s) => s.auditFilter);
   const summary = useNimbusStore((s) => s.auditSummary);
@@ -126,6 +145,7 @@ export function AuditPanel() {
         outcome: r.hitlStatus,
         rowHash: "", // not present in `audit.list`; populated only in the export pipeline
         actor: "",
+        runId: extractRunId(r.actionType, r.actionJson),
       };
     });
   }, [rawRows]);
@@ -146,6 +166,13 @@ export function AuditPanel() {
     for (const r of displayRows) set.add(r.service);
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [displayRows]);
+
+  // runId is a URL-param-driven transient filter layered on top of the store-state filter.
+  // Does NOT mutate the store — intentionally separate from the service/outcome/since/until chips.
+  const runIdFilteredRows = useMemo(() => {
+    if (runIdFilter === null) return filteredRows;
+    return filteredRows.filter((row) => row.runId === runIdFilter);
+  }, [filteredRows, runIdFilter]);
 
   const onVerify = useCallback(async () => {
     setInFlight(true);
@@ -198,13 +225,15 @@ export function AuditPanel() {
 
   const Row = useCallback(
     ({ index, style }: ListChildComponentProps) => {
-      const row = filteredRows[index];
+      const row = runIdFilteredRows[index];
       if (!row) return null;
+      const isMatch = runIdFilter !== null && row.runId === runIdFilter;
       return (
         <div
           style={style}
-          className="grid grid-cols-[180px_120px_1fr_100px] items-center px-3 text-xs border-b border-[var(--color-border)]"
+          className={`grid grid-cols-[180px_120px_1fr_100px] items-center px-3 text-xs border-b border-[var(--color-border)]${isMatch ? " bg-amber-50 dark:bg-amber-900/20" : ""}`}
           data-testid="audit-row"
+          aria-current={isMatch ? "true" : undefined}
         >
           <span className="font-mono text-[var(--color-text-muted)]">{row.tsIso}</span>
           <span className="font-medium">{row.service}</span>
@@ -213,7 +242,7 @@ export function AuditPanel() {
         </div>
       );
     },
-    [filteredRows],
+    [runIdFilteredRows, runIdFilter],
   );
 
   return (
@@ -257,7 +286,7 @@ export function AuditPanel() {
           Export…
         </button>
         <span className="text-xs text-[var(--color-text-muted)]">
-          {filteredRows.length} of {displayRows.length} rows
+          {runIdFilteredRows.length} of {displayRows.length} rows
         </span>
       </div>
 
@@ -275,6 +304,16 @@ export function AuditPanel() {
       )}
       {toast !== null && <VerifyToast toast={toast} onDismiss={() => setToast(null)} />}
 
+      {runIdFilter !== null && runIdFilteredRows.length === 0 && (
+        <p
+          data-testid="audit-runid-banner"
+          className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 rounded p-3 my-2"
+        >
+          No audit entries found for run <code>{runIdFilter}</code>. It may have been pruned from
+          the operational run history; the audit log row survives if it was ever created.
+        </p>
+      )}
+
       <div className="border border-[var(--color-border)] rounded">
         <div className="grid grid-cols-[180px_120px_1fr_100px] px-3 py-1.5 text-xs font-semibold border-b border-[var(--color-border)] bg-[var(--color-bg-subtle)]">
           <span>Timestamp</span>
@@ -284,7 +323,7 @@ export function AuditPanel() {
         </div>
         <FixedSizeList
           height={LIST_HEIGHT}
-          itemCount={filteredRows.length}
+          itemCount={runIdFilteredRows.length}
           itemSize={ROW_HEIGHT}
           width="100%"
         >
