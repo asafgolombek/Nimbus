@@ -25,6 +25,17 @@ function renderPanel() {
   );
 }
 
+type NotificationHandler = (n: { method: string; params: unknown }) => void;
+
+function captureSubscribe(): { handler: NotificationHandler | null } {
+  const ref: { handler: NotificationHandler | null } = { handler: null };
+  subscribeMock.mockImplementation(async (h: NotificationHandler) => {
+    ref.handler = h;
+    return () => {};
+  });
+  return ref;
+}
+
 beforeEach(() => {
   localStorage.clear();
   llmListModelsMock.mockReset();
@@ -133,14 +144,10 @@ describe("ModelPanel", () => {
       models: [{ provider: "ollama", modelName: "gemma:2b" }],
     });
     llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
+    const sub = captureSubscribe();
     renderPanel();
     await waitFor(() => screen.getByRole("button", { name: /load gemma:2b/i }));
-    captured?.({
+    sub.handler?.({
       method: "llm.modelLoaded",
       params: { provider: "ollama", modelName: "gemma:2b" },
     });
@@ -178,14 +185,10 @@ describe("ModelPanel", () => {
       models: [{ provider: "ollama", modelName: "gemma:2b" }],
     });
     llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
+    const sub = captureSubscribe();
     renderPanel();
     await waitFor(() => screen.getByRole("button", { name: /unload gemma:2b/i }));
-    captured?.({
+    sub.handler?.({
       method: "llm.modelUnloaded",
       params: { provider: "ollama", modelName: "gemma:2b" },
     });
@@ -198,14 +201,10 @@ describe("ModelPanel", () => {
     useNimbusStore.setState({ activePullId: "pull_x" } as never);
     llmListModelsMock.mockResolvedValueOnce({ models: [] });
     llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
+    const sub = captureSubscribe();
     renderPanel();
     await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
-    captured?.({
+    sub.handler?.({
       method: "llm.pullProgress",
       params: {
         pullId: "pull_x",
@@ -228,14 +227,10 @@ describe("ModelPanel", () => {
       models: [{ provider: "ollama", modelName: "gemma:2b" }],
     });
     llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
+    const sub = captureSubscribe();
     renderPanel();
     await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
-    captured?.({ method: "llm.pullCompleted", params: { pullId: "pull_done" } });
+    sub.handler?.({ method: "llm.pullCompleted", params: { pullId: "pull_done" } });
     await waitFor(() => expect(llmListModelsMock).toHaveBeenCalledTimes(2));
     expect(useNimbusStore.getState().activePullId).toBeNull();
   });
@@ -244,14 +239,10 @@ describe("ModelPanel", () => {
     useNimbusStore.setState({ activePullId: "pull_fail" } as never);
     llmListModelsMock.mockResolvedValueOnce({ models: [] });
     llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
+    const sub = captureSubscribe();
     renderPanel();
     await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
-    captured?.({ method: "llm.pullFailed", params: { pullId: "pull_fail" } });
+    sub.handler?.({ method: "llm.pullFailed", params: { pullId: "pull_fail" } });
     await waitFor(() => expect(useNimbusStore.getState().activePullId).toBeNull());
     expect(llmListModelsMock).toHaveBeenCalledTimes(1);
   });

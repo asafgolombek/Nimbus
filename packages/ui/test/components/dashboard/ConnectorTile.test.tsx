@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ConnectorTile } from "../../../src/components/dashboard/ConnectorTile";
-import type { ConnectorStatus } from "../../../src/ipc/types";
+import type { ConnectorHealth, ConnectorStatus } from "../../../src/ipc/types";
 
 describe("ConnectorTile", () => {
   it("shows the connector name and last-sync relative time", () => {
@@ -38,25 +38,15 @@ describe("ConnectorTile", () => {
     expect(el?.className).toMatch(/ring/);
   });
 
-  it("applies error dot colour for 'error' health", () => {
-    const c: ConnectorStatus = { name: "github", health: "error" };
+  it.each<[ConnectorHealth, string]>([
+    ["error", "color-error"],
+    ["unauthenticated", "color-error"],
+    ["paused", "color-fg-muted"],
+  ])("dot colour for '%s' health maps to CSS var containing %s", (health, expectedClass) => {
+    const c: ConnectorStatus = { name: "github", health };
     const { container } = render(<ConnectorTile status={c} highlighted={false} />);
     const dot = container.querySelector('[aria-hidden="true"]');
-    expect(dot?.className).toMatch(/color-error/);
-  });
-
-  it("applies error dot colour for 'unauthenticated' health", () => {
-    const c: ConnectorStatus = { name: "github", health: "unauthenticated" };
-    const { container } = render(<ConnectorTile status={c} highlighted={false} />);
-    const dot = container.querySelector('[aria-hidden="true"]');
-    expect(dot?.className).toMatch(/color-error/);
-  });
-
-  it("applies muted dot colour for 'paused' health (default case)", () => {
-    const c: ConnectorStatus = { name: "github", health: "paused" };
-    const { container } = render(<ConnectorTile status={c} highlighted={false} />);
-    const dot = container.querySelector('[aria-hidden="true"]');
-    expect(dot?.className).toMatch(/color-fg-muted/);
+    expect(dot?.className).toMatch(new RegExp(expectedClass));
   });
 
   it("falls back to the raw name for unknown connector identifiers", () => {

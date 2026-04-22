@@ -77,28 +77,36 @@ describe("WS5-C Plan 5 — data panel IPC wrappers", () => {
 
   it("dataExport returns the export result on valid shape", async () => {
     const fixture = {
-      outputPath: "/tmp/export.tar.gz",
+      outputPath: "/exports/nimbus-export.tar.gz",
       recoverySeed: "word word word",
       recoverySeedGenerated: true,
       itemsExported: 100,
     };
     invokeMock.mockResolvedValueOnce(fixture);
     const result = await createIpcClient().dataExport({
-      output: "/tmp/export.tar.gz",
+      output: "/exports/nimbus-export.tar.gz",
       passphrase: "hunter2",
       includeIndex: true,
     });
     expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
       method: "data.export",
-      params: { output: "/tmp/export.tar.gz", passphrase: "hunter2", includeIndex: true },
+      params: {
+        output: "/exports/nimbus-export.tar.gz",
+        passphrase: "hunter2",
+        includeIndex: true,
+      },
     });
     expect(result).toEqual(fixture);
   });
 
   it("dataExport throws on shape mismatch", async () => {
-    invokeMock.mockResolvedValueOnce({ outputPath: "/tmp/x" });
+    invokeMock.mockResolvedValueOnce({ outputPath: "/exports/nimbus-x" });
     await expect(
-      createIpcClient().dataExport({ output: "/tmp/x", passphrase: "pw", includeIndex: false }),
+      createIpcClient().dataExport({
+        output: "/exports/nimbus-x",
+        passphrase: "pw",
+        includeIndex: false,
+      }),
     ).rejects.toThrow(/unexpected shape/);
   });
 
@@ -106,12 +114,12 @@ describe("WS5-C Plan 5 — data panel IPC wrappers", () => {
     const fixture = { credentialsRestored: 3, oauthEntriesFlagged: 1 };
     invokeMock.mockResolvedValueOnce(fixture);
     const result = await createIpcClient().dataImport({
-      bundlePath: "/tmp/import.tar.gz",
+      bundlePath: "/exports/nimbus-import.tar.gz",
       passphrase: "hunter2",
     });
     expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
       method: "data.import",
-      params: { bundlePath: "/tmp/import.tar.gz", passphrase: "hunter2" },
+      params: { bundlePath: "/exports/nimbus-import.tar.gz", passphrase: "hunter2" },
     });
     expect(result).toEqual(fixture);
   });
@@ -120,19 +128,19 @@ describe("WS5-C Plan 5 — data panel IPC wrappers", () => {
     const fixture = { credentialsRestored: 0, oauthEntriesFlagged: 0 };
     invokeMock.mockResolvedValueOnce(fixture);
     await createIpcClient().dataImport({
-      bundlePath: "/tmp/import.tar.gz",
+      bundlePath: "/exports/nimbus-import.tar.gz",
       recoverySeed: "alpha bravo charlie",
     });
     expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
       method: "data.import",
-      params: { bundlePath: "/tmp/import.tar.gz", recoverySeed: "alpha bravo charlie" },
+      params: { bundlePath: "/exports/nimbus-import.tar.gz", recoverySeed: "alpha bravo charlie" },
     });
   });
 
   it("dataImport throws on shape mismatch", async () => {
     invokeMock.mockResolvedValueOnce("ok");
     await expect(
-      createIpcClient().dataImport({ bundlePath: "/tmp/x", passphrase: "pw" }),
+      createIpcClient().dataImport({ bundlePath: "/exports/nimbus-x", passphrase: "pw" }),
     ).rejects.toThrow(/unexpected shape/);
   });
 
