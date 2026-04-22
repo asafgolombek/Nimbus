@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776837269783,
+  "lastUpdate": 1776844078170,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -782,6 +782,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.1383851600000008,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc394e8db4d64d918f6df4db05c8a30873e70aeb",
+          "message": "Merge pull request #80 from asafgolombek/dev/asafgolombek/coverage-boost\n\ntest(ui): boost coverage — AuditFilterChips, restartApp, UpdaterRestartChrome",
+          "timestamp": "2026-04-22T10:47:27+03:00",
+          "tree_id": "5cfd556f32e1c954dd7972322633a5fc80c87080",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/bc394e8db4d64d918f6df4db05c8a30873e70aeb"
+        },
+        "date": 1776844077272,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4325209600000017,
             "unit": "ms"
           }
         ]
