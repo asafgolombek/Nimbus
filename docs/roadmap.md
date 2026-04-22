@@ -314,9 +314,9 @@ Commercial license also available now for organizations that need to embed Nimbu
 - Tray badge matches pending HITL count.
 - `ALLOWED_METHODS` grew by exactly four read-side methods; no `vault.*` or `db.*` writes.
 - `packages/ui` coverage ≥ 80 % lines / ≥ 75 % branches.
-- [ ] **Extension Marketplace panel** — browse, install, update, disable, remove extensions; verified publisher badge; community ratings; changelog per version; auto-update toggle
-- [ ] **Watcher management UI** — create, pause, delete watchers; condition builder; history of fired events
-- [ ] **Workflow pipeline editor** — visual step list; run history; re-run failed steps; parameter override before run
+- [x] **Extension Marketplace panel** (v0.1.0 MVP) — list, install-from-directory, enable/disable, remove. *Online browse, verified publisher, ratings, changelog, auto-update — deferred to Phase 5 "Marketplace v2".*
+- [x] **Watcher management UI** (v0.1.0) — create, pause, delete; graph-aware condition builder; **history-of-fires drawer** (WS5-D Polish).
+- [x] **Workflow pipeline editor** (v0.1.0) — step list editor, run, dry-run toggle, delete; **run history drawer with audit deep-link** + **"Run with params…" one-shot parameter override** (WS5-D Polish). *Re-run-failed-steps deferred to v0.1.1.*
 - [x] **Settings** — ~~model selection (cloud vs local)~~ ✅ (Plan 3) · ~~sync intervals per connector~~ ✅ (Plan 3) · ~~profile switcher~~ ✅ (Plan 2) · ~~audit log viewer + export~~ ✅ (Plan 4) · ~~data export/import~~ ✅ (Plan 5) · ~~telemetry toggle~~ ✅ (Plan 2) · ~~Updates panel~~ ✅ (Plan 4) · ~~Delete service data~~ ✅ (Plan 5) — Vault key listing deferred to Phase 5
 
 ### Local LLM & Multi-Agent
