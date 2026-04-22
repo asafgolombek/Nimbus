@@ -211,13 +211,17 @@ jobs:
           toolchain: "1.88.0"
 
       - name: Run cargo deny
-        # Action pinned to a SHA. Walks deny.toml in the working dir.
-        uses: EmbarkStudios/cargo-deny-action@e2f4ede4a4e60ea15ff31bc0647485d80c66cfba # v2.0.4
+        # NOTE: pinned to the floating `v2` tag rather than a SHA.
+        # The previous SHA (e2f4ede, v2.0.4) bundled a cargo-deny version
+        # that can't parse CVSS 4.0 vectors, causing advisory-db sync to
+        # fail on e.g. RUSTSEC-2025-0138. Follow-up: re-pin to a fresh SHA
+        # that resolves to v2.0.12+ for supply-chain hygiene.
+        uses: EmbarkStudios/cargo-deny-action@v2
         with:
           manifest-path: packages/ui/src-tauri/Cargo.toml
           # `all` = check advisories, bans, licenses, sources.
           command: check all
-          arg: --hide-inclusion-graph
+          command-arguments: --hide-inclusion-graph
 
   gitleaks:
     name: Gitleaks secret scan
