@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · S2 graph-aware watchers ✅)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -46,6 +46,9 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/gateway/src/connectors/connector-vault.ts` | Per-service OAuth vault key helpers — `perServiceOAuthVaultKey()`, `writePerServiceOAuthKey()`, `migrateToPerServiceOAuthKeys()` (Phase 4) |
 | `packages/gateway/src/connectors/connector-secrets-manifest.ts` | `CONNECTOR_VAULT_SECRET_KEYS` — per-connector PAT/API-key vault manifest; `clearConnectorVaultSecretKeys()` |
 | `packages/gateway/src/connectors/remove-intent.ts` | Connector removal — cascade vault + index cleanup via `executeRemoveIntent()` |
+| `packages/gateway/src/automation/graph-predicate.ts` | Graph predicate types, parser, evaluator; `parseGraphPredicate` / `itemMatchesGraphPredicate` / `countItemsMatchingGraphPredicate` / `listCandidateGraphRelations` |
+| `packages/gateway/src/automation/watcher-engine.ts` | Watcher evaluation loop; applies `graph_predicate_json` as a post-filter when `[automation].graph_conditions = true` |
+| `packages/gateway/src/index/watcher-graph-v22-sql.ts` | V22 migration — `watcher.graph_predicate_json` column |
 | `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
 | `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
 | `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |

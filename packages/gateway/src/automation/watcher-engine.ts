@@ -2,12 +2,22 @@ import type { Database } from "bun:sqlite";
 
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import {
+  type GraphPredicate,
+  itemMatchesGraphPredicate,
+  parseGraphPredicate,
+} from "./graph-predicate.ts";
+import {
   insertWatcherEvent,
   listEnabledWatchers,
   updateWatcherLastChecked,
   updateWatcherLastFired,
   type WatcherRow,
 } from "./watcher-store.ts";
+
+export type WatcherEvalOptions = {
+  /** When false, `watcher.graph_predicate_json` is not evaluated. Default true. */
+  graphConditionsEnabled?: boolean;
+};
 
 function asRecord(json: string): Record<string, unknown> | undefined {
   try {
@@ -29,13 +39,16 @@ export function evaluateWatchersAfterSync(
   syncedServiceId: string,
   nowMs: number,
   notify: (title: string, body: string) => void | Promise<void>,
+  opts: WatcherEvalOptions = {},
 ): void {
   if (readIndexedUserVersion(db) < 8) {
     return;
   }
 
+  const graphEnabled = opts.graphConditionsEnabled ?? true;
+
   for (const w of listEnabledWatchers(db)) {
-    const fired = evaluateOneWatcher(db, w, syncedServiceId);
+    const fired = evaluateOneWatcher(db, w, syncedServiceId, graphEnabled);
     updateWatcherLastChecked(db, w.id, nowMs);
     if (fired !== null) {
       insertWatcherEvent(db, w.id, nowMs, fired.snapshot, JSON.stringify({ ok: true }));
@@ -53,12 +66,16 @@ export function evaluateWatchersStartupCatchUp(
   db: Database,
   nowMs: number,
   notify: (title: string, body: string) => void | Promise<void>,
+  opts: WatcherEvalOptions = {},
 ): void {
   if (readIndexedUserVersion(db) < 8) {
     return;
   }
+
+  const graphEnabled = opts.graphConditionsEnabled ?? true;
+
   for (const w of listEnabledWatchers(db)) {
-    const fired = evaluateOneWatcher(db, w, undefined);
+    const fired = evaluateOneWatcher(db, w, undefined, graphEnabled);
     updateWatcherLastChecked(db, w.id, nowMs);
     if (fired !== null) {
       insertWatcherEvent(db, w.id, nowMs, fired.snapshot, JSON.stringify({ ok: true }));
@@ -72,6 +89,7 @@ function evaluateOneWatcher(
   db: Database,
   w: WatcherRow,
   syncedServiceId: string | undefined,
+  graphEnabled: boolean,
 ): { summary: string; snapshot: string } | null {
   if (w.condition_type !== "alert_fired") {
     return null;
@@ -93,7 +111,7 @@ function evaluateOneWatcher(
   const since = w.last_checked_at ?? w.created_at;
   const rows = db
     .query(
-      `SELECT id, title, service, modified_at FROM item
+      `SELECT id, title, service, type, external_id, modified_at FROM item
        WHERE type = 'alert'
          AND modified_at > ?
          AND (? IS NULL OR service = ?)
@@ -104,6 +122,8 @@ function evaluateOneWatcher(
     id: string;
     title: string;
     service: string;
+    type: string;
+    external_id: string;
     modified_at: number;
   }>;
 
@@ -111,11 +131,42 @@ function evaluateOneWatcher(
     return null;
   }
 
-  const first = rows[0];
+  // Apply graph predicate if present and enabled. Invalid JSON or parse
+  // errors drop the watcher to "no match" rather than firing — fail closed.
+  let predicate: GraphPredicate | null = null;
+  if (graphEnabled && w.graph_predicate_json !== null && w.graph_predicate_json !== "") {
+    const parsed = parseGraphPredicate(w.graph_predicate_json);
+    if (!parsed.ok) {
+      process.stderr.write(
+        `[watcher-engine] watcher ${w.id} (${w.name}): graph_predicate_json parse failed — ${parsed.error}\n`,
+      );
+      return null;
+    }
+    predicate = parsed.predicate;
+  }
+
+  const pred = predicate;
+  const filtered =
+    pred === null
+      ? rows
+      : rows.filter((r) =>
+          itemMatchesGraphPredicate({
+            db,
+            itemEntityType: r.type,
+            itemExternalId: r.external_id,
+            predicate: pred,
+          }),
+        );
+
+  if (filtered.length === 0) {
+    return null;
+  }
+
+  const first = filtered[0];
   if (first === undefined) {
     return null;
   }
   const summary = `${first.service}: ${first.title}`;
-  const snapshot = JSON.stringify({ matches: rows, condition: w.condition_json });
+  const snapshot = JSON.stringify({ matches: filtered, condition: w.condition_json });
   return { summary, snapshot };
 }

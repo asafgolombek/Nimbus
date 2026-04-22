@@ -6,7 +6,11 @@ import {
   evaluateWatchersStartupCatchUp,
 } from "../automation/watcher-engine.ts";
 import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
-import { loadNimbusEmbeddingFromPath, resolveNimbusTomlForProfile } from "../config/nimbus-toml.ts";
+import {
+  loadNimbusAutomationFromConfigDir,
+  loadNimbusEmbeddingFromPath,
+  resolveNimbusTomlForProfile,
+} from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromPath } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
 import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
@@ -180,6 +184,9 @@ async function createSchedulerWithMesh(
     },
   });
 
+  const automation = loadNimbusAutomationFromConfigDir(paths.configDir);
+  const watcherOpts = { graphConditionsEnabled: automation.graphConditions };
+
   const syncScheduler = new SyncScheduler(syncContext, undefined, {
     notify: async (title, body) => {
       await notifications.show(title, body);
@@ -188,7 +195,7 @@ async function createSchedulerWithMesh(
       const at = Date.now();
       syncAnomaly.recordSample(`sync:duration_ms:${serviceId}`, durationMs, at);
       syncAnomaly.recordSample(`sync:items_upserted:${serviceId}`, result.itemsUpserted, at);
-      evaluateWatchersAfterSync(db, serviceId, at, (t, b) => notifications.show(t, b));
+      evaluateWatchersAfterSync(db, serviceId, at, (t, b) => notifications.show(t, b), watcherOpts);
     },
   });
   const fsV2Roots = loadNimbusFilesystemRootsFromConfigDir(paths.configDir);
@@ -202,7 +209,7 @@ async function createSchedulerWithMesh(
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
   registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);
   syncScheduler.start();
-  evaluateWatchersStartupCatchUp(db, Date.now(), (t, b) => notifications.show(t, b));
+  evaluateWatchersStartupCatchUp(db, Date.now(), (t, b) => notifications.show(t, b), watcherOpts);
   return { syncScheduler, connectorMesh };
 }
 

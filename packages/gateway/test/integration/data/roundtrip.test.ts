@@ -6,6 +6,7 @@ import { runDataExport } from "../../../src/commands/data-export.ts";
 import { runDataImport } from "../../../src/commands/data-import.ts";
 import { verifyAuditChain } from "../../../src/db/audit-verify.ts";
 import type { LocalIndex } from "../../../src/index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION } from "../../../src/index/local-index.ts";
 import { memVault, newIndex } from "../../fixtures/data-test-helpers.ts";
 
 function seed(idx: LocalIndex, service: string, count: number): void {
@@ -52,7 +53,7 @@ describe("data sovereignty round-trip", () => {
       index: sourceIdx,
       platform,
       nimbusVersion: "0.1.0",
-      schemaVersion: 21,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
     expect(expResult.recoverySeedGenerated).toBe(true);
@@ -86,7 +87,7 @@ describe("data sovereignty round-trip", () => {
       index: sourceIdx,
       platform: "linux",
       nimbusVersion: "0.1.0",
-      schemaVersion: 21,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
 

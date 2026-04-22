@@ -99,6 +99,8 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "updater.checkNow",
     "updater.getStatus",
     "updater.rollback",
+    "watcher.listCandidateRelations",
+    "watcher.validateCondition",
 ];
 
 pub fn is_method_allowed(method: &str) -> bool {
@@ -414,7 +416,9 @@ mod tests {
     fn allowlist_exact_size() {
         // Plan 2 added 37 methods (spec miscounted connector.listStatus as a new addition —
         // it was already in WS5-B). Plan 3 adds llm.getStatus → 38.
-        assert_eq!(ALLOWED_METHODS.len(), 38);
+        // Phase 4 Section 2 adds watcher.validateCondition +
+        // watcher.listCandidateRelations → 40.
+        assert_eq!(ALLOWED_METHODS.len(), 40);
     }
 
     #[test]

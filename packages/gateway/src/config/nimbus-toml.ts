@@ -597,3 +597,61 @@ export function loadNimbusLanFromPath(tomlPath: string): NimbusLanToml {
 export function loadNimbusLanFromConfigDir(configDir: string): NimbusLanToml {
   return loadNimbusLanFromPath(join(configDir, "nimbus.toml"));
 }
+
+// ─── [automation] ───────────────────────────────────────────────────────────
+
+export type NimbusAutomationToml = {
+  /** When true (default), graph predicates on watchers are evaluated. Phase 4 Section 2. */
+  graphConditions: boolean;
+};
+
+export const DEFAULT_NIMBUS_AUTOMATION_TOML: NimbusAutomationToml = {
+  graphConditions: true,
+};
+
+function parseNimbusTomlAutomationSection(source: string): Partial<NimbusAutomationToml> {
+  const lines = source.split(/\r?\n/);
+  let inSection = false;
+  const out: Partial<NimbusAutomationToml> = {};
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inSection = trimmed === "[automation]";
+      continue;
+    }
+    if (!inSection) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    if (key === "graph_conditions") {
+      const b = parseBool(valRaw);
+      if (b !== undefined) out.graphConditions = b;
+    }
+  }
+  return out;
+}
+
+export function parseNimbusAutomationToml(
+  raw: string,
+  defaults: NimbusAutomationToml = DEFAULT_NIMBUS_AUTOMATION_TOML,
+): NimbusAutomationToml {
+  return { ...defaults, ...parseNimbusTomlAutomationSection(raw) };
+}
+
+export function loadNimbusAutomationFromPath(tomlPath: string): NimbusAutomationToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_AUTOMATION_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return parseNimbusAutomationToml(raw);
+  } catch {
+    return structuredClone(DEFAULT_NIMBUS_AUTOMATION_TOML);
+  }
+}
+
+export function loadNimbusAutomationFromConfigDir(configDir: string): NimbusAutomationToml {
+  return loadNimbusAutomationFromPath(join(configDir, "nimbus.toml"));
+}
