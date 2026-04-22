@@ -488,6 +488,84 @@ describe("ipc server integration", () => {
     }
   });
 
+  test("workflow.run forwards paramsOverride to the registered handler", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+    const now = Date.now();
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, ?)`,
+      [randomUUID(), "wf1", JSON.stringify([{ run: "a" }]), now, now],
+    );
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+      dataDir: tmpdir(),
+      configDir: tmpdir(),
+    });
+    let received: unknown = null;
+    server.setWorkflowRunHandler(async (ctx) => {
+      received = ctx;
+      return { runId: "abc", dryRun: ctx.dryRun, stepResults: [] };
+    });
+    await server.start();
+    try {
+      const line = await rpcCall(listenPath, "workflow.run", {
+        name: "wf1",
+        dryRun: false,
+        paramsOverride: { "step-1": { greeting: "hello" } },
+      });
+      const parsed = JSON.parse(line) as { result: unknown };
+      expect(parsed.result).toBeDefined();
+      expect(received).toMatchObject({
+        workflowName: "wf1",
+        dryRun: false,
+        paramsOverride: { "step-1": { greeting: "hello" } },
+      });
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("workflow.run omits paramsOverride when not provided", async () => {
+    const listenPath = testListenPath();
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const localIndex = new LocalIndex(db);
+    const now = Date.now();
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, ?)`,
+      [randomUUID(), "wf1", JSON.stringify([{ run: "a" }]), now, now],
+    );
+
+    const server = createIpcServer({
+      listenPath,
+      vault: new MockVault(),
+      version: "t",
+      localIndex,
+      dataDir: tmpdir(),
+      configDir: tmpdir(),
+    });
+    let received: unknown = null;
+    server.setWorkflowRunHandler(async (ctx) => {
+      received = ctx;
+      return { runId: "abc", dryRun: ctx.dryRun, stepResults: [] };
+    });
+    await server.start();
+    try {
+      await rpcCall(listenPath, "workflow.run", { name: "wf1", dryRun: false });
+      expect((received as { paramsOverride?: unknown }).paramsOverride).toBeUndefined();
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("pending consent rejects when client disconnects", async () => {
     const listenPath = testListenPath();
     const clientIds: string[] = [];

@@ -604,6 +604,18 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const agent =
       typeof agentRaw === "string" && agentRaw.trim() !== "" ? agentRaw.trim() : undefined;
 
+    const rawOverride = rec?.["paramsOverride"];
+    let paramsOverride: Readonly<Record<string, Record<string, unknown>>> | undefined;
+    if (rawOverride !== undefined && rawOverride !== null) {
+      if (typeof rawOverride !== "object" || Array.isArray(rawOverride)) {
+        throw new RpcMethodError(
+          -32602,
+          "workflow.run: paramsOverride must be an object keyed by step label",
+        );
+      }
+      paramsOverride = rawOverride as Readonly<Record<string, Record<string, unknown>>>;
+    }
+
     const ctx: WorkflowRunContext = {
       clientId,
       workflowName,
@@ -619,6 +631,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     }
     if (agent !== undefined) {
       ctx.agent = agent;
+    }
+    if (paramsOverride !== undefined) {
+      ctx.paramsOverride = paramsOverride;
     }
 
     try {
