@@ -14,6 +14,7 @@ export type WatcherRow = {
   created_at: number;
   last_checked_at: number | null;
   last_fired_at: number | null;
+  graph_predicate_json: string | null;
 };
 
 export function listWatchers(db: Database): WatcherRow[] {
@@ -23,7 +24,7 @@ export function listWatchers(db: Database): WatcherRow[] {
   return db
     .query(
       `SELECT id, name, enabled, condition_type, condition_json, action_type, action_json,
-              created_at, last_checked_at, last_fired_at
+              created_at, last_checked_at, last_fired_at, graph_predicate_json
        FROM watcher ORDER BY name`,
     )
     .all() as WatcherRow[];
@@ -35,16 +36,21 @@ export function listEnabledWatchers(db: Database): WatcherRow[] {
 
 export function insertWatcher(
   db: Database,
-  row: Omit<WatcherRow, "id" | "last_checked_at" | "last_fired_at"> & { id?: string },
+  row: Omit<WatcherRow, "id" | "last_checked_at" | "last_fired_at" | "graph_predicate_json"> & {
+    id?: string;
+    graph_predicate_json?: string | null;
+  },
 ): string {
   if (readIndexedUserVersion(db) < 8) {
     throw new Error("Watcher schema requires v8+");
   }
   const id = row.id ?? randomUUID();
   const now = row.created_at;
+  const gpj = row.graph_predicate_json ?? null;
   db.run(
-    `INSERT INTO watcher (id, name, enabled, condition_type, condition_json, action_type, action_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO watcher (id, name, enabled, condition_type, condition_json,
+                          action_type, action_json, created_at, graph_predicate_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       row.name,
@@ -54,6 +60,7 @@ export function insertWatcher(
       row.action_type,
       row.action_json,
       now,
+      gpj,
     ],
   );
   return id;
@@ -94,4 +101,19 @@ export function insertWatcherEvent(
      VALUES (?, ?, ?, ?)`,
     [watcherId, firedAt, conditionSnapshot, actionResult],
   );
+}
+
+export function setWatcherGraphPredicate(
+  db: Database,
+  id: string,
+  graphPredicateJson: string | null,
+): boolean {
+  if (readIndexedUserVersion(db) < 22) {
+    return false;
+  }
+  const r = db.run(`UPDATE watcher SET graph_predicate_json = ? WHERE id = ?`, [
+    graphPredicateJson,
+    id,
+  ]);
+  return r.changes > 0;
 }
