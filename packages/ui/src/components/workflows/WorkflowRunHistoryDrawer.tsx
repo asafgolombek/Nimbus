@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { createIpcClient } from "../../ipc/client";
 import type { WorkflowRunHistoryEntry } from "../../ipc/types";
 
@@ -87,12 +88,12 @@ export function WorkflowRunHistoryDrawer({
                     {formatStatus(r.status, r.dryRun)}
                   </td>
                   <td className="px-2 py-1">
-                    <a
-                      href={`#/settings/audit?runId=${encodeURIComponent(r.id)}`}
+                    <Link
+                      to={`/settings/audit?runId=${encodeURIComponent(r.id)}`}
                       className="text-blue-600 hover:underline"
                     >
                       View audit entry
-                    </a>
+                    </Link>
                   </td>
                 </tr>
               ))}
