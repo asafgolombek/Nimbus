@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776833191966,
+  "lastUpdate": 1776834662953,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -724,6 +724,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4691678799999999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7380dc7790708d8a1c65128d74ffc3dce85ded8",
+          "message": "Merge pull request #78 from asafgolombek/dev/asafgolombek/fix-macos-transparent\n\nfix(tauri): enable macOSPrivateApi for transparent Quick Query window",
+          "timestamp": "2026-04-22T08:10:33+03:00",
+          "tree_id": "962d587774dd2f1c463dd6947acad2df91edb9fb",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/a7380dc7790708d8a1c65128d74ffc3dce85ded8"
+        },
+        "date": 1776834662002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.6260875799999963,
             "unit": "ms"
           }
         ]
