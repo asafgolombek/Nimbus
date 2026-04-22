@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -26,7 +26,30 @@ vi.mock("../../../src/store", () => ({
 
 import { HitlPopupPage } from "../../../src/components/hitl/HitlPopupPage";
 
+beforeEach(() => {
+  invoke.mockReset();
+  consentRespond.mockReset();
+});
+
 describe("HitlPopupPage", () => {
+  it("renders 'No pending requests' when queue is empty", () => {
+    storeState.pending = [];
+    render(<HitlPopupPage />);
+    expect(screen.getByText(/No pending requests/i)).toBeInTheDocument();
+  });
+
+  it("invokes close_hitl_popup after 500 ms when pending queue is empty", async () => {
+    vi.useFakeTimers();
+    storeState.pending = [];
+    invoke.mockResolvedValue(undefined);
+    render(<HitlPopupPage />);
+    expect(invoke).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(500);
+    await vi.runAllTimersAsync();
+    expect(invoke).toHaveBeenCalledWith("close_hitl_popup");
+    vi.useRealTimers();
+  });
+
   it("renders the head-of-queue prompt", () => {
     storeState.pending = [{ requestId: "r1", prompt: "Send message?", receivedAtMs: Date.now() }];
     render(<HitlPopupPage />);

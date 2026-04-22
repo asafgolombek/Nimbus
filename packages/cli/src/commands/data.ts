@@ -78,7 +78,7 @@ async function runDataImportCli(args: string[]): Promise<void> {
     console.log(`[ok] restored ${String(result.credentialsRestored)} credentials`);
     if (result.oauthEntriesFlagged > 0) {
       console.log(
-        `[warn] ${String(result.oauthEntriesFlagged)} OAuth entries may require re-auth on next sync`,
+        `[warn] ${String(result.oauthEntriesFlagged)} OAuth entries may require re-auth on next sync`, // NOSONAR — count only, no credential values
       );
     }
   });

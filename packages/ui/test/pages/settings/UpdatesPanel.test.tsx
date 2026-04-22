@@ -118,4 +118,70 @@ describe("UpdatesPanel (slimmed; subscriptions live in UpdaterRestartChrome)", (
       true,
     );
   });
+
+  it("Check now error shows fetch error and resets state to idle", async () => {
+    updaterCheckNowMock.mockRejectedValueOnce(new Error("network timeout"));
+    render(<UpdatesPanel />);
+    await waitFor(() => screen.getByRole("button", { name: "Check now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+    await waitFor(() => expect(screen.getByText(/network timeout/)).toBeTruthy());
+    expect(useNimbusStore.getState().updaterUiState).toBe("idle");
+  });
+
+  it("Apply error shows fetch error and transitions to failed", async () => {
+    useNimbusStore.setState({
+      updaterUiState: "available",
+      updaterCheck: { currentVersion: "0.1.0", latestVersion: "0.2.0", updateAvailable: true },
+    } as never);
+    updaterApplyUpdateMock.mockRejectedValueOnce(new Error("installer failed"));
+    render(<UpdatesPanel />);
+    await waitFor(() => screen.getByRole("button", { name: /Apply 0.2.0/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Apply 0.2.0/ }));
+    await waitFor(() => expect(useNimbusStore.getState().updaterUiState).toBe("failed"));
+    expect(screen.getByText(/installer failed/)).toBeTruthy();
+  });
+
+  it("Rollback error shows fetch error and transitions to failed", async () => {
+    useNimbusStore.setState({ updaterUiState: "rolled_back" } as never);
+    updaterGetStatusMock.mockResolvedValueOnce({
+      state: "rolled_back",
+      currentVersion: "0.1.0",
+      configUrl: "u",
+    });
+    updaterRollbackMock.mockRejectedValueOnce(new Error("rollback rpc failed"));
+    render(<UpdatesPanel />);
+    await waitFor(() => screen.getByRole("button", { name: "Rollback" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rollback" }));
+    await waitFor(() => expect(useNimbusStore.getState().updaterUiState).toBe("failed"));
+    expect(screen.getByText(/rollback rpc failed/)).toBeTruthy();
+  });
+
+  it("shows signature_invalid failure message when uiState is rolled_back", async () => {
+    useNimbusStore.setState({
+      updaterUiState: "rolled_back",
+      updaterFailure: { reason: "signature_invalid" },
+    } as never);
+    render(<UpdatesPanel />);
+    await waitFor(() => expect(screen.getByText(/signature invalid/i)).toBeTruthy());
+  });
+
+  it("shows hash_mismatch failure message when uiState is failed", async () => {
+    useNimbusStore.setState({
+      updaterUiState: "failed",
+      updaterFailure: { reason: "hash_mismatch" },
+    } as never);
+    render(<UpdatesPanel />);
+    await waitFor(() => expect(screen.getByText(/hash mismatch/i)).toBeTruthy());
+  });
+
+  it("shows generic rolled-back message for unknown failure reason", async () => {
+    useNimbusStore.setState({
+      updaterUiState: "rolled_back",
+      updaterFailure: { reason: "unknown_reason" },
+    } as never);
+    render(<UpdatesPanel />);
+    await waitFor(() =>
+      expect(screen.getByText(/Update rolled back: unknown_reason/)).toBeTruthy(),
+    );
+  });
 });

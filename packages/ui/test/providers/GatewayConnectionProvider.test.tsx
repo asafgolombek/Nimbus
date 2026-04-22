@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -88,5 +88,41 @@ describe("GatewayConnectionProvider", () => {
     const { seen, rerender } = await renderAndConnect("/");
     await waitFor(() => expect(seen.at(-1)).toBe("/onboarding/welcome"));
     rerender(<div />);
+  });
+
+  it("fires runFirstConnect only once when 'connected' arrives twice", async () => {
+    callMock.mockImplementation(async (method) => {
+      if (method === "diag.snapshot") return { indexTotalItems: 1, connectorCount: 1 };
+      if (method === "db.getMeta") return "true";
+      throw new Error(`unexpected method ${method}`);
+    });
+    const { rerender } = await renderAndConnect("/");
+    await waitFor(() => expect(callMock).toHaveBeenCalledTimes(2));
+    const callCountAfterFirst = callMock.mock.calls.length;
+    // Fire connected a second time — firstConnectHandled guard should short-circuit
+    connectionHandlers[0]?.("connected");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(callMock.mock.calls.length).toBe(callCountAfterFirst);
+    rerender(<div />);
+  });
+
+  it("exhausts MAX_ATTEMPTS without throwing when all IPC calls fail", async () => {
+    vi.useFakeTimers();
+    callMock.mockRejectedValue(new Error("always fails"));
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <GatewayConnectionProvider>
+          <div />
+        </GatewayConnectionProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(connectionHandlers.length).toBeGreaterThan(0));
+    act(() => {
+      connectionHandlers[0]?.("connected");
+    });
+    await vi.runAllTimersAsync();
+    // 5 attempts made, no unhandled rejection
+    expect(callMock.mock.calls.length).toBeGreaterThanOrEqual(5);
+    vi.useRealTimers();
   });
 });

@@ -25,6 +25,17 @@ function renderPanel() {
   );
 }
 
+type NotificationHandler = (n: { method: string; params: unknown }) => void;
+
+function captureSubscribe(): { handler: NotificationHandler | null } {
+  const ref: { handler: NotificationHandler | null } = { handler: null };
+  subscribeMock.mockImplementation(async (h: NotificationHandler) => {
+    ref.handler = h;
+    return () => {};
+  });
+  return ref;
+}
+
 beforeEach(() => {
   localStorage.clear();
   llmListModelsMock.mockReset();
@@ -133,14 +144,10 @@ describe("ModelPanel", () => {
       models: [{ provider: "ollama", modelName: "gemma:2b" }],
     });
     llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
-    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
-    subscribeMock.mockImplementation(async (handler) => {
-      captured = handler;
-      return () => {};
-    });
+    const sub = captureSubscribe();
     renderPanel();
     await waitFor(() => screen.getByRole("button", { name: /load gemma:2b/i }));
-    captured?.({
+    sub.handler?.({
       method: "llm.modelLoaded",
       params: { provider: "ollama", modelName: "gemma:2b" },
     });
@@ -170,6 +177,98 @@ describe("ModelPanel", () => {
       expect(screen.getByTestId("active-pull-banner")).toHaveTextContent(/gemma:2b/),
     );
     expect(screen.getByTestId("active-pull-banner")).toHaveTextContent(/25%/);
+  });
+
+  it("llm.modelUnloaded notification patches the row's loaded state to false", async () => {
+    useNimbusStore.setState({ loadedKeys: { "ollama:gemma:2b": true } } as never);
+    llmListModelsMock.mockResolvedValueOnce({
+      models: [{ provider: "ollama", modelName: "gemma:2b" }],
+    });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    const sub = captureSubscribe();
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /unload gemma:2b/i }));
+    sub.handler?.({
+      method: "llm.modelUnloaded",
+      params: { provider: "ollama", modelName: "gemma:2b" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /load gemma:2b/i })).toBeInTheDocument(),
+    );
+  });
+
+  it("llm.pullProgress notification updates the active pull banner", async () => {
+    useNimbusStore.setState({ activePullId: "pull_x" } as never);
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    const sub = captureSubscribe();
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    sub.handler?.({
+      method: "llm.pullProgress",
+      params: {
+        pullId: "pull_x",
+        provider: "ollama",
+        modelName: "gemma:2b",
+        status: "downloading",
+        completedBytes: 500,
+        totalBytes: 1000,
+      },
+    });
+    await waitFor(() => expect(screen.getByTestId("active-pull-banner")).toHaveTextContent(/50%/));
+  });
+
+  it("llm.pullCompleted clears the active pull and re-fetches models", async () => {
+    useNimbusStore.setState({ activePullId: "pull_done" } as never);
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    // Second fetch triggered by pullCompleted
+    llmListModelsMock.mockResolvedValueOnce({
+      models: [{ provider: "ollama", modelName: "gemma:2b" }],
+    });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    const sub = captureSubscribe();
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    sub.handler?.({ method: "llm.pullCompleted", params: { pullId: "pull_done" } });
+    await waitFor(() => expect(llmListModelsMock).toHaveBeenCalledTimes(2));
+    expect(useNimbusStore.getState().activePullId).toBeNull();
+  });
+
+  it("llm.pullFailed clears the active pull without re-fetching models", async () => {
+    useNimbusStore.setState({ activePullId: "pull_fail" } as never);
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    const sub = captureSubscribe();
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    sub.handler?.({ method: "llm.pullFailed", params: { pullId: "pull_fail" } });
+    await waitFor(() => expect(useNimbusStore.getState().activePullId).toBeNull());
+    expect(llmListModelsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles subscribe() rejection gracefully without crashing", async () => {
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    subscribeMock.mockRejectedValueOnce(new Error("subscribe failed"));
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    // Component renders normally despite the subscribe error
+    expect(screen.getByRole("button", { name: /pull new model/i })).toBeInTheDocument();
+  });
+
+  it("PullDialog closes when Close button is clicked", async () => {
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    llmGetStatusMock.mockResolvedValueOnce({ available: { ollama: true, llamacpp: false } });
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    await userEvent.click(screen.getByRole("button", { name: /pull new model/i }));
+    await waitFor(() => screen.getByRole("dialog", { name: /pull model/i }));
+    await userEvent.click(screen.getByRole("button", { name: /close/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /pull model/i })).not.toBeInTheDocument(),
+    );
   });
 
   it("disables write controls when connectionState=disconnected", async () => {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewayOfflineBanner } from "../../src/components/GatewayOfflineBanner";
 
@@ -22,5 +22,25 @@ describe("GatewayOfflineBanner", () => {
     render(<GatewayOfflineBanner />);
     fireEvent.click(screen.getByRole("button", { name: /start gateway/i }));
     expect(invokeMock).toHaveBeenCalledWith("shell_start_gateway");
+  });
+
+  it("shows the error message when invoke throws an Error", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("permission denied"));
+    render(<GatewayOfflineBanner />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /start gateway/i }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/permission denied/)).toBeInTheDocument();
+  });
+
+  it("shows a stringified error when invoke throws a non-Error value", async () => {
+    invokeMock.mockRejectedValueOnce("gateway not found");
+    render(<GatewayOfflineBanner />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /start gateway/i }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/gateway not found/)).toBeInTheDocument();
   });
 });
