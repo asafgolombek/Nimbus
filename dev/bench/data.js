@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776834662953,
+  "lastUpdate": 1776837269783,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -753,6 +753,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.6260875799999963,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f140cc97f577c332cac37d1f5f7104aae3fb308",
+          "message": "Merge pull request #68 from asafgolombek/dependabot/bun/scure/bip39-2.0.1\n\nchore(deps): bump @scure/bip39 from 1.6.0 to 2.0.1",
+          "timestamp": "2026-04-22T08:54:02+03:00",
+          "tree_id": "7519cff1110eb31f03249216ba693bf49ea62857",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/9f140cc97f577c332cac37d1f5f7104aae3fb308"
+        },
+        "date": 1776837268618,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.1383851600000008,
             "unit": "ms"
           }
         ]
