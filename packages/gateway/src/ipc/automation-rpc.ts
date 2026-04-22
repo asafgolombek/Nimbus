@@ -1,11 +1,15 @@
 import type { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
-
 import {
   deleteExtensionById,
   listExtensions,
   setExtensionEnabled,
 } from "../automation/extension-store.ts";
+import {
+  countItemsMatchingGraphPredicate,
+  listCandidateGraphRelations,
+  parseGraphPredicate,
+} from "../automation/graph-predicate.ts";
 import {
   deleteWatcher,
   insertWatcher,
@@ -40,6 +44,17 @@ function requireString(rec: Record<string, unknown> | undefined, key: string): s
     throw new AutomationRpcError(-32602, `Missing or invalid ${key}`);
   }
   return v.trim();
+}
+
+function requireNumber(rec: Record<string, unknown> | undefined, key: string): number {
+  if (rec === undefined) {
+    throw new AutomationRpcError(-32602, `Missing or invalid ${key}`);
+  }
+  const v = rec[key];
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    throw new AutomationRpcError(-32602, `Missing or invalid ${key}`);
+  }
+  return v;
 }
 
 export function dispatchAutomationRpc(options: {
@@ -90,6 +105,27 @@ export function dispatchAutomationRpc(options: {
       const id = requireString(rec, "id");
       const ok = setWatcherEnabled(db, id, true);
       return { kind: "hit", value: { ok } };
+    }
+
+    case "watcher.listCandidateRelations":
+      return {
+        kind: "hit",
+        value: { relations: listCandidateGraphRelations() },
+      };
+
+    case "watcher.validateCondition": {
+      const graphPredicateJson = requireString(rec, "graphPredicateJson");
+      const sinceMs = requireNumber(rec, "sinceMs");
+      const parsed = parseGraphPredicate(graphPredicateJson);
+      if (!parsed.ok) {
+        throw new AutomationRpcError(-32602, parsed.error);
+      }
+      const matchCount = countItemsMatchingGraphPredicate({
+        db,
+        predicate: parsed.predicate,
+        sinceMs,
+      });
+      return { kind: "hit", value: { matchCount } };
     }
 
     case "extension.list":
