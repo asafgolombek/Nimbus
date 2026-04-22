@@ -406,3 +406,100 @@ export interface DataImportVersionIncompatibleData {
   readonly currentSchemaVersion: number;
   readonly relation: "archive_newer" | "archive_older_unsupported";
 }
+
+// ---- WS5-D additions (Watchers, Workflows, Marketplace) ----
+
+/** Relation kinds returned by `watcher.listCandidateRelations`. */
+export type GraphRelationKind = "owned_by" | "upstream_of" | "downstream_of";
+
+export interface CandidateRelation {
+  readonly relation: GraphRelationKind;
+  readonly description: string;
+  readonly underlyingRelationTypes: readonly string[];
+}
+
+export interface WatcherCandidateRelationsResult {
+  readonly relations: ReadonlyArray<CandidateRelation>;
+}
+
+/** `watcher.validateCondition` result — count of matching items in the given window. */
+export interface WatcherValidateConditionResult {
+  readonly matchCount: number;
+}
+
+/** One row from `watcher.list`. */
+export interface WatcherSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly enabled: number;
+  readonly condition_type: string;
+  readonly condition_json: string;
+  readonly action_type: string;
+  readonly action_json: string;
+  readonly created_at: number;
+  readonly last_checked_at: number | null;
+  readonly last_fired_at: number | null;
+  readonly graph_predicate_json: string | null;
+}
+
+export interface WatcherListResult {
+  readonly watchers: ReadonlyArray<WatcherSummary>;
+}
+
+export interface WatcherCreateParams {
+  readonly name: string;
+  readonly conditionType: string;
+  readonly conditionJson: string;
+  readonly actionType: string;
+  readonly actionJson: string;
+  /** Only set when conditionType === "graph". Stringified `GraphPredicate`. */
+  readonly graphPredicateJson?: string;
+}
+
+export interface WatcherCreateResult {
+  readonly id: string;
+}
+
+/** One row from `extension.list`. */
+export interface ExtensionSummary {
+  readonly id: string;
+  readonly version: string;
+  readonly enabled: number;
+  readonly installPath: string;
+  readonly manifestHash: string;
+}
+
+export interface ExtensionListResult {
+  readonly extensions: ReadonlyArray<ExtensionSummary>;
+}
+
+export interface ExtensionInstallResult {
+  readonly id: string;
+  readonly version: string;
+  readonly installPath: string;
+  readonly manifestHash: string;
+  readonly entryHash: string;
+}
+
+/** One row from `workflow.list`. */
+export interface WorkflowSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly steps_json: string;
+  readonly created_at: number;
+  readonly updated_at: number;
+}
+
+export interface WorkflowListResult {
+  readonly workflows: ReadonlyArray<WorkflowSummary>;
+}
+
+export interface WorkflowSaveResult {
+  readonly id: string;
+}
+
+export interface WorkflowRunResult {
+  readonly ok: boolean;
+  readonly dryRun: boolean;
+}

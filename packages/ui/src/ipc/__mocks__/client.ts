@@ -63,6 +63,27 @@ export const dataImportMock =
 export const dataDeleteMock =
   vi.fn<(args: { service: string; dryRun: false }) => Promise<unknown>>();
 
+// WS5-D additions — Watchers, Workflows, Marketplace
+export const watcherListMock = vi.fn<() => Promise<unknown>>();
+export const watcherCreateMock = vi.fn<(params: Record<string, unknown>) => Promise<unknown>>();
+export const watcherDeleteMock = vi.fn<(id: string) => Promise<unknown>>();
+export const watcherPauseMock = vi.fn<(id: string) => Promise<unknown>>();
+export const watcherResumeMock = vi.fn<(id: string) => Promise<unknown>>();
+export const watcherListCandidateRelationsMock = vi.fn<() => Promise<unknown>>();
+export const watcherValidateConditionMock =
+  vi.fn<(graphPredicateJson: string, sinceMs: number) => Promise<unknown>>();
+export const extensionListMock = vi.fn<() => Promise<unknown>>();
+export const extensionInstallMock = vi.fn<(sourcePath: string) => Promise<unknown>>();
+export const extensionEnableMock = vi.fn<(id: string) => Promise<unknown>>();
+export const extensionDisableMock = vi.fn<(id: string) => Promise<unknown>>();
+export const extensionRemoveMock = vi.fn<(id: string) => Promise<unknown>>();
+export const workflowListMock = vi.fn<() => Promise<unknown>>();
+export const workflowSaveMock =
+  vi.fn<(params: { name: string; description?: string; stepsJson: string }) => Promise<unknown>>();
+export const workflowDeleteMock = vi.fn<(name: string) => Promise<unknown>>();
+export const workflowRunMock =
+  vi.fn<(params: { name: string; dryRun: boolean }) => Promise<unknown>>();
+
 export const createIpcClient = () => ({
   call: callMock,
   subscribe: subscribeMock,
@@ -99,6 +120,22 @@ export const createIpcClient = () => ({
   dataExport: dataExportMock,
   dataImport: dataImportMock,
   dataDelete: dataDeleteMock,
+  watcherList: watcherListMock,
+  watcherCreate: watcherCreateMock,
+  watcherDelete: watcherDeleteMock,
+  watcherPause: watcherPauseMock,
+  watcherResume: watcherResumeMock,
+  watcherListCandidateRelations: watcherListCandidateRelationsMock,
+  watcherValidateCondition: watcherValidateConditionMock,
+  extensionList: extensionListMock,
+  extensionInstall: extensionInstallMock,
+  extensionEnable: extensionEnableMock,
+  extensionDisable: extensionDisableMock,
+  extensionRemove: extensionRemoveMock,
+  workflowList: workflowListMock,
+  workflowSave: workflowSaveMock,
+  workflowDelete: workflowDeleteMock,
+  workflowRun: workflowRunMock,
 });
 
 export const __resetIpcClientForTests = () => {};

@@ -80,6 +80,11 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "diag.getVersion",
     "diag.snapshot",
     "engine.askStream",
+    "extension.disable",
+    "extension.enable",
+    "extension.install",
+    "extension.list",
+    "extension.remove",
     "index.metrics",
     "llm.cancelPull",
     "llm.getRouterStatus",
@@ -99,8 +104,17 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "updater.checkNow",
     "updater.getStatus",
     "updater.rollback",
+    "watcher.create",
+    "watcher.delete",
+    "watcher.list",
     "watcher.listCandidateRelations",
+    "watcher.pause",
+    "watcher.resume",
     "watcher.validateCondition",
+    "workflow.delete",
+    "workflow.list",
+    "workflow.run",
+    "workflow.save",
 ];
 
 pub fn is_method_allowed(method: &str) -> bool {
@@ -414,11 +428,9 @@ mod tests {
 
     #[test]
     fn allowlist_exact_size() {
-        // Plan 2 added 37 methods (spec miscounted connector.listStatus as a new addition —
-        // it was already in WS5-B). Plan 3 adds llm.getStatus → 38.
-        // Phase 4 Section 2 adds watcher.validateCondition +
-        // watcher.listCandidateRelations → 40.
-        assert_eq!(ALLOWED_METHODS.len(), 40);
+        // WS5-D adds extension.{disable,enable,install,list,remove} + watcher.{create,delete,
+        // list,pause,resume} + workflow.{delete,list,run,save} → 14 new methods → 54 total.
+        assert_eq!(ALLOWED_METHODS.len(), 54);
     }
 
     #[test]

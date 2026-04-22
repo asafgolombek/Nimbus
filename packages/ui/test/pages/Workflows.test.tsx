@@ -1,0 +1,229 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../src/ipc/client");
+
+import {
+  callMock,
+  workflowDeleteMock,
+  workflowRunMock,
+  workflowSaveMock,
+} from "../../src/ipc/__mocks__/client";
+import { Workflows } from "../../src/pages/Workflows";
+import { useNimbusStore } from "../../src/store";
+
+const WORKFLOW_1 = {
+  id: "wf-1",
+  name: "Deploy",
+  description: "Deploys to prod",
+  steps_json: JSON.stringify([{ tool: "github.tag", params: { ref: "main" } }]),
+  created_at: 1_700_000_000_000,
+  updated_at: 1_700_001_000_000,
+};
+
+const WORKFLOW_2 = {
+  id: "wf-2",
+  name: "Backup",
+  description: null,
+  steps_json: "[]",
+  created_at: 1_700_000_000_000,
+  updated_at: 1_700_001_000_000,
+};
+
+function stubWorkflowList(rows: unknown[]) {
+  callMock.mockImplementation(async (method: string) => {
+    if (method === "workflow.list") return { workflows: rows };
+    throw new Error(`unexpected method: ${method}`);
+  });
+}
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <Workflows />
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  callMock.mockReset();
+  workflowRunMock.mockReset();
+  workflowSaveMock.mockReset();
+  workflowDeleteMock.mockReset();
+  useNimbusStore.setState({ connectionState: "connected" } as never);
+});
+
+// ---------------------------------------------------------------------------
+// List behaviour
+// ---------------------------------------------------------------------------
+describe("Workflows page — list", () => {
+  it("renders workflow names and descriptions", async () => {
+    stubWorkflowList([WORKFLOW_1, WORKFLOW_2]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Deploy")).toBeInTheDocument();
+      expect(screen.getByText("Backup")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Deploys to prod")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  it("calls workflowRun with dryRun=false by default", async () => {
+    stubWorkflowList([WORKFLOW_1]);
+    workflowRunMock.mockResolvedValue({ ok: true, dryRun: false });
+    callMock
+      .mockResolvedValueOnce({ workflows: [WORKFLOW_1] })
+      .mockResolvedValue({ workflows: [WORKFLOW_1] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /run workflow Deploy/i }));
+    expect(workflowRunMock).toHaveBeenCalledWith({ name: "Deploy", dryRun: false });
+  });
+
+  it("calls workflowRun with dryRun=true when toggle is on", async () => {
+    stubWorkflowList([WORKFLOW_1]);
+    workflowRunMock.mockResolvedValue({ ok: true, dryRun: true });
+    callMock
+      .mockResolvedValueOnce({ workflows: [WORKFLOW_1] })
+      .mockResolvedValue({ workflows: [WORKFLOW_1] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Dry run"));
+    await userEvent.click(screen.getByRole("button", { name: /run workflow Deploy/i }));
+    expect(workflowRunMock).toHaveBeenCalledWith({ name: "Deploy", dryRun: true });
+  });
+
+  it("calls workflowDelete after confirm and refetches", async () => {
+    stubWorkflowList([WORKFLOW_1]);
+    workflowDeleteMock.mockResolvedValue({ ok: true });
+    callMock
+      .mockResolvedValueOnce({ workflows: [WORKFLOW_1] })
+      .mockResolvedValue({ workflows: [] });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /delete workflow Deploy/i }));
+    expect(workflowDeleteMock).toHaveBeenCalledWith("Deploy");
+  });
+
+  it("shows error state when workflow.list fails", async () => {
+    callMock.mockRejectedValue(new Error("connection refused"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/connection refused/)).toBeInTheDocument());
+  });
+
+  it("'New workflow' button is disabled when offline", () => {
+    useNimbusStore.setState({ connectionState: "disconnected" } as never);
+    callMock.mockResolvedValue({ workflows: [] });
+    renderPage();
+    expect(screen.getByRole("button", { name: /new workflow/i })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step-list editor
+// ---------------------------------------------------------------------------
+describe("Workflows page — step-list editor", () => {
+  async function openNewDialog() {
+    stubWorkflowList([]);
+    renderPage();
+    await waitFor(() => expect(callMock).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: /new workflow/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  }
+
+  it("new dialog starts with one empty step", async () => {
+    await openNewDialog();
+    expect(screen.getByLabelText("Step 1 tool")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 params")).toBeInTheDocument();
+  });
+
+  it("'Add step' appends a second step row", async () => {
+    await openNewDialog();
+    await userEvent.click(screen.getByRole("button", { name: /add step/i }));
+    expect(screen.getByLabelText("Step 2 tool")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 2 params")).toBeInTheDocument();
+  });
+
+  it("'Remove step' on the only step resets to one empty step", async () => {
+    await openNewDialog();
+    await userEvent.click(screen.getByRole("button", { name: /remove step 1/i }));
+    // Should still have exactly one step after reset
+    expect(screen.getByLabelText("Step 1 tool")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Step 2 tool")).not.toBeInTheDocument();
+  });
+
+  it("'Remove step' on second of two steps leaves one", async () => {
+    await openNewDialog();
+    await userEvent.click(screen.getByRole("button", { name: /add step/i }));
+    await userEvent.click(screen.getByRole("button", { name: /remove step 2/i }));
+    expect(screen.queryByLabelText("Step 2 tool")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 tool")).toBeInTheDocument();
+  });
+
+  it("workflowSave called with serialized steps JSON on submit", async () => {
+    workflowSaveMock.mockResolvedValue({ id: "wf-new" });
+    await openNewDialog();
+
+    await userEvent.type(screen.getByLabelText("Workflow name"), "My Workflow");
+    await userEvent.clear(screen.getByLabelText("Step 1 tool"));
+    await userEvent.type(screen.getByLabelText("Step 1 tool"), "notify.slack");
+
+    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    expect(workflowSaveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "My Workflow",
+        stepsJson: JSON.stringify([{ tool: "notify.slack", params: {} }]),
+      }),
+    );
+  });
+
+  it("workflowSave omits description key when description is empty", async () => {
+    workflowSaveMock.mockResolvedValue({ id: "wf-new" });
+    await openNewDialog();
+    await userEvent.type(screen.getByLabelText("Workflow name"), "Nameless");
+    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    const call = workflowSaveMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(Object.hasOwn(call, "description")).toBe(false);
+  });
+
+  it("edit dialog pre-populates steps from the existing workflow", async () => {
+    stubWorkflowList([WORKFLOW_1]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: /edit workflow Deploy/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    // WORKFLOW_1 has one step: { tool: "github.tag", params: { ref: "main" } }
+    const toolInput = screen.getByLabelText("Step 1 tool") as HTMLInputElement;
+    expect(toolInput.value).toBe("github.tag");
+
+    const dialog = screen.getByRole("dialog");
+    const paramsTextarea = within(dialog).getByLabelText("Step 1 params") as HTMLTextAreaElement;
+    const parsedParams = JSON.parse(paramsTextarea.value) as unknown;
+    expect(parsedParams).toEqual({ ref: "main" });
+  });
+
+  it("two steps are serialized into a two-element array", async () => {
+    workflowSaveMock.mockResolvedValue({ id: "wf-new" });
+    await openNewDialog();
+
+    await userEvent.type(screen.getByLabelText("Workflow name"), "Two-step");
+    await userEvent.type(screen.getByLabelText("Step 1 tool"), "step-a");
+    await userEvent.click(screen.getByRole("button", { name: /add step/i }));
+    await userEvent.type(screen.getByLabelText("Step 2 tool"), "step-b");
+
+    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    const call = workflowSaveMock.mock.calls[0][0] as { stepsJson: string };
+    const parsed = JSON.parse(call.stepsJson) as unknown[];
+    expect(parsed).toHaveLength(2);
+    expect((parsed[0] as { tool: string }).tool).toBe("step-a");
+    expect((parsed[1] as { tool: string }).tool).toBe("step-b");
+  });
+});

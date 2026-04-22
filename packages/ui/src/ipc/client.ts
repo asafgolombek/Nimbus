@@ -14,6 +14,8 @@ import {
   type DeletePreflightResult,
   type DiagVersionResult,
   type ExportPreflightResult,
+  type ExtensionInstallResult,
+  type ExtensionListResult,
   GatewayOfflineError,
   type IndexMetrics,
   JsonRpcError,
@@ -31,6 +33,14 @@ import {
   type UpdaterCheckResult,
   type UpdaterRollbackResult,
   type UpdaterStatus,
+  type WatcherCandidateRelationsResult,
+  type WatcherCreateParams,
+  type WatcherCreateResult,
+  type WatcherListResult,
+  type WatcherValidateConditionResult,
+  type WorkflowListResult,
+  type WorkflowRunResult,
+  type WorkflowSaveResult,
 } from "./types";
 
 export interface NimbusIpcClient {
@@ -93,6 +103,30 @@ export interface NimbusIpcClient {
     recoverySeed?: string;
   }): Promise<DataImportResult>;
   dataDelete(args: { service: string; dryRun: false }): Promise<DataDeleteResult>;
+  /** WS5-D additions — Watchers, Workflows, Marketplace. */
+  watcherList(): Promise<WatcherListResult>;
+  watcherCreate(params: WatcherCreateParams): Promise<WatcherCreateResult>;
+  watcherDelete(id: string): Promise<{ ok: boolean }>;
+  watcherPause(id: string): Promise<{ ok: boolean }>;
+  watcherResume(id: string): Promise<{ ok: boolean }>;
+  watcherListCandidateRelations(): Promise<WatcherCandidateRelationsResult>;
+  watcherValidateCondition(
+    graphPredicateJson: string,
+    sinceMs: number,
+  ): Promise<WatcherValidateConditionResult>;
+  extensionList(): Promise<ExtensionListResult>;
+  extensionInstall(sourcePath: string): Promise<ExtensionInstallResult>;
+  extensionEnable(id: string): Promise<{ ok: boolean }>;
+  extensionDisable(id: string): Promise<{ ok: boolean }>;
+  extensionRemove(id: string): Promise<{ ok: boolean }>;
+  workflowList(): Promise<WorkflowListResult>;
+  workflowSave(params: {
+    name: string;
+    description?: string;
+    stepsJson: string;
+  }): Promise<WorkflowSaveResult>;
+  workflowDelete(name: string): Promise<{ ok: boolean }>;
+  workflowRun(params: { name: string; dryRun: boolean }): Promise<WorkflowRunResult>;
 }
 
 const FORBIDDEN_VALUE_KEYS: readonly string[] = [
@@ -373,6 +407,82 @@ export function createIpcClient(): NimbusIpcClient {
           typeof r.preflight.itemsToDelete === "number" &&
           typeof r.preflight.vaultEntriesToDelete === "number",
       );
+    },
+    async watcherList(): Promise<WatcherListResult> {
+      const res = await this.call<unknown>("watcher.list", {});
+      if (typeof res !== "object" || res === null) throw new Error("watcher.list: expected object");
+      return res as WatcherListResult;
+    },
+    async watcherCreate(params: WatcherCreateParams): Promise<WatcherCreateResult> {
+      return await this.call<WatcherCreateResult>("watcher.create", params);
+    },
+    async watcherDelete(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("watcher.delete", { id });
+    },
+    async watcherPause(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("watcher.pause", { id });
+    },
+    async watcherResume(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("watcher.resume", { id });
+    },
+    async watcherListCandidateRelations(): Promise<WatcherCandidateRelationsResult> {
+      const res = await this.call<unknown>("watcher.listCandidateRelations", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("watcher.listCandidateRelations: expected object");
+      return res as WatcherCandidateRelationsResult;
+    },
+    async watcherValidateCondition(
+      graphPredicateJson: string,
+      sinceMs: number,
+    ): Promise<WatcherValidateConditionResult> {
+      const res = await this.call<unknown>("watcher.validateCondition", {
+        graphPredicateJson,
+        sinceMs,
+      });
+      if (typeof res !== "object" || res === null)
+        throw new Error("watcher.validateCondition: expected object");
+      return res as WatcherValidateConditionResult;
+    },
+    async extensionList(): Promise<ExtensionListResult> {
+      const res = await this.call<unknown>("extension.list", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("extension.list: expected object");
+      return res as ExtensionListResult;
+    },
+    async extensionInstall(sourcePath: string): Promise<ExtensionInstallResult> {
+      return await this.call<ExtensionInstallResult>("extension.install", { sourcePath });
+    },
+    async extensionEnable(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("extension.enable", { id });
+    },
+    async extensionDisable(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("extension.disable", { id });
+    },
+    async extensionRemove(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("extension.remove", { id });
+    },
+    async workflowList(): Promise<WorkflowListResult> {
+      const res = await this.call<unknown>("workflow.list", {});
+      if (typeof res !== "object" || res === null)
+        throw new Error("workflow.list: expected object");
+      return res as WorkflowListResult;
+    },
+    async workflowSave(params: {
+      name: string;
+      description?: string;
+      stepsJson: string;
+    }): Promise<WorkflowSaveResult> {
+      return await this.call<WorkflowSaveResult>("workflow.save", {
+        name: params.name,
+        description: params.description ?? null,
+        stepsJson: params.stepsJson,
+      });
+    },
+    async workflowDelete(name: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("workflow.delete", { name });
+    },
+    async workflowRun(params: { name: string; dryRun: boolean }): Promise<WorkflowRunResult> {
+      return await this.call<WorkflowRunResult>("workflow.run", params);
     },
   };
   singleton = client;

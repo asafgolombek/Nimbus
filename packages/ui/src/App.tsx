@@ -9,6 +9,7 @@ import {
 import { RootLayout } from "./layouts/RootLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { HitlPopup } from "./pages/HitlPopup";
+import { Marketplace } from "./pages/Marketplace";
 import { Onboarding } from "./pages/Onboarding";
 import { Connect } from "./pages/onboarding/Connect";
 import { Syncing } from "./pages/onboarding/Syncing";
@@ -23,9 +24,8 @@ import { ProfilesPanel } from "./pages/settings/ProfilesPanel";
 import { TelemetryPanel } from "./pages/settings/TelemetryPanel";
 import { UpdatesPanel } from "./pages/settings/UpdatesPanel";
 import { HitlStub } from "./pages/stubs/HitlStub";
-import { MarketplaceStub } from "./pages/stubs/MarketplaceStub";
-import { WatchersStub } from "./pages/stubs/WatchersStub";
-import { WorkflowsStub } from "./pages/stubs/WorkflowsStub";
+import { Watchers } from "./pages/Watchers";
+import { Workflows } from "./pages/Workflows";
 import { GatewayConnectionProvider } from "./providers/GatewayConnectionProvider";
 
 function Wrapper({ children }: { readonly children: ReactNode }) {
@@ -61,9 +61,9 @@ const router = createBrowserRouter(
         <Route path="telemetry" element={<TelemetryPanel />} />
         <Route path="updates" element={<UpdatesPanel />} />
       </Route>
-      <Route path="marketplace" element={<MarketplaceStub />} />
-      <Route path="watchers" element={<WatchersStub />} />
-      <Route path="workflows" element={<WorkflowsStub />} />
+      <Route path="marketplace" element={<Marketplace />} />
+      <Route path="watchers" element={<Watchers />} />
+      <Route path="workflows" element={<Workflows />} />
     </Route>,
   ),
 );

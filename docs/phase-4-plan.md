@@ -1838,3 +1838,1556 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 | `packages/gateway/src/agents/meeting-prep.ts` | A.4 |
 | `.github/workflows/release.yml` | 4.1 |
 | `.github/workflows/publish-vscode.yml` | 7.7 |
+
+---
+
+## WS5-D — Marketplace, Watchers & Workflows (Implementation Tasks)
+
+> **Status (2026-04-22):** WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · **WS5-D 🔵 Active**
+
+**Goal:** Replace the three `*Stub.tsx` placeholder pages with fully-tested implementations that talk to the existing Gateway `automation-rpc` handlers.
+
+**Architecture:** All three pages follow the WS5-C pattern: `useIpcQuery` for polling reads (30 s interval, pauses when hidden/disconnected), `createIpcClient()` for writes, `PanelHeader`/`PanelError`/`StaleChip` shared components, offline-safe (write buttons disabled when `connectionState === "disconnected"`). No new Zustand slices — all state is local to each page component.
+
+**Tech stack:** React 18 + TypeScript strict + Tailwind CSS v4 + Vitest + Testing Library. Marketplace install flow uses `@tauri-apps/plugin-dialog` (same as DataPanel ImportWizard).
+
+**Gateway IPC already implemented** (in `packages/gateway/src/ipc/automation-rpc.ts`):
+- Watchers: `watcher.list`, `watcher.create`, `watcher.delete`, `watcher.pause`, `watcher.resume`, `watcher.listCandidateRelations`, `watcher.validateCondition`
+- Extensions: `extension.list`, `extension.install`, `extension.enable`, `extension.disable`, `extension.remove`
+- Workflows: `workflow.list`, `workflow.save`, `workflow.delete`
+- `workflow.run` is handled in the IPC server directly (registered via `server.setWorkflowRunHandler`)
+
+**Gap:** None of these (except `watcher.listCandidateRelations` and `watcher.validateCondition`) are in `ALLOWED_METHODS` in `gateway_bridge.rs` — Task 1 fixes this.
+
+---
+
+### Task 1: Expand the Rust Bridge Allowlist
+
+**Files:**
+- Modify: `packages/ui/src-tauri/src/gateway_bridge.rs`
+
+- [ ] **Step 1: Add 14 methods to `ALLOWED_METHODS` (alphabetical order)**
+
+Open `packages/ui/src-tauri/src/gateway_bridge.rs`. Replace the existing `ALLOWED_METHODS` array with:
+
+```rust
+pub const ALLOWED_METHODS: &[&str] = &[
+    "audit.export",
+    "audit.getSummary",
+    "audit.list",
+    "audit.verify",
+    "connector.list",
+    "connector.listStatus",
+    "connector.setConfig",
+    "connector.startAuth",
+    "consent.respond",
+    "data.delete",
+    "data.export",
+    "data.getDeletePreflight",
+    "data.getExportPreflight",
+    "data.import",
+    "db.getMeta",
+    "db.setMeta",
+    "diag.getVersion",
+    "diag.snapshot",
+    "engine.askStream",
+    "extension.disable",   // WS5-D
+    "extension.enable",    // WS5-D
+    "extension.install",   // WS5-D
+    "extension.list",      // WS5-D
+    "extension.remove",    // WS5-D
+    "index.metrics",
+    "llm.cancelPull",
+    "llm.getRouterStatus",
+    "llm.getStatus",
+    "llm.listModels",
+    "llm.loadModel",
+    "llm.pullModel",
+    "llm.setDefault",
+    "llm.unloadModel",
+    "profile.create",
+    "profile.delete",
+    "profile.list",
+    "profile.switch",
+    "telemetry.getStatus",
+    "telemetry.setEnabled",
+    "updater.applyUpdate",
+    "updater.checkNow",
+    "updater.getStatus",
+    "updater.rollback",
+    "watcher.create",      // WS5-D
+    "watcher.delete",      // WS5-D
+    "watcher.list",        // WS5-D
+    "watcher.listCandidateRelations",
+    "watcher.pause",       // WS5-D
+    "watcher.resume",      // WS5-D
+    "watcher.validateCondition",
+    "workflow.delete",     // WS5-D
+    "workflow.list",       // WS5-D
+    "workflow.run",        // WS5-D
+    "workflow.save",       // WS5-D
+];
+```
+
+- [ ] **Step 2: Update the `allowlist_exact_size` assertion**
+
+Find the test at line ~421:
+
+```rust
+fn allowlist_exact_size() {
+    // WS5-D adds 14 automation methods → 54.
+    assert_eq!(ALLOWED_METHODS.len(), 54);
+}
+```
+
+- [ ] **Step 3: Build and run the size assertion**
+
+```bash
+cd packages/ui/src-tauri && cargo test allowlist_exact_size
+```
+
+Expected: `test tests::allowlist_exact_size ... ok`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/ui/src-tauri/src/gateway_bridge.rs
+git commit -m "feat(ui): expand ALLOWED_METHODS for WS5-D automation pages (54 methods)"
+```
+
+---
+
+### Task 2: IPC Types, Client Methods, Mocks, and Client Tests
+
+**Files:**
+- Modify: `packages/ui/src/ipc/types.ts`
+- Modify: `packages/ui/src/ipc/client.ts`
+- Modify: `packages/ui/src/ipc/__mocks__/client.ts`
+- Create: `packages/ui/test/ipc/client-ws5d.test.ts`
+
+- [ ] **Step 1: Write the failing client tests**
+
+Create `packages/ui/test/ipc/client-ws5d.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+type InvokeArgs = { method: string; params: unknown };
+
+const { invokeMock, listenMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn<(cmd: string, args?: InvokeArgs) => Promise<unknown>>(),
+  listenMock: vi.fn<(event: string, h: (e: { payload: unknown }) => void) => Promise<() => void>>(),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
+
+import { __resetIpcClientForTests, createIpcClient } from "../../src/ipc/client";
+
+beforeEach(() => {
+  __resetIpcClientForTests();
+  invokeMock.mockReset();
+  listenMock.mockReset();
+  listenMock.mockResolvedValue(() => {});
+});
+
+describe("WS5-D — Watcher wrappers", () => {
+  it("watcherList calls watcher.list with {}", async () => {
+    invokeMock.mockResolvedValueOnce({ watchers: [] });
+    const result = await createIpcClient().watcherList();
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "watcher.list", params: {} });
+    expect(result).toEqual({ watchers: [] });
+  });
+
+  it("watcherCreate passes all fields", async () => {
+    invokeMock.mockResolvedValueOnce({ id: "abc" });
+    await createIpcClient().watcherCreate({
+      name: "my-watcher", conditionType: "item_count", conditionJson: "{}",
+      actionType: "notify", actionJson: "{}",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
+      method: "watcher.create",
+      params: { name: "my-watcher", conditionType: "item_count", conditionJson: "{}",
+                actionType: "notify", actionJson: "{}" },
+    });
+  });
+
+  it("watcherDelete passes { id }", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true });
+    await createIpcClient().watcherDelete("abc");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "watcher.delete", params: { id: "abc" } });
+  });
+
+  it("watcherPause passes { id }", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true });
+    await createIpcClient().watcherPause("abc");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "watcher.pause", params: { id: "abc" } });
+  });
+
+  it("watcherResume passes { id }", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true });
+    await createIpcClient().watcherResume("abc");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "watcher.resume", params: { id: "abc" } });
+  });
+});
+
+describe("WS5-D — Extension wrappers", () => {
+  it("extensionList calls extension.list with {}", async () => {
+    invokeMock.mockResolvedValueOnce({ extensions: [] });
+    const result = await createIpcClient().extensionList();
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "extension.list", params: {} });
+    expect(result).toEqual({ extensions: [] });
+  });
+
+  it("extensionInstall passes { sourcePath }", async () => {
+    invokeMock.mockResolvedValueOnce({ id: "e", version: "1.0.0", installPath: "/p", manifestHash: "a", entryHash: "b" });
+    await createIpcClient().extensionInstall("/local/ext");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
+      method: "extension.install", params: { sourcePath: "/local/ext" },
+    });
+  });
+
+  it("extensionEnable passes { id }", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true });
+    await createIpcClient().extensionEnable("my-ext");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "extension.enable", params: { id: "my-ext" } });
+  });
+
+  it("extensionDisable passes { id }", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true });
+    await createIpcClient().extensionDisable("my-ext");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "extension.disable", params: { id: "my-ext" } });
+  });
+
+  it("extensionRemove passes { id }", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true });
+    await createIpcClient().extensionRemove("my-ext");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "extension.remove", params: { id: "my-ext" } });
+  });
+});
+
+describe("WS5-D — Workflow wrappers", () => {
+  it("workflowList calls workflow.list with {}", async () => {
+    invokeMock.mockResolvedValueOnce({ workflows: [] });
+    const result = await createIpcClient().workflowList();
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "workflow.list", params: {} });
+    expect(result).toEqual({ workflows: [] });
+  });
+
+  it("workflowSave passes name, description, stepsJson", async () => {
+    invokeMock.mockResolvedValueOnce({ id: "wf-1" });
+    await createIpcClient().workflowSave("my-flow", "desc", "[]");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
+      method: "workflow.save", params: { name: "my-flow", description: "desc", stepsJson: "[]" },
+    });
+  });
+
+  it("workflowSave sends null description when null passed", async () => {
+    invokeMock.mockResolvedValueOnce({ id: "wf-2" });
+    await createIpcClient().workflowSave("my-flow", null, "[]");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
+      method: "workflow.save", params: { name: "my-flow", description: null, stepsJson: "[]" },
+    });
+  });
+
+  it("workflowDelete passes { name }", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true });
+    await createIpcClient().workflowDelete("my-flow");
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", { method: "workflow.delete", params: { name: "my-flow" } });
+  });
+
+  it("workflowRun passes name and dryRun flag", async () => {
+    invokeMock.mockResolvedValueOnce({ runId: "r1", status: "completed" });
+    await createIpcClient().workflowRun("my-flow", true);
+    expect(invokeMock).toHaveBeenCalledWith("rpc_call", {
+      method: "workflow.run", params: { name: "my-flow", dryRun: true },
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to confirm they FAIL**
+
+```bash
+cd packages/ui && bunx vitest run test/ipc/client-ws5d.test.ts
+```
+
+Expected: all tests fail — `watcherList is not a function`.
+
+- [ ] **Step 3: Append WS5-D types to `packages/ui/src/ipc/types.ts`**
+
+```ts
+// ---- WS5-D additions (Watchers, Workflows, Marketplace) ----
+
+export interface WatcherSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly enabled: number; // 1 = enabled, 0 = paused
+  readonly condition_type: string;
+  readonly condition_json: string;
+  readonly action_type: string;
+  readonly action_json: string;
+  readonly created_at: number;
+  readonly last_checked_at: number | null;
+  readonly last_fired_at: number | null;
+  readonly graph_predicate_json: string | null;
+}
+
+export interface WatcherListResult {
+  readonly watchers: ReadonlyArray<WatcherSummary>;
+}
+
+export interface WatcherCreateParams {
+  readonly name: string;
+  readonly conditionType: string;
+  readonly conditionJson: string;
+  readonly actionType: string;
+  readonly actionJson: string;
+}
+
+export interface WatcherCreateResult {
+  readonly id: string;
+}
+
+export interface ExtensionSummary {
+  readonly id: string;
+  readonly version: string;
+  readonly install_path: string;
+  readonly manifest_hash: string;
+  readonly entry_hash: string;
+  readonly enabled: number; // 1 = enabled
+  readonly installed_at: number;
+  readonly last_verified_at: number;
+}
+
+export interface ExtensionListResult {
+  readonly extensions: ReadonlyArray<ExtensionSummary>;
+}
+
+export interface ExtensionInstallResult {
+  readonly id: string;
+  readonly version: string;
+  readonly installPath: string;
+  readonly manifestHash: string;
+  readonly entryHash: string;
+}
+
+export interface WorkflowSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly steps_json: string;
+  readonly created_at: number;
+  readonly updated_at: number;
+}
+
+export interface WorkflowListResult {
+  readonly workflows: ReadonlyArray<WorkflowSummary>;
+}
+
+export interface WorkflowSaveResult {
+  readonly id: string;
+}
+
+export interface WorkflowRunResult {
+  readonly runId: string;
+  readonly status: string;
+}
+```
+
+- [ ] **Step 4: Add WS5-D methods to the `NimbusIpcClient` interface in `client.ts`**
+
+After the `dataDelete` signature, add:
+
+```ts
+  /** WS5-D additions — Watchers, Workflows, Marketplace. */
+  watcherList(): Promise<WatcherListResult>;
+  watcherCreate(params: WatcherCreateParams): Promise<WatcherCreateResult>;
+  watcherDelete(id: string): Promise<{ ok: boolean }>;
+  watcherPause(id: string): Promise<{ ok: boolean }>;
+  watcherResume(id: string): Promise<{ ok: boolean }>;
+  extensionList(): Promise<ExtensionListResult>;
+  extensionInstall(sourcePath: string): Promise<ExtensionInstallResult>;
+  extensionEnable(id: string): Promise<{ ok: boolean }>;
+  extensionDisable(id: string): Promise<{ ok: boolean }>;
+  extensionRemove(id: string): Promise<{ ok: boolean }>;
+  workflowList(): Promise<WorkflowListResult>;
+  workflowSave(name: string, description: string | null, stepsJson: string): Promise<WorkflowSaveResult>;
+  workflowDelete(name: string): Promise<{ ok: boolean }>;
+  workflowRun(name: string, dryRun: boolean): Promise<WorkflowRunResult>;
+```
+
+Also add the new types to the import from `"./types"` at the top of the file.
+
+- [ ] **Step 5: Add WS5-D implementations to the `client` object in `client.ts`**
+
+After `dataDelete`, add:
+
+```ts
+    async watcherList(): Promise<WatcherListResult> {
+      const res = await this.call<unknown>("watcher.list", {});
+      if (typeof res !== "object" || res === null) throw new Error("watcher.list: expected object");
+      return res as WatcherListResult;
+    },
+    async watcherCreate(params: WatcherCreateParams): Promise<WatcherCreateResult> {
+      return await this.call<WatcherCreateResult>("watcher.create", {
+        name: params.name, conditionType: params.conditionType, conditionJson: params.conditionJson,
+        actionType: params.actionType, actionJson: params.actionJson,
+      });
+    },
+    async watcherDelete(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("watcher.delete", { id });
+    },
+    async watcherPause(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("watcher.pause", { id });
+    },
+    async watcherResume(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("watcher.resume", { id });
+    },
+    async extensionList(): Promise<ExtensionListResult> {
+      const res = await this.call<unknown>("extension.list", {});
+      if (typeof res !== "object" || res === null) throw new Error("extension.list: expected object");
+      return res as ExtensionListResult;
+    },
+    async extensionInstall(sourcePath: string): Promise<ExtensionInstallResult> {
+      const res = await this.call<unknown>("extension.install", { sourcePath });
+      if (typeof res !== "object" || res === null) throw new Error("extension.install: expected object");
+      return res as ExtensionInstallResult;
+    },
+    async extensionEnable(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("extension.enable", { id });
+    },
+    async extensionDisable(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("extension.disable", { id });
+    },
+    async extensionRemove(id: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("extension.remove", { id });
+    },
+    async workflowList(): Promise<WorkflowListResult> {
+      const res = await this.call<unknown>("workflow.list", {});
+      if (typeof res !== "object" || res === null) throw new Error("workflow.list: expected object");
+      return res as WorkflowListResult;
+    },
+    async workflowSave(name: string, description: string | null, stepsJson: string): Promise<WorkflowSaveResult> {
+      return await this.call<WorkflowSaveResult>("workflow.save", { name, description, stepsJson });
+    },
+    async workflowDelete(name: string): Promise<{ ok: boolean }> {
+      return await this.call<{ ok: boolean }>("workflow.delete", { name });
+    },
+    async workflowRun(name: string, dryRun: boolean): Promise<WorkflowRunResult> {
+      const res = await this.call<unknown>("workflow.run", { name, dryRun });
+      if (typeof res !== "object" || res === null) throw new Error("workflow.run: expected object");
+      return res as WorkflowRunResult;
+    },
+```
+
+- [ ] **Step 6: Add WS5-D mocks to `packages/ui/src/ipc/__mocks__/client.ts`**
+
+After `dataDeleteMock`, add exports:
+
+```ts
+// WS5-D additions
+export const watcherListMock = vi.fn<() => Promise<unknown>>();
+export const watcherCreateMock = vi.fn<(params: Record<string, unknown>) => Promise<unknown>>();
+export const watcherDeleteMock = vi.fn<(id: string) => Promise<unknown>>();
+export const watcherPauseMock = vi.fn<(id: string) => Promise<unknown>>();
+export const watcherResumeMock = vi.fn<(id: string) => Promise<unknown>>();
+export const extensionListMock = vi.fn<() => Promise<unknown>>();
+export const extensionInstallMock = vi.fn<(sourcePath: string) => Promise<unknown>>();
+export const extensionEnableMock = vi.fn<(id: string) => Promise<unknown>>();
+export const extensionDisableMock = vi.fn<(id: string) => Promise<unknown>>();
+export const extensionRemoveMock = vi.fn<(id: string) => Promise<unknown>>();
+export const workflowListMock = vi.fn<() => Promise<unknown>>();
+export const workflowSaveMock = vi.fn<(name: string, desc: string | null, steps: string) => Promise<unknown>>();
+export const workflowDeleteMock = vi.fn<(name: string) => Promise<unknown>>();
+export const workflowRunMock = vi.fn<(name: string, dryRun: boolean) => Promise<unknown>>();
+```
+
+And in `createIpcClient()` return object, add:
+
+```ts
+  watcherList: watcherListMock,
+  watcherCreate: watcherCreateMock,
+  watcherDelete: watcherDeleteMock,
+  watcherPause: watcherPauseMock,
+  watcherResume: watcherResumeMock,
+  extensionList: extensionListMock,
+  extensionInstall: extensionInstallMock,
+  extensionEnable: extensionEnableMock,
+  extensionDisable: extensionDisableMock,
+  extensionRemove: extensionRemoveMock,
+  workflowList: workflowListMock,
+  workflowSave: workflowSaveMock,
+  workflowDelete: workflowDeleteMock,
+  workflowRun: workflowRunMock,
+```
+
+- [ ] **Step 7: Run client tests to confirm PASS**
+
+```bash
+cd packages/ui && bunx vitest run test/ipc/client-ws5d.test.ts
+```
+
+Expected: all 14 tests PASS.
+
+- [ ] **Step 8: Type check**
+
+```bash
+bun run typecheck
+```
+
+Expected: zero errors.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add packages/ui/src/ipc/types.ts packages/ui/src/ipc/client.ts packages/ui/src/ipc/__mocks__/client.ts packages/ui/test/ipc/client-ws5d.test.ts
+git commit -m "feat(ui): WS5-D IPC types, client wrappers, and mocks for automation pages"
+```
+
+---
+
+### Task 3: Watchers Page
+
+**Files:**
+- Create: `packages/ui/src/pages/Watchers.tsx`
+- Create: `packages/ui/test/pages/Watchers.test.tsx`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `packages/ui/test/pages/Watchers.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../src/ipc/client");
+
+import {
+  watcherCreateMock,
+  watcherDeleteMock,
+  watcherListMock,
+  watcherPauseMock,
+  watcherResumeMock,
+} from "../../src/ipc/__mocks__/client";
+import { Watchers } from "../../src/pages/Watchers";
+import { useNimbusStore } from "../../src/store";
+
+const SAMPLE = [
+  { id: "w1", name: "alert-on-error", enabled: 1, condition_type: "item_count",
+    condition_json: "{}", action_type: "notify", action_json: "{}",
+    created_at: 1_745_100_000_000, last_checked_at: 1_745_200_000_000,
+    last_fired_at: 1_745_190_000_000, graph_predicate_json: null },
+  { id: "w2", name: "pr-review-watcher", enabled: 0, condition_type: "item_count",
+    condition_json: "{}", action_type: "notify", action_json: "{}",
+    created_at: 1_745_100_000_000, last_checked_at: null,
+    last_fired_at: null, graph_predicate_json: null },
+];
+
+beforeEach(() => {
+  [watcherListMock, watcherPauseMock, watcherResumeMock, watcherDeleteMock, watcherCreateMock].forEach(m => m.mockReset());
+  useNimbusStore.setState({ connectionState: "connected" } as never);
+  watcherListMock.mockResolvedValue({ watchers: SAMPLE });
+  watcherPauseMock.mockResolvedValue({ ok: true });
+  watcherResumeMock.mockResolvedValue({ ok: true });
+  watcherDeleteMock.mockResolvedValue({ ok: true });
+  watcherCreateMock.mockResolvedValue({ id: "w-new" });
+});
+
+describe("Watchers page", () => {
+  it("renders watcher names", async () => {
+    render(<Watchers />);
+    await waitFor(() => screen.getByText("alert-on-error"));
+    expect(screen.getByText("pr-review-watcher")).toBeTruthy();
+  });
+
+  it("shows enabled toggle reflecting state", async () => {
+    render(<Watchers />);
+    await waitFor(() => screen.getByText("alert-on-error"));
+    const [t1, t2] = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(t1.checked).toBe(true);
+    expect(t2.checked).toBe(false);
+  });
+
+  it("calls watcherPause when enabled watcher toggled off", async () => {
+    render(<Watchers />);
+    await waitFor(() => screen.getByText("alert-on-error"));
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    await waitFor(() => expect(watcherPauseMock).toHaveBeenCalledWith("w1"));
+  });
+
+  it("calls watcherResume when disabled watcher toggled on", async () => {
+    render(<Watchers />);
+    await waitFor(() => screen.getByText("pr-review-watcher"));
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    await waitFor(() => expect(watcherResumeMock).toHaveBeenCalledWith("w2"));
+  });
+
+  it("shows last-fired timestamp when present", async () => {
+    render(<Watchers />);
+    await waitFor(() => screen.getByTestId("last-fired-w1"));
+    expect(screen.getByTestId("last-fired-w1").textContent).not.toBe("Never fired");
+  });
+
+  it("shows 'Never fired' when last_fired_at is null", async () => {
+    render(<Watchers />);
+    await waitFor(() => screen.getByTestId("last-fired-w2"));
+    expect(screen.getByTestId("last-fired-w2").textContent).toBe("Never fired");
+  });
+
+  it("shows error when watcherList fails", async () => {
+    watcherListMock.mockRejectedValue(new Error("connection refused"));
+    render(<Watchers />);
+    await waitFor(() => screen.getByText(/Failed to load watchers/));
+  });
+
+  it("calls watcherCreate when New Watcher form submitted", async () => {
+    render(<Watchers />);
+    await waitFor(() => screen.getByText("alert-on-error"));
+    fireEvent.click(screen.getByRole("button", { name: /new watcher/i }));
+    await waitFor(() => screen.getByRole("dialog"));
+    fireEvent.change(screen.getByLabelText(/watcher name/i), { target: { value: "test-watcher" } });
+    fireEvent.change(screen.getByLabelText(/condition type/i), { target: { value: "item_count" } });
+    fireEvent.change(screen.getByLabelText(/condition json/i), { target: { value: '{"threshold":5}' } });
+    fireEvent.change(screen.getByLabelText(/action type/i), { target: { value: "notify" } });
+    fireEvent.change(screen.getByLabelText(/action json/i), { target: { value: '{"message":"alert"}' } });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+    await waitFor(() => expect(watcherCreateMock).toHaveBeenCalledWith({
+      name: "test-watcher", conditionType: "item_count", conditionJson: '{"threshold":5}',
+      actionType: "notify", actionJson: '{"message":"alert"}',
+    }));
+  });
+
+  it("New Watcher button is disabled when disconnected", async () => {
+    useNimbusStore.setState({ connectionState: "disconnected" } as never);
+    render(<Watchers />);
+    await waitFor(() => screen.getByText("alert-on-error"));
+    expect(screen.getByRole("button", { name: /new watcher/i })).toBeDisabled();
+  });
+});
+```
+
+- [ ] **Step 2: Confirm tests FAIL**
+
+```bash
+cd packages/ui && bunx vitest run test/pages/Watchers.test.tsx
+```
+
+Expected: FAIL — module not found.
+
+- [ ] **Step 3: Implement `packages/ui/src/pages/Watchers.tsx`**
+
+```tsx
+import { useCallback, useState } from "react";
+import { PanelError } from "../components/settings/PanelError";
+import { PanelHeader } from "../components/settings/PanelHeader";
+import { StaleChip } from "../components/settings/StaleChip";
+import { useIpcQuery } from "../hooks/useIpcQuery";
+import { createIpcClient } from "../ipc/client";
+import type { WatcherCreateParams, WatcherListResult, WatcherSummary } from "../ipc/types";
+import { useNimbusStore } from "../store";
+
+function formatLastFired(ts: number | null): string {
+  if (ts === null) return "Never fired";
+  return new Date(ts).toLocaleString();
+}
+
+interface CreateDialogProps {
+  readonly onClose: () => void;
+  readonly onCreated: () => void;
+}
+
+function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
+  const [name, setName] = useState("");
+  const [conditionType, setConditionType] = useState("item_count");
+  const [conditionJson, setConditionJson] = useState("{}");
+  const [actionType, setActionType] = useState("notify");
+  const [actionJson, setActionJson] = useState("{}");
+  const [error, setError] = useState<string | null>(null);
+  const [inFlight, setInFlight] = useState(false);
+
+  const handleSubmit = useCallback(async () => {
+    setError(null);
+    setInFlight(true);
+    try {
+      await createIpcClient().watcherCreate({
+        name: name.trim(), conditionType, conditionJson, actionType, actionJson,
+      } satisfies WatcherCreateParams);
+      onCreated();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInFlight(false);
+    }
+  }, [name, conditionType, conditionJson, actionType, actionJson, onCreated, onClose]);
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="New Watcher"
+      className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+      <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md p-6 w-[480px] space-y-4">
+        <h2 className="text-lg font-semibold">New Watcher</h2>
+        {error !== null && <p className="text-sm text-[var(--color-danger-text)]">{error}</p>}
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Watcher name</span>
+          <input aria-label="Watcher name" value={name} onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]" />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Condition type</span>
+          <select aria-label="Condition type" value={conditionType}
+            onChange={(e) => setConditionType(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">
+            <option value="item_count">item_count</option>
+            <option value="graph_predicate">graph_predicate</option>
+            <option value="cron">cron</option>
+          </select>
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Condition JSON</span>
+          <textarea aria-label="Condition JSON" rows={3} value={conditionJson}
+            onChange={(e) => setConditionJson(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] font-mono text-sm" />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Action type</span>
+          <select aria-label="Action type" value={actionType}
+            onChange={(e) => setActionType(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">
+            <option value="notify">notify</option>
+            <option value="workflow">workflow</option>
+          </select>
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Action JSON</span>
+          <textarea aria-label="Action JSON" rows={3} value={actionJson}
+            onChange={(e) => setActionJson(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] font-mono text-sm" />
+        </label>
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 rounded border border-[var(--color-border)] text-sm">Cancel</button>
+          <button type="button" onClick={() => void handleSubmit()}
+            disabled={inFlight || name.trim() === ""}
+            className="px-4 py-2 rounded bg-[var(--color-accent)] text-white text-sm disabled:opacity-50">
+            {inFlight ? "Creating…" : "Create"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface WatcherRowProps {
+  readonly watcher: WatcherSummary;
+  readonly writeDisabled: boolean;
+  readonly onToggle: (id: string, enabled: boolean) => Promise<void>;
+  readonly onDelete: (id: string) => Promise<void>;
+}
+
+function WatcherRow({ watcher, writeDisabled, onToggle, onDelete }: WatcherRowProps) {
+  const [inFlight, setInFlight] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleToggle = useCallback(async () => {
+    setInFlight(true);
+    try { await onToggle(watcher.id, watcher.enabled === 1); }
+    finally { setInFlight(false); }
+  }, [onToggle, watcher.id, watcher.enabled]);
+
+  const handleDelete = useCallback(async () => {
+    setInFlight(true);
+    try { await onDelete(watcher.id); }
+    finally { setInFlight(false); setConfirmDelete(false); }
+  }, [onDelete, watcher.id]);
+
+  return (
+    <li className="flex items-center gap-4 px-4 py-3">
+      <input type="checkbox" checked={watcher.enabled === 1}
+        disabled={writeDisabled || inFlight} onChange={() => void handleToggle()}
+        aria-label={`${watcher.name} enabled`} />
+      <div className="flex-1 min-w-0">
+        <p className="font-medium truncate">{watcher.name}</p>
+        <p className="text-xs text-[var(--color-text-muted)]">{watcher.condition_type} → {watcher.action_type}</p>
+      </div>
+      <p className="text-xs text-[var(--color-text-muted)]" data-testid={`last-fired-${watcher.id}`}>
+        {formatLastFired(watcher.last_fired_at)}
+      </p>
+      {confirmDelete ? (
+        <div className="flex gap-1">
+          <button type="button" onClick={() => void handleDelete()} disabled={inFlight}
+            className="text-xs text-[var(--color-danger-text)] border border-[var(--color-danger-border)] rounded px-2 py-1">Confirm</button>
+          <button type="button" onClick={() => setConfirmDelete(false)}
+            className="text-xs border border-[var(--color-border)] rounded px-2 py-1">Cancel</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setConfirmDelete(true)}
+          disabled={writeDisabled || inFlight}
+          className="text-xs border border-[var(--color-border)] rounded px-2 py-1 disabled:opacity-50">Delete</button>
+      )}
+    </li>
+  );
+}
+
+export function Watchers() {
+  const connectionState = useNimbusStore((s) => s.connectionState);
+  const offline = connectionState === "disconnected";
+  const [showCreate, setShowCreate] = useState(false);
+  const { data, error, refetch } = useIpcQuery<WatcherListResult>("watcher.list", 30_000);
+  const watchers = data?.watchers ?? [];
+
+  const handleToggle = useCallback(async (id: string, currentlyEnabled: boolean) => {
+    if (currentlyEnabled) { await createIpcClient().watcherPause(id); }
+    else { await createIpcClient().watcherResume(id); }
+    refetch();
+  }, [refetch]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    await createIpcClient().watcherDelete(id);
+    refetch();
+  }, [refetch]);
+
+  return (
+    <section className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <PanelHeader title="Watchers"
+          description="Automated rules that fire when index conditions are met."
+          livePill={offline ? <StaleChip /> : undefined} />
+        <button type="button" onClick={() => setShowCreate(true)} disabled={offline}
+          className="px-4 py-2 rounded bg-[var(--color-accent)] text-white text-sm disabled:opacity-50">
+          New Watcher
+        </button>
+      </div>
+      {error !== null && <PanelError message={`Failed to load watchers: ${error}`} onRetry={() => refetch()} />}
+      {watchers.length === 0 && error === null && (
+        <p className="text-sm text-[var(--color-text-muted)]">No watchers configured.</p>
+      )}
+      {watchers.length > 0 && (
+        <ul className="divide-y divide-[var(--color-border)] border border-[var(--color-border)] rounded-md">
+          {watchers.map((w) => (
+            <WatcherRow key={w.id} watcher={w} writeDisabled={offline}
+              onToggle={handleToggle} onDelete={handleDelete} />
+          ))}
+        </ul>
+      )}
+      {showCreate && (
+        <CreateWatcherDialog onClose={() => setShowCreate(false)} onCreated={() => refetch()} />
+      )}
+    </section>
+  );
+}
+```
+
+- [ ] **Step 4: Run tests — confirm PASS**
+
+```bash
+cd packages/ui && bunx vitest run test/pages/Watchers.test.tsx
+```
+
+- [ ] **Step 5: Type check**
+
+```bash
+bun run typecheck
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/ui/src/pages/Watchers.tsx packages/ui/test/pages/Watchers.test.tsx
+git commit -m "feat(ui): Watchers page — list, create, pause/resume, delete"
+```
+
+---
+
+### Task 4: Workflows Page
+
+**Files:**
+- Create: `packages/ui/src/pages/Workflows.tsx`
+- Create: `packages/ui/test/pages/Workflows.test.tsx`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `packages/ui/test/pages/Workflows.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../src/ipc/client");
+
+import {
+  workflowDeleteMock,
+  workflowListMock,
+  workflowRunMock,
+  workflowSaveMock,
+} from "../../src/ipc/__mocks__/client";
+import { Workflows } from "../../src/pages/Workflows";
+import { useNimbusStore } from "../../src/store";
+
+const SAMPLE = [
+  { id: "wf-1", name: "daily-standup", description: "Post standup to Slack",
+    steps_json: "[]", created_at: 1_745_100_000_000, updated_at: 1_745_200_000_000 },
+  { id: "wf-2", name: "sync-all", description: null,
+    steps_json: "[]", created_at: 1_745_100_000_000, updated_at: 1_745_100_000_000 },
+];
+
+beforeEach(() => {
+  [workflowListMock, workflowSaveMock, workflowDeleteMock, workflowRunMock].forEach(m => m.mockReset());
+  useNimbusStore.setState({ connectionState: "connected" } as never);
+  workflowListMock.mockResolvedValue({ workflows: SAMPLE });
+  workflowSaveMock.mockResolvedValue({ id: "wf-new" });
+  workflowDeleteMock.mockResolvedValue({ ok: true });
+  workflowRunMock.mockResolvedValue({ runId: "r1", status: "completed" });
+});
+
+describe("Workflows page", () => {
+  it("renders workflow names", async () => {
+    render(<Workflows />);
+    await waitFor(() => screen.getByText("daily-standup"));
+    expect(screen.getByText("sync-all")).toBeTruthy();
+  });
+
+  it("shows description when present", async () => {
+    render(<Workflows />);
+    await waitFor(() => screen.getByText("Post standup to Slack"));
+  });
+
+  it("calls workflowRun with dryRun=false when Run clicked", async () => {
+    render(<Workflows />);
+    await waitFor(() => screen.getByText("daily-standup"));
+    fireEvent.click(screen.getAllByRole("button", { name: /^run$/i })[0]);
+    await waitFor(() => expect(workflowRunMock).toHaveBeenCalledWith("daily-standup", false));
+  });
+
+  it("calls workflowRun with dryRun=true when dry-run active", async () => {
+    render(<Workflows />);
+    await waitFor(() => screen.getByText("daily-standup"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /dry.?run/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^run$/i })[0]);
+    await waitFor(() => expect(workflowRunMock).toHaveBeenCalledWith("daily-standup", true));
+  });
+
+  it("calls workflowDelete after confirmation", async () => {
+    render(<Workflows />);
+    await waitFor(() => screen.getByText("sync-all"));
+    fireEvent.click(screen.getAllByRole("button", { name: /delete/i })[1]);
+    await waitFor(() => screen.getByRole("button", { name: /confirm/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    await waitFor(() => expect(workflowDeleteMock).toHaveBeenCalledWith("sync-all"));
+  });
+
+  it("calls workflowSave on New Workflow form submit", async () => {
+    render(<Workflows />);
+    await waitFor(() => screen.getByText("daily-standup"));
+    fireEvent.click(screen.getByRole("button", { name: /new workflow/i }));
+    await waitFor(() => screen.getByRole("dialog"));
+    fireEvent.change(screen.getByLabelText(/workflow name/i), { target: { value: "my-flow" } });
+    fireEvent.change(screen.getByLabelText(/steps json/i), { target: { value: "[]" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(workflowSaveMock).toHaveBeenCalledWith("my-flow", null, "[]"));
+  });
+
+  it("shows error when workflowList fails", async () => {
+    workflowListMock.mockRejectedValue(new Error("timeout"));
+    render(<Workflows />);
+    await waitFor(() => screen.getByText(/Failed to load workflows/));
+  });
+
+  it("New Workflow button disabled when disconnected", async () => {
+    useNimbusStore.setState({ connectionState: "disconnected" } as never);
+    render(<Workflows />);
+    await waitFor(() => screen.getByText("daily-standup"));
+    expect(screen.getByRole("button", { name: /new workflow/i })).toBeDisabled();
+  });
+});
+```
+
+- [ ] **Step 2: Confirm tests FAIL**
+
+```bash
+cd packages/ui && bunx vitest run test/pages/Workflows.test.tsx
+```
+
+- [ ] **Step 3: Implement `packages/ui/src/pages/Workflows.tsx`**
+
+```tsx
+import { useCallback, useState } from "react";
+import { PanelError } from "../components/settings/PanelError";
+import { PanelHeader } from "../components/settings/PanelHeader";
+import { StaleChip } from "../components/settings/StaleChip";
+import { useIpcQuery } from "../hooks/useIpcQuery";
+import { createIpcClient } from "../ipc/client";
+import type { WorkflowListResult, WorkflowRunResult, WorkflowSummary } from "../ipc/types";
+import { useNimbusStore } from "../store";
+
+interface SaveDialogProps {
+  readonly initial?: WorkflowSummary;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
+}
+
+function SaveWorkflowDialog({ initial, onClose, onSaved }: SaveDialogProps) {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [stepsJson, setStepsJson] = useState(initial?.steps_json ?? "[]");
+  const [error, setError] = useState<string | null>(null);
+  const [inFlight, setInFlight] = useState(false);
+
+  const handleSave = useCallback(async () => {
+    setError(null);
+    setInFlight(true);
+    try {
+      await createIpcClient().workflowSave(
+        name.trim(),
+        description.trim() === "" ? null : description.trim(),
+        stepsJson,
+      );
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInFlight(false);
+    }
+  }, [name, description, stepsJson, onSaved, onClose]);
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={initial ? "Edit Workflow" : "New Workflow"}
+      className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+      <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md p-6 w-[560px] space-y-4">
+        <h2 className="text-lg font-semibold">{initial ? "Edit Workflow" : "New Workflow"}</h2>
+        {error !== null && <p className="text-sm text-[var(--color-danger-text)]">{error}</p>}
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Workflow name</span>
+          <input aria-label="Workflow name" value={name} disabled={initial !== undefined}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] disabled:opacity-60" />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Description (optional)</span>
+          <input aria-label="Description" value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]" />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Steps JSON</span>
+          <textarea aria-label="Steps JSON" rows={8} value={stepsJson}
+            onChange={(e) => setStepsJson(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] font-mono text-xs" />
+        </label>
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 rounded border border-[var(--color-border)] text-sm">Cancel</button>
+          <button type="button" onClick={() => void handleSave()}
+            disabled={inFlight || name.trim() === ""}
+            className="px-4 py-2 rounded bg-[var(--color-accent)] text-white text-sm disabled:opacity-50">
+            {inFlight ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface WorkflowRowProps {
+  readonly workflow: WorkflowSummary;
+  readonly dryRun: boolean;
+  readonly writeDisabled: boolean;
+  readonly onEdit: (wf: WorkflowSummary) => void;
+  readonly onDelete: (name: string) => Promise<void>;
+  readonly onRun: (name: string, dryRun: boolean) => Promise<WorkflowRunResult>;
+}
+
+function WorkflowRow({ workflow, dryRun, writeDisabled, onEdit, onDelete, onRun }: WorkflowRowProps) {
+  const [inFlight, setInFlight] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [runStatus, setRunStatus] = useState<string | null>(null);
+
+  const handleDelete = useCallback(async () => {
+    setInFlight(true);
+    try { await onDelete(workflow.name); }
+    finally { setInFlight(false); setConfirmDelete(false); }
+  }, [onDelete, workflow.name]);
+
+  const handleRun = useCallback(async () => {
+    setInFlight(true);
+    setRunStatus(null);
+    try {
+      const res = await onRun(workflow.name, dryRun);
+      setRunStatus(`${res.status}${dryRun ? " (dry-run)" : ""}`);
+    } catch (e) {
+      setRunStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setInFlight(false);
+    }
+  }, [onRun, workflow.name, dryRun]);
+
+  return (
+    <li className="px-4 py-3 space-y-1">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="font-medium truncate">{workflow.name}</p>
+          {workflow.description !== null && (
+            <p className="text-sm text-[var(--color-text-muted)] truncate">{workflow.description}</p>
+          )}
+        </div>
+        <button type="button" onClick={() => onEdit(workflow)} disabled={writeDisabled || inFlight}
+          className="text-xs border border-[var(--color-border)] rounded px-2 py-1 disabled:opacity-50">Edit</button>
+        {confirmDelete ? (
+          <div className="flex gap-1">
+            <button type="button" onClick={() => void handleDelete()} disabled={inFlight}
+              className="text-xs text-[var(--color-danger-text)] border border-[var(--color-danger-border)] rounded px-2 py-1">Confirm</button>
+            <button type="button" onClick={() => setConfirmDelete(false)}
+              className="text-xs border border-[var(--color-border)] rounded px-2 py-1">Cancel</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setConfirmDelete(true)} disabled={writeDisabled || inFlight}
+            className="text-xs border border-[var(--color-border)] rounded px-2 py-1 disabled:opacity-50">Delete</button>
+        )}
+        <button type="button" aria-label="Run" onClick={() => void handleRun()}
+          disabled={writeDisabled || inFlight}
+          className="text-xs border border-[var(--color-border)] rounded px-2 py-1 disabled:opacity-50">
+          {inFlight ? "Running…" : "Run"}
+        </button>
+      </div>
+      {runStatus !== null && (
+        <p className="text-xs text-[var(--color-text-muted)] pl-1">{runStatus}</p>
+      )}
+    </li>
+  );
+}
+
+export function Workflows() {
+  const connectionState = useNimbusStore((s) => s.connectionState);
+  const offline = connectionState === "disconnected";
+  const [showCreate, setShowCreate] = useState(false);
+  const [editTarget, setEditTarget] = useState<WorkflowSummary | null>(null);
+  const [dryRun, setDryRun] = useState(false);
+  const { data, error, refetch } = useIpcQuery<WorkflowListResult>("workflow.list", 30_000);
+  const workflows = data?.workflows ?? [];
+
+  const handleDelete = useCallback(async (name: string) => {
+    await createIpcClient().workflowDelete(name);
+    refetch();
+  }, [refetch]);
+
+  const handleRun = useCallback(
+    (name: string, dr: boolean) => createIpcClient().workflowRun(name, dr),
+    [],
+  );
+
+  return (
+    <section className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <PanelHeader title="Workflows"
+          description="Multi-step pipelines. Enable dry-run to verify steps without side effects."
+          livePill={offline ? <StaleChip /> : undefined} />
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)}
+              aria-label="Dry run" />
+            Dry run
+          </label>
+          <button type="button" onClick={() => setShowCreate(true)} disabled={offline}
+            className="px-4 py-2 rounded bg-[var(--color-accent)] text-white text-sm disabled:opacity-50">
+            New Workflow
+          </button>
+        </div>
+      </div>
+      {error !== null && <PanelError message={`Failed to load workflows: ${error}`} onRetry={() => refetch()} />}
+      {workflows.length === 0 && error === null && (
+        <p className="text-sm text-[var(--color-text-muted)]">No workflows saved.</p>
+      )}
+      {workflows.length > 0 && (
+        <ul className="divide-y divide-[var(--color-border)] border border-[var(--color-border)] rounded-md">
+          {workflows.map((wf) => (
+            <WorkflowRow key={wf.id} workflow={wf} dryRun={dryRun} writeDisabled={offline}
+              onEdit={setEditTarget} onDelete={handleDelete} onRun={handleRun} />
+          ))}
+        </ul>
+      )}
+      {(showCreate || editTarget !== null) && (
+        <SaveWorkflowDialog
+          initial={editTarget ?? undefined}
+          onClose={() => { setShowCreate(false); setEditTarget(null); }}
+          onSaved={() => refetch()} />
+      )}
+    </section>
+  );
+}
+```
+
+- [ ] **Step 4: Run tests — confirm PASS**
+
+```bash
+cd packages/ui && bunx vitest run test/pages/Workflows.test.tsx
+```
+
+- [ ] **Step 5: Type check and commit**
+
+```bash
+bun run typecheck
+git add packages/ui/src/pages/Workflows.tsx packages/ui/test/pages/Workflows.test.tsx
+git commit -m "feat(ui): Workflows page — list, create/edit, delete, run with dry-run toggle"
+```
+
+---
+
+### Task 5: Marketplace Page
+
+**Files:**
+- Create: `packages/ui/src/pages/Marketplace.tsx`
+- Create: `packages/ui/test/pages/Marketplace.test.tsx`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `packages/ui/test/pages/Marketplace.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../src/ipc/client");
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+
+import { open } from "@tauri-apps/plugin-dialog";
+import {
+  extensionDisableMock,
+  extensionEnableMock,
+  extensionInstallMock,
+  extensionListMock,
+  extensionRemoveMock,
+} from "../../src/ipc/__mocks__/client";
+import { Marketplace } from "../../src/pages/Marketplace";
+import { useNimbusStore } from "../../src/store";
+
+const openMock = vi.mocked(open);
+
+const SAMPLE = [
+  { id: "nimbus-dev/github-extra", version: "1.2.0", install_path: "/ext/a",
+    manifest_hash: "abc", entry_hash: "def", enabled: 1, installed_at: 1_745_100_000_000, last_verified_at: 1_745_200_000_000 },
+  { id: "my-org/custom-ext", version: "0.1.0", install_path: "/ext/b",
+    manifest_hash: "ghi", entry_hash: "jkl", enabled: 0, installed_at: 1_745_100_000_000, last_verified_at: 1_745_100_000_000 },
+];
+
+beforeEach(() => {
+  [extensionListMock, extensionEnableMock, extensionDisableMock, extensionRemoveMock, extensionInstallMock].forEach(m => m.mockReset());
+  openMock.mockReset();
+  useNimbusStore.setState({ connectionState: "connected" } as never);
+  extensionListMock.mockResolvedValue({ extensions: SAMPLE });
+  extensionEnableMock.mockResolvedValue({ ok: true });
+  extensionDisableMock.mockResolvedValue({ ok: true });
+  extensionRemoveMock.mockResolvedValue({ ok: true });
+  extensionInstallMock.mockResolvedValue({ id: "new/ext", version: "1.0.0", installPath: "/ext/c", manifestHash: "a", entryHash: "b" });
+});
+
+describe("Marketplace page", () => {
+  it("renders installed extension IDs and versions", async () => {
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("nimbus-dev/github-extra"));
+    expect(screen.getByText("1.2.0")).toBeTruthy();
+    expect(screen.getByText("my-org/custom-ext")).toBeTruthy();
+  });
+
+  it("shows enabled toggle reflecting state", async () => {
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("nimbus-dev/github-extra"));
+    const [t1, t2] = screen.getAllByRole("checkbox", { name: /enabled/i }) as HTMLInputElement[];
+    expect(t1.checked).toBe(true);
+    expect(t2.checked).toBe(false);
+  });
+
+  it("calls extensionDisable when enabled extension toggled off", async () => {
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("nimbus-dev/github-extra"));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: /enabled/i })[0]);
+    await waitFor(() => expect(extensionDisableMock).toHaveBeenCalledWith("nimbus-dev/github-extra"));
+  });
+
+  it("calls extensionEnable when disabled extension toggled on", async () => {
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("my-org/custom-ext"));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: /enabled/i })[1]);
+    await waitFor(() => expect(extensionEnableMock).toHaveBeenCalledWith("my-org/custom-ext"));
+  });
+
+  it("calls extensionRemove after confirmation", async () => {
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("my-org/custom-ext"));
+    fireEvent.click(screen.getAllByRole("button", { name: /remove/i })[1]);
+    await waitFor(() => screen.getByRole("button", { name: /confirm/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    await waitFor(() => expect(extensionRemoveMock).toHaveBeenCalledWith("my-org/custom-ext"));
+  });
+
+  it("opens directory dialog and calls extensionInstall", async () => {
+    openMock.mockResolvedValue("/local/my-extension");
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("nimbus-dev/github-extra"));
+    fireEvent.click(screen.getByRole("button", { name: /install from directory/i }));
+    await waitFor(() => expect(extensionInstallMock).toHaveBeenCalledWith("/local/my-extension"));
+  });
+
+  it("does not call extensionInstall when dialog is cancelled", async () => {
+    openMock.mockResolvedValue(null);
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("nimbus-dev/github-extra"));
+    fireEvent.click(screen.getByRole("button", { name: /install from directory/i }));
+    await waitFor(() => expect(openMock).toHaveBeenCalled());
+    expect(extensionInstallMock).not.toHaveBeenCalled();
+  });
+
+  it("shows error when extensionList fails", async () => {
+    extensionListMock.mockRejectedValue(new Error("offline"));
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText(/Failed to load extensions/));
+  });
+
+  it("shows sandbox level badge on each extension", async () => {
+    render(<Marketplace />);
+    await waitFor(() => screen.getByText("nimbus-dev/github-extra"));
+    const badges = screen.getAllByTestId("sandbox-badge");
+    expect(badges[0].textContent).toBe("Process isolation");
+  });
+});
+```
+
+- [ ] **Step 2: Confirm tests FAIL**
+
+```bash
+cd packages/ui && bunx vitest run test/pages/Marketplace.test.tsx
+```
+
+- [ ] **Step 3: Implement `packages/ui/src/pages/Marketplace.tsx`**
+
+```tsx
+import { open } from "@tauri-apps/plugin-dialog";
+import { useCallback, useState } from "react";
+import { PanelError } from "../components/settings/PanelError";
+import { PanelHeader } from "../components/settings/PanelHeader";
+import { StaleChip } from "../components/settings/StaleChip";
+import { useIpcQuery } from "../hooks/useIpcQuery";
+import { createIpcClient } from "../ipc/client";
+import type { ExtensionListResult, ExtensionSummary } from "../ipc/types";
+import { useNimbusStore } from "../store";
+
+interface ExtRowProps {
+  readonly ext: ExtensionSummary;
+  readonly writeDisabled: boolean;
+  readonly onToggle: (id: string, enabled: boolean) => Promise<void>;
+  readonly onRemove: (id: string) => Promise<void>;
+}
+
+function ExtensionRow({ ext, writeDisabled, onToggle, onRemove }: ExtRowProps) {
+  const [inFlight, setInFlight] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  const handleToggle = useCallback(async () => {
+    setInFlight(true);
+    try { await onToggle(ext.id, ext.enabled === 1); }
+    finally { setInFlight(false); }
+  }, [onToggle, ext.id, ext.enabled]);
+
+  const handleRemove = useCallback(async () => {
+    setInFlight(true);
+    try { await onRemove(ext.id); }
+    finally { setInFlight(false); setConfirmRemove(false); }
+  }, [onRemove, ext.id]);
+
+  return (
+    <li className="flex items-center gap-4 px-4 py-3">
+      <input type="checkbox" checked={ext.enabled === 1}
+        disabled={writeDisabled || inFlight} onChange={() => void handleToggle()}
+        aria-label={`${ext.id} enabled`} />
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-sm truncate">{ext.id}</p>
+        <p className="text-xs text-[var(--color-text-muted)]">v{ext.version}</p>
+      </div>
+      <span data-testid="sandbox-badge"
+        className="text-xs border border-[var(--color-border)] rounded px-2 py-0.5 text-[var(--color-text-muted)]">
+        Process isolation
+      </span>
+      {confirmRemove ? (
+        <div className="flex gap-1">
+          <button type="button" onClick={() => void handleRemove()} disabled={inFlight}
+            className="text-xs text-[var(--color-danger-text)] border border-[var(--color-danger-border)] rounded px-2 py-1">Confirm</button>
+          <button type="button" onClick={() => setConfirmRemove(false)}
+            className="text-xs border border-[var(--color-border)] rounded px-2 py-1">Cancel</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setConfirmRemove(true)} disabled={writeDisabled || inFlight}
+          className="text-xs border border-[var(--color-border)] rounded px-2 py-1 disabled:opacity-50">Remove</button>
+      )}
+    </li>
+  );
+}
+
+export function Marketplace() {
+  const connectionState = useNimbusStore((s) => s.connectionState);
+  const offline = connectionState === "disconnected";
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const { data, error, refetch } = useIpcQuery<ExtensionListResult>("extension.list", 30_000);
+  const extensions = data?.extensions ?? [];
+
+  const handleToggle = useCallback(async (id: string, currentlyEnabled: boolean) => {
+    if (currentlyEnabled) { await createIpcClient().extensionDisable(id); }
+    else { await createIpcClient().extensionEnable(id); }
+    refetch();
+  }, [refetch]);
+
+  const handleRemove = useCallback(async (id: string) => {
+    await createIpcClient().extensionRemove(id);
+    refetch();
+  }, [refetch]);
+
+  const handleInstall = useCallback(async () => {
+    setInstallError(null);
+    const selected = await open({ directory: true, multiple: false });
+    if (selected === null || Array.isArray(selected)) return;
+    setInstalling(true);
+    try {
+      await createIpcClient().extensionInstall(selected);
+      refetch();
+    } catch (e) {
+      setInstallError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInstalling(false);
+    }
+  }, [refetch]);
+
+  return (
+    <section className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <PanelHeader title="Marketplace"
+          description="Installed extensions. Sandbox: Process isolation (full syscall isolation ships in Phase 5)."
+          livePill={offline ? <StaleChip /> : undefined} />
+        <button type="button" onClick={() => void handleInstall()} disabled={offline || installing}
+          className="px-4 py-2 rounded bg-[var(--color-accent)] text-white text-sm disabled:opacity-50">
+          {installing ? "Installing…" : "Install from directory"}
+        </button>
+      </div>
+      {installError !== null && (
+        <p className="text-sm text-[var(--color-danger-text)]">Install failed: {installError}</p>
+      )}
+      {error !== null && <PanelError message={`Failed to load extensions: ${error}`} onRetry={() => refetch()} />}
+      {extensions.length === 0 && error === null && (
+        <p className="text-sm text-[var(--color-text-muted)]">
+          No extensions installed. Use "Install from directory" to add a local extension.
+        </p>
+      )}
+      {extensions.length > 0 && (
+        <ul className="divide-y divide-[var(--color-border)] border border-[var(--color-border)] rounded-md">
+          {extensions.map((ext) => (
+            <ExtensionRow key={ext.id} ext={ext} writeDisabled={offline}
+              onToggle={handleToggle} onRemove={handleRemove} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+```
+
+- [ ] **Step 4: Run tests — confirm PASS**
+
+```bash
+cd packages/ui && bunx vitest run test/pages/Marketplace.test.tsx
+```
+
+- [ ] **Step 5: Type check and commit**
+
+```bash
+bun run typecheck
+git add packages/ui/src/pages/Marketplace.tsx packages/ui/test/pages/Marketplace.test.tsx
+git commit -m "feat(ui): Marketplace page — installed extensions, enable/disable, remove, install from directory"
+```
+
+---
+
+### Task 6: Wire Real Pages, Delete Stubs, Final Verification
+
+**Files:**
+- Modify: `packages/ui/src/App.tsx`
+- Delete: `packages/ui/src/pages/stubs/MarketplaceStub.tsx`
+- Delete: `packages/ui/src/pages/stubs/WatchersStub.tsx`
+- Delete: `packages/ui/src/pages/stubs/WorkflowsStub.tsx`
+
+- [ ] **Step 1: Update `packages/ui/src/App.tsx`**
+
+Replace stub imports with real page imports and update the route elements:
+
+```tsx
+// Remove these three imports:
+import { MarketplaceStub } from "./pages/stubs/MarketplaceStub";
+import { WatchersStub } from "./pages/stubs/WatchersStub";
+import { WorkflowsStub } from "./pages/stubs/WorkflowsStub";
+
+// Add:
+import { Marketplace } from "./pages/Marketplace";
+import { Watchers } from "./pages/Watchers";
+import { Workflows } from "./pages/Workflows";
+```
+
+In the router, change:
+
+```tsx
+// Before:
+<Route path="marketplace" element={<MarketplaceStub />} />
+<Route path="watchers" element={<WatchersStub />} />
+<Route path="workflows" element={<WorkflowsStub />} />
+
+// After:
+<Route path="marketplace" element={<Marketplace />} />
+<Route path="watchers" element={<Watchers />} />
+<Route path="workflows" element={<Workflows />} />
+```
+
+- [ ] **Step 2: Delete the three stub files**
+
+```bash
+cd packages/ui && git rm src/pages/stubs/MarketplaceStub.tsx src/pages/stubs/WatchersStub.tsx src/pages/stubs/WorkflowsStub.tsx
+```
+
+- [ ] **Step 3: Run the full Vitest suite**
+
+```bash
+cd packages/ui && bunx vitest run
+```
+
+Expected: all tests PASS.
+
+- [ ] **Step 4: Type check**
+
+```bash
+bun run typecheck
+```
+
+Expected: zero errors.
+
+- [ ] **Step 5: Run gateway unit tests (automation-rpc coverage)**
+
+```bash
+cd /c/gitrepo/Nimbus && bun test packages/gateway/test/unit/ipc/automation-rpc.test.ts
+```
+
+Expected: all tests PASS (existing tests; no new gateway code was modified).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/ui/src/App.tsx
+git commit -m "feat(ui): WS5-D complete — wire Watchers, Workflows, Marketplace; remove stubs"
+```
+
+---
+
+### WS5-D Acceptance Criteria
+
+- [ ] All 14 automation IPC methods callable from the UI (verified by `client-ws5d.test.ts`)
+- [ ] ALLOWED_METHODS count = 54; `cargo test allowlist_exact_size` passes
+- [ ] Watcher created from UI fires in the next sync cycle — manual smoke on Win/macOS/Linux
+- [ ] Workflow dry-run produces zero non-dry-run audit entries — verified in Gateway audit log
+- [ ] Extension installed from a local directory appears in list and can be enabled/disabled
+- [ ] All write buttons disabled when Gateway is disconnected
+- [ ] `cd packages/ui && bunx vitest run` passes (≥ 80% line coverage gate maintained)

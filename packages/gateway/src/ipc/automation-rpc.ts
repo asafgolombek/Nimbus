@@ -92,6 +92,10 @@ export function dispatchAutomationRpc(options: {
       const conditionJson = requireString(rec, "conditionJson");
       const actionType = requireString(rec, "actionType");
       const actionJson = requireString(rec, "actionJson");
+      const graphPredicateJson =
+        rec !== undefined && typeof rec["graphPredicateJson"] === "string"
+          ? rec["graphPredicateJson"]
+          : null;
       const id = insertWatcher(db, {
         name,
         enabled: 1,
@@ -100,6 +104,7 @@ export function dispatchAutomationRpc(options: {
         action_type: actionType,
         action_json: actionJson,
         created_at: Date.now(),
+        graph_predicate_json: graphPredicateJson,
       });
       return { kind: "hit", value: { id } };
     }
