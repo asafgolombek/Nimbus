@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776844078170,
+  "lastUpdate": 1776846991722,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -811,6 +811,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4325209600000017,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "1314194df1412747350b6f4e92a01914af2af6fc",
+          "message": "chore: remove obsolete project documentation files and update CLAUDE.md index",
+          "timestamp": "2026-04-22T11:35:57+03:00",
+          "tree_id": "1d21285481de4f3561dd70402fd3b05f985539ad",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/1314194df1412747350b6f4e92a01914af2af6fc"
+        },
+        "date": 1776846990789,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4344225600000005,
             "unit": "ms"
           }
         ]
