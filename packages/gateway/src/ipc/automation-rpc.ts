@@ -10,12 +10,14 @@ import {
   listCandidateGraphRelations,
   parseGraphPredicate,
 } from "../automation/graph-predicate.ts";
+import { listWatcherHistory } from "../automation/watcher-history.ts";
 import {
   deleteWatcher,
   insertWatcher,
   listWatchers,
   setWatcherEnabled,
 } from "../automation/watcher-store.ts";
+import { listWorkflowRuns } from "../automation/workflow-run-history.ts";
 import {
   deleteWorkflowByName,
   listWorkflows,
@@ -136,6 +138,12 @@ export function dispatchAutomationRpc(options: {
     case "watcher.validateCondition":
       return handleValidateCondition(rec, db);
 
+    case "watcher.listHistory": {
+      const watcherId = requireString(rec, "watcherId");
+      const limit = requireNumber(rec, "limit");
+      return { kind: "hit", value: listWatcherHistory(db, { watcherId, limit }) };
+    }
+
     case "extension.list":
       return { kind: "hit", value: { extensions: listExtensions(db) } };
 
@@ -212,6 +220,12 @@ export function dispatchAutomationRpc(options: {
       const name = requireString(rec, "name");
       const ok = deleteWorkflowByName(db, name);
       return { kind: "hit", value: { ok } };
+    }
+
+    case "workflow.listRuns": {
+      const workflowName = requireString(rec, "workflowName");
+      const limit = requireNumber(rec, "limit");
+      return { kind: "hit", value: listWorkflowRuns(db, { workflowName, limit }) };
     }
 
     default:

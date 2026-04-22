@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { upsertGraphEntity, upsertGraphRelation } from "../graph/relationship-graph.ts";
 import { LocalIndex } from "../index/local-index.ts";
-import { dispatchAutomationRpc } from "./automation-rpc.ts";
+import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 
 function seededDb(): Database {
   const db = new Database(":memory:");
@@ -133,5 +133,65 @@ describe("watcher.validateCondition", () => {
     expect(out.kind).toBe("hit");
     const json = JSON.stringify(out.kind === "hit" ? out.value : {});
     expect(json).not.toContain("SECRET_TOKEN_xyz");
+  });
+});
+
+describe("watcher.listHistory", () => {
+  test("returns fires newest-first", () => {
+    const db = seededDb();
+    db.run(
+      `INSERT INTO watcher (id, name, enabled, condition_type, condition_json, action_type, action_json, created_at)
+       VALUES ('w1', 'x', 1, 'schedule', '{}', 'notify', '{}', 0)`,
+    );
+    db.run(
+      `INSERT INTO watcher_event (watcher_id, fired_at, condition_snapshot, action_result)
+       VALUES ('w1', 10, '{"a":1}', '{"ok":true}'), ('w1', 20, '{"a":2}', '{"ok":true}')`,
+    );
+    const out = dispatchAutomationRpc({
+      method: "watcher.listHistory",
+      params: { watcherId: "w1", limit: 5 },
+      db,
+    });
+    expect(out.kind).toBe("hit");
+    if (out.kind !== "hit") return;
+    const value = out.value as { events: Array<{ firedAt: number }> };
+    expect(value.events.length).toBe(2);
+    expect(value.events[0].firedAt).toBe(20);
+  });
+
+  test("rejects missing watcherId", () => {
+    const db = seededDb();
+    expect(() =>
+      dispatchAutomationRpc({
+        method: "watcher.listHistory",
+        params: { limit: 5 },
+        db,
+      }),
+    ).toThrow(AutomationRpcError);
+  });
+});
+
+describe("workflow.listRuns", () => {
+  test("returns last N runs newest-first", () => {
+    const db = seededDb();
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf1', 'alpha', NULL, '[]', 0, 0)`,
+    );
+    db.run(
+      `INSERT INTO workflow_run (id, workflow_id, triggered_by, status, started_at, finished_at, error_msg, dry_run, params_override_json)
+       VALUES ('r1', 'wf1', 'user', 'done', 10, 20, NULL, 0, NULL),
+              ('r2', 'wf1', 'user', 'done', 30, 40, NULL, 0, NULL)`,
+    );
+    const out = dispatchAutomationRpc({
+      method: "workflow.listRuns",
+      params: { workflowName: "alpha", limit: 5 },
+      db,
+    });
+    expect(out.kind).toBe("hit");
+    if (out.kind !== "hit") return;
+    const value = out.value as { runs: Array<{ id: string }> };
+    expect(value.runs.length).toBe(2);
+    expect(value.runs[0].id).toBe("r2");
   });
 });
