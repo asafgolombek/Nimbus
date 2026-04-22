@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
 import { packBundle, unpackBundle } from "../db/tar-bundle.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runDataExport } from "./data-export.ts";
 import { DataImportVersionError, runDataImport } from "./data-import.ts";
 
@@ -23,7 +24,7 @@ describe("data import", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
-      schemaVersion: 21,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       kdfParams,
     });
 
@@ -51,7 +52,7 @@ describe("data import", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
-      schemaVersion: 21,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       kdfParams,
     });
 
@@ -83,7 +84,7 @@ describe("data import", () => {
       index: idx,
       platform: "linux",
       nimbusVersion: "0.1.0",
-      schemaVersion: 21,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       kdfParams,
     });
 
@@ -153,7 +154,7 @@ describe("runDataImport — schemaVersion compatibility check", () => {
   });
 
   test("rejects a legacy v1 manifest as archive_older_unsupported (archiveSchemaVersion=0)", async () => {
-    const bundle = await stageBundle(21);
+    const bundle = await stageBundle(CURRENT_SCHEMA_VERSION);
     const stage = mkdtempSync(join(tmpdir(), "nimbus-legacy-stage-"));
     await unpackBundle(bundle, stage);
     const manifestPath = join(stage, "manifest.json");
@@ -188,7 +189,7 @@ describe("runDataImport — schemaVersion compatibility check", () => {
   });
 
   test("happy path — matching schema_version restores credentials", async () => {
-    const bundle = await stageBundle(21);
+    const bundle = await stageBundle(CURRENT_SCHEMA_VERSION);
     const targetVault = memVault();
     const result = await runDataImport({
       bundlePath: bundle,

@@ -137,8 +137,8 @@ function evaluateOneWatcher(
   if (graphEnabled && w.graph_predicate_json !== null && w.graph_predicate_json !== "") {
     const parsed = parseGraphPredicate(w.graph_predicate_json);
     if (!parsed.ok) {
-      console.error(
-        `watcher ${w.id} (${w.name}): graph_predicate_json parse failed — ${parsed.error}`,
+      process.stderr.write(
+        `[watcher-engine] watcher ${w.id} (${w.name}): graph_predicate_json parse failed — ${parsed.error}\n`,
       );
       return null;
     }
