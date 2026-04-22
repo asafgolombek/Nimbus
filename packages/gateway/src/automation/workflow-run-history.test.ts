@@ -28,16 +28,16 @@ test("listWorkflowRuns returns the last N runs newest-first", () => {
   for (let i = 0; i < 5; i++) insertRun(`r${i}`, 100 + i);
   const out = listWorkflowRuns(db, { workflowName: "alpha", limit: 3 });
   expect(out.runs.length).toBe(3);
-  expect(out.runs[0].id).toBe("r4");
-  expect(out.runs[2].id).toBe("r2");
-  expect(out.runs[0].durationMs).toBe(10);
-  expect(out.runs[0].dryRun).toBe(false);
+  expect(out.runs[0]?.id).toBe("r4");
+  expect(out.runs[2]?.id).toBe("r2");
+  expect(out.runs[0]?.durationMs).toBe(10);
+  expect(out.runs[0]?.dryRun).toBe(false);
 });
 
 test("listWorkflowRuns surfaces dry_run as boolean", () => {
   insertRun("d1", 100, 1);
   const out = listWorkflowRuns(db, { workflowName: "alpha", limit: 10 });
-  expect(out.runs[0].dryRun).toBe(true);
+  expect(out.runs[0]?.dryRun).toBe(true);
 });
 
 test("listWorkflowRuns returns empty for an unknown workflow", () => {
@@ -69,8 +69,8 @@ test("listWorkflowRuns handles null finished_at (durationMs = null)", () => {
      VALUES ('running1', 'wf1', 'user', 'running', 500, NULL, NULL, 0, NULL)`,
   );
   const out = listWorkflowRuns(db, { workflowName: "alpha", limit: 1 });
-  expect(out.runs[0].durationMs).toBeNull();
-  expect(out.runs[0].finishedAt).toBeNull();
+  expect(out.runs[0]?.durationMs).toBeNull();
+  expect(out.runs[0]?.finishedAt).toBeNull();
 });
 
 test("pruneWorkflowRuns keeps the newest N per workflow", () => {

@@ -156,7 +156,7 @@ describe("watcher.listHistory", () => {
     if (out.kind !== "hit") return;
     const value = out.value as { events: Array<{ firedAt: number }> };
     expect(value.events.length).toBe(2);
-    expect(value.events[0].firedAt).toBe(20);
+    expect(value.events[0]?.firedAt).toBe(20);
   });
 
   test("rejects missing watcherId", () => {
@@ -192,6 +192,6 @@ describe("workflow.listRuns", () => {
     if (out.kind !== "hit") return;
     const value = out.value as { runs: Array<{ id: string }> };
     expect(value.runs.length).toBe(2);
-    expect(value.runs[0].id).toBe("r2");
+    expect(value.runs[0]?.id).toBe("r2");
   });
 });

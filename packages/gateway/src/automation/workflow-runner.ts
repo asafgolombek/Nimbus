@@ -39,10 +39,10 @@ function emitRunCompletedAudit(params: {
     dryRun: params.dryRun,
   };
   if (params.paramsOverride !== undefined) {
-    details.paramsOverride = params.paramsOverride;
+    details["paramsOverride"] = params.paramsOverride;
   }
   if (params.errorMsg !== undefined && params.errorMsg !== null) {
-    details.errorMsg = params.errorMsg;
+    details["errorMsg"] = params.errorMsg;
   }
   appendAuditEntry(params.db, {
     actionType: "workflow.run.completed",
@@ -228,7 +228,7 @@ export async function runWorkflowExecution(
       status: "preview",
       startedAt: now,
       dryRun: true,
-      paramsOverride: p.paramsOverride,
+      ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
     });
     pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
     return {
@@ -276,7 +276,7 @@ export async function runWorkflowExecution(
           status: "error",
           startedAt: now,
           dryRun: false,
-          paramsOverride: p.paramsOverride,
+          ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
           errorMsg: outcome.message,
         });
         pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
@@ -292,7 +292,7 @@ export async function runWorkflowExecution(
       status: "done",
       startedAt: now,
       dryRun: false,
-      paramsOverride: p.paramsOverride,
+      ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
     });
     pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
     return { runId, dryRun: false, stepResults };
@@ -306,7 +306,7 @@ export async function runWorkflowExecution(
       status: "error",
       startedAt: now,
       dryRun: false,
-      paramsOverride: p.paramsOverride,
+      ...(p.paramsOverride !== undefined && { paramsOverride: p.paramsOverride }),
       errorMsg: msg,
     });
     pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
