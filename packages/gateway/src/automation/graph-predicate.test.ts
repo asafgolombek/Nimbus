@@ -79,6 +79,34 @@ describe("parseGraphPredicate", () => {
     const parsed = parseGraphPredicate(raw);
     expect(parsed.ok).toBe(false);
   });
+
+  test("rejects top-level JSON that is not an object (e.g. array)", () => {
+    const parsed = parseGraphPredicate("[]");
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.error).toMatch(/JSON object/);
+    }
+  });
+
+  test("rejects top-level JSON that is not an object (e.g. null)", () => {
+    const parsed = parseGraphPredicate("null");
+    expect(parsed.ok).toBe(false);
+  });
+
+  test("rejects target that is not an object (e.g. string)", () => {
+    const raw = JSON.stringify({ relation: "owned_by", target: "not-an-object" });
+    const parsed = parseGraphPredicate(raw);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.error).toMatch(/must be an object/);
+    }
+  });
+
+  test("rejects target that is an array", () => {
+    const raw = JSON.stringify({ relation: "owned_by", target: ["person", "gh:42"] });
+    const parsed = parseGraphPredicate(raw);
+    expect(parsed.ok).toBe(false);
+  });
 });
 
 describe("listCandidateGraphRelations", () => {
@@ -274,6 +302,33 @@ describe("countItemsMatchingGraphPredicate", () => {
         target: { type: "person", externalId: "gh:unknown" },
       },
     });
+    expect(n).toBe(0);
+  });
+
+  test("respects custom maxScan override", () => {
+    const db = seededDb();
+    const t0 = 1_700_000_000_000;
+
+    // Insert 3 items all within the since window.
+    for (let i = 0; i < 3; i++) {
+      db.run(
+        `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+         VALUES (?, 'github', 'pr', ?, ?, ?, ?)`,
+        [`scan-${i}`, `scan-pr-${i}`, `PR ${i}`, t0 + i + 1, t0 + i + 1],
+      );
+    }
+
+    // maxScan=1 limits the scan to 1 row even though 3 exist.
+    const n = countItemsMatchingGraphPredicate({
+      db,
+      sinceMs: t0,
+      maxScan: 1,
+      predicate: {
+        relation: "owned_by",
+        target: { type: "person", externalId: "gh:scan-none" },
+      },
+    });
+    // No graph edges exist, so count is 0 regardless of scan size.
     expect(n).toBe(0);
   });
 

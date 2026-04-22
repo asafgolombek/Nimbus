@@ -181,6 +181,88 @@ describe("watcher-engine", () => {
     await Promise.resolve();
   });
 
+  test("null filter in condition_json does not notify", async () => {
+    const db = makeDb();
+    const t0 = 3_900_000_000_000;
+    // Valid JSON object but filter is null — should not notify.
+    insertAlertFiredWatcher(db, "null-filter", JSON.stringify({ filter: null }), t0);
+    upsertIndexedItem(db, {
+      service: "sentry",
+      type: "alert",
+      externalId: "nf-1",
+      title: "null filter alert",
+      modifiedAt: t0 + 1000,
+      syncedAt: t0 + 1000,
+    });
+    let calls = 0;
+    evaluateWatchersAfterSync(db, "sentry", t0 + 2000, () => {
+      calls += 1;
+    });
+    expect(calls).toBe(0);
+    await Promise.resolve();
+  });
+
+  test("array filter in condition_json does not notify", async () => {
+    const db = makeDb();
+    const t0 = 3_950_000_000_000;
+    // Valid JSON object but filter is an array — should not notify.
+    insertAlertFiredWatcher(db, "array-filter", JSON.stringify({ filter: ["sentry"] }), t0);
+    upsertIndexedItem(db, {
+      service: "sentry",
+      type: "alert",
+      externalId: "af-1",
+      title: "array filter alert",
+      modifiedAt: t0 + 1000,
+      syncedAt: t0 + 1000,
+    });
+    let calls = 0;
+    evaluateWatchersAfterSync(db, "sentry", t0 + 2000, () => {
+      calls += 1;
+    });
+    expect(calls).toBe(0);
+    await Promise.resolve();
+  });
+
+  test("invalid graph_predicate_json shape suppresses notify (fail-closed)", async () => {
+    const db = makeDb();
+    const t0 = 3_970_000_000_000;
+    insertWatcher(db, {
+      name: "bad-predicate",
+      enabled: 1,
+      condition_type: "alert_fired",
+      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
+      action_type: "notify",
+      action_json: "{}",
+      created_at: t0,
+      // Valid JSON but relation kind is invalid — parseGraphPredicate returns ok:false.
+      graph_predicate_json: JSON.stringify({
+        relation: "not_a_real_relation",
+        target: { type: "person", externalId: "gh:1" },
+      }),
+    });
+    upsertIndexedItem(db, {
+      service: "sentry",
+      type: "alert",
+      externalId: "bp-1",
+      title: "bad predicate alert",
+      modifiedAt: t0 + 1000,
+      syncedAt: t0 + 1000,
+    });
+    let calls = 0;
+    evaluateWatchersAfterSync(
+      db,
+      "sentry",
+      t0 + 2000,
+      () => {
+        calls += 1;
+      },
+      { graphConditionsEnabled: true },
+    );
+    // Fail-closed: invalid predicate → no notification.
+    expect(calls).toBe(0);
+    await Promise.resolve();
+  });
+
   test("graph predicate filters alert matches — no match suppresses notify", async () => {
     const db = makeDb();
     const t0 = 4_000_000_000_000;

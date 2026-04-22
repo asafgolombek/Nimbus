@@ -9,6 +9,7 @@ import {
   listEnabledWatchers,
   listWatchers,
   setWatcherEnabled,
+  setWatcherGraphPredicate,
   updateWatcherLastChecked,
   updateWatcherLastFired,
 } from "./watcher-store.ts";
@@ -99,5 +100,43 @@ describe("watcher-store", () => {
       created_at: t0,
     });
     expect(id).toBe(fixed);
+  });
+
+  test("setWatcherGraphPredicate returns false when schema below v22", () => {
+    const db = new Database(":memory:");
+    expect(setWatcherGraphPredicate(db, "any-id", null)).toBe(false);
+  });
+
+  test("setWatcherGraphPredicate sets and clears graph_predicate_json", () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const t0 = Date.now();
+    const id = insertWatcher(db, {
+      name: "gp-test",
+      enabled: 1,
+      condition_type: "alert_fired",
+      condition_json: "{}",
+      action_type: "notify",
+      action_json: "{}",
+      created_at: t0,
+    });
+
+    const predicateJson = JSON.stringify({
+      relation: "owned_by",
+      target: { type: "person", externalId: "gh:1" },
+    });
+
+    // Set a predicate — should return true (1 row changed).
+    expect(setWatcherGraphPredicate(db, id, predicateJson)).toBe(true);
+    const row = listWatchers(db).find((w) => w.id === id);
+    expect(row?.graph_predicate_json).toBe(predicateJson);
+
+    // Clear the predicate — should also return true.
+    expect(setWatcherGraphPredicate(db, id, null)).toBe(true);
+    const cleared = listWatchers(db).find((w) => w.id === id);
+    expect(cleared?.graph_predicate_json).toBeNull();
+
+    // Non-existent id — returns false (0 changes).
+    expect(setWatcherGraphPredicate(db, "no-such-id", predicateJson)).toBe(false);
   });
 });
