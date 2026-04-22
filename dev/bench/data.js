@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776846991722,
+  "lastUpdate": 1776847270796,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -840,6 +840,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4344225600000005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "3aea00f9625a432dd5a6153968d5ea45b8ddac8a",
+          "message": "feat: introduce reusable CI test workflow and local test execution script to standardize test parity across environments",
+          "timestamp": "2026-04-22T11:40:40+03:00",
+          "tree_id": "960ccfb476857ee7590b9c6ef0d600217bddfc10",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/3aea00f9625a432dd5a6153968d5ea45b8ddac8a"
+        },
+        "date": 1776847270355,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4281386000000031,
             "unit": "ms"
           }
         ]
