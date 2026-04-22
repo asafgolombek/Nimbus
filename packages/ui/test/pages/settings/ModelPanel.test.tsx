@@ -172,6 +172,90 @@ describe("ModelPanel", () => {
     expect(screen.getByTestId("active-pull-banner")).toHaveTextContent(/25%/);
   });
 
+  it("llm.modelUnloaded notification patches the row's loaded state to false", async () => {
+    useNimbusStore.setState({ loadedKeys: { "ollama:gemma:2b": true } } as never);
+    llmListModelsMock.mockResolvedValueOnce({
+      models: [{ provider: "ollama", modelName: "gemma:2b" }],
+    });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
+    subscribeMock.mockImplementation(async (handler) => {
+      captured = handler;
+      return () => {};
+    });
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /unload gemma:2b/i }));
+    captured?.({
+      method: "llm.modelUnloaded",
+      params: { provider: "ollama", modelName: "gemma:2b" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /load gemma:2b/i })).toBeInTheDocument(),
+    );
+  });
+
+  it("llm.pullProgress notification updates the active pull banner", async () => {
+    useNimbusStore.setState({ activePullId: "pull_x" } as never);
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
+    subscribeMock.mockImplementation(async (handler) => {
+      captured = handler;
+      return () => {};
+    });
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    captured?.({
+      method: "llm.pullProgress",
+      params: {
+        pullId: "pull_x",
+        provider: "ollama",
+        modelName: "gemma:2b",
+        status: "downloading",
+        completedBytes: 500,
+        totalBytes: 1000,
+      },
+    });
+    await waitFor(() => expect(screen.getByTestId("active-pull-banner")).toHaveTextContent(/50%/));
+  });
+
+  it("llm.pullCompleted clears the active pull and re-fetches models", async () => {
+    useNimbusStore.setState({ activePullId: "pull_done" } as never);
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    // Second fetch triggered by pullCompleted
+    llmListModelsMock.mockResolvedValueOnce({
+      models: [{ provider: "ollama", modelName: "gemma:2b" }],
+    });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
+    subscribeMock.mockImplementation(async (handler) => {
+      captured = handler;
+      return () => {};
+    });
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    captured?.({ method: "llm.pullCompleted", params: { pullId: "pull_done" } });
+    await waitFor(() => expect(llmListModelsMock).toHaveBeenCalledTimes(2));
+    expect(useNimbusStore.getState().activePullId).toBeNull();
+  });
+
+  it("llm.pullFailed clears the active pull without re-fetching models", async () => {
+    useNimbusStore.setState({ activePullId: "pull_fail" } as never);
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    let captured: ((n: { method: string; params: unknown }) => void) | null = null;
+    subscribeMock.mockImplementation(async (handler) => {
+      captured = handler;
+      return () => {};
+    });
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    captured?.({ method: "llm.pullFailed", params: { pullId: "pull_fail" } });
+    await waitFor(() => expect(useNimbusStore.getState().activePullId).toBeNull());
+    expect(llmListModelsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("disables write controls when connectionState=disconnected", async () => {
     useNimbusStore.setState({ connectionState: "disconnected" } as never);
     llmListModelsMock.mockRejectedValueOnce(new Error("offline"));
