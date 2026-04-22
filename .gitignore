@@ -123,3 +123,6 @@ nimbus-*.dmg
 nimbus-*.deb
 nimbus-*.AppImage
 nimbus
+
+# Git worktrees
+.worktrees/
