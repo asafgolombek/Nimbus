@@ -9,6 +9,7 @@ import {
 } from "../engine/run-conversational-agent.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { previewHitlActionsForStepText } from "./workflow-hitl-preview.ts";
+import { pruneWorkflowRuns } from "./workflow-run-history.ts";
 import {
   finishWorkflowRunRow,
   getWorkflowByName,
@@ -16,6 +17,8 @@ import {
   insertWorkflowRunStepRow,
   updateWorkflowRunStepRow,
 } from "./workflow-store.ts";
+
+const RUN_RETENTION_PER_WORKFLOW = 100;
 
 function emitRunCompletedAudit(params: {
   readonly db: Database;
@@ -227,6 +230,7 @@ export async function runWorkflowExecution(
       dryRun: true,
       paramsOverride: p.paramsOverride,
     });
+    pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
     return {
       runId,
       dryRun: true,
@@ -275,6 +279,7 @@ export async function runWorkflowExecution(
           paramsOverride: p.paramsOverride,
           errorMsg: outcome.message,
         });
+        pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
         return { runId, dryRun: false, stepResults };
       }
     }
@@ -289,6 +294,7 @@ export async function runWorkflowExecution(
       dryRun: false,
       paramsOverride: p.paramsOverride,
     });
+    pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
     return { runId, dryRun: false, stepResults };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -303,6 +309,7 @@ export async function runWorkflowExecution(
       paramsOverride: p.paramsOverride,
       errorMsg: msg,
     });
+    pruneWorkflowRuns(p.db, wf.id, RUN_RETENTION_PER_WORKFLOW);
     throw err;
   }
 }

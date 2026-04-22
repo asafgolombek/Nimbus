@@ -4,7 +4,11 @@ import type { Agent } from "@mastra/core/agent";
 
 import { LocalIndex } from "../index/local-index.ts";
 import { parseWorkflowStepsJson, runWorkflowExecution } from "./workflow-runner.ts";
-import { upsertWorkflowByName } from "./workflow-store.ts";
+import {
+  finishWorkflowRunRow,
+  insertWorkflowRunRow,
+  upsertWorkflowByName,
+} from "./workflow-store.ts";
 
 describe("parseWorkflowStepsJson", () => {
   test("parses run steps", () => {
@@ -366,5 +370,86 @@ describe("runWorkflowExecution (dry run and validation)", () => {
       .get() as { action_json: string };
     const details = JSON.parse(entry.action_json) as { paramsOverride?: Record<string, unknown> };
     expect(details.paramsOverride).toEqual({ "step-1": { x: 1 } });
+  });
+});
+
+describe("runWorkflowExecution — run retention", () => {
+  const noopAgent = {} as Agent;
+
+  test("workflow run completion prunes to the last 100 runs per workflow", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf-ret-1', 'retention-test', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
+    );
+    for (let i = 0; i < 100; i++) {
+      insertWorkflowRunRow(db, {
+        id: `hist-${i}`,
+        workflowId: "wf-ret-1",
+        triggeredBy: "user",
+        status: "done",
+        startedAt: 1_000 + i,
+        dryRun: false,
+      });
+      finishWorkflowRunRow(db, `hist-${i}`, "done", 1_010 + i, null);
+    }
+    // Now run — dry-run path completes without tool calls, still emits row 101.
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "retention-test",
+      dryRun: true,
+      triggeredBy: "user",
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+    });
+    const count = db
+      .query(`SELECT COUNT(*) AS c FROM workflow_run WHERE workflow_id = 'wf-ret-1'`)
+      .get() as { c: number };
+    expect(count.c).toBe(100);
+    // Oldest seeded row must be pruned.
+    const oldestExists = db.query(`SELECT id FROM workflow_run WHERE id = 'hist-0'`).get();
+    expect(oldestExists).toBeNull();
+    // A more-recent seeded row must remain (proves retention kept the newest 100).
+    const hist50 = db.query(`SELECT id FROM workflow_run WHERE id = 'hist-50'`).get();
+    expect(hist50).not.toBeNull();
+  });
+
+  test("workflow run completion is a no-op on retention when under cap", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf-ret-2', 'retention-no-op', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
+    );
+    for (let i = 0; i < 5; i++) {
+      insertWorkflowRunRow(db, {
+        id: `h2-${i}`,
+        workflowId: "wf-ret-2",
+        triggeredBy: "user",
+        status: "done",
+        startedAt: 2_000 + i,
+        dryRun: false,
+      });
+      finishWorkflowRunRow(db, `h2-${i}`, "done", 2_010 + i, null);
+    }
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "retention-no-op",
+      dryRun: true,
+      triggeredBy: "user",
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+    });
+    const count = db
+      .query(`SELECT COUNT(*) AS c FROM workflow_run WHERE workflow_id = 'wf-ret-2'`)
+      .get() as { c: number };
+    expect(count.c).toBe(6); // 5 seeded + 1 new
   });
 });
