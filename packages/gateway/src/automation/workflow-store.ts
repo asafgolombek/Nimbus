@@ -84,12 +84,22 @@ export function insertWorkflowRunRow(
     triggeredBy: string;
     status: string;
     startedAt: number;
+    dryRun?: boolean;
+    paramsOverrideJson?: string | null;
   },
 ): void {
   db.run(
-    `INSERT INTO workflow_run (id, workflow_id, triggered_by, status, started_at, finished_at, error_msg)
-     VALUES (?, ?, ?, ?, ?, NULL, NULL)`,
-    [row.id, row.workflowId, row.triggeredBy, row.status, row.startedAt],
+    `INSERT INTO workflow_run (id, workflow_id, triggered_by, status, started_at, finished_at, error_msg, dry_run, params_override_json)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+    [
+      row.id,
+      row.workflowId,
+      row.triggeredBy,
+      row.status,
+      row.startedAt,
+      row.dryRun === true ? 1 : 0,
+      row.paramsOverrideJson ?? null,
+    ],
   );
 }
 

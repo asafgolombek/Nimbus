@@ -60,6 +60,50 @@ describe("workflow-store", () => {
     expect(deleteWorkflowByName(db, "report")).toBe(false);
   });
 
+  test("insertWorkflowRunRow persists dry_run and params_override_json", () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf-dry', 'x', NULL, '[]', 0, 0)`,
+    );
+    insertWorkflowRunRow(db, {
+      id: "run-dry-1",
+      workflowId: "wf-dry",
+      triggeredBy: "user",
+      status: "preview",
+      startedAt: 1,
+      dryRun: true,
+      paramsOverrideJson: '{"key":"v"}',
+    });
+    const row = db
+      .query(`SELECT dry_run, params_override_json FROM workflow_run WHERE id = 'run-dry-1'`)
+      .get() as { dry_run: number; params_override_json: string };
+    expect(row.dry_run).toBe(1);
+    expect(row.params_override_json).toBe('{"key":"v"}');
+  });
+
+  test("insertWorkflowRunRow defaults dry_run to 0 and params_override_json to NULL when omitted", () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf-legacy', 'y', NULL, '[]', 0, 0)`,
+    );
+    insertWorkflowRunRow(db, {
+      id: "run-legacy-1",
+      workflowId: "wf-legacy",
+      triggeredBy: "user",
+      status: "running",
+      startedAt: 10,
+    });
+    const row = db
+      .query(`SELECT dry_run, params_override_json FROM workflow_run WHERE id = 'run-legacy-1'`)
+      .get() as { dry_run: number; params_override_json: string | null };
+    expect(row.dry_run).toBe(0);
+    expect(row.params_override_json).toBeNull();
+  });
+
   test("workflow run and step rows", () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);

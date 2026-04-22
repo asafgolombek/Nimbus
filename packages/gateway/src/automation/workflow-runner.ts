@@ -165,6 +165,15 @@ export async function runWorkflowExecution(
   const now = Date.now();
 
   if (p.dryRun) {
+    insertWorkflowRunRow(p.db, {
+      id: runId,
+      workflowId: wf.id,
+      triggeredBy: p.triggeredBy,
+      status: "preview",
+      startedAt: now,
+      dryRun: true,
+    });
+    finishWorkflowRunRow(p.db, runId, "preview", Date.now(), null);
     return {
       runId,
       dryRun: true,
