@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776847270796,
+  "lastUpdate": 1776849201105,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -869,6 +869,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4281386000000031,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": false,
+          "id": "b0afc473b06db3c827937271c5714e1756a5d4cf",
+          "message": "docs(plan): Phase 4 §S2 — A.1 graph-aware watcher conditions implementation plan\n\nImplementation plan for Section 2 of the Phase 4 completion spec. Covers V22\nschema migration (renumbered from V20 because V20/V21 landed on main since\nthe spec was authored), graph-predicate evaluator, watcher-engine\nintegration, [automation].graph_conditions TOML flag, and the two new\nread-only IPC handlers (watcher.validateCondition, watcher.listCandidateRelations).\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-22T11:52:45+03:00",
+          "tree_id": "53a632956a395edbc3dda729f772c5bdfb998103",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/b0afc473b06db3c827937271c5714e1756a5d4cf"
+        },
+        "date": 1776849200716,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.51939212,
             "unit": "ms"
           }
         ]
