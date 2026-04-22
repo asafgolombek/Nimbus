@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 
+import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+
 export interface WatcherHistoryEvent {
   readonly firedAt: number;
   readonly conditionSnapshot: string;
@@ -28,6 +30,9 @@ export function listWatcherHistory(
   db: Database,
   params: ListWatcherHistoryParams,
 ): WatcherHistoryListResult {
+  if (readIndexedUserVersion(db) < 8) {
+    return { events: [] };
+  }
   const limit = clamp(params.limit);
   if (limit === 0) return { events: [] };
   const rows = db
