@@ -268,7 +268,8 @@ export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): Conne
     localIndex.setConnectorDepth(id, depth as "metadata_only" | "summary" | "full");
   }
 
-  if (enabled === true) { // NOSONAR
+  if (enabled === true) {
+    // NOSONAR
     resumeConnector(id, syncScheduler, localIndex);
   } else if (enabled === false) {
     pauseConnector(id, syncScheduler, localIndex);

@@ -418,7 +418,8 @@ export class LocalIndex {
   }
 
   // NOSONAR: depth type is already a type alias (ReindexDepth)
-  setConnectorDepth(serviceId: string, depth: ReindexDepth): void { // NOSONAR
+  setConnectorDepth(serviceId: string, depth: ReindexDepth): void {
+    // NOSONAR
     const rows = this.db
       .query(`UPDATE sync_state SET depth = ? WHERE connector_id = ?`)
       .run(depth, serviceId);
