@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 import { getConnectorHealth } from "../connectors/health.ts";
 import type { ReindexDepth } from "../connectors/reindex.ts";
-import { computeAuditRowHash, GENESIS_HASH } from "../db/audit-chain.ts";
+import { appendAuditEntry } from "../db/audit-chain.ts";
 import {
   DEFAULT_SLOW_QUERY_THRESHOLD_MS,
   latencyRingBuffer,
@@ -754,31 +754,11 @@ export class LocalIndex {
     actionJson: string;
     timestamp: number;
   }): void {
-    const prevHash = this.getLastAuditRowHash();
-    const rowHash = computeAuditRowHash({
-      prevHash,
-      actionType: entry.actionType,
-      hitlStatus: entry.hitlStatus,
-      actionJson: entry.actionJson,
-      timestamp: entry.timestamp,
-    });
-    this.db.run(
-      `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp, row_hash, prev_hash)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [entry.actionType, entry.hitlStatus, entry.actionJson, entry.timestamp, rowHash, prevHash],
-    );
+    appendAuditEntry(this.db, entry);
   }
 
   get rawDb(): Database {
     return this.db;
-  }
-
-  getLastAuditRowHash(): string {
-    const row = this.db.query(`SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1`).get() as
-      | { row_hash: string | null }
-      | undefined;
-    const h = row?.row_hash;
-    return typeof h === "string" && h.length === 64 ? h : GENESIS_HASH;
   }
 
   listAuditWithChain(limit: number): Array<AuditEntry & { rowHash: string; prevHash: string }> {

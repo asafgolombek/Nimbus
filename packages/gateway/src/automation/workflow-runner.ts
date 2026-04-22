@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Agent } from "@mastra/core/agent";
 import { formatAuditPayload } from "../audit/format-audit-payload.ts";
-import { computeAuditRowHash, GENESIS_HASH } from "../db/audit-chain.ts";
+import { appendAuditEntry } from "../db/audit-chain.ts";
 import {
   type RunConversationalAgentParams,
   runConversationalAgent,
@@ -41,21 +41,12 @@ function emitRunCompletedAudit(params: {
   if (params.errorMsg !== undefined && params.errorMsg !== null) {
     details.errorMsg = params.errorMsg;
   }
-  const actionType = "workflow.run.completed";
-  const hitlStatus = "not_required";
-  const actionJson = formatAuditPayload(details);
-  const timestamp = Date.now();
-  const prevHashRow = params.db
-    .query(`SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1`)
-    .get() as { row_hash: string | null } | undefined;
-  const rawPrev = prevHashRow?.row_hash;
-  const prevHash = typeof rawPrev === "string" && rawPrev.length === 64 ? rawPrev : GENESIS_HASH;
-  const rowHash = computeAuditRowHash({ prevHash, actionType, hitlStatus, actionJson, timestamp });
-  params.db.run(
-    `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp, row_hash, prev_hash)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [actionType, hitlStatus, actionJson, timestamp, rowHash, prevHash],
-  );
+  appendAuditEntry(params.db, {
+    actionType: "workflow.run.completed",
+    hitlStatus: "not_required",
+    actionJson: formatAuditPayload(details),
+    timestamp: Date.now(),
+  });
 }
 
 export type WorkflowStep = {
