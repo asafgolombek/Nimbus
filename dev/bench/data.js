@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776871983490,
+  "lastUpdate": 1776874296681,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -956,6 +956,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4906131599999959,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "a318768a7787c2f70bab02404666402fbbfed428",
+          "message": "feat: implement Watchers page and IPC infrastructure for graph-based condition monitoring",
+          "timestamp": "2026-04-22T19:10:59+03:00",
+          "tree_id": "8d07f30402a43aa41d74813307882da5c70a966f",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/a318768a7787c2f70bab02404666402fbbfed428"
+        },
+        "date": 1776874295831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.480193799999999,
             "unit": "ms"
           }
         ]
