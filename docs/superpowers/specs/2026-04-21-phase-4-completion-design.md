@@ -15,6 +15,13 @@
 
 This spec defines the complete remaining scope of **Phase 4 — Presence**, from the current `dev/asafgolombek/phase_4_ws5` branch state (WS5-C PR pending) through tagging `v0.1.0`. It covers:
 
+#### Spec Amendment 2026-04-22
+
+Between spec authorship (2026-04-21) and Section 2 execution, migrations
+V20 (`llm_task_defaults`) and V21 (`sync_state.depth`) landed on `main`.
+S2's watcher-graph migration is therefore numbered **V22**; S3's workflow
+branching migration will be **V23**. All other S2/S3 scope is unchanged.
+
 - **Two Gateway automation enhancements** — A.1 (graph-aware watcher conditions), A.2 (workflow branching).
 - **Three remaining Tauri UI pages** — Extensions Marketplace, Watchers, Workflows.
 - **The Rich TUI** (`nimbus tui`) — 4-pane Ink terminal layout with streaming, HITL, history, and `TERM=dumb` fallback.
@@ -180,9 +187,9 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - Add IPC `watcher.validateCondition` (read-only preview of match count).
 - Add IPC `watcher.listCandidateRelations` for UI dropdowns.
 - Feature flag `[automation.graph_conditions] = true` in `nimbus.toml`; default on for v0.1.0.
-- Schema migration **V20:** `ALTER TABLE watchers ADD COLUMN graph_predicate_json TEXT` (nullable).
+- Schema migration **V22:** `ALTER TABLE watchers ADD COLUMN graph_predicate_json TEXT` (nullable).
 
-**New files:** `packages/gateway/src/automation/graph-predicate.ts`, `graph-predicate.test.ts`, `packages/gateway/src/index/watchers-v20-sql.ts`.
+**New files:** `packages/gateway/src/automation/graph-predicate.ts`, `graph-predicate.test.ts`, `packages/gateway/src/index/watcher-graph-v22-sql.ts`.
 
 **Modified files:** `watcher-store.ts`, `watcher-engine.ts`, watcher IPC dispatcher (`packages/gateway/src/ipc/automation-rpc.ts`), Tauri `ALLOWED_METHODS` in `packages/ui/src-tauri/src/gateway_bridge.rs`.
 
@@ -209,9 +216,9 @@ S1 (WS5-C merge) ─► S2 (A.1 watchers-graph) ─► S3 (A.2 workflow-branchin
 - Expression language — strict subset: `$.step_id.field`, comparison operators, `&&`/`||`/`!`, string/number literals, **plus a fixed whitelist of pure side-effect-free functions:** `contains(haystack, needle)`, `startsWith(s, prefix)`, `endsWith(s, suffix)`, `lower(s)`, `upper(s)`, `length(value)`. Parser in `workflow-expression.ts` resolves these via a hard-coded function table — no dynamic dispatch, no user-defined functions, no regex (DOS risk), no `eval`/`Function`. Anything outside the whitelist is a parse error at workflow save time, not runtime. **Rationale:** the whitelist removes the verbose `field == "x" || field == "y" || field == "z"` pain without opening attack surface; each function is < 10 lines of TypeScript with bounded execution.
 - Extend `workflow-hitl-preview.ts`: steps whose `when` depends on runtime values are tagged `CONDITIONAL — may be skipped at runtime`.
 - New IPC `workflow.simulate` — dry-run with sample inputs returns concrete execution path.
-- Schema migration **V21:** `ALTER TABLE workflow_steps ADD COLUMN when_expression TEXT NULL`; `ALTER TABLE workflow_runs ADD COLUMN branching_path_json TEXT NULL`.
+- Schema migration **V23:** `ALTER TABLE workflow_steps ADD COLUMN when_expression TEXT NULL`; `ALTER TABLE workflow_runs ADD COLUMN branching_path_json TEXT NULL`.
 
-**New files:** `workflow-expression.ts`, `workflow-expression.test.ts`, `packages/gateway/src/index/workflow-v21-sql.ts`.
+**New files:** `workflow-expression.ts`, `workflow-expression.test.ts`, `packages/gateway/src/index/workflow-branching-v23-sql.ts`.
 
 **Modified files:** `workflow-store.ts`, `workflow-runner.ts`, `workflow-hitl-preview.ts`, `automation-rpc.ts`.
 
