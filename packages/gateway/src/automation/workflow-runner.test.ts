@@ -170,4 +170,103 @@ describe("runWorkflowExecution (dry run and validation)", () => {
     expect(row.dry_run).toBe(1);
     expect(row.status).toBe("preview");
   });
+
+  test("runWorkflowExecution persists paramsOverride JSON on the real-run row", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    upsertWorkflowByName(
+      db,
+      "po-real",
+      null,
+      JSON.stringify([{ label: "step-1", run: "echo hi" }]),
+      Date.now(),
+    );
+    const override = { "step-1": { greeting: "hi" } };
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "po-real",
+      triggeredBy: "user",
+      dryRun: false,
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+      conversationalRunner: async () => ({ reply: "ok" }),
+      paramsOverride: override,
+    });
+    const row = db
+      .query(
+        `SELECT params_override_json FROM workflow_run
+         WHERE workflow_id = (SELECT id FROM workflow WHERE name = 'po-real')
+         ORDER BY started_at DESC LIMIT 1`,
+      )
+      .get() as { params_override_json: string };
+    expect(JSON.parse(row.params_override_json)).toEqual(override);
+  });
+
+  test("runWorkflowExecution persists paramsOverride JSON on the dry-run row", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    upsertWorkflowByName(
+      db,
+      "po-dry",
+      null,
+      JSON.stringify([{ label: "step-1", run: "echo hi" }]),
+      Date.now(),
+    );
+    const override = { "step-1": { greeting: "dry" } };
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "po-dry",
+      triggeredBy: "user",
+      dryRun: true,
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+      paramsOverride: override,
+    });
+    const row = db
+      .query(
+        `SELECT params_override_json FROM workflow_run
+         WHERE workflow_id = (SELECT id FROM workflow WHERE name = 'po-dry')
+         ORDER BY started_at DESC LIMIT 1`,
+      )
+      .get() as { params_override_json: string };
+    expect(JSON.parse(row.params_override_json)).toEqual(override);
+  });
+
+  test("runWorkflowExecution persists NULL params_override_json when not provided", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    upsertWorkflowByName(
+      db,
+      "po-absent",
+      null,
+      JSON.stringify([{ label: "step-1", run: "echo hi" }]),
+      Date.now(),
+    );
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "po-absent",
+      triggeredBy: "user",
+      dryRun: false,
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+      conversationalRunner: async () => ({ reply: "ok" }),
+    });
+    const row = db
+      .query(
+        `SELECT params_override_json FROM workflow_run
+         WHERE workflow_id = (SELECT id FROM workflow WHERE name = 'po-absent')
+         ORDER BY started_at DESC LIMIT 1`,
+      )
+      .get() as { params_override_json: string | null };
+    expect(row.params_override_json).toBeNull();
+  });
 });

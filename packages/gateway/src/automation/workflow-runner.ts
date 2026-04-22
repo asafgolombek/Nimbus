@@ -75,6 +75,13 @@ export type RunWorkflowExecutionParams = {
   sendChunk: (text: string) => void;
   /** When set (tests), invoked instead of {@link runConversationalAgent}. Production IPC omits this. */
   conversationalRunner?: (p: RunConversationalAgentParams) => Promise<{ reply: string }>;
+  /**
+   * Optional per-step parameter overrides: map of step label → params patch.
+   * Persisted on the workflow_run row as `params_override_json` for audit.
+   * For prompt-based steps, the override is recorded but not applied mid-execution
+   * (steps have no structured params object to merge into).
+   */
+  readonly paramsOverride?: Readonly<Record<string, Record<string, unknown>>>;
 };
 
 export type RunWorkflowExecutionResult = {
@@ -163,6 +170,8 @@ export async function runWorkflowExecution(
   const steps = parseWorkflowStepsJson(wf.steps_json);
   const runId = randomUUID();
   const now = Date.now();
+  const paramsOverrideJson =
+    p.paramsOverride === undefined ? null : JSON.stringify(p.paramsOverride);
 
   if (p.dryRun) {
     insertWorkflowRunRow(p.db, {
@@ -172,6 +181,7 @@ export async function runWorkflowExecution(
       status: "preview",
       startedAt: now,
       dryRun: true,
+      paramsOverrideJson,
     });
     finishWorkflowRunRow(p.db, runId, "preview", Date.now(), null);
     return {
@@ -192,6 +202,7 @@ export async function runWorkflowExecution(
     triggeredBy: p.triggeredBy,
     status: "running",
     startedAt: now,
+    paramsOverrideJson,
   });
 
   const outputs: string[] = [];
