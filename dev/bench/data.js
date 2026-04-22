@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776849201105,
+  "lastUpdate": 1776871702043,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -898,6 +898,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.51939212,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2e9693a219947a3c3ac325cb605183c7cd7db239",
+          "message": "Merge pull request #81 from asafgolombek/dev/asafgolombek/phase4-s2-watcher-graph\n\nfeat: Phase 4 §S2 — A.1 graph-aware watcher conditions",
+          "timestamp": "2026-04-22T18:27:54+03:00",
+          "tree_id": "11466760b10f3a4520479472d55619f767a50de7",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/2e9693a219947a3c3ac325cb605183c7cd7db239"
+        },
+        "date": 1776871701625,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4153935400000024,
             "unit": "ms"
           }
         ]
