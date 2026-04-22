@@ -36,9 +36,12 @@ import {
   type WatcherCandidateRelationsResult,
   type WatcherCreateParams,
   type WatcherCreateResult,
+  type WatcherListHistoryResult,
   type WatcherListResult,
   type WatcherValidateConditionResult,
   type WorkflowListResult,
+  type WorkflowListRunsResult,
+  type WorkflowRunParams,
   type WorkflowRunResult,
   type WorkflowSaveResult,
 } from "./types";
@@ -114,19 +117,21 @@ export interface NimbusIpcClient {
     graphPredicateJson: string,
     sinceMs: number,
   ): Promise<WatcherValidateConditionResult>;
+  watcherListHistory(watcherId: string, limit: number): Promise<WatcherListHistoryResult>;
   extensionList(): Promise<ExtensionListResult>;
   extensionInstall(sourcePath: string): Promise<ExtensionInstallResult>;
   extensionEnable(id: string): Promise<{ ok: boolean }>;
   extensionDisable(id: string): Promise<{ ok: boolean }>;
   extensionRemove(id: string): Promise<{ ok: boolean }>;
   workflowList(): Promise<WorkflowListResult>;
+  workflowListRuns(workflowName: string, limit: number): Promise<WorkflowListRunsResult>;
   workflowSave(params: {
     name: string;
     description?: string;
     stepsJson: string;
   }): Promise<WorkflowSaveResult>;
   workflowDelete(name: string): Promise<{ ok: boolean }>;
-  workflowRun(params: { name: string; dryRun: boolean }): Promise<WorkflowRunResult>;
+  workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult>;
 }
 
 const FORBIDDEN_VALUE_KEYS: readonly string[] = [
@@ -443,6 +448,17 @@ export function createIpcClient(): NimbusIpcClient {
         throw new Error("watcher.validateCondition: expected object");
       return res as WatcherValidateConditionResult;
     },
+    async watcherListHistory(watcherId: string, limit: number): Promise<WatcherListHistoryResult> {
+      const res = await this.call<unknown>("watcher.listHistory", { watcherId, limit });
+      if (
+        typeof res !== "object" ||
+        res === null ||
+        !Array.isArray((res as WatcherListHistoryResult).events)
+      ) {
+        throw new Error("watcher.listHistory: expected { events: [] }");
+      }
+      return res as WatcherListHistoryResult;
+    },
     async extensionList(): Promise<ExtensionListResult> {
       const res = await this.call<unknown>("extension.list", {});
       if (typeof res !== "object" || res === null)
@@ -467,6 +483,17 @@ export function createIpcClient(): NimbusIpcClient {
         throw new Error("workflow.list: expected object");
       return res as WorkflowListResult;
     },
+    async workflowListRuns(workflowName: string, limit: number): Promise<WorkflowListRunsResult> {
+      const res = await this.call<unknown>("workflow.listRuns", { workflowName, limit });
+      if (
+        typeof res !== "object" ||
+        res === null ||
+        !Array.isArray((res as WorkflowListRunsResult).runs)
+      ) {
+        throw new Error("workflow.listRuns: expected { runs: [] }");
+      }
+      return res as WorkflowListRunsResult;
+    },
     async workflowSave(params: {
       name: string;
       description?: string;
@@ -481,7 +508,7 @@ export function createIpcClient(): NimbusIpcClient {
     async workflowDelete(name: string): Promise<{ ok: boolean }> {
       return await this.call<{ ok: boolean }>("workflow.delete", { name });
     },
-    async workflowRun(params: { name: string; dryRun: boolean }): Promise<WorkflowRunResult> {
+    async workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult> {
       return await this.call<WorkflowRunResult>("workflow.run", params);
     },
   };

@@ -72,17 +72,27 @@ export const watcherResumeMock = vi.fn<(id: string) => Promise<unknown>>();
 export const watcherListCandidateRelationsMock = vi.fn<() => Promise<unknown>>();
 export const watcherValidateConditionMock =
   vi.fn<(graphPredicateJson: string, sinceMs: number) => Promise<unknown>>();
+export const watcherListHistoryMock =
+  vi.fn<(watcherId: string, limit: number) => Promise<unknown>>();
 export const extensionListMock = vi.fn<() => Promise<unknown>>();
 export const extensionInstallMock = vi.fn<(sourcePath: string) => Promise<unknown>>();
 export const extensionEnableMock = vi.fn<(id: string) => Promise<unknown>>();
 export const extensionDisableMock = vi.fn<(id: string) => Promise<unknown>>();
 export const extensionRemoveMock = vi.fn<(id: string) => Promise<unknown>>();
 export const workflowListMock = vi.fn<() => Promise<unknown>>();
+export const workflowListRunsMock =
+  vi.fn<(workflowName: string, limit: number) => Promise<unknown>>();
 export const workflowSaveMock =
   vi.fn<(params: { name: string; description?: string; stepsJson: string }) => Promise<unknown>>();
 export const workflowDeleteMock = vi.fn<(name: string) => Promise<unknown>>();
 export const workflowRunMock =
-  vi.fn<(params: { name: string; dryRun: boolean }) => Promise<unknown>>();
+  vi.fn<
+    (params: {
+      name: string;
+      dryRun: boolean;
+      paramsOverride?: Record<string, Record<string, unknown>>;
+    }) => Promise<unknown>
+  >();
 
 export const createIpcClient = () => ({
   call: callMock,
@@ -127,12 +137,14 @@ export const createIpcClient = () => ({
   watcherResume: watcherResumeMock,
   watcherListCandidateRelations: watcherListCandidateRelationsMock,
   watcherValidateCondition: watcherValidateConditionMock,
+  watcherListHistory: watcherListHistoryMock,
   extensionList: extensionListMock,
   extensionInstall: extensionInstallMock,
   extensionEnable: extensionEnableMock,
   extensionDisable: extensionDisableMock,
   extensionRemove: extensionRemoveMock,
   workflowList: workflowListMock,
+  workflowListRuns: workflowListRunsMock,
   workflowSave: workflowSaveMock,
   workflowDelete: workflowDeleteMock,
   workflowRun: workflowRunMock,
