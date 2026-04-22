@@ -902,6 +902,35 @@ Both Phase 4 clients use the **existing JSON-RPC 2.0 IPC socket** — no new Gat
 
 **Rich TUI** (`nimbus tui`) — an Ink-based terminal layout using `@nimbus-dev/client` IPC transport. HITL consent is surfaced inline in the terminal pane, identical in behaviour to the existing CLI consent prompt.
 
+### Watchers
+
+The watcher engine evaluates post-sync conditions and fires configured automations. Each watcher has a `condition_type`, a `condition_json` payload (service-specific filter criteria), and an optional `graph_predicate_json` that narrows evaluation using the Phase 3 relationship graph substrate.
+
+#### Graph-aware watcher example (Phase 4 §2)
+
+A watcher can additionally reference the relationship graph to narrow when it
+fires. For example, "alert any PagerDuty incident *owned by me*":
+
+```json
+{
+  "condition_type": "alert_fired",
+  "condition_json": { "filter": { "service": "pagerduty" } },
+  "graph_predicate_json": {
+    "relation": "owned_by",
+    "target": { "type": "person", "externalId": "gh:42" }
+  }
+}
+```
+
+Logical relation kinds map to concrete `graph_relation.type` edges:
+
+- `owned_by`      → `authored` | `opened` | `posted`
+- `upstream_of`   → item → target via `belongs_to` / `targets` / `in_repo` / `defined_in` / `depends_on`
+- `downstream_of` → target → item via the same set (direction reversed)
+
+The feature is gated by `[automation].graph_conditions = true` in `nimbus.toml`
+(default enabled for v0.1.0).
+
 ---
 
 ## Nimbus Gateway: Process Lifecycle
