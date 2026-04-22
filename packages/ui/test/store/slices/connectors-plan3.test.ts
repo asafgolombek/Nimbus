@@ -53,9 +53,27 @@ describe("ConnectorsSlice — Plan 3 additions", () => {
     expect(row?.enabled).toBe(true);
   });
 
-  it("patchConnectorRow is a no-op for unknown services", () => {
+  it("patchConnectorRow is a no-op for unknown services (empty list)", () => {
     useNimbusStore.getState().patchConnectorRow("unknown", { enabled: false });
     expect(useNimbusStore.getState().connectorsList).toEqual([]);
+  });
+
+  it("patchConnectorRow leaves non-matching rows in a populated list untouched", () => {
+    useNimbusStore.setState({
+      connectorsList: [
+        {
+          service: "github",
+          intervalMs: 60000,
+          depth: "summary",
+          enabled: true,
+          health: "healthy",
+        },
+      ],
+    } as never);
+    useNimbusStore.getState().patchConnectorRow("slack", { enabled: false });
+    const row = useNimbusStore.getState().connectorsList[0];
+    expect(row.service).toBe("github");
+    expect(row.enabled).toBe(true);
   });
 });
 

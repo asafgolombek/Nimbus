@@ -37,4 +37,31 @@ describe("ConnectorTile", () => {
     const el = container.querySelector('[data-connector="notion"]');
     expect(el?.className).toMatch(/ring/);
   });
+
+  it("applies error dot colour for 'error' health", () => {
+    const c: ConnectorStatus = { name: "github", health: "error" };
+    const { container } = render(<ConnectorTile status={c} highlighted={false} />);
+    const dot = container.querySelector('[aria-hidden="true"]');
+    expect(dot?.className).toMatch(/color-error/);
+  });
+
+  it("applies error dot colour for 'unauthenticated' health", () => {
+    const c: ConnectorStatus = { name: "github", health: "unauthenticated" };
+    const { container } = render(<ConnectorTile status={c} highlighted={false} />);
+    const dot = container.querySelector('[aria-hidden="true"]');
+    expect(dot?.className).toMatch(/color-error/);
+  });
+
+  it("applies muted dot colour for 'paused' health (default case)", () => {
+    const c: ConnectorStatus = { name: "github", health: "paused" };
+    const { container } = render(<ConnectorTile status={c} highlighted={false} />);
+    const dot = container.querySelector('[aria-hidden="true"]');
+    expect(dot?.className).toMatch(/color-fg-muted/);
+  });
+
+  it("falls back to the raw name for unknown connector identifiers", () => {
+    const c: ConnectorStatus = { name: "my-custom-connector", health: "healthy" };
+    render(<ConnectorTile status={c} highlighted={false} />);
+    expect(screen.getByText("my-custom-connector")).toBeInTheDocument();
+  });
 });
