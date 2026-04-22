@@ -38,8 +38,7 @@ export function WatcherHistoryDrawer({
   }, [watcherId]);
 
   return (
-    <div
-      role="region"
+    <section
       aria-label={`History for ${watcherName}`}
       className="border rounded p-3 mt-2 bg-neutral-50 dark:bg-neutral-900 flex flex-col gap-2"
     >
@@ -73,6 +72,6 @@ export function WatcherHistoryDrawer({
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }
