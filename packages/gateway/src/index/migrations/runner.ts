@@ -43,6 +43,7 @@ import {
   UNIFIED_ITEM_V3_SCHEMA_SQL,
 } from "../unified-item-v3-sql.ts";
 import { USER_MCP_V11_MIGRATION_SQL } from "../user-mcp-v11-sql.ts";
+import { WATCHER_GRAPH_V22_SQL } from "../watcher-graph-v22-sql.ts";
 import { WATCHER_V8_MIGRATION_SQL } from "../watcher-v8-sql.ts";
 import { WORKFLOW_V9_MIGRATION_SQL } from "../workflow-v9-sql.ts";
 
@@ -312,6 +313,14 @@ function migrateIndexedV20ToV21(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV21ToV22(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(WATCHER_GRAPH_V22_SQL);
+    db.exec("PRAGMA user_version = 22");
+    recordMigration(db, 22, "watcher.graph_predicate_json (graph-aware conditions)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -334,6 +343,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 18, toVersion: 19, apply: migrateIndexedV18ToV19 },
   { fromVersion: 19, toVersion: 20, apply: migrateIndexedV19ToV20 },
   { fromVersion: 20, toVersion: 21, apply: migrateIndexedV20ToV21 },
+  { fromVersion: 21, toVersion: 22, apply: migrateIndexedV21ToV22 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -358,6 +368,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "lan_peers (LAN remote-access peer registry) (backfilled)",
   "llm_task_defaults (per-task-type LLM model defaults) (backfilled)",
   "sync_state.depth (per-connector reindex depth) (backfilled)",
+  "watcher.graph_predicate_json (graph-aware conditions) (backfilled)",
 ];
 
 /**
