@@ -264,7 +264,7 @@ export interface LanPeerRow {
 }
 
 /** Current indexed DB schema version — also accessible as `LocalIndex.SCHEMA_VERSION`. */
-export const CURRENT_SCHEMA_VERSION = 22;
+export const CURRENT_SCHEMA_VERSION = 23;
 
 export class LocalIndex {
   static readonly SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
