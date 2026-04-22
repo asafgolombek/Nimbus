@@ -146,22 +146,28 @@ function seededDb(): Database {
   return db;
 }
 
-describe("itemMatchesGraphPredicate", () => {
-  test("owned_by matches when person authored the item", () => {
-    const db = seededDb();
-    const now = 1_700_000_000_000;
-    const personId = upsertGraphEntity(db, {
+function seedPersonAndPr(db: Database): { personId: string; prId: string } {
+  return {
+    personId: upsertGraphEntity(db, {
       type: "person",
       externalId: "gh:42",
       label: "Dev",
       service: "github",
-    });
-    const prId = upsertGraphEntity(db, {
+    }),
+    prId: upsertGraphEntity(db, {
       type: "pr",
       externalId: "pr-1",
       label: "Fix bug",
       service: "github",
-    });
+    }),
+  };
+}
+
+describe("itemMatchesGraphPredicate", () => {
+  test("owned_by matches when person authored the item", () => {
+    const db = seededDb();
+    const now = 1_700_000_000_000;
+    const { personId, prId } = seedPersonAndPr(db);
     upsertGraphRelation(db, personId, prId, "authored", now);
 
     const matched = itemMatchesGraphPredicate({
@@ -179,19 +185,7 @@ describe("itemMatchesGraphPredicate", () => {
   test("owned_by rejects when relation type is not an ownership type", () => {
     const db = seededDb();
     const now = 1_700_000_000_000;
-    const personId = upsertGraphEntity(db, {
-      type: "person",
-      externalId: "gh:42",
-      label: "Dev",
-      service: "github",
-    });
-    const prId = upsertGraphEntity(db, {
-      type: "pr",
-      externalId: "pr-1",
-      label: "Fix bug",
-      service: "github",
-    });
-    // Non-ownership relation type — predicate should not match.
+    const { personId, prId } = seedPersonAndPr(db);
     upsertGraphRelation(db, personId, prId, "reviewed", now);
 
     const matched = itemMatchesGraphPredicate({
@@ -233,7 +227,6 @@ describe("itemMatchesGraphPredicate", () => {
       },
     });
     expect(matched).toBe(true);
-    // And "downstream_of" on the same pair is false — direction matters.
     expect(
       itemMatchesGraphPredicate({
         db,

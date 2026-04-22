@@ -29,18 +29,46 @@ function insertAlertFiredWatcher(
   });
 }
 
+function insertSentryAlert(db: Database, externalId: string, title: string, t0: number): void {
+  upsertIndexedItem(db, {
+    service: "sentry",
+    type: "alert",
+    externalId,
+    title,
+    modifiedAt: t0 + 1000,
+    syncedAt: t0 + 1000,
+  });
+}
+
+function insertGraphPredicateWatcher(
+  db: Database,
+  name: string,
+  graphPredicateJson: string,
+  createdAt: number,
+): string {
+  return insertWatcher(db, {
+    name,
+    enabled: 1,
+    condition_type: "alert_fired",
+    condition_json: JSON.stringify({ filter: { service: "sentry" } }),
+    action_type: "notify",
+    action_json: "{}",
+    created_at: createdAt,
+    graph_predicate_json: graphPredicateJson,
+  });
+}
+
 describe("watcher-engine", () => {
-  test("evaluateWatchersAfterSync no-op when schema below v8", async () => {
+  test("evaluateWatchersAfterSync no-op when schema below v8", () => {
     const db = new Database(":memory:");
     let calls = 0;
     evaluateWatchersAfterSync(db, "pagerduty", Date.now(), () => {
       calls += 1;
     });
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("non-alert_fired condition does not notify", async () => {
+  test("non-alert_fired condition does not notify", () => {
     const db = makeDb();
     const t0 = 1_700_000_000_000;
     insertWatcher(db, {
@@ -57,10 +85,9 @@ describe("watcher-engine", () => {
       calls += 1;
     });
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("invalid condition_json does not notify", async () => {
+  test("invalid condition_json does not notify", () => {
     const db = makeDb();
     const t0 = 1_700_000_000_000;
     insertAlertFiredWatcher(db, "bad-json", "not-json", t0);
@@ -69,10 +96,9 @@ describe("watcher-engine", () => {
       calls += 1;
     });
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("service filter mismatch does not notify", async () => {
+  test("service filter mismatch does not notify", () => {
     const db = makeDb();
     const t0 = 1_700_000_000_000;
     insertAlertFiredWatcher(
@@ -94,10 +120,9 @@ describe("watcher-engine", () => {
       calls += 1;
     });
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("fires on new alert for synced service and updates watcher timestamps", async () => {
+  test("fires on new alert for synced service and updates watcher timestamps", () => {
     const db = makeDb();
     const t0 = 1_700_000_000_000;
     const wid = insertAlertFiredWatcher(
@@ -116,7 +141,7 @@ describe("watcher-engine", () => {
     });
     const bodies: string[] = [];
     const evalAt = t0 + 9000;
-    evaluateWatchersAfterSync(db, "pagerduty", evalAt, async (_title, body) => {
+    evaluateWatchersAfterSync(db, "pagerduty", evalAt, (_title, body) => {
       const evDuring = db
         .query(`SELECT COUNT(*) as c FROM watcher_event WHERE watcher_id = ?`)
         .get(wid) as { c: number };
@@ -137,10 +162,9 @@ describe("watcher-engine", () => {
       c: number;
     };
     expect(evCount.c).toBe(1);
-    await Promise.resolve();
   });
 
-  test("omitted filter service matches any synced service", async () => {
+  test("omitted filter service matches any synced service", () => {
     const db = makeDb();
     const t0 = 2_700_000_000_000;
     insertAlertFiredWatcher(db, "any-svc", JSON.stringify({ filter: {} }), t0);
@@ -153,14 +177,13 @@ describe("watcher-engine", () => {
       syncedAt: t0 + 1000,
     });
     const bodies: string[] = [];
-    evaluateWatchersAfterSync(db, "sentry", t0 + 2000, async (_t, b) => {
+    evaluateWatchersAfterSync(db, "sentry", t0 + 2000, (_t, b) => {
       bodies.push(b);
     });
     expect(bodies.length).toBe(1);
-    await Promise.resolve();
   });
 
-  test("startup catch-up evaluates without a prior sync event", async () => {
+  test("startup catch-up evaluates without a prior sync event", () => {
     const db = makeDb();
     const t0 = 3_800_000_000_000;
     insertAlertFiredWatcher(db, "catch-up", JSON.stringify({ filter: { service: "sentry" } }), t0);
@@ -173,81 +196,50 @@ describe("watcher-engine", () => {
       syncedAt: t0 + 4000,
     });
     const bodies: string[] = [];
-    evaluateWatchersStartupCatchUp(db, t0 + 5000, async (_t, b) => {
+    evaluateWatchersStartupCatchUp(db, t0 + 5000, (_t, b) => {
       bodies.push(b);
     });
     expect(bodies.length).toBe(1);
     expect(bodies[0]).toContain("Regression");
-    await Promise.resolve();
   });
 
-  test("null filter in condition_json does not notify", async () => {
+  test("null filter in condition_json does not notify", () => {
     const db = makeDb();
     const t0 = 3_900_000_000_000;
-    // Valid JSON object but filter is null — should not notify.
     insertAlertFiredWatcher(db, "null-filter", JSON.stringify({ filter: null }), t0);
-    upsertIndexedItem(db, {
-      service: "sentry",
-      type: "alert",
-      externalId: "nf-1",
-      title: "null filter alert",
-      modifiedAt: t0 + 1000,
-      syncedAt: t0 + 1000,
-    });
+    insertSentryAlert(db, "nf-1", "null filter alert", t0);
     let calls = 0;
     evaluateWatchersAfterSync(db, "sentry", t0 + 2000, () => {
       calls += 1;
     });
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("array filter in condition_json does not notify", async () => {
+  test("array filter in condition_json does not notify", () => {
     const db = makeDb();
     const t0 = 3_950_000_000_000;
-    // Valid JSON object but filter is an array — should not notify.
     insertAlertFiredWatcher(db, "array-filter", JSON.stringify({ filter: ["sentry"] }), t0);
-    upsertIndexedItem(db, {
-      service: "sentry",
-      type: "alert",
-      externalId: "af-1",
-      title: "array filter alert",
-      modifiedAt: t0 + 1000,
-      syncedAt: t0 + 1000,
-    });
+    insertSentryAlert(db, "af-1", "array filter alert", t0);
     let calls = 0;
     evaluateWatchersAfterSync(db, "sentry", t0 + 2000, () => {
       calls += 1;
     });
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("invalid graph_predicate_json shape suppresses notify (fail-closed)", async () => {
+  test("invalid graph_predicate_json shape suppresses notify (fail-closed)", () => {
     const db = makeDb();
     const t0 = 3_970_000_000_000;
-    insertWatcher(db, {
-      name: "bad-predicate",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-      // Valid JSON but relation kind is invalid — parseGraphPredicate returns ok:false.
-      graph_predicate_json: JSON.stringify({
+    insertGraphPredicateWatcher(
+      db,
+      "bad-predicate",
+      JSON.stringify({
         relation: "not_a_real_relation",
         target: { type: "person", externalId: "gh:1" },
       }),
-    });
-    upsertIndexedItem(db, {
-      service: "sentry",
-      type: "alert",
-      externalId: "bp-1",
-      title: "bad predicate alert",
-      modifiedAt: t0 + 1000,
-      syncedAt: t0 + 1000,
-    });
+      t0,
+    );
+    insertSentryAlert(db, "bp-1", "bad predicate alert", t0);
     let calls = 0;
     evaluateWatchersAfterSync(
       db,
@@ -258,35 +250,19 @@ describe("watcher-engine", () => {
       },
       { graphConditionsEnabled: true },
     );
-    // Fail-closed: invalid predicate → no notification.
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("graph predicate filters alert matches — no match suppresses notify", async () => {
+  test("graph predicate filters alert matches — no match suppresses notify", () => {
     const db = makeDb();
     const t0 = 4_000_000_000_000;
-    insertWatcher(db, {
-      name: "graph-filtered",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-      graph_predicate_json: JSON.stringify({
-        relation: "owned_by",
-        target: { type: "person", externalId: "gh:absent" },
-      }),
-    });
-    upsertIndexedItem(db, {
-      service: "sentry",
-      type: "alert",
-      externalId: "a1",
-      title: "cpu",
-      modifiedAt: t0 + 1000,
-      syncedAt: t0 + 1000,
-    });
+    insertGraphPredicateWatcher(
+      db,
+      "graph-filtered",
+      JSON.stringify({ relation: "owned_by", target: { type: "person", externalId: "gh:absent" } }),
+      t0,
+    );
+    insertSentryAlert(db, "a1", "cpu", t0);
     let calls = 0;
     evaluateWatchersAfterSync(
       db,
@@ -298,34 +274,18 @@ describe("watcher-engine", () => {
       { graphConditionsEnabled: true },
     );
     expect(calls).toBe(0);
-    await Promise.resolve();
   });
 
-  test("graph predicate filters alert matches — matching edge fires notify", async () => {
+  test("graph predicate filters alert matches — matching edge fires notify", () => {
     const db = makeDb();
     const t0 = 4_100_000_000_000;
-    insertWatcher(db, {
-      name: "graph-matched",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-      graph_predicate_json: JSON.stringify({
-        relation: "owned_by",
-        target: { type: "person", externalId: "gh:7" },
-      }),
-    });
-    upsertIndexedItem(db, {
-      service: "sentry",
-      type: "alert",
-      externalId: "a2",
-      title: "oom",
-      modifiedAt: t0 + 1000,
-      syncedAt: t0 + 1000,
-    });
-    // Seed the owning edge person → alert.
+    insertGraphPredicateWatcher(
+      db,
+      "graph-matched",
+      JSON.stringify({ relation: "owned_by", target: { type: "person", externalId: "gh:7" } }),
+      t0,
+    );
+    insertSentryAlert(db, "a2", "oom", t0);
     const personId = upsertGraphEntity(db, {
       type: "person",
       externalId: "gh:7",
@@ -351,33 +311,18 @@ describe("watcher-engine", () => {
       { graphConditionsEnabled: true },
     );
     expect(calls).toBe(1);
-    await Promise.resolve();
   });
 
-  test("graph predicate is ignored when graphConditionsEnabled = false", async () => {
+  test("graph predicate is ignored when graphConditionsEnabled = false", () => {
     const db = makeDb();
     const t0 = 4_200_000_000_000;
-    insertWatcher(db, {
-      name: "graph-disabled",
-      enabled: 1,
-      condition_type: "alert_fired",
-      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
-      action_type: "notify",
-      action_json: "{}",
-      created_at: t0,
-      graph_predicate_json: JSON.stringify({
-        relation: "owned_by",
-        target: { type: "person", externalId: "gh:absent" },
-      }),
-    });
-    upsertIndexedItem(db, {
-      service: "sentry",
-      type: "alert",
-      externalId: "a3",
-      title: "disk",
-      modifiedAt: t0 + 1000,
-      syncedAt: t0 + 1000,
-    });
+    insertGraphPredicateWatcher(
+      db,
+      "graph-disabled",
+      JSON.stringify({ relation: "owned_by", target: { type: "person", externalId: "gh:absent" } }),
+      t0,
+    );
+    insertSentryAlert(db, "a3", "disk", t0);
     let calls = 0;
     evaluateWatchersAfterSync(
       db,
@@ -388,8 +333,6 @@ describe("watcher-engine", () => {
       },
       { graphConditionsEnabled: false },
     );
-    // Flag off → predicate ignored → alert fires.
     expect(calls).toBe(1);
-    await Promise.resolve();
   });
 });
