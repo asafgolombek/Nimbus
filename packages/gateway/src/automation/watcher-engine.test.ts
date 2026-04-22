@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-
+import { upsertGraphEntity, upsertGraphRelation } from "../graph/relationship-graph.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { evaluateWatchersAfterSync, evaluateWatchersStartupCatchUp } from "./watcher-engine.ts";
@@ -178,6 +178,136 @@ describe("watcher-engine", () => {
     });
     expect(bodies.length).toBe(1);
     expect(bodies[0]).toContain("Regression");
+    await Promise.resolve();
+  });
+
+  test("graph predicate filters alert matches — no match suppresses notify", async () => {
+    const db = makeDb();
+    const t0 = 4_000_000_000_000;
+    insertWatcher(db, {
+      name: "graph-filtered",
+      enabled: 1,
+      condition_type: "alert_fired",
+      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
+      action_type: "notify",
+      action_json: "{}",
+      created_at: t0,
+      graph_predicate_json: JSON.stringify({
+        relation: "owned_by",
+        target: { type: "person", externalId: "gh:absent" },
+      }),
+    });
+    upsertIndexedItem(db, {
+      service: "sentry",
+      type: "alert",
+      externalId: "a1",
+      title: "cpu",
+      modifiedAt: t0 + 1000,
+      syncedAt: t0 + 1000,
+    });
+    let calls = 0;
+    evaluateWatchersAfterSync(
+      db,
+      "sentry",
+      t0 + 2000,
+      () => {
+        calls += 1;
+      },
+      { graphConditionsEnabled: true },
+    );
+    expect(calls).toBe(0);
+    await Promise.resolve();
+  });
+
+  test("graph predicate filters alert matches — matching edge fires notify", async () => {
+    const db = makeDb();
+    const t0 = 4_100_000_000_000;
+    insertWatcher(db, {
+      name: "graph-matched",
+      enabled: 1,
+      condition_type: "alert_fired",
+      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
+      action_type: "notify",
+      action_json: "{}",
+      created_at: t0,
+      graph_predicate_json: JSON.stringify({
+        relation: "owned_by",
+        target: { type: "person", externalId: "gh:7" },
+      }),
+    });
+    upsertIndexedItem(db, {
+      service: "sentry",
+      type: "alert",
+      externalId: "a2",
+      title: "oom",
+      modifiedAt: t0 + 1000,
+      syncedAt: t0 + 1000,
+    });
+    // Seed the owning edge person → alert.
+    const personId = upsertGraphEntity(db, {
+      type: "person",
+      externalId: "gh:7",
+      label: "Dev",
+      service: "github",
+    });
+    const alertId = upsertGraphEntity(db, {
+      type: "alert",
+      externalId: "a2",
+      label: "oom",
+      service: "sentry",
+    });
+    upsertGraphRelation(db, personId, alertId, "authored", t0);
+
+    let calls = 0;
+    evaluateWatchersAfterSync(
+      db,
+      "sentry",
+      t0 + 2000,
+      () => {
+        calls += 1;
+      },
+      { graphConditionsEnabled: true },
+    );
+    expect(calls).toBe(1);
+    await Promise.resolve();
+  });
+
+  test("graph predicate is ignored when graphConditionsEnabled = false", async () => {
+    const db = makeDb();
+    const t0 = 4_200_000_000_000;
+    insertWatcher(db, {
+      name: "graph-disabled",
+      enabled: 1,
+      condition_type: "alert_fired",
+      condition_json: JSON.stringify({ filter: { service: "sentry" } }),
+      action_type: "notify",
+      action_json: "{}",
+      created_at: t0,
+      graph_predicate_json: JSON.stringify({
+        relation: "owned_by",
+        target: { type: "person", externalId: "gh:absent" },
+      }),
+    });
+    upsertIndexedItem(db, {
+      service: "sentry",
+      type: "alert",
+      externalId: "a3",
+      title: "disk",
+      modifiedAt: t0 + 1000,
+      syncedAt: t0 + 1000,
+    });
+    let calls = 0;
+    evaluateWatchersAfterSync(
+      db,
+      "sentry",
+      t0 + 2000,
+      () => {
+        calls += 1;
+      },
+      { graphConditionsEnabled: false },
+    );
+    // Flag off → predicate ignored → alert fires.
+    expect(calls).toBe(1);
     await Promise.resolve();
   });
 });
