@@ -11,26 +11,65 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze (JavaScript / TypeScript)
-    runs-on: ubuntu-22.04
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
       security-events: write
       contents: read
       actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            runner: ubuntu-22.04
+            build-mode: none
+          # Tauri shell, IPC bridge, updater signature verification, LAN crypto.
+          # CodeQL Rust support is GA on github-hosted Linux; manual build mode lets us
+          # control toolchain (matches setup-rust-tauri) and skip Tauri's heavy GTK deps.
+          - language: rust
+            runner: ubuntu-22.04
+            build-mode: manual
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Linux libs for Tauri (Rust only)
+        if: matrix.language == 'rust'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libsecret-1-dev
+
+      - name: Setup Rust (Rust only)
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
         with:
-          languages: javascript-typescript
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
           queries: security-extended
 
-      - name: Autobuild
+      - name: Autobuild (JS/TS)
+        if: matrix.language == 'javascript-typescript'
         uses: github/codeql-action/autobuild@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+
+      - name: Build Tauri (Rust)
+        if: matrix.language == 'rust'
+        shell: bash
+        working-directory: packages/ui/src-tauri
+        run: cargo build --all-features --locked
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        with:
+          category: "/language:${{ matrix.language }}"

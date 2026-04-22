@@ -31,6 +31,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1 (Node 24 runtime)
         id: changes
         with:
@@ -75,6 +77,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust + Tauri checks
         uses: ./.github/actions/setup-rust-tauri
@@ -96,6 +100,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -138,13 +144,14 @@ jobs:
 
     steps:
       - name: Harden Runner
-        if: runner.os == 'Linux'
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust + Tauri checks
         uses: ./.github/actions/setup-rust-tauri
@@ -172,6 +179,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -232,13 +241,14 @@ jobs:
 
     steps:
       - name: Harden Runner
-        if: runner.os == 'Linux'
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci

@@ -27,6 +27,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -52,6 +54,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       # Trivy's Bun detector expects node_modules (see INFO in scan logs); matches the audit job and improves
       # lockfile / dependency graph accuracy. node_modules remains excluded from traversal via skip-dirs.
@@ -130,6 +134,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -158,6 +164,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -176,3 +184,63 @@ jobs:
       - name: Run cargo audit (packages/ui/src-tauri)
         working-directory: packages/ui/src-tauri
         run: cargo audit
+
+  cargo-deny:
+    name: Cargo deny (licenses + advisories + bans)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Run cargo deny
+        # Action pinned to a SHA. Walks deny.toml in the working dir.
+        uses: EmbarkStudios/cargo-deny-action@e2f4ede4a4e60ea15ff31bc0647485d80c66cfba # v2.0.4
+        with:
+          manifest-path: packages/ui/src-tauri/Cargo.toml
+          # `all` = check advisories, bans, licenses, sources.
+          command: check all
+          arg: --hide-inclusion-graph
+
+  gitleaks:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # PR comments + status check from gitleaks.
+      pull-requests: write
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history so gitleaks can diff against base.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run gitleaks
+        # Free for public repos; org/private repos require GITLEAKS_LICENSE secret.
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
+          GITLEAKS_ENABLE_SUMMARY: "true"

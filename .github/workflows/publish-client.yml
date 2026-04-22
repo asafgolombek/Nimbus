@@ -14,13 +14,33 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      # Required for npm provenance (sigstore signature backed by GitHub OIDC).
+      # Lets consumers verify the package was built by this workflow on this commit
+      # via `npm audit signatures`.
+      id-token: write
 
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
+
+      # Pin Node so npm CLI version is predictable for `npm publish --provenance`
+      # (provenance requires npm >= 9.5; the runner default is fine, but pinning
+      # avoids surprises when GitHub bumps the runner image).
+      - name: Setup Node (for npm publish --provenance)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Build client (dist ESM + CJS)
         run: bun run --filter @nimbus-dev/client build
@@ -33,8 +53,15 @@ jobs:
         env:
           CI: "true"
 
-      - name: Publish to npm
+      # Use `npm publish --provenance` (not `bun publish`) so the published tarball
+      # carries an npm provenance attestation. Bun's publish does not yet emit one.
+      #
+      # Migration to npm trusted publishing (token-less): once configured at
+      # https://www.npmjs.com/package/@nimbus-dev/client/access (Trusted Publisher
+      # for this repo + workflow), the NODE_AUTH_TOKEN env can be dropped. id-token:
+      # write above is already in place.
+      - name: Publish to npm with provenance
         working-directory: packages/client
         env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: bun publish --access public
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
