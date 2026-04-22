@@ -57,11 +57,17 @@ export class ProfileManager {
       throw new Error(`Invalid profile name: ${name}`);
     }
     const dest = this.profileTomlPath(name);
-    if (existsSync(dest)) throw new Error(`Profile already exists: ${name}`);
-    writeFileSync(dest, `schema_version = 1\nprofile_name = "${name}"\n`, {
-      encoding: "utf8",
-      flag: "wx",
-    });
+    try {
+      writeFileSync(dest, `schema_version = 1\nprofile_name = "${name}"\n`, {
+        encoding: "utf8",
+        flag: "wx",
+      });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`Profile already exists: ${name}`);
+      }
+      throw err;
+    }
   }
 
   async switchTo(name: string): Promise<void> {
