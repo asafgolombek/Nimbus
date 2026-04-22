@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { WorkflowRunHistoryDrawer } from "../components/workflows/WorkflowRunHistoryDrawer";
 import { useIpcQuery } from "../hooks/useIpcQuery";
 import { createIpcClient } from "../ipc/client";
 import type { WorkflowListResult, WorkflowSummary } from "../ipc/types";
@@ -221,12 +222,22 @@ interface WorkflowRowProps {
   workflow: WorkflowSummary;
   dryRun: boolean;
   disabled: boolean;
+  historyOpen: boolean;
   onRun: (w: WorkflowSummary) => void;
   onEdit: (w: WorkflowSummary) => void;
   onDelete: (w: WorkflowSummary) => void;
+  onToggleHistory: (name: string) => void;
 }
 
-function WorkflowRow({ workflow, dryRun, disabled, onRun, onEdit, onDelete }: WorkflowRowProps) {
+function WorkflowRow({
+  workflow,
+  dryRun,
+  disabled,
+  onRun,
+  onEdit,
+  onDelete,
+  onToggleHistory,
+}: WorkflowRowProps) {
   return (
     <tr>
       <td className="py-2 px-3 font-medium">{workflow.name}</td>
@@ -259,6 +270,15 @@ function WorkflowRow({ workflow, dryRun, disabled, onRun, onEdit, onDelete }: Wo
         >
           Delete
         </button>
+        <button
+          type="button"
+          aria-label={`Show history for ${workflow.name}`}
+          disabled={disabled}
+          onClick={() => onToggleHistory(workflow.name)}
+          className="px-2 py-0.5 rounded border text-xs disabled:opacity-40"
+        >
+          History
+        </button>
       </td>
     </tr>
   );
@@ -280,6 +300,7 @@ export function Workflows() {
   const [showSave, setShowSave] = useState<WorkflowSummary | "new" | null>(null);
   const [dryRun, setDryRun] = useState(false);
   const [actionInFlight, setActionInFlight] = useState<string | null>(null);
+  const [openHistoryForName, setOpenHistoryForName] = useState<string | null>(null);
 
   async function handleRun(w: WorkflowSummary) {
     if (actionInFlight) return;
@@ -341,15 +362,27 @@ export function Workflows() {
           </thead>
           <tbody>
             {data.workflows.map((w) => (
-              <WorkflowRow
-                key={w.id}
-                workflow={w}
-                dryRun={dryRun}
-                disabled={offline || actionInFlight !== null}
-                onRun={handleRun}
-                onEdit={(wf) => setShowSave(wf)}
-                onDelete={handleDelete}
-              />
+              <Fragment key={w.id}>
+                <WorkflowRow
+                  workflow={w}
+                  dryRun={dryRun}
+                  disabled={offline || actionInFlight !== null}
+                  historyOpen={openHistoryForName === w.name}
+                  onRun={handleRun}
+                  onEdit={(wf) => setShowSave(wf)}
+                  onDelete={handleDelete}
+                  onToggleHistory={(name) =>
+                    setOpenHistoryForName(openHistoryForName === name ? null : name)
+                  }
+                />
+                {openHistoryForName === w.name && (
+                  <WorkflowRunHistoryDrawer
+                    workflowName={w.name}
+                    onClose={() => setOpenHistoryForName(null)}
+                    colSpan={3}
+                  />
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
