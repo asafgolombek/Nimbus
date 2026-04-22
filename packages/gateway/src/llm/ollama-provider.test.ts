@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { OllamaProvider } from "./ollama-provider.ts";
+import type { PullProgressChunk } from "./types.ts";
 
 const _realFetch = globalThis.fetch;
 
@@ -126,5 +127,44 @@ describe("OllamaProvider", () => {
     expect(tokens).toEqual(["Hello", " world"]);
     expect(result.text).toBe("Hello world");
     expect(result.tokensOut).toBe(2);
+  });
+});
+
+describe("OllamaProvider.pullModel", () => {
+  beforeEach(() => {
+    // Restore real fetch so Bun.serve can be reached
+    globalThis.fetch = _realFetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = _realFetch;
+  });
+
+  test("pullModel streams progress chunks and resolves on done", async () => {
+    const chunks = [
+      '{"status":"pulling manifest"}\n',
+      '{"status":"downloading","completed":100,"total":1000}\n',
+      '{"status":"downloading","completed":1000,"total":1000}\n',
+      '{"status":"success"}\n',
+    ];
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        if (new URL(req.url).pathname !== "/api/pull") return new Response(null, { status: 404 });
+        const body = new ReadableStream({
+          start(controller) {
+            for (const c of chunks) controller.enqueue(new TextEncoder().encode(c));
+            controller.close();
+          },
+        });
+        return new Response(body, { headers: { "Content-Type": "application/x-ndjson" } });
+      },
+    });
+    const p = new OllamaProvider(`http://127.0.0.1:${server.port}`);
+    const received: PullProgressChunk[] = [];
+    await p.pullModel("llama3.2:1b", { onProgress: (c) => received.push(c) });
+    server.stop();
+    expect(received.at(-1)?.status).toBe("success");
+    expect(received.some((c) => c.completedBytes === 1000)).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { argon2id } from "@noble/hashes/argon2";
+import { argon2id } from "@noble/hashes/argon2.js";
 
 // Default: Argon2id — 3 iterations, 64 MB memory, 1 lane.
 export type KdfParams = { t: number; m: number; p: number };

@@ -52,6 +52,7 @@ run([
 ]);
 
 run(["bun", "run", "--filter", "@nimbus-dev/sdk", "build"]);
+run(["bun", "run", "--filter", "@nimbus-dev/client", "build"]);
 
 run(["bunx", "vite", "build", "--mode", "development"], join(REPO_ROOT, "packages/ui"));
 

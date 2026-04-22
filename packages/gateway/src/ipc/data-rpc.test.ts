@@ -7,6 +7,10 @@ import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
 
 const testKdf = { t: 1, m: 1024, p: 1 } as const;
 
+function emptyCtx(): Parameters<typeof dispatchDataRpc>[2] {
+  return { index: undefined, vault: undefined, platform: "linux", nimbusVersion: "0.0.0-test" };
+}
+
 describe("dispatchDataRpc", () => {
   test("returns miss for non-data method", async () => {
     const out = await dispatchDataRpc(
@@ -90,5 +94,166 @@ describe("dispatchDataRpc", () => {
         },
       ),
     ).rejects.toBeInstanceOf(DataRpcError);
+  });
+});
+
+describe("data.getExportPreflight", () => {
+  test("returns zero values when index is undefined", async () => {
+    const r = await dispatchDataRpc("data.getExportPreflight", null, emptyCtx());
+    expect(r.kind).toBe("hit");
+    if (r.kind === "hit") {
+      const v = r.value as { lastExportAt: unknown; estimatedSizeBytes: number; itemCount: number };
+      expect(v.lastExportAt).toBeNull();
+      expect(v.estimatedSizeBytes).toBe(0);
+      expect(v.itemCount).toBe(0);
+    }
+  });
+
+  test("returns estimatedSizeBytes and itemCount from live index", async () => {
+    const idx = newIndex();
+    idx.rawDb.run(
+      `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at, pinned)
+       VALUES ('github-1', 'github', 'test', 'ext-1', 't', ?, ?, 0)`,
+      [Date.now(), Date.now()],
+    );
+    const ctx = { ...emptyCtx(), index: idx, vault: memVault() };
+    const r = await dispatchDataRpc("data.getExportPreflight", null, ctx);
+    expect(r.kind).toBe("hit");
+    if (r.kind === "hit") {
+      const v = r.value as { lastExportAt: unknown; estimatedSizeBytes: number; itemCount: number };
+      expect(v.lastExportAt).toBeNull();
+      expect(v.estimatedSizeBytes).toBeGreaterThan(0);
+      expect(v.itemCount).toBe(1);
+    }
+  });
+});
+
+describe("data.getDeletePreflight", () => {
+  test("returns zero counts when index is undefined", async () => {
+    const r = await dispatchDataRpc("data.getDeletePreflight", { service: "github" }, emptyCtx());
+    expect(r.kind).toBe("hit");
+    if (r.kind === "hit") {
+      const v = r.value as {
+        service: string;
+        itemCount: number;
+        embeddingCount: number;
+        vaultKeyCount: number;
+      };
+      expect(v.service).toBe("github");
+      expect(v.itemCount).toBe(0);
+      expect(v.embeddingCount).toBe(0);
+      expect(typeof v.vaultKeyCount).toBe("number");
+      expect(v.vaultKeyCount).toBeGreaterThan(0); // github has github.pat
+    }
+  });
+
+  test("returns item count from live index", async () => {
+    const idx = newIndex();
+    idx.rawDb.run(
+      `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at, pinned)
+       VALUES ('github-1', 'github', 'test', 'ext-1', 't', ?, ?, 0)`,
+      [Date.now(), Date.now()],
+    );
+    const ctx = { ...emptyCtx(), index: idx, vault: memVault() };
+    const r = await dispatchDataRpc("data.getDeletePreflight", { service: "github" }, ctx);
+    expect(r.kind).toBe("hit");
+    if (r.kind === "hit") {
+      const v = r.value as {
+        service: string;
+        itemCount: number;
+        embeddingCount: number;
+        vaultKeyCount: number;
+      };
+      expect(v.service).toBe("github");
+      expect(v.itemCount).toBe(1);
+      expect(v.embeddingCount).toBe(0);
+      expect(v.vaultKeyCount).toBeGreaterThan(0);
+    }
+  });
+
+  test("rejects null params (missing service)", async () => {
+    await expect(
+      dispatchDataRpc("data.getDeletePreflight", null, emptyCtx()),
+    ).rejects.toBeInstanceOf(DataRpcError);
+  });
+
+  test("rejects empty service string", async () => {
+    await expect(
+      dispatchDataRpc("data.getDeletePreflight", { service: "" }, emptyCtx()),
+    ).rejects.toBeInstanceOf(DataRpcError);
+  });
+
+  test("returns zero vaultKeyCount for unknown service", async () => {
+    const r = await dispatchDataRpc(
+      "data.getDeletePreflight",
+      { service: "unknown_service_xyz" },
+      emptyCtx(),
+    );
+    expect(r.kind).toBe("hit");
+    if (r.kind === "hit") {
+      const v = r.value as { vaultKeyCount: number };
+      expect(v.vaultKeyCount).toBe(0);
+    }
+  });
+});
+
+describe("data.export emits progress notifications", () => {
+  test("emits exportProgress and exportCompleted", async () => {
+    const notifications: { method: string; params: unknown }[] = [];
+    const out = await dispatchDataRpc(
+      "data.export",
+      {
+        output: join(mkdtempSync(join(tmpdir(), "nimbus-rpc-prog-")), "b.tar.gz"),
+        passphrase: "pw",
+        includeIndex: false,
+      },
+      {
+        index: newIndex(),
+        vault: memVault(),
+        platform: "linux",
+        nimbusVersion: "0.1.0",
+        kdfParams: testKdf,
+        notify: (m, p) => notifications.push({ method: m, params: p }),
+      },
+    );
+    expect(out.kind).toBe("hit");
+    expect(notifications.some((n) => n.method === "data.exportProgress")).toBe(true);
+    expect(notifications.some((n) => n.method === "data.exportCompleted")).toBe(true);
+  });
+});
+
+describe("data.import emits progress notifications", () => {
+  test("emits importProgress and importCompleted", async () => {
+    // First create a bundle to import
+    const exportDir = mkdtempSync(join(tmpdir(), "nimbus-rpc-imp-"));
+    const bundlePath = join(exportDir, "bundle.tar.gz");
+    await dispatchDataRpc(
+      "data.export",
+      { output: bundlePath, passphrase: "pw", includeIndex: false },
+      {
+        index: newIndex(),
+        vault: memVault(),
+        platform: "linux",
+        nimbusVersion: "0.1.0",
+        kdfParams: testKdf,
+      },
+    );
+
+    const notifications: { method: string; params: unknown }[] = [];
+    const out = await dispatchDataRpc(
+      "data.import",
+      { bundlePath, passphrase: "pw" },
+      {
+        index: newIndex(),
+        vault: memVault(),
+        platform: "linux",
+        nimbusVersion: "0.1.0",
+        kdfParams: testKdf,
+        notify: (m, p) => notifications.push({ method: m, params: p }),
+      },
+    );
+    expect(out.kind).toBe("hit");
+    expect(notifications.some((n) => n.method === "data.importProgress")).toBe(true);
+    expect(notifications.some((n) => n.method === "data.importCompleted")).toBe(true);
   });
 });

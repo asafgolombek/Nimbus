@@ -1,4 +1,10 @@
-import type { LlmGenerateOptions, LlmGenerateResult, LlmModelInfo, LlmProvider } from "./types.ts";
+import type {
+  LlmGenerateOptions,
+  LlmGenerateResult,
+  LlmModelInfo,
+  LlmProvider,
+  PullProgressChunk,
+} from "./types.ts";
 
 type OllamaTagsModel = {
   name?: unknown;
@@ -186,5 +192,51 @@ export class OllamaProvider implements LlmProvider {
       isLocal: true,
       provider: "ollama",
     };
+  }
+
+  async pullModel(
+    modelName: string,
+    opts: { signal?: AbortSignal; onProgress?: (p: PullProgressChunk) => void } = {},
+  ): Promise<void> {
+    const resp = await fetch(`${this.baseUrl}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName, stream: true }),
+      signal: opts.signal ?? null,
+    });
+    if (!resp.ok) throw new Error(`Ollama pullModel HTTP ${resp.status}`);
+    const reader = resp.body?.getReader();
+    if (reader === undefined) throw new Error("No response body");
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        const progress = parseOllamaPullChunk(line.trim());
+        if (progress !== null) opts.onProgress?.(progress);
+      }
+    }
+  }
+}
+
+function parseOllamaPullChunk(trimmed: string): PullProgressChunk | null {
+  if (trimmed === "") return null;
+  try {
+    const chunk = JSON.parse(trimmed) as {
+      status?: unknown;
+      completed?: unknown;
+      total?: unknown;
+    };
+    return {
+      status: typeof chunk.status === "string" ? chunk.status : "",
+      ...(typeof chunk.completed === "number" && { completedBytes: chunk.completed }),
+      ...(typeof chunk.total === "number" && { totalBytes: chunk.total }),
+    };
+  } catch {
+    return null;
   }
 }

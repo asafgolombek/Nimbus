@@ -1,29 +1,137 @@
-use interprocess::local_socket::{
-    tokio::{prelude::*, Stream},
-    GenericFilePath, ToFsName,
-};
+use interprocess::local_socket::tokio::{prelude::*, Stream};
+#[cfg(not(target_os = "windows"))]
+use interprocess::local_socket::{GenericFilePath, ToFsName};
 #[cfg(target_os = "windows")]
 use interprocess::local_socket::{GenericNamespaced, ToNsName};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::sleep;
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct PendingHitl {
+    pub request_id: String,
+    pub prompt: String,
+    pub details: Option<Value>,
+    pub received_at_ms: u64,
+}
+
+pub struct HitlInbox {
+    list: StdMutex<Vec<PendingHitl>>,
+}
+
+impl HitlInbox {
+    pub fn new() -> Self {
+        Self {
+            list: StdMutex::new(Vec::new()),
+        }
+    }
+    pub fn push_dedup(&self, r: PendingHitl) -> bool {
+        let mut g = self.list.lock().unwrap();
+        if g.iter().any(|x| x.request_id == r.request_id) {
+            return false;
+        }
+        g.push(r);
+        true
+    }
+    pub fn remove(&self, request_id: &str) {
+        let mut g = self.list.lock().unwrap();
+        g.retain(|x| x.request_id != request_id);
+    }
+    pub fn snapshot(&self) -> Vec<PendingHitl> {
+        self.list.lock().unwrap().clone()
+    }
+}
+
+impl Default for HitlInbox {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Methods exposed to the frontend over `rpc_call`. Alphabetized; size asserted by
+/// `allowlist_exact_size` to prevent accidental additions without a test update.
+///
+/// Vault and raw db writes are NEVER in this list
+/// (see `allowlist_rejects_vault_and_raw_db_writes`). Destructive domain ops
+/// (`data.delete`) live at the Gateway level, not the raw db layer.
 pub const ALLOWED_METHODS: &[&str] = &[
-    "diag.snapshot",
+    "audit.export",
+    "audit.getSummary",
+    "audit.list",
+    "audit.verify",
     "connector.list",
+    "connector.listStatus",
+    "connector.setConfig",
     "connector.startAuth",
-    "engine.askStream",
+    "consent.respond",
+    "data.delete",
+    "data.export",
+    "data.getDeletePreflight",
+    "data.getExportPreflight",
+    "data.import",
     "db.getMeta",
     "db.setMeta",
+    "diag.getVersion",
+    "diag.snapshot",
+    "engine.askStream",
+    "index.metrics",
+    "llm.cancelPull",
+    "llm.getRouterStatus",
+    "llm.getStatus",
+    "llm.listModels",
+    "llm.loadModel",
+    "llm.pullModel",
+    "llm.setDefault",
+    "llm.unloadModel",
+    "profile.create",
+    "profile.delete",
+    "profile.list",
+    "profile.switch",
+    "telemetry.getStatus",
+    "telemetry.setEnabled",
+    "updater.applyUpdate",
+    "updater.checkNow",
+    "updater.getStatus",
+    "updater.rollback",
 ];
 
 pub fn is_method_allowed(method: &str) -> bool {
     ALLOWED_METHODS.contains(&method)
+}
+
+const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Methods that must **not** be subject to the default `rpc_call` timeout — they are
+/// run-to-completion or fire-and-forget-with-progress-notifications. The UI relies
+/// on streamed notifications (`llm.pullProgress`, `data.exportProgress`, etc.) for
+/// liveness, and the native RPC may legitimately take many minutes on slow machines
+/// or large backups. See spec §2.2.
+pub const NO_TIMEOUT_METHODS: &[&str] = &[
+    "data.export",
+    "data.import",
+    "llm.pullModel",
+    "updater.applyUpdate",
+];
+
+pub fn is_no_timeout_method(method: &str) -> bool {
+    NO_TIMEOUT_METHODS.contains(&method)
+}
+
+/// Notification methods rebroadcast as **global** Tauri events (received by every
+/// window) rather than as window-scoped `gateway://notification`. Keep this tight —
+/// noisy methods (HITL, health changes) stay scoped to avoid fan-out.
+#[allow(dead_code)]
+pub const GLOBAL_BROADCAST_METHODS: &[&str] = &["profile.switched"];
+
+#[allow(dead_code)]
+pub fn is_global_broadcast_method(method: &str) -> bool {
+    GLOBAL_BROADCAST_METHODS.contains(&method)
 }
 
 type PendingMap = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, Value>>>>>;
@@ -136,7 +244,8 @@ where
                 };
                 let _ = tx.send(payload);
             }
-        } else if msg.get("method").is_some() {
+        } else if let Some(method) = msg.get("method").and_then(|v| v.as_str()).map(String::from) {
+            classify_notification(&app, &method, msg.get("params"));
             let _ = app.emit("gateway://notification", msg);
         }
     }
@@ -185,10 +294,22 @@ pub async fn rpc_call(
         return Err("ERR_GATEWAY_OFFLINE".into());
     }
 
-    match resp_rx.await {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => Err("ERR_GATEWAY_OFFLINE".into()),
+    if is_no_timeout_method(&method) {
+        match resp_rx.await {
+            Ok(Ok(v)) => Ok(v),
+            Ok(Err(e)) => Err(e.to_string()),
+            Err(_) => Err("ERR_GATEWAY_OFFLINE".into()),
+        }
+    } else {
+        match tokio::time::timeout(DEFAULT_RPC_TIMEOUT, resp_rx).await {
+            Ok(Ok(Ok(v))) => Ok(v),
+            Ok(Ok(Err(e))) => Err(e.to_string()),
+            Ok(Err(_)) => Err("ERR_GATEWAY_OFFLINE".into()),
+            Err(_elapsed) => {
+                state.pending.lock().await.remove(&id);
+                Err("ERR_TIMEOUT".into())
+            }
+        }
     }
 }
 
@@ -197,7 +318,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_contains_expected_methods() {
+    fn allowlist_ws5a_methods() {
         assert!(is_method_allowed("diag.snapshot"));
         assert!(is_method_allowed("connector.list"));
         assert!(is_method_allowed("connector.startAuth"));
@@ -207,17 +328,152 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_rejects_sensitive_methods() {
+    fn allowlist_ws5b_additions() {
+        assert!(is_method_allowed("connector.listStatus"));
+        assert!(is_method_allowed("index.metrics"));
+        assert!(is_method_allowed("audit.list"));
+        assert!(is_method_allowed("consent.respond"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_llm_reads() {
+        assert!(is_method_allowed("llm.listModels"));
+        assert!(is_method_allowed("llm.getRouterStatus"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_llm_availability_read() {
+        assert!(is_method_allowed("llm.getStatus"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_llm_writes() {
+        assert!(is_method_allowed("llm.pullModel"));
+        assert!(is_method_allowed("llm.cancelPull"));
+        assert!(is_method_allowed("llm.loadModel"));
+        assert!(is_method_allowed("llm.unloadModel"));
+        assert!(is_method_allowed("llm.setDefault"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_connector_writes() {
+        assert!(is_method_allowed("connector.setConfig"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_profile_crud() {
+        assert!(is_method_allowed("profile.list"));
+        assert!(is_method_allowed("profile.create"));
+        assert!(is_method_allowed("profile.switch"));
+        assert!(is_method_allowed("profile.delete"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_audit_surface() {
+        assert!(is_method_allowed("audit.getSummary"));
+        assert!(is_method_allowed("audit.verify"));
+        assert!(is_method_allowed("audit.export"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_telemetry_surface() {
+        assert!(is_method_allowed("telemetry.getStatus"));
+        assert!(is_method_allowed("telemetry.setEnabled"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_updater_surface() {
+        assert!(is_method_allowed("updater.getStatus"));
+        assert!(is_method_allowed("updater.checkNow"));
+        assert!(is_method_allowed("updater.applyUpdate"));
+        assert!(is_method_allowed("updater.rollback"));
+        assert!(is_method_allowed("diag.getVersion"));
+    }
+
+    #[test]
+    fn allowlist_ws5c_data_surface() {
+        assert!(is_method_allowed("data.getExportPreflight"));
+        assert!(is_method_allowed("data.getDeletePreflight"));
+        assert!(is_method_allowed("data.export"));
+        assert!(is_method_allowed("data.import"));
+        assert!(is_method_allowed("data.delete"));
+    }
+
+    #[test]
+    fn allowlist_rejects_vault_and_raw_db_writes() {
         assert!(!is_method_allowed("vault.get"));
         assert!(!is_method_allowed("vault.set"));
-        assert!(!is_method_allowed("db.query"));
-        assert!(!is_method_allowed("engine.ask"));
+        assert!(!is_method_allowed("vault.list"));
+        assert!(!is_method_allowed("db.put"));
+        assert!(!is_method_allowed("db.delete"));
+        assert!(!is_method_allowed("config.set"));
+        assert!(!is_method_allowed("index.rebuild"));
+    }
+
+    #[test]
+    fn allowlist_exact_size() {
+        // Plan 2 added 37 methods (spec miscounted connector.listStatus as a new addition —
+        // it was already in WS5-B). Plan 3 adds llm.getStatus → 38.
+        assert_eq!(ALLOWED_METHODS.len(), 38);
+    }
+
+    #[test]
+    fn allowlist_is_alphabetized() {
+        let mut sorted: Vec<&&str> = ALLOWED_METHODS.iter().collect();
+        sorted.sort();
+        let actual: Vec<&&str> = ALLOWED_METHODS.iter().collect();
+        assert_eq!(actual, sorted, "ALLOWED_METHODS must be alphabetized");
+    }
+
+    #[test]
+    fn allowlist_has_no_duplicates() {
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for m in ALLOWED_METHODS {
+            assert!(seen.insert(m), "duplicate method in ALLOWED_METHODS: {m}");
+        }
     }
 
     #[test]
     fn allowlist_rejects_empty_and_unknown() {
         assert!(!is_method_allowed(""));
         assert!(!is_method_allowed("unknown.method"));
+    }
+
+    #[test]
+    fn no_timeout_methods_contains_expected_four() {
+        assert!(is_no_timeout_method("data.export"));
+        assert!(is_no_timeout_method("data.import"));
+        assert!(is_no_timeout_method("llm.pullModel"));
+        assert!(is_no_timeout_method("updater.applyUpdate"));
+        assert!(!is_no_timeout_method("profile.list"));
+        assert!(!is_no_timeout_method("audit.list"));
+    }
+
+    #[test]
+    fn no_timeout_methods_exact_size() {
+        assert_eq!(NO_TIMEOUT_METHODS.len(), 4);
+    }
+
+    #[test]
+    fn no_timeout_methods_are_subset_of_allowlist() {
+        for m in NO_TIMEOUT_METHODS {
+            assert!(
+                is_method_allowed(m),
+                "{m} is in NO_TIMEOUT_METHODS but not in ALLOWED_METHODS"
+            );
+        }
+    }
+
+    #[test]
+    fn profile_switched_is_classified_for_global_rebroadcast() {
+        assert!(is_global_broadcast_method("profile.switched"));
+        assert!(!is_global_broadcast_method("consent.request"));
+        assert!(!is_global_broadcast_method("connector.healthChanged"));
+    }
+
+    #[test]
+    fn global_broadcast_methods_exact_size() {
+        assert_eq!(GLOBAL_BROADCAST_METHODS.len(), 1);
     }
 }
 
@@ -231,4 +487,78 @@ pub async fn shell_start_gateway(app: AppHandle) -> Result<(), String> {
         .spawn()
         .map(|_child| ())
         .map_err(|e| format!("Failed to launch nimbus: {e} (is it on PATH?)"))
+}
+
+#[tauri::command]
+pub async fn get_pending_hitl(state: State<'_, HitlInbox>) -> Result<Vec<PendingHitl>, String> {
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub async fn hitl_resolved(
+    app: AppHandle,
+    state: State<'_, HitlInbox>,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    state.remove(&request_id);
+    let _ = app.emit(
+        "consent://resolved",
+        json!({ "request_id": request_id, "approved": approved }),
+    );
+    Ok(())
+}
+
+fn classify_notification(app: &AppHandle, method: &str, params: Option<&Value>) {
+    match method {
+        "consent.request" => {
+            let Some(params) = params else {
+                return;
+            };
+            let (Some(request_id), Some(prompt)) = (
+                params
+                    .get("requestId")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                params
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+            ) else {
+                return;
+            };
+            let received_at_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let details = params.get("details").cloned();
+            let record = PendingHitl {
+                request_id,
+                prompt,
+                details,
+                received_at_ms,
+            };
+            if let Some(inbox) = app.try_state::<HitlInbox>() {
+                if inbox.push_dedup(record.clone()) {
+                    let _ = app.emit("consent://request", &record);
+                    let _ = crate::hitl_popup::open_or_focus(app);
+                }
+            }
+        }
+        "connector.healthChanged" => {
+            if let Some(p) = params.cloned() {
+                let _ = app.emit("connector://health-changed", p);
+            }
+        }
+        "profile.switched" => {
+            // Global rebroadcast so every window (main, HITL popup, Quick Query,
+            // onboarding) can react. Each window's JS listener triggers `app.restart()`;
+            // the first to fire wins, the rest are no-ops because the process has
+            // already exited.
+            if let Some(p) = params.cloned() {
+                let _ = app.emit("profile://switched", p);
+            }
+        }
+        _ => {}
+    }
 }

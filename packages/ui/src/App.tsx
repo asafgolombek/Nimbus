@@ -7,15 +7,23 @@ import {
   RouterProvider,
 } from "react-router-dom";
 import { RootLayout } from "./layouts/RootLayout";
+import { Dashboard } from "./pages/Dashboard";
+import { HitlPopup } from "./pages/HitlPopup";
 import { Onboarding } from "./pages/Onboarding";
 import { Connect } from "./pages/onboarding/Connect";
 import { Syncing } from "./pages/onboarding/Syncing";
 import { Welcome } from "./pages/onboarding/Welcome";
 import { QuickQuery } from "./pages/QuickQuery";
-import { DashboardStub } from "./pages/stubs/DashboardStub";
+import { Settings } from "./pages/Settings";
+import { AuditPanel } from "./pages/settings/AuditPanel";
+import { ConnectorsPanel } from "./pages/settings/ConnectorsPanel";
+import { DataPanel } from "./pages/settings/DataPanel";
+import { ModelPanel } from "./pages/settings/ModelPanel";
+import { ProfilesPanel } from "./pages/settings/ProfilesPanel";
+import { TelemetryPanel } from "./pages/settings/TelemetryPanel";
+import { UpdatesPanel } from "./pages/settings/UpdatesPanel";
 import { HitlStub } from "./pages/stubs/HitlStub";
 import { MarketplaceStub } from "./pages/stubs/MarketplaceStub";
-import { SettingsStub } from "./pages/stubs/SettingsStub";
 import { WatchersStub } from "./pages/stubs/WatchersStub";
 import { WorkflowsStub } from "./pages/stubs/WorkflowsStub";
 import { GatewayConnectionProvider } from "./providers/GatewayConnectionProvider";
@@ -33,7 +41,7 @@ const router = createBrowserRouter(
         </Wrapper>
       }
     >
-      <Route index element={<DashboardStub />} />
+      <Route index element={<Dashboard />} />
       <Route path="onboarding" element={<Onboarding />}>
         <Route index element={<Navigate to="welcome" replace />} />
         <Route path="welcome" element={<Welcome />} />
@@ -41,8 +49,18 @@ const router = createBrowserRouter(
         <Route path="syncing" element={<Syncing />} />
       </Route>
       <Route path="quick" element={<QuickQuery />} />
+      <Route path="hitl-popup" element={<HitlPopup />} />
       <Route path="hitl" element={<HitlStub />} />
-      <Route path="settings" element={<SettingsStub />} />
+      <Route path="settings" element={<Settings />}>
+        <Route index element={<Navigate to="model" replace />} />
+        <Route path="model" element={<ModelPanel />} />
+        <Route path="connectors" element={<ConnectorsPanel />} />
+        <Route path="profiles" element={<ProfilesPanel />} />
+        <Route path="audit" element={<AuditPanel />} />
+        <Route path="data" element={<DataPanel />} />
+        <Route path="telemetry" element={<TelemetryPanel />} />
+        <Route path="updates" element={<UpdatesPanel />} />
+      </Route>
       <Route path="marketplace" element={<MarketplaceStub />} />
       <Route path="watchers" element={<WatchersStub />} />
       <Route path="workflows" element={<WorkflowsStub />} />

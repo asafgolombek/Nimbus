@@ -3,7 +3,14 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
@@ -413,6 +420,51 @@ export function dispatchDiagnosticsRpc(
       return rpcTelemetryPreview(ctx);
     case "diag.snapshot":
       return rpcDiagSnapshot(ctx);
+    case "telemetry.getStatus": {
+      const disabled = existsSync(join(ctx.dataDir, ".nimbus-telemetry-disabled"));
+      if (disabled) return { kind: "hit", value: { enabled: false } };
+      if (ctx.localIndex === undefined) {
+        return { kind: "hit", value: { enabled: true } };
+      }
+      const d = ctx.localIndex.getDatabase();
+      const m = collectIndexMetrics(d);
+      const preview = buildTelemetryPreview({
+        nimbusVersion: ctx.gatewayVersion,
+        queryLatencyP50Ms: m.queryLatencyP50Ms,
+        queryLatencyP95Ms: m.queryLatencyP95Ms,
+        queryLatencyP99Ms: m.queryLatencyP99Ms,
+        db: d,
+      });
+      return { kind: "hit", value: { enabled: true, ...preview } };
+    }
+    case "telemetry.setEnabled": {
+      const p = params as { enabled?: unknown } | null;
+      if (p === null || typeof p.enabled !== "boolean") {
+        throw new DiagnosticsRpcError(-32602, "telemetry.setEnabled requires enabled:boolean");
+      }
+      const markerPath = join(ctx.dataDir, ".nimbus-telemetry-disabled");
+      if (p.enabled) {
+        if (existsSync(markerPath)) {
+          assertTelemetryDisablePathSafe(markerPath);
+          unlinkSync(markerPath);
+        }
+      } else {
+        assertTelemetryDisablePathSafe(markerPath);
+        writeFileSync(markerPath, `${String(Date.now())}\n`, { mode: 0o600 });
+      }
+      return { kind: "hit", value: { enabled: p.enabled } };
+    }
+    case "diag.getVersion": {
+      return {
+        kind: "hit",
+        value: {
+          version: ctx.gatewayVersion,
+          commit: process.env["NIMBUS_BUILD_COMMIT"] ?? null,
+          buildId: process.env["NIMBUS_BUILD_ID"] ?? null,
+          uptimeMs: Date.now() - ctx.startedAtMs,
+        },
+      };
+    }
     default:
       return { kind: "miss" };
   }

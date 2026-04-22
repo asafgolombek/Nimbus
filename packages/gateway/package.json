@@ -19,8 +19,8 @@
     "@nimbus-dev/sdk": "workspace:*",
     "@mastra/core": "^1.25.0",
     "@mastra/mcp": "^1.5.0",
-    "@noble/hashes": "^1.8.0",
-    "@scure/bip39": "^1.6.0",
+    "@noble/hashes": "^2.2.0",
+    "@scure/bip39": "^2.0.1",
     "@xenova/transformers": "^2.17.0",
     "bs58": "^6.0.0",
     "pino": "^10.3.1",
@@ -31,6 +31,6 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/tar": "^6.1.13"
+    "@types/tar": "^7.0.87"
   }
 }

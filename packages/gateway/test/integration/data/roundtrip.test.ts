@@ -52,6 +52,7 @@ describe("data sovereignty round-trip", () => {
       index: sourceIdx,
       platform,
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
     expect(expResult.recoverySeedGenerated).toBe(true);
@@ -85,6 +86,7 @@ describe("data sovereignty round-trip", () => {
       index: sourceIdx,
       platform: "linux",
       nimbusVersion: "0.1.0",
+      schemaVersion: 21,
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
 

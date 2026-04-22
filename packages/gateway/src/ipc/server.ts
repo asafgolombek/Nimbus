@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import { platform } from "node:os";
+import type { ProfileManager } from "../config/profiles.ts";
 import { Config } from "../config.ts";
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
@@ -10,6 +11,7 @@ import { type AgentRequestContext, agentRequestContext } from "../engine/agent-r
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
 import { driftHintsFromIndex } from "../index/drift-hints.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import type { LlmRegistry } from "../llm/registry.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
@@ -36,6 +38,7 @@ import { generatePairingCode, type PairingWindow } from "./lan-pairing.ts";
 import type { LanServer } from "./lan-server.ts";
 import { dispatchLlmRpc, LlmRpcError } from "./llm-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "./people-rpc.ts";
+import { dispatchProfileRpc, ProfileRpcError } from "./profile-rpc.ts";
 import { dispatchReindexRpc, ReindexRpcError } from "./reindex-rpc.ts";
 import { ClientSession, type SessionWrite } from "./session.ts";
 import { dispatchSessionRpc, SessionRpcError } from "./session-rpc.ts";
@@ -46,10 +49,14 @@ import type { WorkflowRunContext, WorkflowRunHandler } from "./workflow-invoke.t
 
 class RpcMethodError extends Error {
   readonly rpcCode: number;
-  constructor(rpcCode: number, message: string) {
+  readonly rpcData?: Record<string, unknown>;
+  constructor(rpcCode: number, message: string, rpcData?: Record<string, unknown>) {
     super(message);
     this.rpcCode = rpcCode;
     this.name = "RpcMethodError";
+    if (rpcData !== undefined) {
+      this.rpcData = rpcData;
+    }
   }
 }
 
@@ -175,6 +182,8 @@ export type CreateIpcServerOptions = {
   lanServer?: LanServer;
   /** Pairing window shared with the LAN server (Phase 4 WS4). */
   lanPairingWindow?: PairingWindow;
+  /** Profile manager for profile.* RPCs (Phase 4 WS5-C). */
+  profileManager?: ProfileManager;
 };
 
 function requireNonEmptyRpcString(rec: Record<string, unknown> | undefined, key: string): string {
@@ -262,7 +271,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       session.writeOutbound({ jsonrpc: "2.0", id, result });
     } catch (e) {
       if (e instanceof RpcMethodError) {
-        session.writeOutbound(errorResponse(id, e.rpcCode, e.message));
+        session.writeOutbound(errorResponse(id, e.rpcCode, e.message, e.rpcData));
       } else {
         const message = e instanceof Error ? e.message : "Internal error";
         session.writeOutbound(errorResponse(id, -32603, message));
@@ -345,7 +354,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return phase4RpcSkipped;
     }
     try {
-      const out = await dispatchLlmRpc(method, params, { registry: options.llmRegistry });
+      const out = await dispatchLlmRpc(method, params, {
+        registry: options.llmRegistry,
+        notify: (m, p) => broadcastNotification(m, p as Record<string, unknown>),
+      });
       if (out.kind === "hit") return out.value;
     } catch (e) {
       if (e instanceof LlmRpcError) {
@@ -410,6 +422,24 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return phase4RpcSkipped;
   }
 
+  async function tryDispatchProfileRpc(method: string, params: unknown): Promise<unknown> {
+    if (!method.startsWith("profile.")) return phase4RpcSkipped;
+    if (options.profileManager === undefined) {
+      throw new RpcMethodError(-32603, "Profile manager is not available on this gateway");
+    }
+    try {
+      const out = await dispatchProfileRpc(method, params, {
+        manager: options.profileManager,
+        notify: (m, p) => broadcastNotification(m, p as Record<string, unknown>),
+      });
+      if (out.kind === "hit") return out.value;
+    } catch (e) {
+      if (e instanceof ProfileRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      throw e;
+    }
+    return phase4RpcSkipped;
+  }
+
   async function tryDispatchDataRpc(method: string, params: unknown): Promise<unknown> {
     if (!method.startsWith("data.")) return phase4RpcSkipped;
     try {
@@ -422,10 +452,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         vault: options.vault,
         platform: rpcPlatform,
         nimbusVersion: options.version ?? "0.1.0",
+        schemaVersion: CURRENT_SCHEMA_VERSION,
       });
       if (out.kind === "hit") return out.value;
     } catch (e) {
-      if (e instanceof DataRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+      if (e instanceof DataRpcError) throw new RpcMethodError(e.rpcCode, e.message, e.rpcData);
       throw e;
     }
     return phase4RpcSkipped;
@@ -512,6 +543,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
     const lanOutcome = await tryDispatchLanRpc(method, params);
     if (lanOutcome !== phase4RpcSkipped) return lanOutcome;
+    const profileOutcome = await tryDispatchProfileRpc(method, params);
+    if (profileOutcome !== phase4RpcSkipped) return profileOutcome;
     return tryDispatchReindexRpc(method, params);
   }
 
@@ -681,6 +714,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         openUrl: openUrl ?? (async () => {}),
         syncScheduler: options.syncScheduler,
         ...(options.connectorMesh === undefined ? {} : { connectorMesh: options.connectorMesh }),
+        notify: broadcastNotification,
       });
       if (out.kind === "hit") {
         return out.value;

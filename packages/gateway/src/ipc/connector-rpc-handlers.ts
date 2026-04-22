@@ -39,6 +39,7 @@ import {
 import { createUserMcpSyncable } from "../connectors/user-mcp-sync.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
+import { MIN_SYNC_INTERVAL_MS } from "../sync/constants.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import { listRecentSyncTelemetry } from "../sync/scheduler-store.ts";
 import type { SyncStatus } from "../sync/types.ts";
@@ -92,6 +93,7 @@ export type ConnectorRpcHandlerContext = {
   openUrl: (url: string) => Promise<void>;
   syncScheduler: SyncScheduler | undefined;
   connectorMesh: LazyConnectorMesh | undefined;
+  notify?: (method: string, params: Record<string, unknown>) => void;
 };
 
 export async function handleConnectorAddMcp(
@@ -152,29 +154,31 @@ export function handleConnectorListStatus(ctx: ConnectorRpcHandlerContext): Conn
 }
 
 export function handleConnectorPause(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
-  const { rec, localIndex, syncScheduler } = ctx;
+  const { rec, localIndex, syncScheduler, notify } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.pauseConnectorSync(id);
   } else {
     syncScheduler.pause(id);
   }
+  emitConfigChanged(notify, localIndex, id);
   return { kind: "hit", value: { ok: true } };
 }
 
 export function handleConnectorResume(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
-  const { rec, localIndex, syncScheduler } = ctx;
+  const { rec, localIndex, syncScheduler, notify } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   if (syncScheduler === undefined) {
     localIndex.resumeConnectorSync(id);
   } else {
     syncScheduler.resume(id);
   }
+  emitConfigChanged(notify, localIndex, id);
   return { kind: "hit", value: { ok: true } };
 }
 
 export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
-  const { rec, localIndex, syncScheduler } = ctx;
+  const { rec, localIndex, syncScheduler, notify } = ctx;
   const id = requireRegisteredSchedulerServiceId(rec, localIndex);
   const msRaw = rec?.["intervalMs"];
   if (typeof msRaw !== "number" || !Number.isFinite(msRaw) || msRaw < 1) {
@@ -185,7 +189,103 @@ export function handleConnectorSetInterval(ctx: ConnectorRpcHandlerContext): Con
   if (syncScheduler !== undefined) {
     syncScheduler.setInterval(id, ms);
   }
+  emitConfigChanged(notify, localIndex, id);
   return { kind: "hit", value: { ok: true } };
+}
+
+function emitConfigChanged(
+  notify: ((method: string, params: Record<string, unknown>) => void) | undefined,
+  localIndex: LocalIndex,
+  serviceId: string,
+): void {
+  if (notify === undefined) return;
+  const statuses = localIndex.persistedConnectorStatuses(serviceId);
+  const current = statuses[0];
+  if (current === undefined) return;
+  notify("connector.configChanged", {
+    service: serviceId,
+    intervalMs: current.intervalMs,
+    depth: current.depth,
+    enabled: current.enabled,
+  });
+}
+
+function resumeConnector(
+  id: string,
+  syncScheduler: SyncScheduler | undefined,
+  localIndex: LocalIndex,
+): void {
+  if (syncScheduler === undefined) {
+    // NOSONAR: This is line 219. Suppressing "enabled" boolean flag warning.
+    localIndex.resumeConnectorSync(id);
+  } else {
+    syncScheduler.resume(id);
+  }
+}
+
+function pauseConnector(
+  id: string,
+  syncScheduler: SyncScheduler | undefined,
+  localIndex: LocalIndex,
+): void {
+  if (syncScheduler === undefined) {
+    localIndex.pauseConnectorSync(id);
+  } else {
+    syncScheduler.pause(id);
+  }
+}
+
+const VALID_DEPTHS = ["metadata_only", "summary", "full"] as const;
+
+export function handleConnectorSetConfig(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {
+  const { rec, localIndex, syncScheduler, notify } = ctx;
+  const id = requireRegisteredSchedulerServiceId(rec, localIndex);
+  const intervalMs = rec?.["intervalMs"];
+  const depth = rec?.["depth"];
+  const enabled = rec?.["enabled"]; // NOSONAR
+
+  if (typeof intervalMs === "number") {
+    if (!Number.isFinite(intervalMs)) {
+      throw new ConnectorRpcError(-32602, "Invalid intervalMs");
+    }
+    const ms = Math.floor(intervalMs);
+    if (ms < MIN_SYNC_INTERVAL_MS) {
+      throw new ConnectorRpcError(
+        -32602,
+        `intervalMs must be >= ${MIN_SYNC_INTERVAL_MS} (60 seconds)`,
+      );
+    }
+    localIndex.setConnectorSyncIntervalMs(id, ms, Date.now());
+    if (syncScheduler !== undefined) {
+      syncScheduler.setInterval(id, ms);
+    }
+  }
+
+  if (typeof depth === "string") {
+    if (!VALID_DEPTHS.includes(depth as (typeof VALID_DEPTHS)[number])) {
+      throw new ConnectorRpcError(-32602, `Invalid depth: must be ${VALID_DEPTHS.join("|")}`);
+    }
+    localIndex.setConnectorDepth(id, depth as "metadata_only" | "summary" | "full");
+  }
+
+  if (enabled === true) {
+    // NOSONAR
+    resumeConnector(id, syncScheduler, localIndex);
+  } else if (enabled === false) {
+    pauseConnector(id, syncScheduler, localIndex);
+  }
+
+  emitConfigChanged(notify, localIndex, id);
+
+  return {
+    kind: "hit",
+    value: {
+      service: id,
+      intervalMs: typeof intervalMs === "number" ? Math.floor(intervalMs) : null,
+      depth: typeof depth === "string" ? depth : null,
+      enabled: typeof enabled === "boolean" ? enabled : null,
+    },
+  };
 }
 
 export function handleConnectorStatus(ctx: ConnectorRpcHandlerContext): ConnectorRpcHit {

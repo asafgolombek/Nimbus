@@ -1,19 +1,34 @@
 mod gateway_bridge;
+mod hitl_popup;
 mod quick_query;
 mod tray;
+mod updater;
 
-use gateway_bridge::{connect_and_run, BridgeState};
+use gateway_bridge::{connect_and_run, BridgeState, HitlInbox};
 use tauri::Manager;
+use updater::ApplyTracker;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(BridgeState::new())
+        .manage(HitlInbox::new())
+        .manage(ApplyTracker::new())
         .invoke_handler(tauri::generate_handler![
             gateway_bridge::rpc_call,
             gateway_bridge::shell_start_gateway,
+            gateway_bridge::get_pending_hitl,
+            gateway_bridge::hitl_resolved,
+            tray::set_connectors_menu,
+            hitl_popup::open_hitl_popup,
+            hitl_popup::close_hitl_popup,
+            updater::updater_apply_started,
+            updater::updater_apply_finished,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -24,6 +39,7 @@ pub fn run() {
                 )?;
             }
             tray::init_tray(app.handle())?;
+            updater::install_listener(app.handle());
 
             use tauri::Emitter;
             use tauri_plugin_global_shortcut::{

@@ -36,9 +36,19 @@ export type LlmGenerateResult = {
   provider: LlmProviderKind;
 };
 
+export type PullProgressChunk = {
+  status: string;
+  completedBytes?: number;
+  totalBytes?: number;
+};
+
 export interface LlmProvider {
   readonly providerId: LlmProviderKind;
   isAvailable(): Promise<boolean>;
   listModels(): Promise<LlmModelInfo[]>;
   generate(opts: LlmGenerateOptions): Promise<LlmGenerateResult>;
+  pullModel?(
+    modelName: string,
+    opts: { signal?: AbortSignal; onProgress?: (p: PullProgressChunk) => void },
+  ): Promise<void>;
 }

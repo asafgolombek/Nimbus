@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 import { getConnectorHealth } from "../connectors/health.ts";
+import type { ReindexDepth } from "../connectors/reindex.ts";
 import { computeAuditRowHash, GENESIS_HASH } from "../db/audit-chain.ts";
 import {
   DEFAULT_SLOW_QUERY_THRESHOLD_MS,
@@ -262,8 +263,11 @@ export interface LanPeerRow {
   last_seen_at: string | null;
 }
 
+/** Current indexed DB schema version — also accessible as `LocalIndex.SCHEMA_VERSION`. */
+export const CURRENT_SCHEMA_VERSION = 21;
+
 export class LocalIndex {
-  static readonly SCHEMA_VERSION = 19;
+  static readonly SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
   /**
    * Applies bundled migrations when `user_version` is below `SCHEMA_VERSION`.
@@ -314,6 +318,10 @@ export class LocalIndex {
       status = "backoff";
     }
     const health = getConnectorHealth(db, row.service_id);
+    const depthRow = db
+      .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
+      .get(row.service_id) as { depth: string | null } | null | undefined;
+    const depth = (depthRow?.depth ?? "summary") as ReindexDepth;
     return {
       serviceId: row.service_id,
       status,
@@ -325,6 +333,8 @@ export class LocalIndex {
       consecutiveFailures: row.consecutive_failures,
       healthState: health.state,
       healthRetryAfterMs: health.retryAfter === undefined ? null : health.retryAfter.getTime(),
+      depth,
+      enabled: status !== "paused",
     };
   }
 
@@ -405,6 +415,31 @@ export class LocalIndex {
 
   setConnectorSyncIntervalMs(serviceId: string, intervalMs: number, now: number): void {
     upsertSchedulerRegistration(this.db, serviceId, intervalMs, now, true);
+  }
+
+  // NOSONAR: depth type is already a type alias (ReindexDepth)
+  setConnectorDepth(serviceId: string, depth: ReindexDepth): void {
+    // NOSONAR
+    const rows = this.db
+      .query(`UPDATE sync_state SET depth = ? WHERE connector_id = ?`)
+      .run(depth, serviceId);
+    if (rows.changes === 0) {
+      // Row doesn't exist yet — insert with this depth.
+      this.db.run(
+        `INSERT INTO sync_state (connector_id, last_sync_at, next_sync_token, depth) VALUES (?, NULL, NULL, ?)`,
+        [serviceId, depth],
+      );
+    }
+  }
+
+  getConnectorDepth(serviceId: string): ReindexDepth {
+    const row = this.db
+      .query(`SELECT depth FROM sync_state WHERE connector_id = ?`)
+      .get(serviceId) as { depth: string } | null | undefined;
+    if (row == null) {
+      throw new Error(`unknown connector: ${serviceId}`);
+    }
+    return row.depth as ReindexDepth;
   }
 
   clearConnectorSyncCursor(serviceId: string): void {
@@ -857,6 +892,32 @@ export class LocalIndex {
       /* ignore */
     }
     this.db.close();
+  }
+
+  getAuditSummary(): {
+    byOutcome: Record<string, number>;
+    byService: Record<string, number>;
+    total: number;
+  } {
+    const byOutcome: Record<string, number> = {};
+    const byService: Record<string, number> = {};
+    let total = 0;
+    const outcomes = this.db
+      .query("SELECT hitl_status AS outcome, COUNT(*) AS c FROM audit_log GROUP BY hitl_status")
+      .all() as { outcome: string; c: number }[];
+    for (const r of outcomes) {
+      byOutcome[r.outcome] = r.c;
+      total += r.c;
+    }
+    // Group by the first segment of action_type (e.g. "github.sync" → "github")
+    const services = this.db
+      .query("SELECT action_type, COUNT(*) AS c FROM audit_log GROUP BY action_type")
+      .all() as { action_type: string; c: number }[];
+    for (const r of services) {
+      const prefix = r.action_type.split(".")[0] ?? r.action_type;
+      byService[prefix] = (byService[prefix] ?? 0) + r.c;
+    }
+    return { byOutcome, byService, total };
   }
 
   listAudit(limit: number): AuditEntry[] {

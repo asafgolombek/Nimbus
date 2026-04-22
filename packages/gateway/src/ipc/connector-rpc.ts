@@ -10,6 +10,7 @@ import {
   handleConnectorPause,
   handleConnectorRemove,
   handleConnectorResume,
+  handleConnectorSetConfig,
   handleConnectorSetInterval,
   handleConnectorStatus,
   handleConnectorSync,
@@ -26,10 +27,20 @@ export async function dispatchConnectorRpc(options: {
   openUrl: (url: string) => Promise<void>;
   syncScheduler: SyncScheduler | undefined;
   connectorMesh?: LazyConnectorMesh;
+  notify?: (method: string, params: Record<string, unknown>) => void;
 }): Promise<{ kind: "hit"; value: unknown } | { kind: "miss" }> {
-  const { method, params, vault, localIndex, openUrl, syncScheduler, connectorMesh } = options;
+  const { method, params, vault, localIndex, openUrl, syncScheduler, connectorMesh, notify } =
+    options;
   const rec = asRecord(params);
-  const ctx = { rec, vault, localIndex, openUrl, syncScheduler, connectorMesh };
+  const ctx = {
+    rec,
+    vault,
+    localIndex,
+    openUrl,
+    syncScheduler,
+    connectorMesh,
+    ...(notify === undefined ? {} : { notify }),
+  };
 
   switch (method) {
     case "connector.addMcp":
@@ -40,6 +51,8 @@ export async function dispatchConnectorRpc(options: {
       return handleConnectorPause(ctx);
     case "connector.resume":
       return handleConnectorResume(ctx);
+    case "connector.setConfig":
+      return handleConnectorSetConfig(ctx);
     case "connector.setInterval":
       return handleConnectorSetInterval(ctx);
     case "connector.status":
