@@ -108,11 +108,13 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "watcher.delete",
     "watcher.list",
     "watcher.listCandidateRelations",
+    "watcher.listHistory",
     "watcher.pause",
     "watcher.resume",
     "watcher.validateCondition",
     "workflow.delete",
     "workflow.list",
+    "workflow.listRuns",
     "workflow.run",
     "workflow.save",
 ];
@@ -430,7 +432,8 @@ mod tests {
     fn allowlist_exact_size() {
         // WS5-D adds extension.{disable,enable,install,list,remove} + watcher.{create,delete,
         // list,pause,resume} + workflow.{delete,list,run,save} → 14 new methods → 54 total.
-        assert_eq!(ALLOWED_METHODS.len(), 54);
+        // WS5-D polish adds watcher.listHistory + workflow.listRuns → 2 new methods → 56 total.
+        assert_eq!(ALLOWED_METHODS.len(), 56);
     }
 
     #[test]
