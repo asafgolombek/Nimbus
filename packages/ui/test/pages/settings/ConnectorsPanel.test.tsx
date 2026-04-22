@@ -204,6 +204,47 @@ describe("ConnectorsPanel", () => {
     expect(screen.getByLabelText("github interval value")).toBeDisabled();
   });
 
+  it("clears a pending debounce when interval becomes invalid after a valid entry", async () => {
+    vi.useFakeTimers();
+    try {
+      stubListStatus([
+        { name: "github", health: "healthy", intervalMs: 120000, depth: "summary", enabled: true },
+      ]);
+      renderPanel();
+      await waitFor(() => screen.getByLabelText("github interval value"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const input = screen.getByLabelText("github interval value");
+      const unit = screen.getByLabelText("github interval unit");
+      // Type a valid value (3 min = 180 s > 60 s) — this arms the debounce timer
+      await user.clear(input);
+      await user.type(input, "3");
+      expect(connectorSetConfigMock).not.toHaveBeenCalled();
+      // Switch to seconds before the debounce fires: 3 s < 60 s → invalid → must clear debounce
+      await user.selectOptions(unit, "sec");
+      expect(screen.getByText(/minimum 60 seconds/i)).toBeInTheDocument();
+      // Advance past debounce window — setConfig must NOT have been called
+      vi.advanceTimersByTime(600);
+      expect(connectorSetConfigMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Retry button triggers a refetch when the initial fetch fails", async () => {
+    callMock
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce([
+        { name: "github", health: "healthy", intervalMs: 60000, depth: "summary", enabled: true },
+      ]);
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /retry/i }));
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("github")).toBeInTheDocument();
+  });
+
   it("rings the row whose service matches ?highlight=<name>", async () => {
     stubListStatus([
       {

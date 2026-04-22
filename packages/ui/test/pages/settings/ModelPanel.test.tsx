@@ -256,6 +256,30 @@ describe("ModelPanel", () => {
     expect(llmListModelsMock).toHaveBeenCalledTimes(1);
   });
 
+  it("handles subscribe() rejection gracefully without crashing", async () => {
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    subscribeMock.mockRejectedValueOnce(new Error("subscribe failed"));
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    // Component renders normally despite the subscribe error
+    expect(screen.getByRole("button", { name: /pull new model/i })).toBeInTheDocument();
+  });
+
+  it("PullDialog closes when Close button is clicked", async () => {
+    llmListModelsMock.mockResolvedValueOnce({ models: [] });
+    llmGetRouterStatusMock.mockResolvedValueOnce({ decisions: {} });
+    llmGetStatusMock.mockResolvedValueOnce({ available: { ollama: true, llamacpp: false } });
+    renderPanel();
+    await waitFor(() => screen.getByRole("button", { name: /pull new model/i }));
+    await userEvent.click(screen.getByRole("button", { name: /pull new model/i }));
+    await waitFor(() => screen.getByRole("dialog", { name: /pull model/i }));
+    await userEvent.click(screen.getByRole("button", { name: /close/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /pull model/i })).not.toBeInTheDocument(),
+    );
+  });
+
   it("disables write controls when connectionState=disconnected", async () => {
     useNimbusStore.setState({ connectionState: "disconnected" } as never);
     llmListModelsMock.mockRejectedValueOnce(new Error("offline"));
