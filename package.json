@@ -71,6 +71,8 @@
     "test:coverage:client": "bun test packages/client --coverage --coverage-threshold-lines=80",
     "test:coverage:telemetry": "bun test packages/gateway/src/config/telemetry-toml.test.ts packages/gateway/test/unit/telemetry --coverage --coverage-threshold-lines=85",
     "test:coverage:db": "bun test packages/gateway/test/unit/db --coverage --coverage-threshold-lines=85",
+    "test:coverage:health": "bun test packages/gateway/test/unit/connectors/health.test.ts --coverage --coverage-threshold-lines=85",
+    "test:coverage:doctor": "bun test packages/cli/src/commands/doctor*.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:mcp": "bun test packages/mcp-connectors --coverage --coverage-threshold-lines=70",
     "test:coverage:updater": "bun test packages/gateway/src/updater packages/gateway/src/ipc/updater-rpc.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:lan": "bun test packages/gateway/src/ipc/lan-crypto.test.ts packages/gateway/src/ipc/lan-pairing.test.ts packages/gateway/src/ipc/lan-rate-limit.test.ts packages/gateway/src/ipc/lan-rpc.test.ts packages/gateway/src/ipc/lan-server.test.ts packages/gateway/test/integration/lan/ --coverage --coverage-threshold-lines=80",

@@ -195,6 +195,10 @@ jobs:
             script: "test:coverage:telemetry"
           - name: DB layer
             script: "test:coverage:db"
+          - name: Health
+            script: "test:coverage:health"
+          - name: Doctor
+            script: "test:coverage:doctor"
           - name: MCP
             script: "test:coverage:mcp"
           - name: Updater
