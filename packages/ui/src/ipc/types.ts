@@ -446,6 +446,17 @@ export interface WatcherListResult {
   readonly watchers: ReadonlyArray<WatcherSummary>;
 }
 
+/** One entry from `watcher.listHistory`. */
+export interface WatcherHistoryEntry {
+  readonly firedAt: number;
+  readonly conditionSnapshot: string;
+  readonly actionResult: string;
+}
+
+export interface WatcherListHistoryResult {
+  readonly events: ReadonlyArray<WatcherHistoryEntry>;
+}
+
 export interface WatcherCreateParams {
   readonly name: string;
   readonly conditionType: string;
@@ -493,6 +504,29 @@ export interface WorkflowSummary {
 
 export interface WorkflowListResult {
   readonly workflows: ReadonlyArray<WorkflowSummary>;
+}
+
+/** One entry from `workflow.listRuns`. */
+export interface WorkflowRunHistoryEntry {
+  readonly id: string;
+  readonly startedAt: number;
+  readonly finishedAt: number | null;
+  readonly durationMs: number | null;
+  readonly status: string;
+  readonly errorMsg: string | null;
+  readonly dryRun: boolean;
+  readonly paramsOverrideJson: string | null;
+  readonly triggeredBy: string;
+}
+
+export interface WorkflowListRunsResult {
+  readonly runs: ReadonlyArray<WorkflowRunHistoryEntry>;
+}
+
+export interface WorkflowRunParams {
+  readonly name: string;
+  readonly dryRun: boolean;
+  readonly paramsOverride?: Readonly<Record<string, Record<string, unknown>>>;
 }
 
 export interface WorkflowSaveResult {
