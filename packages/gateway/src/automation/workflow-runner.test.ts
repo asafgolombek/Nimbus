@@ -3,12 +3,98 @@ import { describe, expect, test } from "bun:test";
 import type { Agent } from "@mastra/core/agent";
 
 import { LocalIndex } from "../index/local-index.ts";
-import { parseWorkflowStepsJson, runWorkflowExecution } from "./workflow-runner.ts";
+import {
+  parseWorkflowStepsJson,
+  type RunWorkflowExecutionParams,
+  runWorkflowExecution,
+} from "./workflow-runner.ts";
 import {
   finishWorkflowRunRow,
   insertWorkflowRunRow,
   upsertWorkflowByName,
 } from "./workflow-store.ts";
+
+// -----------------------------------------------------------------------------
+// Shared test helpers — collapse the ~44 lines of duplicated DB-setup + seed
+// workflow + runWorkflowExecution-parameter scaffolding across the tests below.
+// -----------------------------------------------------------------------------
+
+const noopAgent = {} as Agent;
+
+/** Fresh in-memory DB with the current schema applied. */
+function freshDb(): Database {
+  const db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  return db;
+}
+
+/**
+ * Insert a workflow row with a single named step. When `id` is omitted, a
+ * deterministic id of `wf-<name>` is used so tests can scope follow-up queries
+ * without another SELECT.
+ */
+function seedOneStepWorkflow(
+  db: Database,
+  name: string,
+  opts: { id?: string; run?: string; label?: string } = {},
+): { id: string } {
+  const id = opts.id ?? `wf-${name}`;
+  const label = opts.label ?? "step-1";
+  const run = opts.run ?? "echo";
+  db.run(
+    `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, 0, 0)`,
+    [id, name, JSON.stringify([{ label, run }])],
+  );
+  return { id };
+}
+
+/**
+ * Build a `RunWorkflowExecutionParams` with boilerplate defaults (noop agent,
+ * stream off, silent sendChunk). Callers override only what the test needs.
+ */
+function makeRunParams(
+  db: Database,
+  workflowName: string,
+  overrides: Partial<RunWorkflowExecutionParams> = {},
+): RunWorkflowExecutionParams {
+  return {
+    db,
+    agent: noopAgent,
+    workflowName,
+    triggeredBy: "user",
+    dryRun: false,
+    stream: false,
+    sendChunk: () => {
+      /* noop */
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * Read the most recently started workflow_run row for a given workflow name —
+ * handy for assertions on the persisted run after runWorkflowExecution returns.
+ */
+function lastRunRow<T>(db: Database, workflowName: string, columns: string): T {
+  return db
+    .query(
+      `SELECT ${columns} FROM workflow_run
+       WHERE workflow_id = (SELECT id FROM workflow WHERE name = ?)
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get(workflowName) as T;
+}
+
+/** Read the most recent workflow.run.completed audit entry. */
+function lastRunCompletedAudit<T>(db: Database, columns: string): T {
+  return db
+    .query(
+      `SELECT ${columns} FROM audit_log
+       WHERE action_type = 'workflow.run.completed' ORDER BY id DESC LIMIT 1`,
+    )
+    .get() as T;
+}
 
 describe("parseWorkflowStepsJson", () => {
   test("parses run steps", () => {
@@ -44,65 +130,32 @@ describe("parseWorkflowStepsJson", () => {
 });
 
 describe("runWorkflowExecution (dry run and validation)", () => {
-  const noopAgent = {} as Agent;
-
   test("throws when workflow schema below v9", async () => {
     const db = new Database(":memory:");
     await expect(
-      runWorkflowExecution({
-        db,
-        agent: noopAgent,
-        workflowName: "w",
-        triggeredBy: "t",
-        dryRun: true,
-        stream: false,
-        sendChunk: () => {
-          /* noop */
-        },
-      }),
+      runWorkflowExecution(makeRunParams(db, "w", { triggeredBy: "t", dryRun: true })),
     ).rejects.toThrow(/v9/);
   });
 
   test("throws for unknown workflow", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
+    const db = freshDb();
     await expect(
-      runWorkflowExecution({
-        db,
-        agent: noopAgent,
-        workflowName: "missing",
-        triggeredBy: "t",
-        dryRun: true,
-        stream: false,
-        sendChunk: () => {
-          /* noop */
-        },
-      }),
+      runWorkflowExecution(makeRunParams(db, "missing", { triggeredBy: "t", dryRun: true })),
     ).rejects.toThrow(/Unknown workflow/);
   });
 
   test("dry run returns preview step results and persists a dry_run=1 row", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const now = Date.now();
+    const db = freshDb();
     upsertWorkflowByName(
       db,
       "demo",
       null,
       JSON.stringify([{ label: "L1", run: "do thing" }, { run: "second" }]),
-      now,
+      Date.now(),
     );
-    const r = await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "demo",
-      triggeredBy: "cli",
-      dryRun: true,
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-    });
+    const r = await runWorkflowExecution(
+      makeRunParams(db, "demo", { triggeredBy: "cli", dryRun: true }),
+    );
     expect(r.dryRun).toBe(true);
     expect(r.stepResults).toEqual([
       { label: "L1", status: "preview", output: "do thing", hitlActions: [] },
@@ -119,186 +172,82 @@ describe("runWorkflowExecution (dry run and validation)", () => {
   });
 
   test("dry run includes heuristic hitlActions for HITL-like step text", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const now = Date.now();
+    const db = freshDb();
     upsertWorkflowByName(
       db,
       "hitl-demo",
       null,
       JSON.stringify([{ run: "Run terraform apply in production" }]),
-      now,
+      Date.now(),
     );
-    const r = await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "hitl-demo",
-      triggeredBy: "t",
-      dryRun: true,
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-    });
+    const r = await runWorkflowExecution(
+      makeRunParams(db, "hitl-demo", { triggeredBy: "t", dryRun: true }),
+    );
     expect(r.stepResults[0]?.hitlActions).toContain("iac.terraform.apply");
   });
 
   test("runWorkflowExecution writes a dry_run=1 row when dryRun is true", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    upsertWorkflowByName(
+    const db = freshDb();
+    seedOneStepWorkflow(db, "preview-me", { run: "echo hi" });
+    await runWorkflowExecution(makeRunParams(db, "preview-me", { dryRun: true }));
+    const row = lastRunRow<{ dry_run: number; status: string }>(
       db,
       "preview-me",
-      null,
-      JSON.stringify([{ label: "step-1", run: "echo hi" }]),
-      Date.now(),
+      "dry_run, status",
     );
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "preview-me",
-      triggeredBy: "user",
-      dryRun: true,
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-    });
-    const row = db
-      .query(
-        `SELECT dry_run, status FROM workflow_run
-         WHERE workflow_id = (SELECT id FROM workflow WHERE name = 'preview-me')
-         ORDER BY started_at DESC LIMIT 1`,
-      )
-      .get() as { dry_run: number; status: string };
     expect(row.dry_run).toBe(1);
     expect(row.status).toBe("preview");
   });
 
   test("runWorkflowExecution persists paramsOverride JSON on the real-run row", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    upsertWorkflowByName(
-      db,
-      "po-real",
-      null,
-      JSON.stringify([{ label: "step-1", run: "echo hi" }]),
-      Date.now(),
-    );
+    const db = freshDb();
+    seedOneStepWorkflow(db, "po-real", { run: "echo hi" });
     const override = { "step-1": { greeting: "hi" } };
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "po-real",
-      triggeredBy: "user",
-      dryRun: false,
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-      conversationalRunner: async () => ({ reply: "ok" }),
-      paramsOverride: override,
-    });
-    const row = db
-      .query(
-        `SELECT params_override_json FROM workflow_run
-         WHERE workflow_id = (SELECT id FROM workflow WHERE name = 'po-real')
-         ORDER BY started_at DESC LIMIT 1`,
-      )
-      .get() as { params_override_json: string };
+    await runWorkflowExecution(
+      makeRunParams(db, "po-real", {
+        conversationalRunner: async () => ({ reply: "ok" }),
+        paramsOverride: override,
+      }),
+    );
+    const row = lastRunRow<{ params_override_json: string }>(db, "po-real", "params_override_json");
     expect(JSON.parse(row.params_override_json)).toEqual(override);
   });
 
   test("runWorkflowExecution persists paramsOverride JSON on the dry-run row", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    upsertWorkflowByName(
-      db,
-      "po-dry",
-      null,
-      JSON.stringify([{ label: "step-1", run: "echo hi" }]),
-      Date.now(),
-    );
+    const db = freshDb();
+    seedOneStepWorkflow(db, "po-dry", { run: "echo hi" });
     const override = { "step-1": { greeting: "dry" } };
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "po-dry",
-      triggeredBy: "user",
-      dryRun: true,
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-      paramsOverride: override,
-    });
-    const row = db
-      .query(
-        `SELECT params_override_json FROM workflow_run
-         WHERE workflow_id = (SELECT id FROM workflow WHERE name = 'po-dry')
-         ORDER BY started_at DESC LIMIT 1`,
-      )
-      .get() as { params_override_json: string };
+    await runWorkflowExecution(
+      makeRunParams(db, "po-dry", { dryRun: true, paramsOverride: override }),
+    );
+    const row = lastRunRow<{ params_override_json: string }>(db, "po-dry", "params_override_json");
     expect(JSON.parse(row.params_override_json)).toEqual(override);
   });
 
   test("runWorkflowExecution persists NULL params_override_json when not provided", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    upsertWorkflowByName(
+    const db = freshDb();
+    seedOneStepWorkflow(db, "po-absent", { run: "echo hi" });
+    await runWorkflowExecution(
+      makeRunParams(db, "po-absent", { conversationalRunner: async () => ({ reply: "ok" }) }),
+    );
+    const row = lastRunRow<{ params_override_json: string | null }>(
       db,
       "po-absent",
-      null,
-      JSON.stringify([{ label: "step-1", run: "echo hi" }]),
-      Date.now(),
+      "params_override_json",
     );
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "po-absent",
-      triggeredBy: "user",
-      dryRun: false,
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-      conversationalRunner: async () => ({ reply: "ok" }),
-    });
-    const row = db
-      .query(
-        `SELECT params_override_json FROM workflow_run
-         WHERE workflow_id = (SELECT id FROM workflow WHERE name = 'po-absent')
-         ORDER BY started_at DESC LIMIT 1`,
-      )
-      .get() as { params_override_json: string | null };
     expect(row.params_override_json).toBeNull();
   });
 
   test("runWorkflowExecution writes a workflow.run.completed audit entry on success", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    db.run(
-      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
-       VALUES ('wf-audit-ok', 'audit-ok', NULL, '[{"label":"step-1","run":"echo hi"}]', 0, 0)`,
+    const db = freshDb();
+    seedOneStepWorkflow(db, "audit-ok", { run: "echo hi" });
+    await runWorkflowExecution(
+      makeRunParams(db, "audit-ok", { conversationalRunner: async () => ({ reply: "ok" }) }),
     );
-    await runWorkflowExecution({
+    const entry = lastRunCompletedAudit<{ action_type: string; action_json: string }>(
       db,
-      agent: noopAgent,
-      workflowName: "audit-ok",
-      dryRun: false,
-      triggeredBy: "user",
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-      conversationalRunner: async () => ({ reply: "ok" }),
-    });
-    const entry = db
-      .query(
-        `SELECT action_type, action_json FROM audit_log
-         WHERE action_type = 'workflow.run.completed' ORDER BY id DESC LIMIT 1`,
-      )
-      .get() as { action_type: string; action_json: string };
+      "action_type, action_json",
+    );
     expect(entry.action_type).toBe("workflow.run.completed");
     const details = JSON.parse(entry.action_json) as {
       runId: string;
@@ -315,141 +264,83 @@ describe("runWorkflowExecution (dry run and validation)", () => {
   });
 
   test("runWorkflowExecution writes a workflow.run.completed audit entry on dry-run", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    db.run(
-      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
-       VALUES ('wf-audit-dry', 'audit-dry', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
-    );
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "audit-dry",
-      dryRun: true,
-      triggeredBy: "user",
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-    });
-    const entry = db
-      .query(
-        `SELECT action_json FROM audit_log
-         WHERE action_type = 'workflow.run.completed' ORDER BY id DESC LIMIT 1`,
-      )
-      .get() as { action_json: string };
+    const db = freshDb();
+    seedOneStepWorkflow(db, "audit-dry");
+    await runWorkflowExecution(makeRunParams(db, "audit-dry", { dryRun: true }));
+    const entry = lastRunCompletedAudit<{ action_json: string }>(db, "action_json");
     const details = JSON.parse(entry.action_json) as { status: string; dryRun: boolean };
     expect(details.status).toBe("preview");
     expect(details.dryRun).toBe(true);
   });
 
   test("runWorkflowExecution writes a workflow.run.completed audit entry with paramsOverride payload", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    db.run(
-      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
-       VALUES ('wf-audit-po', 'audit-po', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
+    const db = freshDb();
+    seedOneStepWorkflow(db, "audit-po");
+    await runWorkflowExecution(
+      makeRunParams(db, "audit-po", {
+        dryRun: true,
+        paramsOverride: { "step-1": { x: 1 } },
+      }),
     );
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "audit-po",
-      dryRun: true,
-      triggeredBy: "user",
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
-      paramsOverride: { "step-1": { x: 1 } },
-    });
-    const entry = db
-      .query(
-        `SELECT action_json FROM audit_log
-         WHERE action_type = 'workflow.run.completed' ORDER BY id DESC LIMIT 1`,
-      )
-      .get() as { action_json: string };
+    const entry = lastRunCompletedAudit<{ action_json: string }>(db, "action_json");
     const details = JSON.parse(entry.action_json) as { paramsOverride?: Record<string, unknown> };
     expect(details.paramsOverride).toEqual({ "step-1": { x: 1 } });
   });
 });
 
 describe("runWorkflowExecution — run retention", () => {
-  const noopAgent = {} as Agent;
-
-  test("workflow run completion prunes to the last 100 runs per workflow", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    db.run(
-      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
-       VALUES ('wf-ret-1', 'retention-test', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
-    );
-    for (let i = 0; i < 100; i++) {
+  /**
+   * Seed `count` historical (already-finished) workflow_run rows for a given
+   * workflow_id. Used by the retention tests to push totals near/past the cap.
+   */
+  function seedHistoricalRuns(
+    db: Database,
+    workflowId: string,
+    count: number,
+    startedAtBase: number,
+    idPrefix: string,
+  ): void {
+    for (let i = 0; i < count; i++) {
       insertWorkflowRunRow(db, {
-        id: `hist-${i}`,
-        workflowId: "wf-ret-1",
+        id: `${idPrefix}-${i}`,
+        workflowId,
         triggeredBy: "user",
         status: "done",
-        startedAt: 1_000 + i,
+        startedAt: startedAtBase + i,
         dryRun: false,
       });
-      finishWorkflowRunRow(db, `hist-${i}`, "done", 1_010 + i, null);
+      finishWorkflowRunRow(db, `${idPrefix}-${i}`, "done", startedAtBase + 10 + i, null);
     }
-    // Now run — dry-run path completes without tool calls, still emits row 101.
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "retention-test",
-      dryRun: true,
-      triggeredBy: "user",
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
+  }
+
+  test("workflow run completion prunes to the last 100 runs per workflow", async () => {
+    const db = freshDb();
+    const { id: workflowId } = seedOneStepWorkflow(db, "retention-test", {
+      id: "wf-ret-1",
     });
+    seedHistoricalRuns(db, workflowId, 100, 1_000, "hist");
+    // Now run — dry-run path completes without tool calls, still emits row 101.
+    await runWorkflowExecution(makeRunParams(db, "retention-test", { dryRun: true }));
     const count = db
-      .query(`SELECT COUNT(*) AS c FROM workflow_run WHERE workflow_id = 'wf-ret-1'`)
-      .get() as { c: number };
+      .query(`SELECT COUNT(*) AS c FROM workflow_run WHERE workflow_id = ?`)
+      .get(workflowId) as { c: number };
     expect(count.c).toBe(100);
     // Oldest seeded row must be pruned.
-    const oldestExists = db.query(`SELECT id FROM workflow_run WHERE id = 'hist-0'`).get();
-    expect(oldestExists).toBeNull();
+    expect(db.query(`SELECT id FROM workflow_run WHERE id = 'hist-0'`).get()).toBeNull();
     // A more-recent seeded row must remain (proves retention kept the newest 100).
-    const hist50 = db.query(`SELECT id FROM workflow_run WHERE id = 'hist-50'`).get();
-    expect(hist50).not.toBeNull();
+    expect(db.query(`SELECT id FROM workflow_run WHERE id = 'hist-50'`).get()).not.toBeNull();
   });
 
   test("workflow run completion is a no-op on retention when under cap", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    db.run(
-      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
-       VALUES ('wf-ret-2', 'retention-no-op', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
-    );
-    for (let i = 0; i < 5; i++) {
-      insertWorkflowRunRow(db, {
-        id: `h2-${i}`,
-        workflowId: "wf-ret-2",
-        triggeredBy: "user",
-        status: "done",
-        startedAt: 2_000 + i,
-        dryRun: false,
-      });
-      finishWorkflowRunRow(db, `h2-${i}`, "done", 2_010 + i, null);
-    }
-    await runWorkflowExecution({
-      db,
-      agent: noopAgent,
-      workflowName: "retention-no-op",
-      dryRun: true,
-      triggeredBy: "user",
-      stream: false,
-      sendChunk: () => {
-        /* noop */
-      },
+    const db = freshDb();
+    const { id: workflowId } = seedOneStepWorkflow(db, "retention-no-op", {
+      id: "wf-ret-2",
     });
+    seedHistoricalRuns(db, workflowId, 5, 2_000, "h2");
+    await runWorkflowExecution(makeRunParams(db, "retention-no-op", { dryRun: true }));
     const count = db
-      .query(`SELECT COUNT(*) AS c FROM workflow_run WHERE workflow_id = 'wf-ret-2'`)
-      .get() as { c: number };
+      .query(`SELECT COUNT(*) AS c FROM workflow_run WHERE workflow_id = ?`)
+      .get(workflowId) as { c: number };
     expect(count.c).toBe(6); // 5 seeded + 1 new
   });
 });

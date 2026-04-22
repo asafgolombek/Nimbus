@@ -488,7 +488,17 @@ describe("ipc server integration", () => {
     }
   });
 
-  test("workflow.run forwards paramsOverride to the registered handler", async () => {
+  /**
+   * Shared fixture for the paramsOverride tests below: boots an IPC server with an
+   * in-memory LocalIndex seeded with one workflow, registers a handler that records
+   * the received context, and returns everything the caller needs. Collapses ~35 lines
+   * of duplicated setup per test.
+   */
+  async function makeWorkflowRunCapture(workflowName: string): Promise<{
+    readonly server: IPCServer;
+    readonly listenPath: string;
+    readonly getReceived: () => unknown;
+  }> {
     const listenPath = testListenPath();
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
@@ -497,9 +507,8 @@ describe("ipc server integration", () => {
     db.run(
       `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
        VALUES (?, ?, NULL, ?, ?, ?)`,
-      [randomUUID(), "wf1", JSON.stringify([{ run: "a" }]), now, now],
+      [randomUUID(), workflowName, JSON.stringify([{ run: "a" }]), now, now],
     );
-
     const server = createIpcServer({
       listenPath,
       vault: new MockVault(),
@@ -514,6 +523,11 @@ describe("ipc server integration", () => {
       return { runId: "abc", dryRun: ctx.dryRun, stepResults: [] };
     });
     await server.start();
+    return { server, listenPath, getReceived: () => received };
+  }
+
+  test("workflow.run forwards paramsOverride to the registered handler", async () => {
+    const { server, listenPath, getReceived } = await makeWorkflowRunCapture("wf1");
     try {
       const line = await rpcCall(listenPath, "workflow.run", {
         name: "wf1",
@@ -522,7 +536,7 @@ describe("ipc server integration", () => {
       });
       const parsed = JSON.parse(line) as { result: unknown };
       expect(parsed.result).toBeDefined();
-      expect(received).toMatchObject({
+      expect(getReceived()).toMatchObject({
         workflowName: "wf1",
         dryRun: false,
         paramsOverride: { "step-1": { greeting: "hello" } },
@@ -533,34 +547,10 @@ describe("ipc server integration", () => {
   });
 
   test("workflow.run omits paramsOverride when not provided", async () => {
-    const listenPath = testListenPath();
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-    const localIndex = new LocalIndex(db);
-    const now = Date.now();
-    db.run(
-      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, ?)`,
-      [randomUUID(), "wf1", JSON.stringify([{ run: "a" }]), now, now],
-    );
-
-    const server = createIpcServer({
-      listenPath,
-      vault: new MockVault(),
-      version: "t",
-      localIndex,
-      dataDir: tmpdir(),
-      configDir: tmpdir(),
-    });
-    let received: unknown = null;
-    server.setWorkflowRunHandler(async (ctx) => {
-      received = ctx;
-      return { runId: "abc", dryRun: ctx.dryRun, stepResults: [] };
-    });
-    await server.start();
+    const { server, listenPath, getReceived } = await makeWorkflowRunCapture("wf1");
     try {
       await rpcCall(listenPath, "workflow.run", { name: "wf1", dryRun: false });
-      expect((received as { paramsOverride?: unknown }).paramsOverride).toBeUndefined();
+      expect((getReceived() as { paramsOverride?: unknown }).paramsOverride).toBeUndefined();
     } finally {
       await server.stop();
     }
