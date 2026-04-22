@@ -97,7 +97,7 @@ describe("GatewayConnectionProvider", () => {
       throw new Error(`unexpected method ${method}`);
     });
     const { rerender } = await renderAndConnect("/");
-    await waitFor(() => expect(callMock).toHaveBeenCalled());
+    await waitFor(() => expect(callMock).toHaveBeenCalledTimes(2));
     const callCountAfterFirst = callMock.mock.calls.length;
     // Fire connected a second time — firstConnectHandled guard should short-circuit
     connectionHandlers[0]?.("connected");

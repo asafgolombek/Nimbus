@@ -16,6 +16,7 @@ export function GatewayConnectionProvider({ children }: PropsWithChildren) {
 
     const runFirstConnect = async () => {
       if (firstConnectHandled.current) return;
+      firstConnectHandled.current = true; // claim before any await to block concurrent invocations
       const MAX_ATTEMPTS = 5;
       const BACKOFF_MS = [200, 500, 1000, 2000, 4000];
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -25,11 +26,13 @@ export function GatewayConnectionProvider({ children }: PropsWithChildren) {
             key: "onboarding_completed",
           });
           const fresh = meta == null && snap.connectorCount === 0 && snap.indexTotalItems === 0;
-          firstConnectHandled.current = true;
           navigate(fresh ? "/onboarding/welcome" : "/", { replace: true });
           return;
         } catch {
-          if (attempt === MAX_ATTEMPTS - 1) return;
+          if (attempt === MAX_ATTEMPTS - 1) {
+            firstConnectHandled.current = false; // all attempts exhausted — allow next event to retry
+            return;
+          }
           await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
         }
       }
