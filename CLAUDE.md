@@ -133,7 +133,13 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/ui/src/store/slices/telemetry.ts` | Telemetry slice — `TelemetryStatus` + `telemetryActionInFlight`; transient |
 | `packages/ui/src/store/slices/connectors.ts` | Connectors slice — `PersistedConnectorRow[]` (persisted) + transient `perServiceInFlight` + `highlightService` + `patchConnectorRow` |
 | `packages/ui/src/store/slices/model.ts` | Model slice — `installedModels` + `activePullId` (persisted) + transient `routerStatus`, `pullProgress`, `pullStalled`, `loadedKeys` |
+| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (38), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
+| `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
+| `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
 | `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
+| `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |
+| `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
+| `docs/manual-smoke-ws5a.md` | WS5-A manual smoke checklist |
 | `docs/manual-smoke-ws5b.md` | WS5-B manual smoke checklist |
 | `docs/manual-smoke-ws5c.md` | WS5-C manual smoke checklist |
 | `packages/ui/src/pages/settings/DataPanel.tsx` | Data panel — Export/Import/Delete wizard launcher with preflight stats |
@@ -141,12 +147,6 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/ui/src/components/settings/data/ImportWizard.tsx` | Import wizard — passphrase + recovery-seed auth, version-compat error handling |
 | `packages/ui/src/components/settings/data/DeleteServiceDialog.tsx` | Delete service dialog — preflight preview, typed-name confirm, `data.delete` call |
 | `packages/ui/src/store/slices/data.ts` | Data store slice — exportFlow / importFlow / deleteFlow state machines + markDisconnected |
-| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (38), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
-| `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
-| `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
-| `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |
-| `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
-| `docs/manual-smoke-ws5a.md` | WS5-A manual smoke checklist |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
