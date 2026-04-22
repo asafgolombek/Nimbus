@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Agent } from "@mastra/core/agent";
+import { formatAuditPayload } from "../audit/format-audit-payload.ts";
+import { computeAuditRowHash, GENESIS_HASH } from "../db/audit-chain.ts";
 import {
   type RunConversationalAgentParams,
   runConversationalAgent,
@@ -14,6 +16,47 @@ import {
   insertWorkflowRunStepRow,
   updateWorkflowRunStepRow,
 } from "./workflow-store.ts";
+
+function emitRunCompletedAudit(params: {
+  readonly db: Database;
+  readonly runId: string;
+  readonly workflowName: string;
+  readonly status: string;
+  readonly startedAt: number;
+  readonly dryRun: boolean;
+  readonly paramsOverride?: Readonly<Record<string, Record<string, unknown>>>;
+  readonly errorMsg?: string | null;
+}): void {
+  const durationMs = Date.now() - params.startedAt;
+  const details: Record<string, unknown> = {
+    runId: params.runId,
+    workflowName: params.workflowName,
+    status: params.status,
+    durationMs,
+    dryRun: params.dryRun,
+  };
+  if (params.paramsOverride !== undefined) {
+    details.paramsOverride = params.paramsOverride;
+  }
+  if (params.errorMsg !== undefined && params.errorMsg !== null) {
+    details.errorMsg = params.errorMsg;
+  }
+  const actionType = "workflow.run.completed";
+  const hitlStatus = "not_required";
+  const actionJson = formatAuditPayload(details);
+  const timestamp = Date.now();
+  const prevHashRow = params.db
+    .query(`SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1`)
+    .get() as { row_hash: string | null } | undefined;
+  const rawPrev = prevHashRow?.row_hash;
+  const prevHash = typeof rawPrev === "string" && rawPrev.length === 64 ? rawPrev : GENESIS_HASH;
+  const rowHash = computeAuditRowHash({ prevHash, actionType, hitlStatus, actionJson, timestamp });
+  params.db.run(
+    `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp, row_hash, prev_hash)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [actionType, hitlStatus, actionJson, timestamp, rowHash, prevHash],
+  );
+}
 
 export type WorkflowStep = {
   label?: string;
@@ -184,6 +227,15 @@ export async function runWorkflowExecution(
       paramsOverrideJson,
     });
     finishWorkflowRunRow(p.db, runId, "preview", Date.now(), null);
+    emitRunCompletedAudit({
+      db: p.db,
+      runId,
+      workflowName: wf.name,
+      status: "preview",
+      startedAt: now,
+      dryRun: true,
+      paramsOverride: p.paramsOverride,
+    });
     return {
       runId,
       dryRun: true,
@@ -222,15 +274,44 @@ export async function runWorkflowExecution(
       stepResults.push({ label: outcome.label, status: "error", error: outcome.message });
       if (outcome.halt) {
         finishWorkflowRunRow(p.db, runId, "error", Date.now(), outcome.message);
+        emitRunCompletedAudit({
+          db: p.db,
+          runId,
+          workflowName: wf.name,
+          status: "error",
+          startedAt: now,
+          dryRun: false,
+          paramsOverride: p.paramsOverride,
+          errorMsg: outcome.message,
+        });
         return { runId, dryRun: false, stepResults };
       }
     }
 
     finishWorkflowRunRow(p.db, runId, "done", Date.now(), null);
+    emitRunCompletedAudit({
+      db: p.db,
+      runId,
+      workflowName: wf.name,
+      status: "done",
+      startedAt: now,
+      dryRun: false,
+      paramsOverride: p.paramsOverride,
+    });
     return { runId, dryRun: false, stepResults };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     finishWorkflowRunRow(p.db, runId, "error", Date.now(), msg);
+    emitRunCompletedAudit({
+      db: p.db,
+      runId,
+      workflowName: wf.name,
+      status: "error",
+      startedAt: now,
+      dryRun: false,
+      paramsOverride: p.paramsOverride,
+      errorMsg: msg,
+    });
     throw err;
   }
 }

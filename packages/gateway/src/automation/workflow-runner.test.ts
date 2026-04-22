@@ -269,4 +269,102 @@ describe("runWorkflowExecution (dry run and validation)", () => {
       .get() as { params_override_json: string | null };
     expect(row.params_override_json).toBeNull();
   });
+
+  test("runWorkflowExecution writes a workflow.run.completed audit entry on success", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf-audit-ok', 'audit-ok', NULL, '[{"label":"step-1","run":"echo hi"}]', 0, 0)`,
+    );
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "audit-ok",
+      dryRun: false,
+      triggeredBy: "user",
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+      conversationalRunner: async () => ({ reply: "ok" }),
+    });
+    const entry = db
+      .query(
+        `SELECT action_type, action_json FROM audit_log
+         WHERE action_type = 'workflow.run.completed' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { action_type: string; action_json: string };
+    expect(entry.action_type).toBe("workflow.run.completed");
+    const details = JSON.parse(entry.action_json) as {
+      runId: string;
+      workflowName: string;
+      status: string;
+      durationMs: number;
+      dryRun: boolean;
+    };
+    expect(details.workflowName).toBe("audit-ok");
+    expect(details.status).toBe("done");
+    expect(details.dryRun).toBe(false);
+    expect(typeof details.durationMs).toBe("number");
+    expect(typeof details.runId).toBe("string");
+  });
+
+  test("runWorkflowExecution writes a workflow.run.completed audit entry on dry-run", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf-audit-dry', 'audit-dry', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
+    );
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "audit-dry",
+      dryRun: true,
+      triggeredBy: "user",
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+    });
+    const entry = db
+      .query(
+        `SELECT action_json FROM audit_log
+         WHERE action_type = 'workflow.run.completed' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { action_json: string };
+    const details = JSON.parse(entry.action_json) as { status: string; dryRun: boolean };
+    expect(details.status).toBe("preview");
+    expect(details.dryRun).toBe(true);
+  });
+
+  test("runWorkflowExecution writes a workflow.run.completed audit entry with paramsOverride payload", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO workflow (id, name, description, steps_json, created_at, updated_at)
+       VALUES ('wf-audit-po', 'audit-po', NULL, '[{"label":"step-1","run":"echo"}]', 0, 0)`,
+    );
+    await runWorkflowExecution({
+      db,
+      agent: noopAgent,
+      workflowName: "audit-po",
+      dryRun: true,
+      triggeredBy: "user",
+      stream: false,
+      sendChunk: () => {
+        /* noop */
+      },
+      paramsOverride: { "step-1": { x: 1 } },
+    });
+    const entry = db
+      .query(
+        `SELECT action_json FROM audit_log
+         WHERE action_type = 'workflow.run.completed' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { action_json: string };
+    const details = JSON.parse(entry.action_json) as { paramsOverride?: Record<string, unknown> };
+    expect(details.paramsOverride).toEqual({ "step-1": { x: 1 } });
+  });
 });
