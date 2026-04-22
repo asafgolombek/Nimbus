@@ -113,7 +113,7 @@ describe("listCandidateGraphRelations", () => {
   test("returns exactly the three logical relation kinds", () => {
     const kinds = listCandidateGraphRelations();
     expect(kinds).toHaveLength(3);
-    expect(kinds.map((k) => k.relation).sort()).toEqual([
+    expect(kinds.map((k) => k.relation).sort((a, b) => a.localeCompare(b))).toEqual([
       "downstream_of",
       "owned_by",
       "upstream_of",
@@ -134,8 +134,8 @@ describe("listCandidateGraphRelations", () => {
   test("GRAPH_RELATION_KINDS and listCandidateGraphRelations agree", () => {
     const listed = listCandidateGraphRelations()
       .map((k) => k.relation)
-      .sort();
-    const kinds = [...GRAPH_RELATION_KINDS].sort();
+      .sort((a, b) => a.localeCompare(b));
+    const kinds = [...GRAPH_RELATION_KINDS].sort((a, b) => a.localeCompare(b));
     expect(listed).toEqual(kinds);
   });
 });

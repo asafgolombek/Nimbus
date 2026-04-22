@@ -57,6 +57,21 @@ function requireNumber(rec: Record<string, unknown> | undefined, key: string): n
   return v;
 }
 
+function handleValidateCondition(rec: Record<string, unknown> | undefined, db: Database): Hit {
+  const graphPredicateJson = requireString(rec, "graphPredicateJson");
+  const sinceMs = requireNumber(rec, "sinceMs");
+  const parsed = parseGraphPredicate(graphPredicateJson);
+  if (!parsed.ok) {
+    throw new AutomationRpcError(-32602, parsed.error);
+  }
+  return {
+    kind: "hit",
+    value: {
+      matchCount: countItemsMatchingGraphPredicate({ db, predicate: parsed.predicate, sinceMs }),
+    },
+  };
+}
+
 export function dispatchAutomationRpc(options: {
   method: string;
   params: unknown;
@@ -113,20 +128,8 @@ export function dispatchAutomationRpc(options: {
         value: { relations: listCandidateGraphRelations() },
       };
 
-    case "watcher.validateCondition": {
-      const graphPredicateJson = requireString(rec, "graphPredicateJson");
-      const sinceMs = requireNumber(rec, "sinceMs");
-      const parsed = parseGraphPredicate(graphPredicateJson);
-      if (!parsed.ok) {
-        throw new AutomationRpcError(-32602, parsed.error);
-      }
-      const matchCount = countItemsMatchingGraphPredicate({
-        db,
-        predicate: parsed.predicate,
-        sinceMs,
-      });
-      return { kind: "hit", value: { matchCount } };
-    }
+    case "watcher.validateCondition":
+      return handleValidateCondition(rec, db);
 
     case "extension.list":
       return { kind: "hit", value: { extensions: listExtensions(db) } };

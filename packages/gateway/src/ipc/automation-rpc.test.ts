@@ -23,7 +23,7 @@ describe("watcher.listCandidateRelations", () => {
     const value = out.value as {
       relations: Array<{ relation: string; underlyingRelationTypes: string[] }>;
     };
-    const kinds = value.relations.map((r) => r.relation).sort();
+    const kinds = value.relations.map((r) => r.relation).sort((a, b) => a.localeCompare(b));
     expect(kinds).toEqual(["downstream_of", "owned_by", "upstream_of"]);
     for (const r of value.relations) {
       expect(r.underlyingRelationTypes.length).toBeGreaterThan(0);

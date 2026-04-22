@@ -129,6 +129,21 @@ export type ItemMatchContext = {
   predicate: GraphPredicate;
 };
 
+// `upstream_of` checks item→target; all other relations check target→item.
+// `traverseGraph` fetches edges in both directions, so the target→item edge
+// for `downstream_of` appears in the depth=1 result.
+function edgeMatchesDirection(
+  rel: { from_id: string; to_id: string },
+  relation: GraphRelationKind,
+  itemEntityId: string,
+  targetEntityId: string,
+): boolean {
+  if (relation === "upstream_of") {
+    return rel.from_id === itemEntityId && rel.to_id === targetEntityId;
+  }
+  return rel.from_id === targetEntityId && rel.to_id === itemEntityId;
+}
+
 /**
  * Returns `true` iff the item referenced by (`itemEntityType`, `itemExternalId`)
  * has a **direct graph edge** (depth 1) to the predicate's target in the
@@ -141,17 +156,7 @@ export function itemMatchesGraphPredicate(ctx: ItemMatchContext): boolean {
     predicate.target.type,
     predicate.target.externalId,
   );
-
-  // Spec asks us to reuse `traverseGraph` — depth=1 gives us the direct edges
-  // around the item. We then inspect the relation list for an edge to the
-  // target in the correct direction and relation-type set.
-  const ownedBy: readonly string[] = OWNED_BY_UNDERLYING;
-  const upstream: readonly string[] = UPSTREAM_UNDERLYING;
-  // `downstream_of` intentionally reuses UPSTREAM_UNDERLYING — same relation types,
-  // direction reversed. `traverseGraph` fetches edges in both directions (from_id OR
-  // to_id = itemEntityId), so the target→item edge appears in the depth=1 result and
-  // is matched by the `rel.from_id === targetEntityId` check in the loop below.
-  const typeFilter: readonly string[] = predicate.relation === "owned_by" ? ownedBy : upstream;
+  const typeFilter = predicate.relation === "owned_by" ? OWNED_BY_UNDERLYING : UPSTREAM_UNDERLYING;
   const traversal = traverseGraph(db, itemEntityId, {
     depth: 1,
     relationTypes: [...typeFilter],
@@ -159,26 +164,9 @@ export function itemMatchesGraphPredicate(ctx: ItemMatchContext): boolean {
   if ("error" in traversal) {
     return false;
   }
-
-  for (const rel of traversal.relations) {
-    if (predicate.relation === "owned_by") {
-      // person → item edge
-      if (rel.from_id === targetEntityId && rel.to_id === itemEntityId) {
-        return true;
-      }
-    } else if (predicate.relation === "upstream_of") {
-      // item → target edge
-      if (rel.from_id === itemEntityId && rel.to_id === targetEntityId) {
-        return true;
-      }
-    } else {
-      // downstream_of: target → item edge
-      if (rel.from_id === targetEntityId && rel.to_id === itemEntityId) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return traversal.relations.some((rel) =>
+    edgeMatchesDirection(rel, predicate.relation, itemEntityId, targetEntityId),
+  );
 }
 
 export type ValidateCountContext = {

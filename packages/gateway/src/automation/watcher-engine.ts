@@ -145,15 +145,16 @@ function evaluateOneWatcher(
     predicate = parsed.predicate;
   }
 
+  const pred = predicate;
   const filtered =
-    predicate === null
+    pred === null
       ? rows
       : rows.filter((r) =>
           itemMatchesGraphPredicate({
             db,
             itemEntityType: r.type,
             itemExternalId: r.external_id,
-            predicate: predicate as GraphPredicate,
+            predicate: pred,
           }),
         );
 
