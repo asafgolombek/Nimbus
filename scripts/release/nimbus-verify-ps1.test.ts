@@ -16,7 +16,7 @@ const IS_WIN = process.platform === "win32";
 
 // Resolve absolute paths for system tools to avoid PATH-based hijacking (Sonar S4036).
 // where.exe lives at its fixed Windows system path; which at its fixed POSIX path.
-const WHERE_CMD = IS_WIN ? "C:\\Windows\\System32\\where.exe" : "/usr/bin/which";
+const WHERE_CMD = IS_WIN ? String.raw`C:\Windows\System32\where.exe` : "/usr/bin/which";
 const BASH_BIN = IS_WIN ? "bash" : "/bin/bash";
 const SHA256SUM_BIN = IS_WIN ? "sha256sum" : "/usr/bin/sha256sum";
 const GPG_BIN = IS_WIN ? "gpg" : "/usr/bin/gpg";
@@ -49,15 +49,19 @@ let cwd: string;
 let fingerprint: string;
 
 function run(args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const r = spawnSync(PWSH_EXE!, ["-NoProfile", "-NonInteractive", "-File", VERIFY_PS1, ...args], {
-    cwd,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      GNUPGHOME: toMsys2(gnupghome),
-      NIMBUS_VERIFY_FINGERPRINT_OVERRIDE: fingerprint,
+  const r = spawnSync(
+    PWSH_EXE ?? "",
+    ["-NoProfile", "-NonInteractive", "-File", VERIFY_PS1, ...args],
+    {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GNUPGHOME: toMsys2(gnupghome),
+        NIMBUS_VERIFY_FINGERPRINT_OVERRIDE: fingerprint,
+      },
     },
-  });
+  );
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 

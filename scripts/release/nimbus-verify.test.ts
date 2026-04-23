@@ -121,7 +121,7 @@ shellTest("exits 1 when SHA256SUMS.asc is signed by untrusted key", () => {
   const otherRes = spawnSync(BASH_BIN, [GEN_KEY, otherHome], { encoding: "utf8" });
   const otherFp = otherRes.stdout.trim();
   spawnSync(
-    "gpg",
+    GPG_BIN,
     [
       "--batch",
       "--yes",
