@@ -9,6 +9,7 @@ Usage:
   nimbus diag [--json] | diag slow-queries [--limit N] [--since 7d]
   nimbus query --service <id> [--type <t>] [--since 7d] [--sql "SELECT …"] [--json | --pretty]
   nimbus telemetry show | disable
+  nimbus tui                Rich Ink TUI (falls back to REPL on dumb terminals).
   nimbus doctor             Bun version, data dir, Linux vault (secret-tool), gateway state + IPC
   nimbus config validate | list | edit
   nimbus profile create|list|switch|delete
