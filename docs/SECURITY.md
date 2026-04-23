@@ -259,3 +259,35 @@ If the active signing key is suspected to be compromised:
 4. Audit the GitHub Actions workflow run logs for the period the key was active — look for any step that read `UPDATER_SIGNING_KEY` outside `scripts/sign-ed25519.ts`.
 
 **Long-term mitigation:** the project is tracking migration to **sigstore/cosign with GitHub OIDC** for keyless updater signing, eliminating the long-lived secret entirely. Tracked under Phase 4 release-infra hardening.
+
+---
+
+## Release Signing Key
+
+Nimbus release artifacts are distributed with a GPG-signed `SHA256SUMS.asc` integrity manifest (and per-artifact `.asc` sidecars on Linux). All release signing uses the single key whose fingerprint is published below.
+
+**Project GPG fingerprint (v0.1.0 and later):**
+
+```
+PLACEHOLDER — real fingerprint lands when docs/release/v0.1.0-prerequisites.md §3 is completed by the maintainer.
+Until then, releases are signed with a development test key; DO NOT install v0.1.0-rc releases in production.
+```
+
+**Cross-check this fingerprint against four sources** — if any two disagree, **do not install**; open a private security issue per "Reporting a Vulnerability" above:
+
+1. This file (`docs/SECURITY.md`) — you're reading it now.
+2. The repository README (`README.md`, "Install → Verify any download" section).
+3. The public key ASCII-armored block at [`docs/release/SIGNING-KEY.asc`](release/SIGNING-KEY.asc).
+4. Either keyserver — `keys.openpgp.org` or `keyserver.ubuntu.com`.
+
+**To import the key from a keyserver:**
+
+```bash
+gpg --keyserver keys.openpgp.org --recv-keys <FINGERPRINT>
+# or
+gpg --keyserver keyserver.ubuntu.com --recv-keys <FINGERPRINT>
+```
+
+**First-time users:** the `nimbus-verify.sh` / `nimbus-verify.ps1` helper scripts print the fingerprint they imported before running `gpg --verify`. Match that printed value against this file, the README, and a keyserver lookup before allowing the script to touch your keyring. See [`docs/verify-release-integrity.md`](verify-release-integrity.md) for the full walkthrough.
+
+**Key rotation.** When the project rotates its signing key, the transition runs over two releases: one signed by the old key but carrying the new fingerprint in the scripts' `TRUSTED_FINGERPRINTS` array, and a subsequent release signed by the new key only. See [`docs/verify-release-integrity.md#key-rotation`](verify-release-integrity.md#key-rotation) for the worked example.

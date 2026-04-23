@@ -1,0 +1,4 @@
+#!/bin/sh
+# AppRun — AppImage entrypoint. Dispatches to the CLI binary with the user's args.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/nimbus" "$@"

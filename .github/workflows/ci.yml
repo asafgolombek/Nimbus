@@ -21,7 +21,6 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
-      pull-requests: read
     outputs:
       ui: ${{ steps.changes.outputs.ui }}
       rust: ${{ steps.changes.outputs.rust }}
@@ -33,15 +32,23 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1 (Node 24 runtime)
+          fetch-depth: 0
+      - name: Detect changed paths
         id: changes
-        with:
-          filters: |
-            ui:
-              - 'packages/ui/**'
-              - 'packages/sdk/**'
-            rust:
-              - 'packages/ui/src-tauri/**'
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          # Fall back to HEAD~1 for new branches where before-SHA is all-zeros.
+          if [[ -z "$BASE" || "$BASE" == "0000000000000000000000000000000000000000" ]]; then
+            BASE="HEAD~1"
+          fi
+          CHANGED=$(git diff --name-only "$BASE" "${{ github.sha }}" 2>/dev/null || echo "")
+          echo "ui=$(echo "$CHANGED" | grep -qE '^packages/(ui|sdk)/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "rust=$(echo "$CHANGED" | grep -qE '^packages/ui/src-tauri/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   # ── PR: fast feedback (three jobs run in parallel) ─────────────────────────
 
