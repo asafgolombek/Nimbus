@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776953933915,
+  "lastUpdate": 1776961321236,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1043,6 +1043,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5186582800000012,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "71ae333b0125cade50e52aac7b45537feab0c35c",
+          "message": "Merge pull request #84 from asafgolombek/dev/asafgolombek/signing-pipeline\n\nfeat(release): v0.1.0 Phase-1 headless signing pipeline",
+          "timestamp": "2026-04-23T19:21:28+03:00",
+          "tree_id": "f2acf7097188f979ee307e11605f07b34e99ebd0",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/71ae333b0125cade50e52aac7b45537feab0c35c"
+        },
+        "date": 1776961320497,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5194307399999958,
             "unit": "ms"
           }
         ]
