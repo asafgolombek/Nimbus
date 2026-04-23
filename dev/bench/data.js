@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965776288,
+  "lastUpdate": 1776965793054,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1217,6 +1217,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4302316000000013,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ab23c85f1acf9945d305155a83cbecff0b6db7da",
+          "message": "Merge pull request #86 from asafgolombek/dependabot/bun/types-47407f7a58\n\nchore(deps): bump @types/bun from 1.3.12 to 1.3.13 in the types group",
+          "timestamp": "2026-04-23T20:35:59+03:00",
+          "tree_id": "fe0149585a80a504c20d2f5f6f4df86ad928a569",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/ab23c85f1acf9945d305155a83cbecff0b6db7da"
+        },
+        "date": 1776965792067,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4247819199999991,
             "unit": "ms"
           }
         ]
