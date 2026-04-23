@@ -12,17 +12,25 @@ const toMsys2 = (p: string) =>
 const VERIFY_PS1 = toUnix(join(REPO_ROOT, "scripts", "release", "nimbus-verify.ps1"));
 const GEN_KEY = toUnix(join(REPO_ROOT, "scripts", "release", "fixtures", "gen-test-key.sh"));
 
-// Skip entirely if pwsh (PowerShell 7+) is not on PATH. `nimbus-verify.ps1`
-// targets PowerShell 7+ per its .NOTES; Windows PowerShell 5.1 is intentionally
-// NOT supported (it predates modern .NET JSON handling and cross-platform tooling).
-// Systems without pwsh skip these tests cleanly; CI Windows/macOS/Linux runners
-// all have pwsh available.
-const HAS_PWSH = (() => {
-  const r = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["pwsh"], {
-    encoding: "utf8",
-  });
-  return r.status === 0;
+const IS_WIN = process.platform === "win32";
+
+// Resolve absolute paths for system tools to avoid PATH-based hijacking (Sonar S4036).
+// where.exe lives at its fixed Windows system path; which at its fixed POSIX path.
+const WHERE_CMD = IS_WIN ? "C:\\Windows\\System32\\where.exe" : "/usr/bin/which";
+const BASH_BIN = IS_WIN ? "bash" : "/bin/bash";
+const SHA256SUM_BIN = IS_WIN ? "sha256sum" : "/usr/bin/sha256sum";
+const GPG_BIN = IS_WIN ? "gpg" : "/usr/bin/gpg";
+
+// Resolve pwsh once at load time; store the absolute path so run() never hits PATH.
+// Skip entirely if pwsh (PowerShell 7+) is not installed — nimbus-verify.ps1 targets
+// PowerShell 7+ only; Windows PowerShell 5.1 is intentionally not supported.
+const PWSH_EXE = (() => {
+  const r = spawnSync(WHERE_CMD, ["pwsh"], { encoding: "utf8" });
+  if (r.status !== 0) return null;
+  return r.stdout.trim().split(/\r?\n/)[0] ?? null;
 })();
+
+const HAS_PWSH = PWSH_EXE !== null;
 
 if (!HAS_PWSH) {
   // Surface the skip reason once so a developer running tests locally without
@@ -41,7 +49,7 @@ let cwd: string;
 let fingerprint: string;
 
 function run(args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const r = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-File", VERIFY_PS1, ...args], {
+  const r = spawnSync(PWSH_EXE!, ["-NoProfile", "-NonInteractive", "-File", VERIFY_PS1, ...args], {
     cwd,
     encoding: "utf8",
     env: {
@@ -60,15 +68,15 @@ beforeEach(() => {
   cwd = join(work, "cwd");
   mkdirSync(cwd, { recursive: true });
 
-  const genRes = spawnSync("bash", [GEN_KEY, toMsys2(gnupghome)], { encoding: "utf8" });
+  const genRes = spawnSync(BASH_BIN, [GEN_KEY, toMsys2(gnupghome)], { encoding: "utf8" });
   if (genRes.status !== 0) throw new Error(`gen-test-key.sh failed: ${genRes.stderr}`);
   fingerprint = genRes.stdout.trim();
 
   writeFileSync(join(cwd, "hello.bin"), "hello world", "utf8");
-  const sha = spawnSync("sha256sum", ["hello.bin"], { cwd, encoding: "utf8" });
+  const sha = spawnSync(SHA256SUM_BIN, ["hello.bin"], { cwd, encoding: "utf8" });
   writeFileSync(join(cwd, "SHA256SUMS"), sha.stdout, "utf8");
   spawnSync(
-    "gpg",
+    GPG_BIN,
     [
       "--batch",
       "--yes",

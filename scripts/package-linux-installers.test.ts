@@ -25,6 +25,33 @@ let stubToolPath: string;
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
 
+// Create a bash stub script under workDir and return its path.
+function makeStub(name: string, body: string): string {
+  const p = join(workDir, name);
+  writeFileSync(p, `#!/usr/bin/env bash\nset -e\n${body}\n`, "utf8");
+  chmodSync(p, 0o755);
+  return p;
+}
+
+// Run package-linux-installers.ts via the current Bun executable. Using process.execPath
+// instead of "bun" avoids PATH-based tool hijacking (Sonar S4036).
+function runInstaller(extraArgs: string[]) {
+  return spawnSync(
+    process.execPath,
+    [
+      "scripts/package-linux-installers.ts",
+      "--bundle",
+      bundleDir,
+      "--out",
+      outDir,
+      "--version",
+      "0.1.0-rc1",
+      ...extraArgs,
+    ],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  );
+}
+
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "nimbus-pkg-linux-"));
   bundleDir = join(workDir, "bundle");
@@ -41,18 +68,7 @@ beforeEach(() => {
 
   // Stub appimagetool: writes a 4-byte marker so the test can recognise its output
   // without needing FUSE / real AppImage magic.
-  stubToolPath = join(workDir, "stub-appimagetool");
-  writeFileSync(
-    stubToolPath,
-    `#!/usr/bin/env bash
-# stub-appimagetool: takes <AppDir> <outPath>, writes a 4-byte marker to outPath.
-set -e
-OUT="$2"
-printf 'AITS' > "$OUT"
-`,
-    "utf8",
-  );
-  chmodSync(stubToolPath, 0o755);
+  stubToolPath = makeStub("stub-appimagetool", `OUT="$2"\nprintf 'AITS' > "$OUT"`);
 });
 
 afterEach(() => {
@@ -60,59 +76,19 @@ afterEach(() => {
 });
 
 linuxTest("produces .deb with expected name", () => {
-  const r = spawnSync(
-    "bun",
-    [
-      "scripts/package-linux-installers.ts",
-      "--bundle",
-      bundleDir,
-      "--out",
-      outDir,
-      "--version",
-      "0.1.0-rc1",
-      "--skip-appimage",
-    ],
-    { cwd: REPO_ROOT, encoding: "utf8" },
-  );
+  const r = runInstaller(["--skip-appimage"]);
   expect(r.status).toBe(0);
   expect(existsSync(join(outDir, "nimbus-headless_0.1.0-rc1_amd64.deb"))).toBe(true);
 });
 
 linuxTest("produces tarball with expected name", () => {
-  const r = spawnSync(
-    "bun",
-    [
-      "scripts/package-linux-installers.ts",
-      "--bundle",
-      bundleDir,
-      "--out",
-      outDir,
-      "--version",
-      "0.1.0-rc1",
-      "--skip-appimage",
-    ],
-    { cwd: REPO_ROOT, encoding: "utf8" },
-  );
+  const r = runInstaller(["--skip-appimage"]);
   expect(r.status).toBe(0);
   expect(existsSync(join(outDir, "nimbus-headless-linux-amd64-v0.1.0-rc1.tar.gz"))).toBe(true);
 });
 
 linuxTest("produces .AppImage with stubbed appimagetool", () => {
-  const r = spawnSync(
-    "bun",
-    [
-      "scripts/package-linux-installers.ts",
-      "--bundle",
-      bundleDir,
-      "--out",
-      outDir,
-      "--version",
-      "0.1.0-rc1",
-      "--appimagetool",
-      stubToolPath,
-    ],
-    { cwd: REPO_ROOT, encoding: "utf8" },
-  );
+  const r = runInstaller(["--appimagetool", stubToolPath]);
   expect(r.status).toBe(0);
   const appImage = join(outDir, "nimbus-headless-0.1.0-rc1-x86_64.AppImage");
   expect(existsSync(appImage)).toBe(true);
@@ -121,36 +97,13 @@ linuxTest("produces .AppImage with stubbed appimagetool", () => {
 });
 
 linuxTest("populates AppDir with AppRun, .desktop, icon, and binaries before invoking tool", () => {
-  // Record stub tool's working directory + ls before it runs, so we can inspect the AppDir.
   const listingPath = join(workDir, "appdir-listing.txt");
-  const recordingStub = join(workDir, "recording-stub");
-  writeFileSync(
-    recordingStub,
-    `#!/usr/bin/env bash
-set -e
-APPDIR="$1"
-(cd "$APPDIR" && find . -type f | sort) > "${listingPath}"
-printf 'AITS' > "$2"
-`,
-    "utf8",
+  const recordingStub = makeStub(
+    "recording-stub",
+    `APPDIR="$1"\n(cd "$APPDIR" && find . -type f | sort) > "${listingPath}"\nprintf 'AITS' > "$2"`,
   );
-  chmodSync(recordingStub, 0o755);
 
-  const r = spawnSync(
-    "bun",
-    [
-      "scripts/package-linux-installers.ts",
-      "--bundle",
-      bundleDir,
-      "--out",
-      outDir,
-      "--version",
-      "0.1.0-rc1",
-      "--appimagetool",
-      recordingStub,
-    ],
-    { cwd: REPO_ROOT, encoding: "utf8" },
-  );
+  const r = runInstaller(["--appimagetool", recordingStub]);
   expect(r.status).toBe(0);
 
   const listing = readFileSync(listingPath, "utf8");
@@ -163,35 +116,13 @@ printf 'AITS' > "$2"
 });
 
 linuxTest("substitutes {{VERSION}} placeholder in desktop entry", () => {
-  const recordingStub = join(workDir, "desktop-recording-stub");
   const desktopOut = join(workDir, "captured.desktop");
-  writeFileSync(
-    recordingStub,
-    `#!/usr/bin/env bash
-set -e
-APPDIR="$1"
-cp "$APPDIR/nimbus-headless.desktop" "${desktopOut}"
-printf 'AITS' > "$2"
-`,
-    "utf8",
+  const recordingStub = makeStub(
+    "desktop-recording-stub",
+    `APPDIR="$1"\ncp "$APPDIR/nimbus-headless.desktop" "${desktopOut}"\nprintf 'AITS' > "$2"`,
   );
-  chmodSync(recordingStub, 0o755);
 
-  spawnSync(
-    "bun",
-    [
-      "scripts/package-linux-installers.ts",
-      "--bundle",
-      bundleDir,
-      "--out",
-      outDir,
-      "--version",
-      "0.1.0-rc1",
-      "--appimagetool",
-      recordingStub,
-    ],
-    { cwd: REPO_ROOT, encoding: "utf8" },
-  );
+  runInstaller(["--appimagetool", recordingStub]);
 
   const desktop = readFileSync(desktopOut, "utf8");
   expect(desktop).toContain("X-AppImage-Version=0.1.0-rc1");
