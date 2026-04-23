@@ -5,8 +5,17 @@ import { join } from "node:path";
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const CLI_ENTRY = join(REPO_ROOT, "packages", "cli", "src", "index.ts");
 
+/**
+ * Absolute path to the Bun interpreter running this test file. Using
+ * `process.execPath` instead of `"bun"` avoids any PATH lookup, which
+ * SonarCloud flags as security-sensitive (a maliciously-prepended PATH
+ * entry could otherwise shadow `bun`). Resolves to the same binary that
+ * invoked `bun test`, so test behavior is unchanged.
+ */
+const BUN_EXECUTABLE = process.execPath;
+
 function run(env: NodeJS.ProcessEnv = {}): { code: number; stdout: string; stderr: string } {
-  const result = spawnSync("bun", ["run", CLI_ENTRY, "tui"], {
+  const result = spawnSync(BUN_EXECUTABLE, ["run", CLI_ENTRY, "tui"], {
     env: { ...process.env, ...env },
     stdio: ["pipe", "pipe", "pipe"],
     encoding: "utf-8",
