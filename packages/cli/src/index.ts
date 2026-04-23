@@ -31,6 +31,7 @@ import {
   runStop,
   runTelemetry,
   runTest,
+  runTui,
   runUpdate,
   runVault,
   runWatch,
@@ -80,6 +81,9 @@ async function main(): Promise<void> {
           break;
         case "telemetry":
           await runTelemetry(args);
+          break;
+        case "tui":
+          await runTui(args);
           break;
         case "update":
           await runUpdate(args);
