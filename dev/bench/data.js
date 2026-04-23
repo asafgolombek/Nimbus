@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965804539,
+  "lastUpdate": 1776965858990,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1275,6 +1275,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4343367800000077,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b3f5698f16eae4d6702b1b0920d1de2f7d65d98",
+          "message": "Merge pull request #90 from asafgolombek/dependabot/bun/mastra/core-1.27.0\n\nchore(deps): bump @mastra/core from 1.25.0 to 1.27.0",
+          "timestamp": "2026-04-23T20:37:06+03:00",
+          "tree_id": "6b310adbbdd5216a214c44b0046d4470f20375ee",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/2b3f5698f16eae4d6702b1b0920d1de2f7d65d98"
+        },
+        "date": 1776965857996,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.625164880000001,
             "unit": "ms"
           }
         ]
