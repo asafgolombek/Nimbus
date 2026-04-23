@@ -53,7 +53,11 @@ function progressBar(progress: number): string {
   return `[${"=".repeat(filled)}${"-".repeat(PROGRESS_BAR_WIDTH - filled)}]`;
 }
 
-export function SubTaskPane({ clearKey }: { clearKey: number }): React.JSX.Element {
+interface SubTaskPaneProps {
+  readonly clearKey: number;
+}
+
+export function SubTaskPane({ clearKey }: SubTaskPaneProps): React.JSX.Element {
   const { client } = useIpc();
 
   // Use a ref as the mutable backing store so the notification handler always

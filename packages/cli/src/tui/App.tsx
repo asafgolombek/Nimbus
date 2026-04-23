@@ -18,8 +18,18 @@ import { initialTuiState, tuiReducer } from "./state.ts";
 import { WatcherPane } from "./WatcherPane.tsx";
 
 interface Props {
-  historyPath: string;
-  onExit: () => void;
+  readonly historyPath: string;
+  readonly onExit: () => void;
+}
+
+function formatHitlOutcome(approved: number, rejected: number): string {
+  if (rejected === 0) {
+    return "✓ approved all";
+  }
+  if (approved === 0) {
+    return "✗ rejected all";
+  }
+  return `✓ approved ${String(approved)}, ✗ rejected ${String(rejected)}`;
 }
 
 function isStreamTokenPayload(p: unknown): p is { streamId: string; text: string } {
@@ -240,12 +250,7 @@ export function App({ historyPath, onExit }: Props): React.JSX.Element {
     if (cursor >= requests.length) {
       const approved = decisions.filter((d) => d.approved).length;
       const rejected = decisions.length - approved;
-      const outcome =
-        rejected === 0
-          ? "✓ approved all"
-          : approved === 0
-            ? "✗ rejected all"
-            : `✓ approved ${String(approved)}, ✗ rejected ${String(rejected)}`;
+      const outcome = formatHitlOutcome(approved, rejected);
       setEntries((e) => [...e, { kind: "hitl-outcome", text: outcome }]);
       void client.call("consent.respond", { batchId, decisions }).catch((err) => {
         logger.debug({ event: "tui.consent.error", err: String(err) }, "consent failed");

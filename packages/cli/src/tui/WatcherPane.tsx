@@ -29,7 +29,11 @@ function isWatcherList(data: unknown): data is WatcherRow[] {
   return Array.isArray(data) && data.every(isWatcherRow);
 }
 
-export function WatcherPane({ mode }: { mode: TuiMode }): React.JSX.Element {
+interface WatcherPaneProps {
+  readonly mode: TuiMode;
+}
+
+export function WatcherPane({ mode }: WatcherPaneProps): React.JSX.Element {
   const poll = useIpcPoll<unknown>("watcher.list", STATUS_POLL_INTERVAL_MS, mode);
   const rows = isWatcherList(poll.data) ? poll.data : [];
   const active = rows.filter((r) => r.active).length;

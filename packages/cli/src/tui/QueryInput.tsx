@@ -5,139 +5,187 @@ import { appendQuery, readHistory } from "./query-history.ts";
 import type { TuiMode } from "./state.ts";
 
 interface Props {
-  mode: TuiMode;
-  historyPath: string;
-  onSubmit: (query: string) => void;
-  onHitlKey: (key: string) => void;
-  onCancelKey: () => void;
-  showCancelHint: boolean;
+  readonly mode: TuiMode;
+  readonly historyPath: string;
+  readonly onSubmit: (query: string) => void;
+  readonly onHitlKey: (key: string) => void;
+  readonly onCancelKey: () => void;
+  readonly showCancelHint: boolean;
+}
+
+/**
+ * Mutable context bundled into one object so per-keystroke handlers take
+ * two parameters (context + position) instead of a long parameter list.
+ */
+interface ProcessContext {
+  readonly bufRef: React.MutableRefObject<string>;
+  readonly histCursorRef: React.MutableRefObject<number | null>;
+  readonly historyRef: React.MutableRefObject<string[]>;
+  readonly historyPathRef: React.MutableRefObject<string>;
+  readonly inHitlRef: React.MutableRefObject<boolean>;
+  readonly disabledRef: React.MutableRefObject<boolean>;
+  readonly onSubmit: (q: string) => void;
+  readonly onCancel: () => void;
+  readonly onHitlKey: (k: string) => void;
+  readonly forceRender: () => void;
+}
+
+const CSI_FINAL_MIN = 0x40;
+const CSI_FINAL_MAX = 0x7e;
+
+function isEditable(ctx: ProcessContext): boolean {
+  return !ctx.inHitlRef.current && !ctx.disabledRef.current;
+}
+
+/** Up arrow — step back to an older entry, clamp at the oldest. */
+function handleUp(ctx: ProcessContext): void {
+  if (!isEditable(ctx)) {
+    return;
+  }
+  const h = ctx.historyRef.current;
+  if (h.length === 0) {
+    return;
+  }
+  const cur = ctx.histCursorRef.current;
+  const next = cur === null ? h.length - 1 : Math.max(0, cur - 1);
+  ctx.histCursorRef.current = next;
+  ctx.bufRef.current = h[next] ?? "";
+  ctx.forceRender();
+}
+
+/** Down arrow — step forward through history, past the end back to empty. */
+function handleDown(ctx: ProcessContext): void {
+  if (!isEditable(ctx)) {
+    return;
+  }
+  const cur = ctx.histCursorRef.current;
+  if (cur === null) {
+    return;
+  }
+  const h = ctx.historyRef.current;
+  const next = cur + 1;
+  if (next >= h.length) {
+    ctx.histCursorRef.current = null;
+    ctx.bufRef.current = "";
+  } else {
+    ctx.histCursorRef.current = next;
+    ctx.bufRef.current = h[next] ?? "";
+  }
+  ctx.forceRender();
+}
+
+/**
+ * Advance past an ANSI CSI sequence, returning the new position.
+ * Up/Down are short-circuited by the caller; this handles everything else
+ * (right arrow, etc.) with a full CSI skip.
+ */
+function skipCsi(chunk: string, start: number): number {
+  let i = start;
+  while (i < chunk.length) {
+    const code = chunk.codePointAt(i) ?? 0;
+    i++;
+    if (code >= CSI_FINAL_MIN && code <= CSI_FINAL_MAX) {
+      return i;
+    }
+  }
+  return i;
+}
+
+/** Returns the new position after consuming the escape sequence. */
+function handleEscape(chunk: string, i: number, ctx: ProcessContext): number {
+  const three = chunk.slice(i, i + 3);
+  if (three === "\x1B[A") {
+    handleUp(ctx);
+    return i + 3;
+  }
+  if (three === "\x1B[B") {
+    handleDown(ctx);
+    return i + 3;
+  }
+  return skipCsi(chunk, i + 1);
+}
+
+/** Enter / Return — trim, submit, persist to history, reset buffer. */
+function handleSubmit(ctx: ProcessContext): void {
+  if (!isEditable(ctx)) {
+    return;
+  }
+  const trimmed = ctx.bufRef.current.trim();
+  if (trimmed === "") {
+    return;
+  }
+  void appendQuery(ctx.historyPathRef.current, trimmed).then(async () => {
+    ctx.historyRef.current = await readHistory(ctx.historyPathRef.current);
+  });
+  ctx.onSubmit(trimmed);
+  ctx.bufRef.current = "";
+  ctx.histCursorRef.current = null;
+  ctx.forceRender();
+}
+
+/** Backspace / Delete — trim one char off the end of the buffer. */
+function handleBackspace(ctx: ProcessContext): void {
+  if (!isEditable(ctx)) {
+    return;
+  }
+  ctx.bufRef.current = ctx.bufRef.current.slice(0, -1);
+  ctx.forceRender();
+}
+
+function isHitlKey(ch: string): boolean {
+  return ch === "a" || ch === "r" || ch === "d" || ch === "q";
+}
+
+/** Printable character — either forwards to HITL handler or appends to buffer. */
+function handlePrintable(ch: string, ctx: ProcessContext): void {
+  if (ctx.inHitlRef.current) {
+    if (isHitlKey(ch)) {
+      ctx.onHitlKey(ch);
+    }
+    return;
+  }
+  if (ctx.disabledRef.current) {
+    return;
+  }
+  ctx.bufRef.current += ch;
+  ctx.forceRender();
 }
 
 /**
  * Process a raw data chunk from stdin into individual actions.
  *
  * stdin.write() in ink-testing-library emits the entire string as one 'data'
- * event (e.g. "hello" is five characters in one chunk). We iterate the
- * string ourselves, handling multi-character escape sequences, control
- * characters, and printable text.
+ * event (e.g. "hello" is five characters in one chunk), so this function
+ * iterates the chunk and dispatches each keystroke to its specific handler.
  */
-function processChunk(
-  chunk: string,
-  bufRef: React.MutableRefObject<string>,
-  histCursorRef: React.MutableRefObject<number | null>,
-  historyRef: React.MutableRefObject<string[]>,
-  inHitlRef: React.MutableRefObject<boolean>,
-  disabledRef: React.MutableRefObject<boolean>,
-  onSubmit: (q: string) => void,
-  onCancel: () => void,
-  onHitlKey: (k: string) => void,
-  historyPathRef: React.MutableRefObject<string>,
-  forceRender: () => void,
-): void {
+function processChunk(chunk: string, ctx: ProcessContext): void {
   let i = 0;
   while (i < chunk.length) {
-    // ── Escape sequences ───────────────────────────────────────────────────
     if (chunk[i] === "\x1b") {
-      const three = chunk.slice(i, i + 3);
-      if (three === "\x1B[A") {
-        // Up arrow
-        i += 3;
-        if (!inHitlRef.current && !disabledRef.current) {
-          const h = historyRef.current;
-          if (h.length > 0) {
-            const cur = histCursorRef.current;
-            const next = cur === null ? h.length - 1 : Math.max(0, cur - 1);
-            histCursorRef.current = next;
-            bufRef.current = h[next] ?? "";
-            forceRender();
-          }
-        }
-        continue;
-      }
-      if (three === "\x1B[B") {
-        // Down arrow
-        i += 3;
-        if (!inHitlRef.current && !disabledRef.current) {
-          const h = historyRef.current;
-          const cur = histCursorRef.current;
-          if (cur !== null) {
-            const next = cur + 1;
-            if (next >= h.length) {
-              histCursorRef.current = null;
-              bufRef.current = "";
-            } else {
-              histCursorRef.current = next;
-              bufRef.current = h[next] ?? "";
-            }
-            forceRender();
-          }
-        }
-        continue;
-      }
-      // Skip other escape sequences (e.g. \x1b[C for right arrow)
-      i++;
-      while (i < chunk.length) {
-        const c = chunk.charCodeAt(i);
-        i++;
-        // Final byte of a CSI sequence is 0x40–0x7E
-        if (c >= 0x40 && c <= 0x7e) {
-          break;
-        }
-      }
+      i = handleEscape(chunk, i, ctx);
       continue;
     }
 
     const ch = chunk[i] ?? "";
     i++;
 
-    // ── Ctrl+C ─────────────────────────────────────────────────────────────
     if (ch === "\x03") {
-      onCancel();
+      ctx.onCancel();
       continue;
     }
-
-    // ── Enter / Return ─────────────────────────────────────────────────────
     if (ch === "\r" || ch === "\n") {
-      if (!inHitlRef.current && !disabledRef.current) {
-        const trimmed = bufRef.current.trim();
-        if (trimmed !== "") {
-          void appendQuery(historyPathRef.current, trimmed).then(() => {
-            void readHistory(historyPathRef.current).then((entries) => {
-              historyRef.current = entries;
-            });
-          });
-          onSubmit(trimmed);
-          bufRef.current = "";
-          histCursorRef.current = null;
-          forceRender();
-        }
-      }
+      handleSubmit(ctx);
       continue;
     }
-
-    // ── Backspace / Delete ─────────────────────────────────────────────────
     if (ch === "\x7f" || ch === "\x08") {
-      if (!inHitlRef.current && !disabledRef.current) {
-        bufRef.current = bufRef.current.slice(0, -1);
-        forceRender();
-      }
+      handleBackspace(ctx);
       continue;
     }
-
-    // ── Other control characters ───────────────────────────────────────────
-    if (ch.charCodeAt(0) < 32) {
+    // Skip any other control characters.
+    if ((ch.codePointAt(0) ?? 0) < 32) {
       continue;
     }
-
-    // ── Printable character ────────────────────────────────────────────────
-    if (inHitlRef.current) {
-      if (ch === "a" || ch === "r" || ch === "d" || ch === "q") {
-        onHitlKey(ch);
-      }
-    } else if (!disabledRef.current) {
-      bufRef.current += ch;
-      forceRender();
-    }
+    handlePrintable(ch, ctx);
   }
 }
 
@@ -152,7 +200,7 @@ export function QueryInput(props: Props): React.JSX.Element {
   const historyRef = React.useRef<string[]>([]);
   const [, forceRender] = React.useReducer((n: number) => n + 1, 0);
 
-  // Stable refs so the data handler never captures stale closures
+  // Stable refs so the data handler never captures stale closures.
   const inHitlRef = React.useRef(mode === "awaiting-hitl");
   const disabledRef = React.useRef(mode === "streaming" || mode === "disconnected");
   const historyPathRef = React.useRef(historyPath);
@@ -167,7 +215,7 @@ export function QueryInput(props: Props): React.JSX.Element {
   onHitlKeyRef.current = onHitlKey;
   onCancelKeyRef.current = onCancelKey;
 
-  // Load history from file (async; populates historyRef before first Up press)
+  // Load history from file (async; populates historyRef before first Up press).
   React.useEffect(() => {
     void readHistory(historyPath).then((entries) => {
       historyRef.current = entries;
@@ -180,19 +228,19 @@ export function QueryInput(props: Props): React.JSX.Element {
   // listener is installed before the test's first stdin.write() fires.
   React.useLayoutEffect(() => {
     const handler = (data: unknown): void => {
-      processChunk(
-        String(data),
+      const ctx: ProcessContext = {
         bufRef,
         histCursorRef,
         historyRef,
+        historyPathRef,
         inHitlRef,
         disabledRef,
-        onSubmitRef.current,
-        onCancelKeyRef.current,
-        onHitlKeyRef.current,
-        historyPathRef,
+        onSubmit: onSubmitRef.current,
+        onCancel: onCancelKeyRef.current,
+        onHitlKey: onHitlKeyRef.current,
         forceRender,
-      );
+      };
+      processChunk(String(data), ctx);
     };
     stdin?.on("data", handler);
     return () => {

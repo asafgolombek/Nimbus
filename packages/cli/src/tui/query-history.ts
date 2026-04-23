@@ -47,7 +47,7 @@ export async function appendQuery(path: string, query: string): Promise<void> {
     return;
   }
   const current = await readHistory(path);
-  if (current.length > 0 && current[current.length - 1] === query) {
+  if (current.at(-1) === query) {
     return;
   }
   const next = [...current, query];

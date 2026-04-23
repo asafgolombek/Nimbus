@@ -24,9 +24,9 @@ function Harness({
   method,
   onData,
 }: {
-  stub: StubIpcClient;
-  method: string;
-  onData: (data: unknown) => void;
+  readonly stub: StubIpcClient;
+  readonly method: string;
+  readonly onData: (data: unknown) => void;
 }): React.JSX.Element {
   const state = useIpcPoll<unknown>(method, 50, "idle");
   React.useEffect(() => {

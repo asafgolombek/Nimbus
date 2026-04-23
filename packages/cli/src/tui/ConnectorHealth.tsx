@@ -35,24 +35,39 @@ function glyph(status: ConnectorRow["status"]): string {
   return "○";
 }
 
-export function ConnectorHealth({ mode }: { mode: TuiMode }): React.JSX.Element {
+interface ConnectorHealthProps {
+  readonly mode: TuiMode;
+}
+
+function renderBody(
+  poll: ReturnType<typeof useIpcPoll<unknown>>,
+  rows: ConnectorRow[],
+): React.JSX.Element {
+  if (poll.data === null && rows.length === 0) {
+    return <Text dimColor>loading…</Text>;
+  }
+  if (rows.length === 0) {
+    return <Text dimColor>(none)</Text>;
+  }
+  return (
+    <>
+      {rows.map((r) => (
+        <Text key={r.service}>
+          {r.status === "degraded" ? "⚠ " : "  "}
+          {glyph(r.status)} {r.service}
+        </Text>
+      ))}
+    </>
+  );
+}
+
+export function ConnectorHealth({ mode }: ConnectorHealthProps): React.JSX.Element {
   const poll = useIpcPoll<unknown>("connector.list", STATUS_POLL_INTERVAL_MS, mode);
   const rows = isConnectorList(poll.data) ? poll.data : [];
   return (
     <Box flexDirection="column">
       <Text bold>Connectors{poll.stale ? " (stale)" : ""}</Text>
-      {poll.data === null && rows.length === 0 ? (
-        <Text dimColor>loading…</Text>
-      ) : rows.length === 0 ? (
-        <Text dimColor>(none)</Text>
-      ) : (
-        rows.map((r) => (
-          <Text key={r.service}>
-            {r.status === "degraded" ? "⚠ " : "  "}
-            {glyph(r.status)} {r.service}
-          </Text>
-        ))
-      )}
+      {renderBody(poll, rows)}
     </Box>
   );
 }

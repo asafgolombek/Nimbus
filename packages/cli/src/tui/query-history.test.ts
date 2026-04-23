@@ -73,7 +73,7 @@ describe("appendQuery", () => {
     const history = await readHistory(historyPath);
     expect(history.length).toBe(QUERY_HISTORY_CAP);
     expect(history[0]).toBe("q10"); // oldest surviving
-    expect(history[history.length - 1]).toBe(`q${String(QUERY_HISTORY_CAP + 9)}`);
+    expect(history.at(-1)).toBe(`q${String(QUERY_HISTORY_CAP + 9)}`);
   });
 
   test("recovers from corrupt file by overwriting", async () => {

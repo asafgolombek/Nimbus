@@ -8,9 +8,9 @@ export type ResultStreamEntry =
   | { kind: "hitl-outcome"; text: string };
 
 interface Props {
-  entries: ResultStreamEntry[];
-  liveBuffer: string;
-  hitlBanner: string | null;
+  readonly entries: ResultStreamEntry[];
+  readonly liveBuffer: string;
+  readonly hitlBanner: string | null;
 }
 
 function renderEntry(entry: ResultStreamEntry): React.JSX.Element {
@@ -36,8 +36,8 @@ export function ResultStream({ entries, liveBuffer, hitlBanner }: Props): React.
       <Static items={entries}>
         {(entry, index) => <Box key={index}>{renderEntry(entry)}</Box>}
       </Static>
-      {liveBuffer !== "" ? <Text>{liveBuffer}</Text> : null}
-      {hitlBanner !== null ? (
+      {liveBuffer === "" ? null : <Text>{liveBuffer}</Text>}
+      {hitlBanner === null ? null : (
         <Box flexDirection="column" marginTop={1}>
           {hitlBanner.split("\n").map((line) => (
             <Text key={`hitl-${line}`} color="yellow">
@@ -45,7 +45,7 @@ export function ResultStream({ entries, liveBuffer, hitlBanner }: Props): React.
             </Text>
           ))}
         </Box>
-      ) : null}
+      )}
     </Box>
   );
 }

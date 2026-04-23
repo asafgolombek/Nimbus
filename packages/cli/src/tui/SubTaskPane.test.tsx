@@ -46,7 +46,7 @@ describe("SubTaskPane", () => {
       subTaskId: "t2",
       name: "github-mcp",
       status: "completed",
-      progress: 1.0,
+      progress: 1,
     });
     await new Promise((r) => setTimeout(r, 10));
     const frame = lastFrame() ?? "";
@@ -68,14 +68,14 @@ describe("SubTaskPane", () => {
       subTaskId: "t1",
       name: "planner",
       status: "running",
-      progress: 0.0,
+      progress: 0,
     });
     await new Promise((r) => setTimeout(r, 10));
     stub.emit("agent.subTaskProgress", {
       subTaskId: "t1",
       name: "planner",
       status: "running",
-      progress: 1.0,
+      progress: 1,
     });
     await new Promise((r) => setTimeout(r, 10));
     expect((lastFrame() ?? "").match(/planner/g)?.length).toBe(1);
