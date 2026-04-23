@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776918197767,
+  "lastUpdate": 1776953933915,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1014,6 +1014,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4241878399999945,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": false,
+          "id": "bc48765ed528ecf63f4295aa0022e259de3727c2",
+          "message": "docs(plan): address Gemini review of signing-pipeline plan\n\nOne real correctness bug fixed (I4): vanilla macOS ships shasum but\nNOT sha256sum, so the verify script's prereq probe would exit 2 on\nevery default Mac. nimbus-verify.sh now probes for sha256sum first,\nfalls back to shasum -a 256, uses $SHACMD throughout.\n\nOther inline fixes:\n- Task 3.3: base64 PNG write for autonomous icon (no ImageMagick dep)\n- Task 3.6: --help flag for package-linux-installers.ts\n- Task 6.1: explicit skip reason for missing pwsh\n- Task 9.1: Unblock-File for Zone.Identifier on .ps1\n- Task 13.7: clarifying comment on filename preservation\n- Task 7.1: shasum alternative + --ignore-missing/latest.json clarity\n- Task 14.5a: gh api check for release env protection_rules\n- Task 14.5b: three-way fingerprint consistency check\n\nFull Review Responses section added at the end of the plan.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-23T09:26:58+03:00",
+          "tree_id": "0ac86bb051823bde98d40ad8f7f6a42765123375",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/bc48765ed528ecf63f4295aa0022e259de3727c2"
+        },
+        "date": 1776953933301,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5186582800000012,
             "unit": "ms"
           }
         ]
