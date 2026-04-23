@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { WatcherHistoryDrawer } from "../components/watchers/WatcherHistoryDrawer";
 import { useIpcQuery } from "../hooks/useIpcQuery";
 import { createIpcClient } from "../ipc/client";
 import type {
@@ -38,9 +39,9 @@ function buildGraphPredicateJson(fields: GraphPredicateFields): string {
 }
 
 interface GraphConditionBuilderProps {
-  value: GraphPredicateFields;
-  onChange: (v: GraphPredicateFields) => void;
-  candidateRelations: readonly CandidateRelation[];
+  readonly value: GraphPredicateFields;
+  readonly onChange: (v: GraphPredicateFields) => void;
+  readonly candidateRelations: readonly CandidateRelation[];
 }
 
 function GraphConditionBuilder({
@@ -72,7 +73,7 @@ function GraphConditionBuilder({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [value.relation, value.targetType, value.targetId]);
+  }, [value]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -331,41 +332,71 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
 // ---------------------------------------------------------------------------
 
 interface WatcherRowProps {
-  watcher: WatcherSummary;
-  disabled: boolean;
-  onToggle: (w: WatcherSummary) => void;
-  onDelete: (w: WatcherSummary) => void;
+  readonly watcher: WatcherSummary;
+  readonly disabled: boolean;
+  readonly historyOpen: boolean;
+  readonly onToggle: (w: WatcherSummary) => void;
+  readonly onDelete: (w: WatcherSummary) => void;
+  readonly onToggleHistory: (id: string) => void;
 }
 
-function WatcherRow({ watcher, disabled, onToggle, onDelete }: WatcherRowProps) {
+function WatcherRow({
+  watcher,
+  disabled,
+  historyOpen,
+  onToggle,
+  onDelete,
+  onToggleHistory,
+}: WatcherRowProps) {
   return (
-    <tr>
-      <td className="py-2 px-3 font-medium">{watcher.name}</td>
-      <td className="py-2 px-3 text-sm text-neutral-500">{watcher.condition_type}</td>
-      <td className="py-2 px-3 text-sm" data-testid={`last-fired-${watcher.id}`}>
-        {formatTimestamp(watcher.last_fired_at)}
-      </td>
-      <td className="py-2 px-3">
-        <input
-          type="checkbox"
-          aria-label={`${watcher.name} enabled`}
-          checked={watcher.enabled === 1}
-          disabled={disabled}
-          onChange={() => onToggle(watcher)}
-        />
-      </td>
-      <td className="py-2 px-3">
-        <button
-          type="button"
-          aria-label={`Delete watcher ${watcher.name}`}
-          disabled={disabled}
-          onClick={() => onDelete(watcher)}
-          className="text-red-600 text-sm disabled:opacity-40"
-        >
-          Delete
-        </button>
-      </td>
-    </tr>
+    <>
+      <tr>
+        <td className="py-2 px-3 font-medium">{watcher.name}</td>
+        <td className="py-2 px-3 text-sm text-neutral-500">{watcher.condition_type}</td>
+        <td className="py-2 px-3 text-sm" data-testid={`last-fired-${watcher.id}`}>
+          {formatTimestamp(watcher.last_fired_at)}
+        </td>
+        <td className="py-2 px-3">
+          <input
+            type="checkbox"
+            aria-label={`${watcher.name} enabled`}
+            checked={watcher.enabled === 1}
+            disabled={disabled}
+            onChange={() => onToggle(watcher)}
+          />
+        </td>
+        <td className="py-2 px-3 flex gap-2">
+          <button
+            type="button"
+            aria-label={`History for ${watcher.name}`}
+            onClick={() => onToggleHistory(watcher.id)}
+            className="text-xs border rounded px-2 py-0.5"
+          >
+            History
+          </button>
+          <button
+            type="button"
+            aria-label={`Delete watcher ${watcher.name}`}
+            disabled={disabled}
+            onClick={() => onDelete(watcher)}
+            className="text-red-600 text-sm disabled:opacity-40"
+          >
+            Delete
+          </button>
+        </td>
+      </tr>
+      {historyOpen && (
+        <tr>
+          <td colSpan={5} className="px-3 pb-3">
+            <WatcherHistoryDrawer
+              watcherId={watcher.id}
+              watcherName={watcher.name}
+              onClose={() => onToggleHistory(watcher.id)}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -384,6 +415,11 @@ export function Watchers() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [actionInFlight, setActionInFlight] = useState<string | null>(null);
+  const [openHistoryForId, setOpenHistoryForId] = useState<string | null>(null);
+
+  function handleToggleHistory(id: string) {
+    setOpenHistoryForId((prev) => (prev === id ? null : id));
+  }
 
   async function handleToggle(w: WatcherSummary) {
     if (actionInFlight) return;
@@ -445,8 +481,10 @@ export function Watchers() {
                 key={w.id}
                 watcher={w}
                 disabled={offline || actionInFlight !== null}
+                historyOpen={openHistoryForId === w.id}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
+                onToggleHistory={handleToggleHistory}
               />
             ))}
           </tbody>

@@ -29,6 +29,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -85,13 +87,14 @@ jobs:
 
     steps:
       - name: Harden Runner
-        if: runner.os == 'Linux'
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -184,13 +187,14 @@ jobs:
 
     steps:
       - name: Harden Runner
-        if: runner.os == 'Linux'
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -223,9 +227,12 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     # Keep GITHUB_TOKEN read-only here; GitHub Release API uses RELEASE_PAT (fine-grained: Contents RW).
+    # id-token: write is required by anchore/sbom-action to attach an OIDC-signed attestation.
     permissions:
       contents: read
       actions: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Harden Runner
@@ -235,6 +242,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Require release PAT
         env:
@@ -266,6 +275,28 @@ jobs:
           V="${GITHUB_REF_NAME#v}"
           bun scripts/package-linux-installers.ts --bundle dist/headless-bundle --version "$V"
 
+      # Generate a CycloneDX SBOM of the source tree. Captures Bun + Cargo
+      # dependency graphs that produced the binaries downloaded above. Output is
+      # attached to the release for downstream consumers and signed via OIDC by
+      # the anchore action's call to attest-build-provenance.
+      - name: Generate SBOM (CycloneDX)
+        id: sbom
+        uses: anchore/sbom-action@e11c554f704a0b820cbf8c51673f6945e0731532 # v0.20.0
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: nimbus-${{ github.ref_name }}-sbom.cdx.json
+          # Don't auto-attach to GitHub Release (we do it explicitly below to control filename).
+          upload-release-assets: false
+          upload-artifact: true
+
+      - name: Stage SBOM for release
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist/sbom
+          cp "${{ steps.sbom.outputs.fileName }}" "dist/sbom/nimbus-${GITHUB_REF_NAME}-sbom.cdx.json"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c95fe1489396fe8a21967200391e1b9067ad0ba5 # v2.6.2
         with:
@@ -274,6 +305,7 @@ jobs:
             dist/nimbus-gateway-*/nimbus-gateway-*
             dist/nimbus-cli-*/nimbus-cli-*
             dist/installers/nimbus-headless*
+            dist/sbom/nimbus-*-sbom.cdx.json
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -282,10 +314,17 @@ jobs:
     name: Publish updater manifest
     needs: publish-release
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-nimbus-ci
         with:
           verify-lock: "false"

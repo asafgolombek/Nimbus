@@ -58,6 +58,7 @@ async function main(): Promise<void> {
       dryRun: ctx.dryRun,
       stream: ctx.stream,
       sendChunk: ctx.sendChunk,
+      ...(ctx.paramsOverride !== undefined && { paramsOverride: ctx.paramsOverride }),
     }),
   );
 

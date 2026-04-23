@@ -108,11 +108,13 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "watcher.delete",
     "watcher.list",
     "watcher.listCandidateRelations",
+    "watcher.listHistory",
     "watcher.pause",
     "watcher.resume",
     "watcher.validateCondition",
     "workflow.delete",
     "workflow.list",
+    "workflow.listRuns",
     "workflow.run",
     "workflow.save",
 ];
@@ -187,7 +189,7 @@ pub async fn connect_and_run(app: AppHandle, state: BridgeState) {
         let connect_result = {
             let path = std::env::var("NIMBUS_SOCKET").unwrap_or_else(|_| {
                 let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-                format!("{}/.local/share/nimbus/nimbus.sock", home)
+                format!("{home}/.local/share/nimbus/nimbus.sock")
             });
             let fs_name = path
                 .to_fs_name::<GenericFilePath>()
@@ -278,7 +280,7 @@ pub async fn rpc_call(
     params: Value,
 ) -> Result<Value, String> {
     if !is_method_allowed(&method) {
-        return Err(format!("ERR_METHOD_NOT_ALLOWED:{}", method));
+        return Err(format!("ERR_METHOD_NOT_ALLOWED:{method}"));
     }
     let tx = {
         let guard = state.write_tx.lock().await;
@@ -430,7 +432,8 @@ mod tests {
     fn allowlist_exact_size() {
         // WS5-D adds extension.{disable,enable,install,list,remove} + watcher.{create,delete,
         // list,pause,resume} + workflow.{delete,list,run,save} → 14 new methods → 54 total.
-        assert_eq!(ALLOWED_METHODS.len(), 54);
+        // WS5-D polish adds watcher.listHistory + workflow.listRuns → 2 new methods → 56 total.
+        assert_eq!(ALLOWED_METHODS.len(), 56);
     }
 
     #[test]

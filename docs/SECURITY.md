@@ -207,7 +207,55 @@ For workflow and token hygiene used in CI, see [`security-hardening.md`](./secur
 Automated vulnerability scans run on every PR and nightly:
 
 - **`bun audit`** — npm dependency advisory checks
-- **`trivy`** — filesystem and container vulnerability scanning
-- **`CodeQL`** — static analysis for JS/TS
+- **`cargo audit`** — Rust dependency advisory checks (Tauri shell)
+- **`cargo deny`** — license compatibility (AGPL-3.0 inbound), unmaintained-crate bans, registry pinning
+- **`trivy`** — filesystem vulnerability scanning, SARIF uploaded to GitHub Security tab
+- **`CodeQL`** — static analysis for JS/TS *and* Rust (security-extended queries)
+- **`gitleaks`** — committed-secret detection on PRs and nightly
+- **`OpenSSF Scorecard`** — supply-chain posture, weekly + on default-branch push
+- **`@nimbus-dev/client`** is published with **npm provenance** (sigstore signature backed by GitHub OIDC); verify with `npm audit signatures`
 
 HIGH and CRITICAL findings block merges when branch protection checks are required. Dependabot opens update PRs automatically for outdated dependencies.
+
+Release binaries (Gateway + CLI, all four platform builds) carry a **GitHub build provenance attestation** (`actions/attest-build-provenance`) and a **CycloneDX SBOM**, both attached to the GitHub Release. Verify with:
+
+```bash
+gh attestation verify nimbus-gateway-linux-x64 --owner nimbus-dev
+```
+
+---
+
+## Updater Signing Key Lifecycle
+
+Nimbus auto-updates are gated on an **Ed25519 signature over SHA-256 of each binary**. The public key is embedded in the binary at build time (`packages/gateway/src/updater/public-key.ts`); the private key lives only in the `UPDATER_SIGNING_KEY` repository secret and is never present on a developer machine.
+
+### Rotation procedure
+
+Plan a rotation at least once every 12 months, and immediately on any of these triggers:
+
+- A maintainer with secret-read access leaves the project.
+- A CI run is suspected of having leaked the key (e.g., a workflow added an unintended `echo "$UPDATER_SIGNING_KEY"`).
+- A new key algorithm becomes the default for the project.
+
+**Steps (must all happen in the same release cycle):**
+
+1. **Generate the new keypair** locally on an air-gapped or hardened workstation:
+   ```bash
+   bun scripts/generate-ed25519-keypair.ts > new-updater-key.json
+   ```
+2. **Update the embedded public key** in `packages/gateway/src/updater/public-key.ts` (and the test override `NIMBUS_DEV_UPDATER_PUBLIC_KEY` if used) on a feature branch. Land via PR.
+3. **Cut a transitional release** that ships *both* the old and new public key as trusted (the updater accepts either signature). This release must be signed with the **old** key.
+4. **Rotate the secret**: replace `UPDATER_SIGNING_KEY` in repository secrets with the new private key. Delete the local copy of the new private key from the workstation immediately after upload.
+5. **Cut a second release** signed with the new key. Verify clients on N-1, N, and N+1 all auto-update successfully.
+6. **Remove the old public key** from `public-key.ts` in the next release. Document the rotation in `docs/SECURITY.md` change history.
+
+### Compromise response
+
+If the active signing key is suspected to be compromised:
+
+1. **Disable auto-update server-side** by setting the `latest.json` manifest's `version` to a pinned safe value and the `forcedUpdate` flag to `false`.
+2. Generate a new keypair and ship a transitional release within 24 hours. Notify users via the GitHub Security advisory channel.
+3. Revoke the leaked key by removing it from `public-key.ts` in the immediate follow-up release.
+4. Audit the GitHub Actions workflow run logs for the period the key was active — look for any step that read `UPDATER_SIGNING_KEY` outside `scripts/sign-ed25519.ts`.
+
+**Long-term mitigation:** the project is tracking migration to **sigstore/cosign with GitHub OIDC** for keyless updater signing, eliminating the long-lived secret entirely. Tracked under Phase 4 release-infra hardening.

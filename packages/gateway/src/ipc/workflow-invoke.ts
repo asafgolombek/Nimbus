@@ -9,6 +9,8 @@ export type WorkflowRunContext = {
   sessionId?: string;
   /** Engine profile: `nimbus` (default), `devops`, or `research`. */
   agent?: string;
+  /** Optional per-step parameter overrides forwarded from the IPC caller. */
+  paramsOverride?: Readonly<Record<string, Record<string, unknown>>>;
 };
 
 export type WorkflowRunHandler = (ctx: WorkflowRunContext) => Promise<{

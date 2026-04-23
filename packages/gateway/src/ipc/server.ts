@@ -573,6 +573,59 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
   }
 
+  function parseOptionalString(
+    rec: Record<string, unknown> | undefined,
+    key: string,
+  ): string | undefined {
+    const raw = rec?.[key];
+    if (typeof raw !== "string" || raw.trim() === "") return undefined;
+    return raw.trim();
+  }
+
+  function parseWorkflowRunParamsOverride(
+    rec: Record<string, unknown> | undefined,
+  ): Readonly<Record<string, Record<string, unknown>>> | undefined {
+    const raw = rec?.["paramsOverride"];
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      throw new RpcMethodError(
+        -32602,
+        "workflow.run: paramsOverride must be an object keyed by step label",
+      );
+    }
+    return raw as Readonly<Record<string, Record<string, unknown>>>;
+  }
+
+  function buildWorkflowRunContext(
+    clientId: string,
+    session: ClientSession,
+    params: unknown,
+  ): { ctx: WorkflowRunContext; sessionId: string | undefined } {
+    const rec = asRecord(params);
+    const workflowName = requireNonEmptyRpcString(rec, "name");
+    const triggeredBy = parseOptionalString(rec, "triggeredBy") ?? clientId;
+    const dryRun = rec?.["dryRun"] === true;
+    const stream = rec?.["stream"] === true;
+    const sessionId = parseOptionalString(rec, "sessionId");
+    const agent = parseOptionalString(rec, "agent");
+    const paramsOverride = parseWorkflowRunParamsOverride(rec);
+
+    const ctx: WorkflowRunContext = {
+      clientId,
+      workflowName,
+      triggeredBy,
+      dryRun,
+      stream,
+      sendChunk: (text: string) => {
+        sendAgentChunkIfStreaming(session, stream, text);
+      },
+    };
+    if (sessionId !== undefined) ctx.sessionId = sessionId;
+    if (agent !== undefined) ctx.agent = agent;
+    if (paramsOverride !== undefined) ctx.paramsOverride = paramsOverride;
+    return { ctx, sessionId };
+  }
+
   async function dispatchWorkflowRunRpc(
     clientId: string,
     session: ClientSession,
@@ -585,41 +638,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (handler === undefined) {
       throw new RpcMethodError(-32603, "Workflow runner is not configured");
     }
-    const rec = asRecord(params);
-    const workflowName = requireNonEmptyRpcString(rec, "name");
-    const triggeredBy =
-      rec !== undefined &&
-      typeof rec["triggeredBy"] === "string" &&
-      rec["triggeredBy"].trim() !== ""
-        ? rec["triggeredBy"].trim()
-        : clientId;
-    const dryRun = rec?.["dryRun"] === true;
-    const stream = rec?.["stream"] === true;
-    const sessionIdRaw = rec?.["sessionId"];
-    const sessionId =
-      typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
-        ? sessionIdRaw.trim()
-        : undefined;
-    const agentRaw = rec?.["agent"];
-    const agent =
-      typeof agentRaw === "string" && agentRaw.trim() !== "" ? agentRaw.trim() : undefined;
-
-    const ctx: WorkflowRunContext = {
-      clientId,
-      workflowName,
-      triggeredBy,
-      dryRun,
-      stream,
-      sendChunk: (text: string) => {
-        sendAgentChunkIfStreaming(session, stream, text);
-      },
-    };
-    if (sessionId !== undefined) {
-      ctx.sessionId = sessionId;
-    }
-    if (agent !== undefined) {
-      ctx.agent = agent;
-    }
+    const { ctx, sessionId } = buildWorkflowRunContext(clientId, session, params);
 
     try {
       const requestStore: AgentRequestContext = {};

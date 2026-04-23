@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ vi.mock("../../src/ipc/client");
 import {
   callMock,
   workflowDeleteMock,
+  workflowListRunsMock,
   workflowRunMock,
   workflowSaveMock,
 } from "../../src/ipc/__mocks__/client";
@@ -52,6 +53,7 @@ beforeEach(() => {
   workflowRunMock.mockReset();
   workflowSaveMock.mockReset();
   workflowDeleteMock.mockReset();
+  workflowListRunsMock.mockReset();
   useNimbusStore.setState({ connectionState: "connected" } as never);
 });
 
@@ -225,5 +227,171 @@ describe("Workflows page — step-list editor", () => {
     expect(parsed).toHaveLength(2);
     expect((parsed[0] as { tool: string }).tool).toBe("step-a");
     expect((parsed[1] as { tool: string }).tool).toBe("step-b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Run-history drawer
+// ---------------------------------------------------------------------------
+describe("Workflows page — run-history drawer", () => {
+  it("expanding a workflow row fetches and renders the last N runs", async () => {
+    stubWorkflowList([
+      {
+        id: "wf1",
+        name: "alpha",
+        description: null,
+        steps_json: "[]",
+        created_at: 0,
+        updated_at: 0,
+      },
+    ]);
+    workflowListRunsMock.mockResolvedValue({
+      runs: [
+        {
+          id: "r1",
+          startedAt: 1000,
+          finishedAt: 1200,
+          durationMs: 200,
+          status: "done",
+          errorMsg: null,
+          dryRun: false,
+          paramsOverrideJson: null,
+          triggeredBy: "user",
+        },
+        {
+          id: "r2",
+          startedAt: 500,
+          finishedAt: 700,
+          durationMs: 200,
+          status: "preview",
+          errorMsg: null,
+          dryRun: true,
+          paramsOverrideJson: null,
+          triggeredBy: "user",
+        },
+      ],
+    });
+
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(screen.getByRole("button", { name: /show history for alpha/i }));
+    await screen.findAllByText(/200 ms/);
+    expect(screen.getByText("done")).toBeInTheDocument();
+    expect(screen.getByText(/preview/i)).toBeInTheDocument();
+    expect(workflowListRunsMock).toHaveBeenCalledWith("alpha", expect.any(Number));
+  });
+
+  it("run history row shows a 'View audit entry' link with the runId", async () => {
+    stubWorkflowList([
+      {
+        id: "wf1",
+        name: "alpha",
+        description: null,
+        steps_json: "[]",
+        created_at: 0,
+        updated_at: 0,
+      },
+    ]);
+    workflowListRunsMock.mockResolvedValue({
+      runs: [
+        {
+          id: "run-abc",
+          startedAt: 1000,
+          finishedAt: 1200,
+          durationMs: 200,
+          status: "done",
+          errorMsg: null,
+          dryRun: false,
+          paramsOverrideJson: null,
+          triggeredBy: "user",
+        },
+      ],
+    });
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(screen.getByRole("button", { name: /show history for alpha/i }));
+    const link = await screen.findByRole("link", { name: /view audit entry/i });
+    expect(link.getAttribute("href")).toContain("run-abc");
+  });
+
+  it("run history drawer shows an empty state when no runs exist", async () => {
+    stubWorkflowList([
+      {
+        id: "wf1",
+        name: "alpha",
+        description: null,
+        steps_json: "[]",
+        created_at: 0,
+        updated_at: 0,
+      },
+    ]);
+    workflowListRunsMock.mockResolvedValue({ runs: [] });
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(screen.getByRole("button", { name: /show history for alpha/i }));
+    await screen.findByText(/no runs yet/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Run with params dialog
+// ---------------------------------------------------------------------------
+const ALPHA_WORKFLOW = {
+  id: "wf1",
+  name: "alpha",
+  description: null,
+  steps_json: "[]",
+  created_at: 0,
+  updated_at: 0,
+};
+
+describe("Workflows page — run with params dialog", () => {
+  it("Run with params... opens a dialog and forwards paramsOverride to workflow.run", async () => {
+    stubWorkflowList([ALPHA_WORKFLOW]);
+    workflowRunMock.mockResolvedValue({});
+
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(await screen.findByRole("button", { name: /run with params for alpha/i }));
+
+    const textbox = await screen.findByRole("textbox", { name: /params override json/i });
+    fireEvent.change(textbox, {
+      target: { value: '{"step-1":{"greeting":"hello"}}' },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /confirm run/i }));
+
+    await waitFor(() =>
+      expect(workflowRunMock).toHaveBeenCalledWith({
+        name: "alpha",
+        dryRun: false,
+        paramsOverride: { "step-1": { greeting: "hello" } },
+      }),
+    );
+  });
+
+  it("Run with params... rejects invalid JSON with an inline error", async () => {
+    stubWorkflowList([ALPHA_WORKFLOW]);
+
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(await screen.findByRole("button", { name: /run with params for alpha/i }));
+    const textbox = await screen.findByRole("textbox", { name: /params override json/i });
+    fireEvent.change(textbox, { target: { value: "not json" } });
+    fireEvent.click(screen.getByRole("button", { name: /confirm run/i }));
+    expect(await screen.findByText(/invalid json/i)).toBeInTheDocument();
+    expect(workflowRunMock).not.toHaveBeenCalled();
+  });
+
+  it("Run with params... rejects a top-level array as invalid (must be an object)", async () => {
+    stubWorkflowList([ALPHA_WORKFLOW]);
+
+    renderPage();
+    await screen.findByText("alpha");
+    fireEvent.click(await screen.findByRole("button", { name: /run with params for alpha/i }));
+    const textbox = await screen.findByRole("textbox", { name: /params override json/i });
+    fireEvent.change(textbox, { target: { value: "[1,2,3]" } });
+    fireEvent.click(screen.getByRole("button", { name: /confirm run/i }));
+    expect(await screen.findByText(/invalid json|must be a json object/i)).toBeInTheDocument();
+    expect(workflowRunMock).not.toHaveBeenCalled();
   });
 });

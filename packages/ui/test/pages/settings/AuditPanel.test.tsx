@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, test, vi } from "vitest";
 
 vi.mock("../../../src/ipc/client");
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -47,6 +48,14 @@ const SAMPLE_ROWS = [
   },
 ];
 
+function renderAt(url: string) {
+  return render(
+    <MemoryRouter initialEntries={[url]}>
+      <AuditPanel />
+    </MemoryRouter>,
+  );
+}
+
 beforeEach(() => {
   callMock.mockReset();
   auditGetSummaryMock.mockReset();
@@ -80,13 +89,13 @@ afterEach(() => {
 });
 
 async function renderAndWaitForRows(): Promise<void> {
-  render(<AuditPanel />);
+  renderAt("/settings/audit");
   await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(3));
 }
 
 describe("AuditPanel", () => {
   it("renders summary and one row per fetched entry", async () => {
-    render(<AuditPanel />);
+    renderAt("/settings/audit");
     await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getByText(/Total rows: 3/)).toBeTruthy());
     expect(screen.getByText("3 of 3 rows")).toBeTruthy();
@@ -184,12 +193,102 @@ describe("AuditPanel", () => {
 
   it("disconnected state disables write buttons", async () => {
     useNimbusStore.setState({ connectionState: "disconnected" } as never);
-    render(<AuditPanel />);
+    renderAt("/settings/audit");
     expect(
       (screen.getByRole("button", { name: "Verify chain" }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect((screen.getByRole("button", { name: "Export…" }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+  });
+});
+
+// ── runId deep-link tests ──────────────────────────────────────────────────────
+
+const WORKFLOW_ROWS = [
+  {
+    id: 10,
+    actionType: "workflow.run.completed",
+    hitlStatus: "not_required" as const,
+    actionJson: JSON.stringify({
+      runId: "run-abc",
+      workflowName: "alpha",
+      status: "done",
+      durationMs: 100,
+      dryRun: false,
+    }),
+    timestamp: 1745126400000,
+  },
+  {
+    id: 11,
+    actionType: "workflow.run.completed",
+    hitlStatus: "not_required" as const,
+    actionJson: JSON.stringify({
+      runId: "run-xyz",
+      workflowName: "beta",
+      status: "done",
+      durationMs: 200,
+      dryRun: false,
+    }),
+    timestamp: 1745126500000,
+  },
+];
+
+describe("AuditPanel runId deep-link", () => {
+  beforeEach(() => {
+    callMock.mockImplementation(async (method: string) => {
+      if (method === "audit.list") return WORKFLOW_ROWS;
+      return [];
+    });
+    auditGetSummaryMock.mockResolvedValue({
+      byOutcome: { not_required: 2 },
+      byService: { workflow: 2 },
+      total: 2,
+    });
+  });
+
+  test("filters rows by runId extracted from actionJson when ?runId=<id> is present", async () => {
+    renderAt("/settings/audit?runId=run-abc");
+    // Only the run-abc row should be visible; run-xyz row should be filtered out.
+    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(1));
+    // The "1 of 2" counter confirms the runId filter is on top of the full list.
+    expect(screen.getByText("1 of 2 rows")).toBeTruthy();
+  });
+
+  test("highlights the matched row with aria-current", async () => {
+    renderAt("/settings/audit?runId=run-abc");
+    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(1));
+    const rows = screen.getAllByTestId("audit-row");
+    expect(rows[0]?.getAttribute("aria-current")).toBe("true");
+  });
+
+  test("shows the full list when no runId is provided", async () => {
+    renderAt("/settings/audit");
+    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(2));
+    expect(screen.getByText("2 of 2 rows")).toBeTruthy();
+  });
+
+  test("shows a pruning-semantics banner when runId matches no entries", async () => {
+    renderAt("/settings/audit?runId=run-missing");
+    // The banner text spans a <p> with an inner <code>; query the container by testid.
+    await waitFor(() => expect(screen.getByTestId("audit-runid-banner")).toBeInTheDocument());
+    expect(screen.getByTestId("audit-runid-banner").textContent).toMatch(
+      /no audit entries found for run run-missing/i,
+    );
+  });
+
+  test("does not show the pruning banner when runId is absent", async () => {
+    renderAt("/settings/audit");
+    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(2));
+    expect(screen.queryByText(/no audit entries found/i)).toBeNull();
+  });
+
+  test("does not highlight rows when no runId is in the URL", async () => {
+    renderAt("/settings/audit");
+    await waitFor(() => expect(screen.getAllByTestId("audit-row").length).toBe(2));
+    const rows = screen.getAllByTestId("audit-row");
+    for (const row of rows) {
+      expect(row.getAttribute("aria-current")).toBeNull();
+    }
   });
 });

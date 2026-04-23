@@ -34,6 +34,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -97,9 +99,13 @@ jobs:
           use_oidc: true
           files: coverage/lcov.info
 
-      - name: SonarCloud analysis
+      - name: SonarQube Cloud analysis
+        # SonarCloud rebranded to SonarQube Cloud; sonarcloud-github-action is
+        # deprecated and delegates to sonarqube-scan-action. We invoke the new
+        # action directly so its SHA pin is visible (the repo enforces
+        # sha_pinning_required=true, which blocks transitively-unpinned actions).
         if: runner.os == 'Linux' && env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v3.1.0
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -209,13 +215,14 @@ jobs:
             script: "test:coverage:sdk"
     steps:
       - name: Harden Runner
-        if: runner.os == 'Linux'
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci

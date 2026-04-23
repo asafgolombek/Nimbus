@@ -10,6 +10,7 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Needed when using the default GITHUB_TOKEN (no RELEASE_PLEASE_PAT). Optional PAT keeps
     # the same scopes off the automatic token if you add secret RELEASE_PLEASE_PAT later.
     permissions:

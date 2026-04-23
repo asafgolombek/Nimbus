@@ -1,0 +1,12 @@
+[toolchain]
+# Nimbus uses Rust edition 2024 features indirectly through Tauri's dependency
+# graph (wl-clipboard-rs -> tree_magic_mini, toml_edit -> toml_datetime,
+# proc-macro-crate -> toml_edit, time-core, time-macros, etc.). Edition 2024 is
+# stabilized in Rust 1.85+. We pin 1.88 because time-core@0.1.8 and
+# time-macros@0.2.27 require rustc 1.88+.
+#
+# When bumping this, also update the `toolchain:` input in:
+#   .github/workflows/codeql.yml
+#   .github/workflows/security.yml
+channel = "1.88.0"
+components = ["rustfmt", "clippy"]

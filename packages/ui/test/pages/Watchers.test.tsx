@@ -10,6 +10,7 @@ import {
   watcherCreateMock,
   watcherDeleteMock,
   watcherListCandidateRelationsMock,
+  watcherListHistoryMock,
   watcherPauseMock,
   watcherResumeMock,
   watcherValidateConditionMock,
@@ -87,6 +88,7 @@ beforeEach(() => {
   watcherResumeMock.mockReset();
   watcherListCandidateRelationsMock.mockReset();
   watcherValidateConditionMock.mockReset();
+  watcherListHistoryMock.mockReset();
   watcherListCandidateRelationsMock.mockResolvedValue({ relations: CANDIDATE_RELATIONS });
   useNimbusStore.setState({ connectionState: "connected" } as never);
 });
@@ -284,5 +286,53 @@ describe("Watchers page — graph condition builder", () => {
     await userEvent.type(screen.getByLabelText("Watcher name"), "Incomplete");
     // targetType and targetId left empty
     expect(screen.getByRole("button", { name: /create/i })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// History drawer
+// ---------------------------------------------------------------------------
+describe("Watchers page — history drawer", () => {
+  it("clicking History on a watcher row fetches and renders the last N fires", async () => {
+    stubWatcherList([WATCHER_1]);
+    watcherListHistoryMock.mockResolvedValue({
+      events: [
+        { firedAt: 2000, conditionSnapshot: '{"a":2}', actionResult: '{"ok":true}' },
+        { firedAt: 1000, conditionSnapshot: '{"a":1}', actionResult: '{"ok":true}' },
+      ],
+    });
+
+    renderPage();
+    await screen.findByText("PR opened");
+    const historyButton = await screen.findByRole("button", { name: /history for PR opened/i });
+    await userEvent.click(historyButton);
+    await screen.findByText('{"a":2}');
+    expect(watcherListHistoryMock).toHaveBeenCalledWith("w1", expect.any(Number));
+  });
+
+  it("History drawer shows an empty state when no events have fired", async () => {
+    stubWatcherList([WATCHER_1]);
+    watcherListHistoryMock.mockResolvedValue({ events: [] });
+
+    renderPage();
+    await screen.findByText("PR opened");
+    await userEvent.click(await screen.findByRole("button", { name: /history for PR opened/i }));
+    await screen.findByText(/no fires yet/i);
+  });
+
+  it("clicking History again collapses the drawer", async () => {
+    stubWatcherList([WATCHER_1]);
+    watcherListHistoryMock.mockResolvedValue({
+      events: [{ firedAt: 3000, conditionSnapshot: '{"x":3}', actionResult: '{"ok":true}' }],
+    });
+
+    renderPage();
+    await screen.findByText("PR opened");
+    const historyButton = await screen.findByRole("button", { name: /history for PR opened/i });
+    await userEvent.click(historyButton);
+    await screen.findByText('{"x":3}');
+    // Click again to close
+    await userEvent.click(historyButton);
+    await waitFor(() => expect(screen.queryByText('{"x":3}')).not.toBeInTheDocument());
   });
 });

@@ -1843,7 +1843,7 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 
 ## WS5-D — Marketplace, Watchers & Workflows (Implementation Tasks)
 
-> **Status (2026-04-22):** WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · **WS5-D 🔵 Active**
+> **Status (2026-04-22):** WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅
 
 **Goal:** Replace the three `*Stub.tsx` placeholder pages with fully-tested implementations that talk to the existing Gateway `automation-rpc` handlers.
 

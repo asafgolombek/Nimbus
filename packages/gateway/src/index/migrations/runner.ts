@@ -45,6 +45,7 @@ import {
 import { USER_MCP_V11_MIGRATION_SQL } from "../user-mcp-v11-sql.ts";
 import { WATCHER_GRAPH_V22_SQL } from "../watcher-graph-v22-sql.ts";
 import { WATCHER_V8_MIGRATION_SQL } from "../watcher-v8-sql.ts";
+import { WORKFLOW_RUN_COLUMNS_V23_SQL } from "../workflow-run-columns-v23-sql.ts";
 import { WORKFLOW_V9_MIGRATION_SQL } from "../workflow-v9-sql.ts";
 
 const MIGRATIONS_LEDGER_SQL = `
@@ -321,6 +322,19 @@ function migrateIndexedV21ToV22(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV22ToV23(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(WORKFLOW_RUN_COLUMNS_V23_SQL);
+    db.exec("PRAGMA user_version = 23");
+    recordMigration(
+      db,
+      23,
+      "workflow_run.dry_run + workflow_run.params_override_json (WS5-D Polish)",
+      now,
+    );
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -344,6 +358,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 19, toVersion: 20, apply: migrateIndexedV19ToV20 },
   { fromVersion: 20, toVersion: 21, apply: migrateIndexedV20ToV21 },
   { fromVersion: 21, toVersion: 22, apply: migrateIndexedV21ToV22 },
+  { fromVersion: 22, toVersion: 23, apply: migrateIndexedV22ToV23 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -369,6 +384,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "llm_task_defaults (per-task-type LLM model defaults) (backfilled)",
   "sync_state.depth (per-connector reindex depth) (backfilled)",
   "watcher.graph_predicate_json (graph-aware conditions) (backfilled)",
+  "workflow_run.dry_run + workflow_run.params_override_json (WS5-D Polish) (backfilled)",
 ];
 
 /**
