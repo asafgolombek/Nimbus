@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965728577,
+  "lastUpdate": 1776965738930,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1130,6 +1130,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5182885199999994,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a14bb0a499c845d83f84ceae65bcf74e91d3267",
+          "message": "Merge pull request #93 from asafgolombek/dependabot/bun/react-router-dom-7.14.2\n\nchore(deps): bump react-router-dom from 7.14.1 to 7.14.2",
+          "timestamp": "2026-04-23T20:35:14+03:00",
+          "tree_id": "06e764d12a346cd93e032a6a955e0427d2b8d485",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/8a14bb0a499c845d83f84ceae65bcf74e91d3267"
+        },
+        "date": 1776965738530,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.492244279999996,
             "unit": "ms"
           }
         ]
