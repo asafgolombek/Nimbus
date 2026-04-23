@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776961321236,
+  "lastUpdate": 1776965713236,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1072,6 +1072,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5194307399999958,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cd3f31b5ec6a5de5e59d97020aa4e9239eefeedc",
+          "message": "Merge pull request #95 from asafgolombek/dependabot/bun/mastra/mcp-1.5.1\n\nchore(deps): bump @mastra/mcp from 1.5.0 to 1.5.1",
+          "timestamp": "2026-04-23T20:34:47+03:00",
+          "tree_id": "907a14e43aba97422b9c9083050a139bb9240eb7",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/cd3f31b5ec6a5de5e59d97020aa4e9239eefeedc"
+        },
+        "date": 1776965712692,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.440855479999999,
             "unit": "ms"
           }
         ]
