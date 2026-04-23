@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · S2 graph-aware watchers ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 🔵 · S2 graph-aware watchers ✅)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -91,6 +91,9 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 | `packages/cli/src/commands/diag.ts` | `nimbus diag` — full diagnostic snapshot; `slow-queries` subcommand |
 | `packages/cli/src/commands/doctor.ts` | `nimbus doctor` — environment health checks, actionable remediation output |
 | `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
+| `packages/cli/src/commands/tui.tsx` | `nimbus tui` entry — gateway check, fallback detection, Ink render orchestration |
+| `packages/cli/src/tui/App.tsx` | TUI root — state machine + Option-1 layout + narrow/short-terminal behavior |
+| `packages/cli/src/tui/state.ts` | Top-level state reducer: `idle` / `streaming` / `awaiting-hitl` / `disconnected` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
 | `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` — includes credential redaction (5 forbidden keys) |
@@ -192,6 +195,7 @@ bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — p
 bun run test:coverage:db           # ≥85% threshold (verify, repair, migrations, metrics, latency buffer)
 bun run test:coverage:health       # ≥85% threshold (connectors/health.ts)
 bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
+bun run test:coverage:tui         # ≥80% threshold (packages/cli/src/tui — TUI components)
 # Phase 4 WS4 coverage gates
 bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
 bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
