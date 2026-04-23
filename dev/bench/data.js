@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965713236,
+  "lastUpdate": 1776965728577,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1101,6 +1101,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.440855479999999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf74362431136b963741fdedd1bc5c559ce012d7",
+          "message": "Merge pull request #94 from asafgolombek/dependabot/github_actions/googleapis/release-please-action-5.0.0\n\nchore(ci): bump googleapis/release-please-action from 4.4.1 to 5.0.0",
+          "timestamp": "2026-04-23T20:35:00+03:00",
+          "tree_id": "c9efd20b2742b3496fc077dbf0d2c72c74e9bccf",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/bf74362431136b963741fdedd1bc5c559ce012d7"
+        },
+        "date": 1776965728021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5182885199999994,
             "unit": "ms"
           }
         ]
