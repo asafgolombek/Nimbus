@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965878931,
+  "lastUpdate": 1776965920320,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1333,6 +1333,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5264118000000009,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "1070179ff9c6914e2733c11d22e5294e58aff05b",
+          "message": "docs(plan): address Gemini review of WS6 Rich TUI plan\n\nVerified two claims against the codebase before fixing:\n- createCliFileLogger already calls ensureGatewayDirs(paths); the mkdir\n  guard Item 6 suggested is already in place.\n- IpcContext.Provider sits in the top-level inkRender() call, not inside\n  a stateful React component; Item 1's useMemo concern does not apply\n  (runTui is an async function, not a component — JSX evaluates once).\n\nFixed inline:\n- Item 2 (cancel log): Task 14 handleCancelKey now emits logger.debug on\n  both the local-only cancel path (with streamId + \"LLM may continue\"\n  marker) and the double-Ctrl+C exit path.\n- Open Question 1 (SubTaskPane truncation): legitimate gap. New\n  SUBTASK_PANE_ROW_LIMIT = 8 constant (Task 2). SubTaskPane slices at\n  the limit and appends \"…N more (M total)\" (Task 11). Truncation test\n  added.\n- Open Question 2 (low-color-terminal smoke): Task 17 manual-smoke doc\n  gains §11 \"Low-color-terminal readability\" check.\n\nPushed back: Items 1 (useMemo — not applicable, verified), 4 (Esc key —\nout of spec scope, Ctrl+U would be more conventional anyway), 5\n(SubTask dim-on-completion — UX polish, not in spec). Defer all three.\n\nAlready-addressed: Items 3, 6, 7 — reviewer reinforced existing correct\nbehavior.\n\nReview response section appended to the plan with full reasoning for\neach item. Plan ready for execution.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-23T20:37:46+03:00",
+          "tree_id": "4eb08fc0de8c3fba0e816a6075e7225ff4785ab2",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/1070179ff9c6914e2733c11d22e5294e58aff05b"
+        },
+        "date": 1776965919242,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5136885999999965,
             "unit": "ms"
           }
         ]
