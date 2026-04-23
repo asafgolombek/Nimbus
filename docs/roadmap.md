@@ -342,7 +342,7 @@ First-party demonstrations of multi-agent orchestration and multi-connector cont
 
 ### Terminal Power Users
 
-- [ ] **Rich TUI** (Ink-based) — builds on the Phase 3 Session CLI; pane layout: query input, result stream, connector health sidebar, active watcher list; keyboard navigation; SSH-safe; real-time inline HITL consent; `nimbus tui` command; also launchable from system tray
+- [x] **Rich TUI** (Ink-based) `v0.1.0` — builds on the Phase 3 Session CLI; pane layout: query input, result stream, connector health sidebar, active watcher list; keyboard navigation; SSH-safe; real-time inline HITL consent; `nimbus tui` command; also launchable from system tray
 
 ### Voice Interface
 
