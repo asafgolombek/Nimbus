@@ -106,27 +106,6 @@ jobs:
           cd packages/gateway
           bun build src/index.ts --compile --outfile ../../dist/${{ matrix.target.artifact }}${{ matrix.target.ext }} --target bun
 
-      - name: Sign binary (macOS)
-        if: startsWith(matrix.target.os, 'macos')
-        timeout-minutes: 15
-        env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
-          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
-          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
-        run: bash scripts/sign-macos.sh dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
-
-      - name: Sign binary (Windows)
-        if: matrix.target.os == 'windows'
-        timeout-minutes: 15
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
-        shell: pwsh
-        run: ./scripts/sign-windows.ps1 -Target dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
-
       - name: Sign binary (Linux GPG)
         if: matrix.target.os == 'linux'
         timeout-minutes: 15
