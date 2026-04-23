@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776874296681,
+  "lastUpdate": 1776918197767,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -985,6 +985,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.480193799999999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b64eabf26d1d8106084a9b062fa9f4933f779cb",
+          "message": "Merge pull request #83 from asafgolombek/dev/asafgolombek/ws5d-polish\n\nfeat(ws5d-polish): watcher history, workflow run history + audit deep-link, \"Run with params...\"",
+          "timestamp": "2026-04-23T07:22:54+03:00",
+          "tree_id": "1301761e154ec12a4247b20600e40a4f200b76c0",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/4b64eabf26d1d8106084a9b062fa9f4933f779cb"
+        },
+        "date": 1776918197411,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4241878399999945,
             "unit": "ms"
           }
         ]
