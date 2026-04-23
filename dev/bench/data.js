@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965858990,
+  "lastUpdate": 1776965878931,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1304,6 +1304,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.625164880000001,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8ce66ebe52ebe87357f14826902d3d0d9832e94",
+          "message": "Merge pull request #85 from asafgolombek/dependabot/bun/tooling-43049f4c06\n\nchore(deps): bump @biomejs/biome from 2.4.12 to 2.4.13 in the tooling group",
+          "timestamp": "2026-04-23T20:37:24+03:00",
+          "tree_id": "8ccf81305679e9e3f78e2c1989f1861be781520e",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/e8ce66ebe52ebe87357f14826902d3d0d9832e94"
+        },
+        "date": 1776965878240,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5264118000000009,
             "unit": "ms"
           }
         ]
