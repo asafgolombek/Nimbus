@@ -12,6 +12,14 @@ const shellTest = process.platform === "win32" ? test.skip : test;
 const REPO_ROOT = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
 // Use forward slashes so paths are valid for bash on all platforms.
 const toUnix = (p: string) => p.replaceAll("\\", "/");
+
+// Resolve absolute paths for system tools to avoid PATH-based hijacking (Sonar S4036).
+// These tests only run on non-Windows (shellTest skips on win32), so POSIX fixed paths
+// are always in effect; the IS_WIN fallback is for module-level code that runs on all platforms.
+const IS_WIN = process.platform === "win32";
+const BASH_BIN = IS_WIN ? "bash" : "/bin/bash";
+const SHA256SUM_BIN = IS_WIN ? "sha256sum" : "/usr/bin/sha256sum";
+const GPG_BIN = IS_WIN ? "gpg" : "/usr/bin/gpg";
 const VERIFY_SH = toUnix(join(REPO_ROOT, "scripts", "release", "nimbus-verify.sh"));
 const GEN_KEY = toUnix(join(REPO_ROOT, "scripts", "release", "fixtures", "gen-test-key.sh"));
 
@@ -24,7 +32,7 @@ function run(
   args: string[],
   opts: { env?: Record<string, string> } = {},
 ): { status: number | null; stdout: string; stderr: string } {
-  const r = spawnSync("bash", [VERIFY_SH, ...args], {
+  const r = spawnSync(BASH_BIN, [VERIFY_SH, ...args], {
     cwd,
     encoding: "utf8",
     env: {
@@ -44,7 +52,7 @@ beforeEach(() => {
   mkdirSync(cwd, { recursive: true });
 
   // Generate scratch test key.
-  const genRes = spawnSync("bash", [GEN_KEY, gnupghome], { encoding: "utf8" });
+  const genRes = spawnSync(BASH_BIN, [GEN_KEY, gnupghome], { encoding: "utf8" });
   if (genRes.status !== 0) {
     throw new Error(`gen-test-key.sh failed: ${genRes.stderr}`);
   }
@@ -55,10 +63,10 @@ beforeEach(() => {
 
   // Create a simple artifact and its SHA256SUMS + signed .asc.
   writeFileSync(join(cwd, "hello.bin"), "hello world", "utf8");
-  const sha = spawnSync("sha256sum", ["hello.bin"], { cwd, encoding: "utf8" });
+  const sha = spawnSync(SHA256SUM_BIN, ["hello.bin"], { cwd, encoding: "utf8" });
   writeFileSync(join(cwd, "SHA256SUMS"), sha.stdout, "utf8");
   const sign = spawnSync(
-    "gpg",
+    GPG_BIN,
     [
       "--batch",
       "--yes",
@@ -110,7 +118,7 @@ shellTest("exits 1 when SHA256SUMS.asc is signed by untrusted key", () => {
   // Generate a second scratch key, re-sign with it — leaves SHA256SUMS identical
   // but signature fingerprint mismatches TRUSTED_FINGERPRINTS override.
   const otherHome = join(work, "gnupg-other");
-  const otherRes = spawnSync("bash", [GEN_KEY, otherHome], { encoding: "utf8" });
+  const otherRes = spawnSync(BASH_BIN, [GEN_KEY, otherHome], { encoding: "utf8" });
   const otherFp = otherRes.stdout.trim();
   spawnSync(
     "gpg",
