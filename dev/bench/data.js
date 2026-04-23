@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965920320,
+  "lastUpdate": 1776965938170,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1362,6 +1362,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5136885999999965,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e0c842ae98710c6375793aa94176c104bc5bde33",
+          "message": "Merge pull request #89 from asafgolombek/dependabot/bun/astrojs/starlight-0.38.4\n\nchore(deps): bump @astrojs/starlight from 0.38.3 to 0.38.4",
+          "timestamp": "2026-04-23T20:38:19+03:00",
+          "tree_id": "63ec18094eb0f6de98dabb2bcb9bb63078428c4c",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/e0c842ae98710c6375793aa94176c104bc5bde33"
+        },
+        "date": 1776965937685,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5068319000000026,
             "unit": "ms"
           }
         ]
