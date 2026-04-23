@@ -70,3 +70,29 @@ Invoke-WebRequest -Uri https://github.com/nimbus-dev/Nimbus/releases/download/v<
 ```
 
 Exits `0` on full verification, `1` on any hash/signature mismatch. See [`docs/verify-release-integrity.md`](docs/verify-release-integrity.md) for the manual verification path, offline mode, and key-rotation procedure.
+
+---
+
+## Getting Started
+
+Start the background Gateway once per machine:
+
+```bash
+nimbus start
+```
+
+Then launch the **rich terminal UI** for interactive sessions:
+
+```bash
+nimbus tui
+```
+
+`nimbus tui` opens a five-pane Ink layout — query input, streaming result, connector health, watchers, sub-task progress — with inline mid-stream HITL consent. On dumb terminals, non-TTY shells, CI environments, or terminals shorter than 20 rows, it auto-falls back to the line-based REPL.
+
+For scripts, pipelines, or headless environments, use the plain REPL directly:
+
+```bash
+nimbus repl
+```
+
+Full command reference: [`docs/cli-reference.md`](docs/cli-reference.md).
