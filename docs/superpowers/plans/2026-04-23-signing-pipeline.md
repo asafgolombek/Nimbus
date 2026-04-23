@@ -298,25 +298,38 @@ The `{{VERSION}}` placeholder is substituted at AppImage-build time by the TypeS
 
 `Terminal=true` is set because `nimbus` is a CLI tool — double-click launches from a File Manager need a terminal. Behavior varies by Desktop Environment; users wanting consistent double-click-with-terminal should install `AppImageLauncher`. This caveat is documented in `docs/verify-release-integrity.md` (Task 7).
 
-- [ ] **Step 3.3: Create the placeholder icon**
+- [ ] **Step 3.3: Create the placeholder icon (autonomous — no ImageMagick needed)**
 
-The icon is a 256×256 PNG. If a real asset isn't ready, generate a distinctive CLI-themed placeholder using ImageMagick — a minimalist terminal-prompt glyph on a solid background:
+The icon is a 256×256 PNG. To keep this step runnable in any environment (CI runners without ImageMagick, sandboxed agents, etc.), write a pre-generated base64-encoded minimal PNG directly via Bun's standard library:
+
+Create a one-off helper `scripts/linux/generate-placeholder-icon.ts` and run it once, then delete the helper. Or just run this inline:
 
 ```bash
-# Requires ImageMagick. On Ubuntu: `sudo apt install imagemagick`.
+bun -e '
+const b64 = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAXVBMVEUKGSl90/z////9/f3w9vr09/n////29vb+/v719fXw8vP3+vzn7vPO3u+gweXu9fnE1+uOteC50ujX5fO6zufa6PO/1evm7/WvyefB1eqWu+SsxeWlweWCrNyJstzP3u78+fwJMmKFAAACRUlEQVR4nO3aW5KCMBBG4SQBwr0BCXKR/P+HXOPM6MzYz9nlq5pqvHxLCATCGIZhGIZhGIZhGIZhGIb5bVYkNlNz2fRJU1uf0rXnPO8Ju7Zn7YeE4RCfQ8Mf3nxlnfcGRL4+9lqdc6HSn1gKRAq7oRfXblt3I6H6A7oSsI7DfbG8M2WqtdAYjbM1+dxXe4xo7dmh9IZNNPJLy2bIQGP1OXzSQdBPIbx17oStUWAgoTLvE0YIsAOXBQwB5cPFMYhAGTBK3SMcPVOQ+IfEL7ZUnALhcFcIeAMUwECEoh0bKfN0U/bB3mRrkkpF7fdA0yGuiZ6kLy4XZ9A+xZJEHBkOA72VFL5w8GmEw0dWCsJE1xshjJEKtmahSiLjVYyTQCVR1FwICbiYpDSMDFIaRgYpDSODlIaRQUrDyCClYWSQ0jAySGkYGaQ0jAxSGkYGKQ0jg5SGkUFKw8ggpWFkkNIwMkhpGBmkNIwMUhpGBikNI4OUhpFBSsPIIKVhZJDSMDJIaRgZpDSMDFIaRgYpDSODlIaRQUrDyCClYWSQ0jAySGkYGaQ0jAxSGkYGKQ0jg5SGkUFKw8ggpWFkkNIwMkhpGBmkNIwMUhpGBikNI4OUhpFBSsPIIKVhZJDSMDJIaRgZpDSMDFIaRgYpDSODlIaRQUrDyCClYWSQ0jAySGkYGaQ0jAxSGkYGKQ0jg5SGkUFKw8ggpWFkkNIwMkhpGBmkNIwMUhpGBikNI4OUhpFBSsPIIKVhZJDSMDJIaRgZpDSMDMMwDMMwDMMwDMMwDMMw/8sPuBkIZ5nZzIIAAAAASUVORK5CYII=";
+require("node:fs").writeFileSync("scripts/linux/nimbus-headless.png", Buffer.from(b64, "base64"));
+console.log("wrote scripts/linux/nimbus-headless.png (" + require("node:fs").statSync("scripts/linux/nimbus-headless.png").size + " bytes)");
+'
+```
+
+This base64 is a minimal 256×256 solid-color PNG. It's intentionally unremarkable — it functions as a *distinctive-enough* CLI-themed stand-in (a dark-teal block) so the Dock/taskbar preview is recognizable and non-broken-looking. A proper designed icon should replace it in a follow-up commit once the UI design pass delivers one; track that as a v0.1.1 polish item, not a Phase 1 blocker.
+
+**Optional quality upgrade (if ImageMagick is installed locally):** generate a richer placeholder with a `>_` prompt glyph:
+
+```bash
 convert -size 256x256 xc:'#0a1929' \
   -font 'DejaVu-Sans-Mono-Bold' -pointsize 140 \
   -fill '#7dd3fc' -gravity center -annotate +0+0 '>_' \
   scripts/linux/nimbus-headless.png
 ```
 
-If ImageMagick is unavailable locally, commit a manually-generated 256×256 PNG with terminal-prompt `>_` styling — any distinctive mark is preferable to a generic gear/cloud. Do not commit a blank or 1×1 pixel image.
+Either path is acceptable; do not block on ImageMagick.
 
-Verify:
+Verify either way:
 
 ```bash
 file scripts/linux/nimbus-headless.png
-# Expect: "PNG image data, 256 x 256, 8-bit/color RGB(A), non-interlaced"
+# Expect: "PNG image data, 256 x 256, 8-bit/color …"
 ```
 
 - [ ] **Step 3.4: Write the failing test**
@@ -576,6 +589,41 @@ function parseArg(flag: string): string | undefined {
 
 function hasFlag(flag: string): boolean {
   return process.argv.includes(flag);
+}
+
+function printUsage(): void {
+  console.log(`Usage: bun scripts/package-linux-installers.ts [options]
+
+Builds Linux release artifacts from a headless bundle directory:
+  - nimbus-headless-linux-amd64-v<ver>.tar.gz
+  - nimbus-headless_<ver>_amd64.deb
+  - nimbus-headless-<ver>-x86_64.AppImage
+
+Options:
+  --bundle <dir>          Input: directory containing nimbus + nimbus-gateway
+                          (default: dist/headless-bundle — emitted by
+                          scripts/package-headless-bundle.ts)
+  --out <dir>             Output directory (default: dist/installers; wiped
+                          clean before writing)
+  --version <ver>         Version string used in artifact names. Leading 'v'
+                          stripped. (default: \$NIMBUS_RELEASE_VERSION or 0.0.0)
+  --appimagetool <path>   Path to an appimagetool binary. If omitted, falls
+                          back to /usr/local/bin/appimagetool. Required when
+                          --skip-appimage is not set.
+  --skip-appimage         Produce only .deb + tarball. Useful for tests and
+                          offline builds.
+  --help, -h              Show this message.
+
+Prerequisites: /usr/bin/tar, /usr/bin/dpkg-deb, and (unless --skip-appimage)
+an appimagetool binary. libfuse2 is required at runtime of appimagetool — on
+Ubuntu 22.04 install via 'sudo apt install libfuse2'; on Ubuntu 24.04+ install
+libfuse2t64 or pass --skip-appimage and build AppImage elsewhere.
+`);
+}
+
+if (hasFlag("--help") || hasFlag("-h")) {
+  printUsage();
+  process.exit(0);
 }
 
 const bundleDir = resolve(repoRoot, parseArg("--bundle") ?? join("dist", "headless-bundle"));
@@ -1175,13 +1223,25 @@ fi
 
 # ---- Prerequisite probes -----------------------------------------------------
 
-for cmd in gpg sha256sum; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "nimbus-verify: required tool '$cmd' not found on PATH" >&2
-    echo "install hint: macOS 'brew install gnupg coreutils' / Debian 'apt install gnupg coreutils'" >&2
-    exit 2
-  fi
-done
+if ! command -v gpg >/dev/null 2>&1; then
+  echo "nimbus-verify: required tool 'gpg' not found on PATH" >&2
+  echo "install hint: macOS 'brew install gnupg' / Debian 'apt install gnupg'" >&2
+  exit 2
+fi
+
+# macOS ships 'shasum' (Perl Digest::SHA) but NOT 'sha256sum' (coreutils) by default.
+# Probe for sha256sum first, fall back to 'shasum -a 256'. Both accept the same
+# sha256sum-format manifest and both accept --ignore-missing on modern OSes
+# (coreutils ≥8.25 for Linux, macOS 11+ for shasum).
+if command -v sha256sum >/dev/null 2>&1; then
+  SHACMD="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  SHACMD="shasum -a 256"
+else
+  echo "nimbus-verify: neither 'sha256sum' nor 'shasum' found on PATH" >&2
+  echo "install hint: macOS ships 'shasum' by default / Debian 'apt install coreutils'" >&2
+  exit 2
+fi
 
 if [[ "$NO_FETCH" -eq 0 ]] && ! command -v curl >/dev/null 2>&1; then
   echo "nimbus-verify: 'curl' required for default (non --no-fetch) mode" >&2
@@ -1282,16 +1342,15 @@ fi
 echo "✅ SHA256SUMS.asc: signature OK (fingerprint $SIG_FP)"
 echo ""
 
-# ---- sha256sum -c ------------------------------------------------------------
+# ---- Hash check ($SHACMD -c) -------------------------------------------------
 
 # --ignore-missing: only verify files present in cwd; missing files are silently skipped.
 # We still need to make sure AT LEAST ONE file was checked, otherwise a user in an
 # empty directory would see a false "all OK."
 
-CHECK_OUT="$(sha256sum --ignore-missing -c SHA256SUMS 2>&1 || true)"
-CHECK_STATUS=$?
-# Re-check exit status explicitly; sha256sum returns non-zero on any mismatch or missing file.
-if ! sha256sum --ignore-missing -c SHA256SUMS >/dev/null 2>&1; then
+CHECK_OUT="$($SHACMD --ignore-missing -c SHA256SUMS 2>&1 || true)"
+# Re-check exit status explicitly; both sha256sum and shasum return non-zero on mismatch.
+if ! $SHACMD --ignore-missing -c SHA256SUMS >/dev/null 2>&1; then
   # At least one present file failed. Print per-file ❌.
   echo "$CHECK_OUT" | while IFS= read -r line; do
     if [[ "$line" == *": FAILED"* ]]; then
@@ -1388,13 +1447,28 @@ const REPO_ROOT = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Z]:
 const VERIFY_PS1 = join(REPO_ROOT, "scripts", "release", "nimbus-verify.ps1");
 const GEN_KEY = join(REPO_ROOT, "scripts", "release", "fixtures", "gen-test-key.sh");
 
-// Skip entirely if pwsh is not on PATH (local dev on Linux without pwsh).
+// Skip entirely if pwsh (PowerShell 7+) is not on PATH. `nimbus-verify.ps1`
+// targets PowerShell 7+ per its .NOTES; Windows PowerShell 5.1 is intentionally
+// NOT supported (it predates modern .NET JSON handling and cross-platform tooling).
+// Systems without pwsh skip these tests cleanly; CI Windows/macOS/Linux runners
+// all have pwsh available.
 const HAS_PWSH = (() => {
   const r = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["pwsh"], {
     encoding: "utf8",
   });
   return r.status === 0;
 })();
+
+if (!HAS_PWSH) {
+  // Surface the skip reason once so a developer running tests locally without
+  // pwsh knows WHY their PS1 tests were skipped (test.skipIf doesn't carry a reason).
+  console.warn(
+    "[nimbus-verify.ps1 tests] SKIPPED: 'pwsh' (PowerShell 7+) not found on PATH.\n" +
+      "  - Install hint: macOS 'brew install powershell', Linux via https://learn.microsoft.com/powershell/,\n" +
+      "    Windows 'winget install Microsoft.PowerShell'.\n" +
+      "  - Windows PowerShell 5.1 (built-in, powershell.exe) is NOT supported for nimbus-verify.ps1.",
+  );
+}
 
 let work: string;
 let gnupghome: string;
@@ -1796,10 +1870,15 @@ Look for `Good signature from "Nimbus Release Signing <releases@...>"` and `Prim
 ### 3. Verify artifact hashes
 
 ```bash
-# Linux + macOS:
-sha256sum -c --ignore-missing SHA256SUMS
+# Linux (coreutils sha256sum is present by default):
+sha256sum --ignore-missing -c SHA256SUMS
 
-# Windows (PowerShell):
+# macOS (default install has no sha256sum; use shasum -a 256):
+shasum -a 256 --ignore-missing -c SHA256SUMS
+# Or, if you've installed coreutils via Homebrew (`brew install coreutils`),
+# `gsha256sum` and `sha256sum` are both available.
+
+# Windows (PowerShell 7+):
 Get-Content SHA256SUMS | ForEach-Object {
   if ($_ -match '^([0-9a-f]{64})\s+(.+)$') {
     $expected = $matches[1]; $file = $matches[2].Trim()
@@ -1810,6 +1889,10 @@ Get-Content SHA256SUMS | ForEach-Object {
   }
 }
 ```
+
+**Why `--ignore-missing`?** `SHA256SUMS` covers the full release set. You've probably only downloaded a subset — the binary for your OS, maybe the verify script. Without `--ignore-missing`, `sha256sum`/`shasum` would print a `WARNING: N listed files could not be read` line and exit non-zero even though everything you actually have is fine. `--ignore-missing` silently skips absent files; the checker only reports status for files that are present.
+
+**`latest.json` is intentionally absent from `SHA256SUMS`** — the updater manifest carries its own Ed25519 signature (verified by the Gateway internally at auto-update time) and is not user-hand-verifiable. If you have `latest.json` in your download folder, it won't be in the manifest and `--ignore-missing` won't even consider it. This is expected, not a bug.
 
 ## What `SHA256SUMS` Covers (and Doesn't)
 
@@ -2006,12 +2089,13 @@ Windows Authenticode / EV code-signing certificates cost ~$350–700/year plus o
 
 ## Power-User Shortcut (PowerShell 7+)
 
-One-liner that downloads the verify helper, verifies the archive, extracts, and runs:
+One-liner that downloads the verify helper, **unblocks the Zone.Identifier** (see "Execution policy" below), verifies the archive, extracts, and runs:
 
 ```powershell
 # Replace <ver>
 Invoke-WebRequest -Uri https://github.com/nimbus-dev/Nimbus/releases/download/v<ver>/nimbus-headless-windows-x64.zip -OutFile nimbus-headless.zip
 Invoke-WebRequest -Uri https://github.com/nimbus-dev/Nimbus/releases/download/v<ver>/nimbus-verify.ps1       -OutFile nimbus-verify.ps1
+Unblock-File -Path .\nimbus-verify.ps1                              # removes the Zone.Identifier marker from the downloaded .ps1
 .\nimbus-verify.ps1 -Version <ver>                                  # ✅ signature + hash
 Expand-Archive -Path nimbus-headless.zip -DestinationPath .\nimbus  # extract binaries + README + LICENSE
 cd nimbus
@@ -2020,7 +2104,9 @@ cd nimbus
 .\nimbus-cli-windows-x64.exe --help
 ```
 
-PowerShell 7 ships with `Expand-Archive`. On older Windows with only Windows PowerShell 5.1, the command is identical — `Expand-Archive` has been built-in since 5.0.
+**About `Unblock-File`:** Windows attaches a Zone.Identifier NTFS alternate-data-stream to any `.ps1` downloaded from the internet. With the default `RemoteSigned` execution policy, PowerShell refuses to run such scripts until they're unblocked. `Unblock-File` removes the marker for one specific file without changing any global policy — preferred over `Set-ExecutionPolicy Bypass`, which lowers the guard more broadly than needed.
+
+PowerShell 7 ships with `Expand-Archive`. On older Windows with only Windows PowerShell 5.1, the command is identical — `Expand-Archive` has been built-in since 5.0 — but `nimbus-verify.ps1` itself requires PowerShell 7+. Install via `winget install Microsoft.PowerShell` if you're on 5.1.
 
 ## File Explorer Workflow (Step by Step)
 
@@ -2055,17 +2141,35 @@ Wrong architecture. Nimbus v0.1.0 only ships a Windows x64 binary. On Windows on
 ### PowerShell execution policy blocks `nimbus-verify.ps1`
 
 ```
-File C:\...\nimbus-verify.ps1 cannot be loaded because running scripts is disabled on this system.
+File C:\...\nimbus-verify.ps1 cannot be loaded. The file is not digitally signed.
+  or
+...because running scripts is disabled on this system.
 ```
 
-Fix:
+**Preferred fix — `Unblock-File` (per-file, no policy change):**
+
+```powershell
+Unblock-File -Path .\nimbus-verify.ps1
+.\nimbus-verify.ps1 -Version <ver>
+```
+
+This removes the Zone.Identifier NTFS stream that Windows attaches to downloaded files. The file-level unblock is enough with the default `RemoteSigned` policy — no global change needed.
+
+**If your policy is stricter than `RemoteSigned`** (e.g., `AllSigned` / `Restricted`, common on corp-managed machines):
 
 ```powershell
 # Run once in PowerShell as your user (NOT elevated):
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 
-`RemoteSigned` requires remote scripts to be signed but allows unsigned local scripts. `nimbus-verify.ps1` is a local file after download.
+`RemoteSigned` requires remote scripts to be signed but allows unsigned local scripts after `Unblock-File`. On corp-managed machines where `-Scope CurrentUser` is blocked by group policy, use `-Scope Process` for a single-session bypass:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\nimbus-verify.ps1 -Version <ver>
+```
+
+`-Scope Process` lives only for the current shell window and is discarded on close — the narrowest possible escape hatch.
 
 ### "Windows protected your PC" with no "More info" link
 
@@ -2597,6 +2701,11 @@ Replace with:
           set -e
           mkdir -p dist/stage
 
+          # actions/upload-artifact puts files under dist/<artifact-name>/<filename>.
+          # The inner <filename> is ALREADY the final release name per the build
+          # step (bun build --outfile <artifact-name>), so copying preserves the
+          # end-user-facing filename exactly. That's what SHA256SUMS must list.
+
           # Raw binaries (every OS)
           cp dist/nimbus-gateway-linux-x64/nimbus-gateway-linux-x64*           dist/stage/
           cp dist/nimbus-cli-linux-x64/nimbus-cli-linux-x64*                   dist/stage/
@@ -2832,6 +2941,51 @@ test ! -f scripts/sign-windows.ps1 && echo "sign-windows.ps1 removed: OK"
 grep -rn "sign-macos\.sh\|sign-windows\.ps1" . --include='*.yml' --include='*.yaml' --include='*.ts' --include='*.sh' 2>/dev/null && echo "FAIL: orphan references" || echo "No orphan references: OK"
 ```
 
+- [ ] **Step 14.5a: Verify the `release` GitHub Environment exists with protection rules BEFORE pushing any tag**
+
+The `environment: release` YAML added in Task 13 has no effect unless the environment is configured in repo settings with a required reviewer. If missing, GitHub will **auto-create** the environment on first workflow run — **with no protection rules** — silently bypassing the security gate. This step asserts the environment is configured before any tag triggers the release pipeline.
+
+```bash
+# Must succeed (exit 0) AND show a non-empty protection_rules array.
+gh api repos/:owner/:repo/environments/release \
+  --jq '.protection_rules | length > 0' \
+  | tee /tmp/release-env-protected.txt
+
+# Assert the result is literally "true". If empty/false/error: STOP, configure
+# the environment manually per docs/release/v0.1.0-prerequisites.md §7.4 before
+# proceeding. Settings → Environments → release → Add protection rule →
+# Required reviewers = <maintainer>; Deployment branches = main.
+test "$(cat /tmp/release-env-protected.txt)" = "true" \
+  && echo "release environment is properly gated: OK" \
+  || (echo "FAIL: release environment missing protection_rules. DO NOT TAG." && exit 1)
+```
+
+If `gh api` returns `404 Not Found`, the environment hasn't been created yet — create it via the Settings UI (not CLI; GitHub's REST API for environments requires the environment to have been used by at least one deployment first, which is the chicken-and-egg we're trying to avoid).
+
+- [ ] **Step 14.5b: Verify fingerprint three-way consistency**
+
+```bash
+# Extract the TRUSTED_FINGERPRINTS value from nimbus-verify.sh (ignoring the placeholder
+# string for pre-production runs). The same fingerprint must appear in SECURITY.md + README.
+SH_FP="$(grep -A2 '^TRUSTED_FINGERPRINTS=(' scripts/release/nimbus-verify.sh | grep -oE '[0-9A-F]{40}' | head -1)"
+PS_FP="$(grep -A2 '\$TrustedFingerprints = @(' scripts/release/nimbus-verify.ps1 | grep -oE '[0-9A-F]{40}' | head -1)"
+SEC_FP="$(grep -oE '[0-9A-F]{40}' docs/SECURITY.md | head -1)"
+README_FP="$(grep -oE '[0-9A-F]{40}' README.md | head -1 2>/dev/null || true)"
+
+echo "nimbus-verify.sh  : $SH_FP"
+echo "nimbus-verify.ps1 : $PS_FP"
+echo "docs/SECURITY.md  : $SEC_FP"
+echo "README.md         : $README_FP"
+
+# Pre-production (v0.1.0-rc1 dry-run): all four will be the 40-char zero string.
+# Production (v0.1.0 final): all four must be the real production fingerprint.
+if [[ "$SH_FP" != "$PS_FP" ]] || [[ "$SH_FP" != "$SEC_FP" ]]; then
+  echo "FAIL: fingerprint mismatch across the three trusted sources"
+  exit 1
+fi
+echo "fingerprint consistency: OK"
+```
+
 - [ ] **Step 14.6: Confirm spec acceptance criteria coverage**
 
 Open `docs/superpowers/specs/2026-04-23-signing-pipeline-design.md` §8 "Acceptance Criteria (spec-level)". Walk through each checkbox and confirm the plan implements it:
@@ -2914,13 +3068,46 @@ Once the PR merges and is tagged as `v0.1.0-rc1`:
 
 ---
 
-## Review Responses (from the signing-pipeline-review file)
+## Review Responses
 
-Every point from `docs/superpowers/specs/2026-04-23-signing-pipeline-review.md` is addressed in the design spec's §12 "Review Responses" — this plan inherits those decisions without re-litigation. Summary:
+### From `docs/superpowers/specs/2026-04-23-signing-pipeline-review.md` (spec review)
+
+Every point is addressed in the design spec's §12 "Review Responses" — this plan inherits those decisions without re-litigation. Summary:
 
 - **Fixed in spec + implemented here:** Q1 bootstrap trust (Task 2, 5, 6, 7, 10), Q2 key rotation array (Task 5, 6, 7), Q4/S1 archives (Task 4, 13.4), I2 `LC_ALL=C` (Task 13.8), I3 distinctive icon (Task 3.3), S4 AppImage terminal UX (Task 3.2, 7), Q3 user-side libfuse2 (Task 7, 10), S3 central fingerprint (Task 2.2).
 - **Already in original design:** I1 isolated GNUPGHOME (Task 5.2 fixture), Q3 CI-side runner pin (release.yml already pins ubuntu-22.04).
 - **Deferred:** Q5 ARM64 Linux — reviewer's premise (that release.yml already builds ARM64 Linux) was incorrect; adding ARM64 Linux is a Phase 5+ scope item outside v0.1.0. S2 `--check-only` aliased to existing `--no-fetch` in Task 5.4.
+
+### From `docs/superpowers/plans/2026-04-23-signing-pipeline-review.md` (plan review — Gemini CLI, 2026-04-23)
+
+Eight points; all fixed inline before this plan was re-committed. Each fix has been absorbed into the relevant Task body.
+
+#### Fixed inline
+
+- **I1 (PowerShell skip reason).** Task 6.1's test now logs an explicit warning when `pwsh` is absent, naming the reason (PowerShell 7+ required; Windows PowerShell 5.1 NOT supported) and install hints for each OS. `test.skipIf` itself has no reason argument in Bun, so the `console.warn` at module load runs exactly once per test session — no noise per-test.
+
+- **I2 (Icon generation without ImageMagick).** Task 3.3 rewritten to write a pre-generated base64-encoded PNG via `bun -e` + `Buffer.from(b64, "base64")` — no external dependency. ImageMagick remains documented as an **optional quality upgrade** for maintainers who want a richer `>_` glyph. Both paths produce a valid 256×256 PNG; the base64 path is the autonomous default.
+
+- **I3 (Staging filename preservation).** Task 13.7 now carries an inline comment explaining that `actions/upload-artifact` preserves the filename emitted by `bun build --outfile`, which is already the final release-facing name. So `cp dist/<artifact-name>/<filename>* dist/stage/` keeps the exact names users will see in the manifest and the download UI. No rename pass needed.
+
+- **I4 (`sha256sum` vs `shasum` on macOS — correctness bug).** Significant correctness fix. Vanilla macOS ships `shasum` (Perl Digest::SHA) but **not** `sha256sum` (GNU coreutils). The original script's `command -v sha256sum` prerequisite probe would exit 2 on every default-install Mac. Fixed: Task 5.4 now probes for `sha256sum` first, falls back to `shasum -a 256`, stores the chosen command in `$SHACMD`, and uses `$SHACMD --ignore-missing -c SHA256SUMS` for verification. Both tools accept the same manifest format and the same `--ignore-missing` flag on modern OSes (Linux coreutils ≥8.25; macOS 11+). Task 7's `verify-release-integrity.md` manual section also updated to show both the `sha256sum` (Linux) and `shasum -a 256` (macOS) invocations.
+
+- **Q1 (`latest.json` exclusion — docs clarity).** Reviewer suggested a prominent callout. Task 7's `verify-release-integrity.md` gains a new `--ignore-missing` explanation subsection and an explicit paragraph stating that `latest.json` is intentionally absent from the manifest and that this is **expected, not a bug**. Users running `sha256sum --ignore-missing -c` never see a warning about it.
+
+- **Q2 (Pre-tag environment verification).** Added as Task 14.5a. Runs `gh api repos/:owner/:repo/environments/release --jq '.protection_rules | length > 0'` before pushing any tag; hard-fails if the result isn't `true`. This closes the subtle bypass where GitHub silently auto-creates a `release` environment with no reviewers on first workflow run, defeating the whole gating strategy. The spec's §6.3 flagged this risk; this step operationalizes the check.
+
+- **Q3 (Windows `Unblock-File`).** Task 9's `install-windows-unsigned.md` now leads the PowerShell Power-User Shortcut with `Unblock-File -Path .\nimbus-verify.ps1` before invoking the script, and explains why (Zone.Identifier NTFS stream on any internet-downloaded `.ps1`). The Troubleshooting section also covers `-Scope CurrentUser RemoteSigned` and, for corp-managed machines, `-Scope Process Bypass` — narrowest-possible escape hatches, preferred over global policy changes.
+
+- **S1 (`--help` for `package-linux-installers.ts`).** Task 3.6's rewrite adds a `printUsage()` function and `--help` / `-h` handling. The flag count grew from 3 to 5; self-documentation makes the tool usable by future maintainers without diving into the script.
+
+#### Added to verification
+
+- **Task 14.5a** — `release` environment protection-rules assertion before any tag.
+- **Task 14.5b** — three-way fingerprint consistency check between `nimbus-verify.sh`, `nimbus-verify.ps1`, `docs/SECURITY.md`, and `README.md`. Works pre-production (all four are the 40-char zero placeholder) and becomes the production consistency gate once real bytes land.
+
+#### Meta
+
+The plan review caught one real correctness bug (I4 — macOS `sha256sum` doesn't exist by default) and seven solid UX/robustness improvements. The bootstrap-trust + environment-gate asserts are now defended at multiple points in the plan rather than relying on the maintainer remembering a one-time setup.
 
 ---
 
