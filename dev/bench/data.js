@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776972952285,
+  "lastUpdate": 1776974287370,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1449,6 +1449,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4273046599999963,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "b1a93f10d5c8154d487f2fff8d3ea01ac1b9d962",
+          "message": "Merge branch 'dev/asafgolombek/ws6-rich-tui'\n\n# Conflicts:\n#\tCLAUDE.md\n#\tGEMINI.md",
+          "timestamp": "2026-04-23T22:57:35+03:00",
+          "tree_id": "0f0f640e36378b0f1cb702b98fce27606e705db6",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/b1a93f10d5c8154d487f2fff8d3ea01ac1b9d962"
+        },
+        "date": 1776974286746,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5016697399999992,
             "unit": "ms"
           }
         ]
