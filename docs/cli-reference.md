@@ -2,6 +2,12 @@
 
 Complete reference for all `nimbus` commands. For installation see [`README.md`](./README.md). For architecture context see [`architecture.md`](./architecture.md).
 
+**Three ways to use Nimbus interactively:**
+
+- [`nimbus tui`](#nimbus-tui) — rich Ink terminal UI (5 panes, streaming result, inline mid-stream HITL, live connector + watcher + sub-task panes). Auto-falls back to the REPL on unsuitable terminals.
+- [`nimbus repl`](#nimbus-repl) — line-based readline loop for scripts, SSH, CI, and other headless environments. `nimbus` with no arguments on an interactive shell is an alias.
+- `nimbus <command>` — one-shot commands documented below (`ask`, `search`, `query`, `run`, `status`, `doctor`, `diag`, …).
+
 ---
 
 ## Global Flags
