@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965738930,
+  "lastUpdate": 1776965764548,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1159,6 +1159,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.492244279999996,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "525acebb32f76968bf95e3ffc174bf90f85e946f",
+          "message": "Merge pull request #92 from asafgolombek/dependabot/github_actions/anchore/sbom-action-0.24.0\n\nchore(ci): bump anchore/sbom-action from 0.20.0 to 0.24.0",
+          "timestamp": "2026-04-23T20:35:24+03:00",
+          "tree_id": "05f91fed89f71497e24baf443f0376292b4e0c87",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/525acebb32f76968bf95e3ffc174bf90f85e946f"
+        },
+        "date": 1776965763529,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.1615813000000004,
             "unit": "ms"
           }
         ]
