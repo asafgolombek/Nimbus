@@ -61,4 +61,3 @@ updates:
           - "oven-sh/setup-bun"
           - "softprops/action-gh-release"
           - "dorny/test-reporter"
-          - "Swatinem/rust-cache"
