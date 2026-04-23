@@ -199,6 +199,8 @@ jobs:
             script: "test:coverage:client"
           - name: Telemetry
             script: "test:coverage:telemetry"
+          - name: TUI
+            script: "test:coverage:tui"
           - name: DB layer
             script: "test:coverage:db"
           - name: Health

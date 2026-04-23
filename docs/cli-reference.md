@@ -2,6 +2,12 @@
 
 Complete reference for all `nimbus` commands. For installation see [`README.md`](./README.md). For architecture context see [`architecture.md`](./architecture.md).
 
+**Three ways to use Nimbus interactively:**
+
+- [`nimbus tui`](#nimbus-tui) — rich Ink terminal UI (5 panes, streaming result, inline mid-stream HITL, live connector + watcher + sub-task panes). Auto-falls back to the REPL on unsuitable terminals.
+- [`nimbus repl`](#nimbus-repl) — line-based readline loop for scripts, SSH, CI, and other headless environments. `nimbus` with no arguments on an interactive shell is an alias.
+- `nimbus <command>` — one-shot commands documented below (`ask`, `search`, `query`, `run`, `status`, `doctor`, `diag`, …).
+
 ---
 
 ## Global Flags
@@ -77,6 +83,8 @@ nimbus ask "Summarise everything that happened across my projects this week"
 ```bash
 nimbus                          # Opens interactive session
 ```
+
+For a richer interactive experience — live connector health, sub-task progress bars, inline mid-stream HITL consent — use [`nimbus tui`](#nimbus-tui) instead.
 
 ---
 
@@ -180,6 +188,73 @@ nimbus sync all
 nimbus sync github
 nimbus sync google_drive
 ```
+
+---
+
+## Interactive Sessions
+
+### `nimbus tui`
+
+Launch the rich Ink terminal UI for interactive sessions.
+
+```bash
+nimbus tui
+```
+
+**Panes** (Option-1 "classic split" layout):
+
+- **Query input** (top bar) — type a query; `Enter` submits.
+- **Result stream** (main area) — tokens render live; scrollback preserved via Ink `<Static>` so prior output never re-renders.
+- **Connector health** (right column) — polls `connector.list` every 30 s; renders `●` / `◐` / `○` glyphs for `ok` / `degraded` / `down`.
+- **Watchers** (right column) — polls `watcher.list` every 30 s; shows N active, M firing, plus up to 5 firing watcher names (truncates beyond with `…N more`).
+- **Sub-tasks** (right column) — event-driven via `agent.subTaskProgress`; renders a progress bar + status glyph per sub-task, truncated beyond 8 rows with `…N more (M total)`. Clears when a new query is submitted.
+
+**Interaction:**
+
+- `Up` / `Down` cycles history from `tui-query-history.json` (last 100 queries, dedup-on-repeat-of-last).
+- `Ctrl+C` once during a stream → cancels locally with `(canceled by user — LLM may continue in the background)` line; `^C Press again within 2s to exit` hint renders for 1.5 s. Double `Ctrl+C` within 2 s → exits cleanly.
+- **Mid-stream HITL:** `──[ consent required ]──` banner appears inline; prompt switches to `nimbus[hitl]>` with single-keystroke capture:
+  - `a` — approve current action
+  - `r` — reject current action
+  - `d` — show details (no-op in v0.1.0; full payload is already shown)
+  - `q` — reject all remaining actions and exit
+
+**Automatic fallback** (invokes `nimbus repl` instead, no Ink render) when any of these hold:
+
+- `TERM=dumb`
+- `NO_COLOR` set (any value)
+- stdout is not a TTY (pipe, file, non-interactive shell)
+- `CI=true`
+- Terminal height is below 20 rows
+
+Fallback path prints exactly one reason (first match wins) to stderr before handing off to the REPL.
+
+**Responsive layout:**
+
+- Below 100 columns: collapses to a single-column layout with a compact status bar replacing the right column.
+- Below 20 rows at any time: Ink unmounts cleanly with a one-line notice; relaunch after resizing.
+
+**Gateway-offline behavior:**
+
+- Top banner: `⚠ Gateway disconnected — reconnecting…`
+- Poll panes show last-known data with a `(stale)` marker.
+- Input dimmed and disabled; `Ctrl+C` still exits.
+- Exponential reconnect: 2 s → 4 s → 8 s → 16 s → 30 s (repeats). Input re-enables on reconnect; `✓ Reconnected` fade confirms recovery.
+
+**Cancel note (v0.1.0):** cancel is local-only — the Gateway has no `engine.cancelStream` handler yet, so the LLM may continue generating in the background after `Ctrl+C`. Full-fidelity cancellation is a post-v0.1.0 Gateway follow-up.
+
+---
+
+### `nimbus repl`
+
+Line-based readline loop over `agent.invoke`. Always works (no Ink dependency), including SSH sessions, dumb terminals, CI, and non-TTY pipelines.
+
+```bash
+nimbus repl                      # Interactive line-based session
+nimbus repl --session <id>       # Resume a saved session
+```
+
+Use this for scripts and headless environments; `nimbus tui` is the richer alternative for interactive developer sessions. `nimbus tui`'s fallback path invokes `runRepl` internally on unsuitable terminals, so you never need to choose manually — just run `nimbus tui` and let it degrade.
 
 ---
 
