@@ -6,9 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
-const toUnix = (p: string) => p.replace(/\\/g, "/");
+const toUnix = (p: string) => p.replaceAll("\\", "/");
 const toMsys2 = (p: string) =>
-  p.replace(/^([A-Za-z]):/, (_, d: string) => `/${d.toLowerCase()}`).replace(/\\/g, "/");
+  p.replace(/^([A-Za-z]):/, (_, d: string) => `/${d.toLowerCase()}`).replaceAll("\\", "/");
 const VERIFY_PS1 = toUnix(join(REPO_ROOT, "scripts", "release", "nimbus-verify.ps1"));
 const GEN_KEY = toUnix(join(REPO_ROOT, "scripts", "release", "fixtures", "gen-test-key.sh"));
 

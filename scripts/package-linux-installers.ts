@@ -216,7 +216,7 @@ function buildAppImage(toolPath: string): string {
 
   // Desktop entry with {{VERSION}} substituted
   const desktopSrc = join(repoRoot, "scripts", "linux", "nimbus-headless.desktop");
-  const desktopContent = readFileSync(desktopSrc, "utf8").replace(/\{\{VERSION\}\}/g, version);
+  const desktopContent = readFileSync(desktopSrc, "utf8").replaceAll("{{VERSION}}", version);
   const desktopDst = join(appDir, "nimbus-headless.desktop");
   writeFileSync(desktopDst, desktopContent, "utf8");
   // Copy to usr/share/applications as well (FreeDesktop convention)

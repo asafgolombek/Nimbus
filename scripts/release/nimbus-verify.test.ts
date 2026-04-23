@@ -7,11 +7,11 @@ import { join } from "node:path";
 
 // nimbus-verify.sh requires bash + gpg, which are native on Linux/macOS.
 // On Windows the tests skip — the PowerShell equivalent is in nimbus-verify-ps1.test.ts.
-const shellTest = process.platform !== "win32" ? test : test.skip;
+const shellTest = process.platform === "win32" ? test.skip : test;
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
 // Use forward slashes so paths are valid for bash on all platforms.
-const toUnix = (p: string) => p.replace(/\\/g, "/");
+const toUnix = (p: string) => p.replaceAll("\\", "/");
 const VERIFY_SH = toUnix(join(REPO_ROOT, "scripts", "release", "nimbus-verify.sh"));
 const GEN_KEY = toUnix(join(REPO_ROOT, "scripts", "release", "fixtures", "gen-test-key.sh"));
 

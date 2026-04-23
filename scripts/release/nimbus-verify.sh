@@ -48,6 +48,7 @@ Exit codes:
 See docs/verify-release-integrity.md for a full walkthrough, and docs/SECURITY.md
 for the authoritative project GPG fingerprint.
 EOF
+  return 0
 }
 
 # ---- Argument parsing --------------------------------------------------------
