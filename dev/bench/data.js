@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965793054,
+  "lastUpdate": 1776965804539,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1246,6 +1246,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4247819199999991,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6da294ba3c2187308a54f8db879a849efbc8c10",
+          "message": "Merge pull request #87 from asafgolombek/dependabot/bun/astro-6.1.9\n\nchore(deps): bump astro from 6.1.8 to 6.1.9",
+          "timestamp": "2026-04-23T20:36:13+03:00",
+          "tree_id": "27398f67d76bb05a45d69daf8aca9f0070c89205",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/c6da294ba3c2187308a54f8db879a849efbc8c10"
+        },
+        "date": 1776965804061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4343367800000077,
             "unit": "ms"
           }
         ]
