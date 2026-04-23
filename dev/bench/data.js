@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776965947602,
+  "lastUpdate": 1776972952285,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1420,6 +1420,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4362261999999988,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "85ade20bd48007da518c6764a36d2ea525ff2907",
+          "message": "docs: add WS6 TUI file locations and coverage command to agent context",
+          "timestamp": "2026-04-23T22:20:54+03:00",
+          "tree_id": "38a2de1f46c679f9d425b5b46fc371e1a90b44e0",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/85ade20bd48007da518c6764a36d2ea525ff2907"
+        },
+        "date": 1776972951911,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4273046599999963,
             "unit": "ms"
           }
         ]
