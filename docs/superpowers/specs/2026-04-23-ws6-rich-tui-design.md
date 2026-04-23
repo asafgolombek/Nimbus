@@ -31,11 +31,11 @@ This spec delivers a five-pane Ink-based TUI launched via `nimbus tui`, with aut
 5. **Input-only focus model** (Q6 option A) — `QueryInput` is always focused; status panes are passive live widgets. `Up`/`Down` cycles `tui-query-history.json` (last 100). `Ctrl+C` maps to cancel-stream-then-exit.
 6. **Gateway-offline handling** (Q7 option B) — top-of-screen amber banner, exponential reconnect (2s → 4s → 8s → 16s → 30s cap), status panes show last-known data with `(stale)` marker while disconnected, input is dimmed + disabled, active stream is abandoned (no mid-stream resume).
 7. **SubTaskPane persistence semantics** (Q8 option B) — the last run's progress bars persist in the pane until the next query submit; not auto-cleared on run completion, not a session-wide accumulation.
-8. **Dumb-terminal fallback** — `TERM=dumb` or `NO_COLOR` set or `!process.stdout.isTTY` → prints a one-line notice and invokes `runRepl(args)` from the existing REPL module. No Ink render attempted.
-9. **Narrow-terminal collapse** — when `process.stdout.columns < NARROW_LAYOUT_COLUMN_THRESHOLD` (constant; initial value 100), App.tsx switches to a single-column layout: QueryInput / ResultStream / single bottom status bar.
+8. **Unsuitable-terminal fallback** — any of `TERM=dumb`, `NO_COLOR` set, `!process.stdout.isTTY`, `CI=true`, or `rows < MIN_HEIGHT_THRESHOLD` (20) → prints a one-line notice and invokes `runRepl(args)` from the existing REPL module. No Ink render attempted. Full trigger list in §3.1.
+9. **Narrow-terminal collapse** — when `process.stdout.columns < NARROW_LAYOUT_COLUMN_THRESHOLD` (constant; initial value 100), App.tsx switches to a single-column layout: QueryInput / ResultStream / single bottom status bar. Crossing **below** `MIN_HEIGHT_THRESHOLD` mid-session exits Ink with a one-line notice (§3.3).
 10. **Query history file** — `join(paths.cacheDir, "tui-query-history.json")` via `getCliPlatformPaths()`. Format `{ "entries": string[] }`, newest-last, max 100, dedup on repeat-of-last, corrupt file treated as empty.
 11. **`ink-testing-library`-backed unit tests** for all six components + dumb-terminal fallback + query-history file semantics, under `bun test`. Coverage gate ≥ 80% lines / ≥ 75% branches on `packages/cli/src/tui/`, wired into `_test-suite.yml`.
-12. **3-OS manual smoke** documented in `docs/manual-smoke-ws6.md`, covering launch, streaming, HITL, fallback, gateway death, and narrow-terminal collapse.
+12. **3-OS manual smoke** documented in `docs/manual-smoke-ws6.md`, covering launch, streaming, HITL, unsuitable-terminal fallback, gateway death, narrow-terminal collapse, short-terminal runtime drop, cancel semantics, signal handling, and paste safety (full list in §8.5).
 13. **`nimbus repl` stays unchanged.** Both interactive surfaces ship in v0.1.0; help output documents both.
 
 ### 2.2 Out of scope — deferred
@@ -50,7 +50,7 @@ This spec delivers a five-pane Ink-based TUI launched via `nimbus tui`, with aut
 
 ### 2.3 Explicit non-goals
 
-- **No new IPC methods.** If an edge case requires one (e.g., `engine.cancelStream` is confirmed missing during implementation), it is an out-of-scope change and would justify a separate mini-spec.
+- **No new IPC methods.** `engine.cancelStream` was verified absent during spec review; adding it is explicitly a post-v0.1.0 follow-up, not a WS6 task (§5.2, §11.1). Any other edge case requiring a new IPC method would justify a separate mini-spec.
 - **No changes to the Gateway streaming protocol.** `engine.askStream` / `engine.streamToken` / `engine.streamDone` / `engine.streamError` / `agent.subTaskProgress` / `agent.hitlBatch` / `consent.respond` are all consumed as-is.
 - **No replacement of `nimbus repl`.** Users keeping `nimbus repl` in muscle memory and in scripts are unaffected.
 
@@ -68,23 +68,35 @@ This spec delivers a five-pane Ink-based TUI launched via `nimbus tui`, with aut
 3. locate gateway socket via readGatewayState(paths)
    ├─ gateway not running → print "Gateway is not running. Start with: nimbus start"; exit 1
    └─ gateway running     → proceed
-4. dumb-terminal check
-   ├─ TERM === "dumb"          → fallback
-   ├─ NO_COLOR is set (any)    → fallback
-   ├─ !process.stdout.isTTY    → fallback
-   └─ otherwise                → proceed to render Ink
-5. new IPCClient(socketPath); await client.connect()
-6. registerInteractiveCliIpcHandlers(client)  (reused from repl.ts)
-7. render(<App client={client} />)
-8. await user-triggered exit (double Ctrl+C or `exit`/`quit` typed in QueryInput)
-9. client.disconnect(); Ink unmount; exit 0
+4. unsuitable-terminal check (any triggers fallback)
+   ├─ TERM === "dumb"                              → fallback
+   ├─ NO_COLOR is set (any truthy value)           → fallback
+   ├─ !process.stdout.isTTY                        → fallback
+   ├─ process.env.CI === "true"                    → fallback
+   ├─ process.stdout.columns < NARROW_LAYOUT_COLUMN_THRESHOLD
+   │                                               → render in collapsed single-column mode (§3.3)
+   ├─ process.stdout.rows    < MIN_HEIGHT_THRESHOLD → fallback
+   └─ otherwise                                    → proceed to render Ink
+5. initialize pino file logger via createCliFileLogger(paths) — writes to
+   paths.logDir/cli-<date>.log; NEVER to stdout/stderr (§3.2)
+6. new IPCClient(socketPath); await client.connect()
+7. registerInteractiveCliIpcHandlers(client)  (reused from repl.ts)
+8. install SIGINT + SIGTERM + process.on("exit") handlers that:
+     a. attempt client.disconnect() (best-effort, failures swallowed)
+     b. Ink ink.unmount() to restore the terminal
+     c. exit with the appropriate code (0 for user-triggered, 130 for SIGINT,
+        143 for SIGTERM where permitted)
+9. render(<App client={client} logger={logger} />)
+10. await user-triggered exit (double Ctrl+C, `exit`/`quit` typed in QueryInput,
+    or a terminal signal)
+11. cleanup path runs (step 8 handlers converge here)
 ```
 
-**Dumb-terminal fallback output:**
+**Fallback output:**
 ```
-Dumb terminal detected (TERM=dumb | NO_COLOR | non-TTY) — falling back to REPL.
+Unsuitable terminal detected (TERM=dumb | NO_COLOR | non-TTY | CI=true | rows<N) — falling back to REPL.
 ```
-Then invokes `runRepl(args)` and exits through the REPL path.
+Then invokes `runRepl(args)` and exits through the REPL path. Only one reason is printed — whichever matched first.
 
 ### 3.2 Runtime dependencies
 
@@ -94,6 +106,15 @@ Then invokes `runRepl(args)` and exits through the REPL path.
 - `ink-testing-library` (dev dep) for component unit tests.
 
 No other new runtime deps. No native modules. The existing `@nimbus-dev/client` + `pino` cover IPC and logging.
+
+**Logging discipline (critical).** Ink owns the stdout buffer while rendering — any `console.log` / `process.stdout.write` / pino-to-stdout call during an active render corrupts the display and causes "white-screen" or layout-crash symptoms. The TUI therefore:
+
+- Uses `createCliFileLogger(paths)` from `packages/cli/src/lib/cli-logger.ts` as the single logging sink, writing to `paths.logDir/cli-<date>.log` (same file the REPL would use if it logged).
+- Passes the returned `logger` to `App` via React context; every pane uses the context logger rather than `console.*`.
+- Swallows stderr writes from dependencies via a one-time `process.stderr.write = noop` override, installed after Ink renders and removed during cleanup. Pino writes only to the file destination, not stderr, so this override is a safety net, not the primary defense.
+- Biome lint rule `no-console` is already project-wide; this section makes the rationale explicit for future contributors.
+
+Users debugging a "TUI rendered blank" issue are pointed at the log file in the help output and in `docs/manual-smoke-ws6.md`.
 
 ### 3.3 Layout — Option 1 "classic split"
 
@@ -130,6 +151,10 @@ No other new runtime deps. No native modules. The existing `@nimbus-dev/client` 
 
 Right-column pane detail unavailable below the threshold. Threshold is a named constant so spec review catches changes.
 
+**Short-terminal fallback** (below `MIN_HEIGHT_THRESHOLD = 20` rows): the TUI falls back to the REPL rather than attempting a further-collapsed layout. Rationale: with fewer than ~20 rows, even the collapsed single-column layout crowds out ResultStream to the point of unusability (input + scrollback + status bar leaves ≤ 15 rows of actual output, cut further when HITL banners appear). A `nimbus repl` line-loop is a more honest experience in that envelope. Threshold is a named constant; tunable during manual smoke.
+
+**Runtime resize.** Both thresholds are re-evaluated on every `process.stdout.resize` event via Ink's `useStdout` hook. Crossing the width threshold swaps the layout in place. Crossing the height threshold **downward** prints a one-line notice and exits the Ink render (the user is directed to `nimbus repl` rather than auto-forking a REPL mid-session — session state is process-local in v0.1.0 and cannot be transferred). Crossing the height threshold **upward** from a process already in REPL fallback does nothing — relaunch is on the user.
+
 ### 3.4 Component breakdown
 
 Six files under `packages/cli/src/tui/`, each single-purpose for isolated testing:
@@ -137,11 +162,11 @@ Six files under `packages/cli/src/tui/`, each single-purpose for isolated testin
 | File | Responsibility |
 |---|---|
 | `App.tsx` | Root. Composes panes in the Option-1 layout via `<Box flexDirection>`. Owns the top-level state machine: `idle` \| `streaming` \| `awaiting-hitl` \| `disconnected`. Exposes the `IPCClient` via React context. |
-| `QueryInput.tsx` | `ink-text-input`-backed prompt (`nimbus>`). Up/Down cycles `tui-query-history.json`. Enter submits. Dimmed + disabled during `streaming`. On `awaiting-hitl`, prompt becomes `nimbus[hitl]>` in single-keystroke mode. |
+| `QueryInput.tsx` | `ink-text-input`-backed prompt (`nimbus>`), **single-line with horizontal scrolling** — long queries scroll the visible window rather than wrapping to multiple rows (keeps the 1-row layout stable in short terminals). Up/Down cycles `tui-query-history.json`. Enter submits. Dimmed + disabled during `streaming`. On `awaiting-hitl`, prompt becomes `nimbus[hitl]>` in single-keystroke mode. |
 | `ResultStream.tsx` | Prior Q&A rendered via `<Static>`. Current tokens render in a live `<Text>` below. On `engine.streamDone`, live buffer flushes into `<Static>`. On `engine.streamError`, an `❌` line appends and flushes. |
 | `ConnectorHealth.tsx` | `useIpcPoll("connector.list", 30_000)`. Renders ●/○/◐ dots with a 1-line label per connector. Degraded connectors prefixed `⚠`. Paused while `disconnected`. |
 | `WatcherPane.tsx` | `useIpcPoll("watcher.list", 30_000)`. Renders `N watchers, M firing` + up to 5 most-recently-firing names. Silent truncation beyond 5. |
-| `SubTaskPane.tsx` | Subscribes to `agent.subTaskProgress`. Maintains per-run map keyed by `subTaskId`. Renders progress bars (`[====-]` 5-char fill) + status glyphs. Clears only on next query submit (per Q8). |
+| `SubTaskPane.tsx` | Subscribes to `agent.subTaskProgress`. Maintains per-run map keyed by `subTaskId`. Renders progress bars (`[====-]` 5-char fill) + status glyphs. **Starts empty on every TUI launch** — does NOT hydrate from the `sub_task_results` table. Session-resume-lite is explicitly out of scope per §2.2; a fresh process shows "No active sub-tasks" until the user submits a query. Clears only on next query submit (per Q8) within a single process lifetime. |
 
 **Shared state.** `App.tsx` owns a reducer for the top-level state machine. Panes read slices via context. Pattern consistent with `packages/ui`'s Zustand slices to keep future code-reading predictable. No Zustand dependency added — a plain `useReducer` hook is sufficient for this scope.
 
@@ -167,7 +192,7 @@ Six files under `packages/cli/src/tui/`, each single-purpose for isolated testin
 - `packages/cli/src/tui/useIpcPoll.ts` — shared polling hook (pauses on disconnected).
 - `packages/cli/src/tui/query-history.ts` — read/write/dedup logic for `tui-query-history.json`.
 - `packages/cli/src/tui/state.ts` — reducer + action types for the top-level state machine.
-- `packages/cli/src/tui/constants.ts` — `NARROW_LAYOUT_COLUMN_THRESHOLD`, poll intervals, history cap, double-Ctrl+C window.
+- `packages/cli/src/tui/constants.ts` — `NARROW_LAYOUT_COLUMN_THRESHOLD`, `MIN_HEIGHT_THRESHOLD`, poll intervals, history cap, double-Ctrl+C window, cancel-hint duration.
 - `packages/cli/src/tui/App.test.tsx` — state-machine transitions.
 - `packages/cli/src/tui/QueryInput.test.tsx` — input, history, HITL, Ctrl+C.
 - `packages/cli/src/tui/ResultStream.test.tsx` — streaming, HITL banner, error line.
@@ -223,10 +248,20 @@ Notifications arrive (via interactive-ipc-handlers plumbing):
 
 ### 5.2 Cancel semantics
 
-- **Ctrl+C while `streaming`** → attempt `client.call("engine.cancelStream", { streamId })`. If the method exists (needs confirmation during implementation — see §11 Open Items), the engine emits `engine.streamError { reason: "canceled" }`. If it does not, the local state flips to `idle`, remaining tokens are ignored, and the append line reads `(canceled by user — engine continued in background)`.
-- **Ctrl+C within 2s of the previous Ctrl+C** (regardless of state) → exit the TUI: disconnect IPC, unmount Ink, exit 0.
-- **Ctrl+C while `idle` or `disconnected`** → exit immediately (no stream to cancel).
-- **Ctrl+C while `awaiting-hitl`** → reject the entire batch + exit (per §6 "Keyboard trap").
+**Verified during spec review**: `engine.cancelStream` is **not implemented** in the Gateway (confirmed via grep of `packages/gateway/src/ipc/server.ts` — `streamId` is generated at line 939 but no cancel handler exists). Full-fidelity cancellation is a post-v0.1.0 Gateway addition (see §11 Open Items). The TUI therefore ships with a **local-only cancel** in v0.1.0:
+
+- **Ctrl+C while `streaming`** (first press):
+  - Local state flips `streaming` → `idle` immediately.
+  - Remaining tokens from the abandoned stream are ignored by the client (detected by `streamId` mismatch with the now-cleared active stream).
+  - Append line reads `(canceled by user — LLM may continue in the background)`.
+  - A brief hint renders in the live buffer for 1.5 s: `^C Press again within 2s to exit`. The hint flushes into `<Static>` on timeout or on the next token so it becomes part of the transcript.
+  - **Background cost caveat**: local LLMs (Ollama, llama.cpp) continue generating until the engine's own timeout or the sub-task completes — burning local CPU/GPU. Future remote providers would continue consuming token/quota budget. This caveat is surfaced in the help output and in `docs/manual-smoke-ws6.md`.
+- **Ctrl+C within 2 s of the previous Ctrl+C** (regardless of state) → exit the TUI: run the cleanup path (IPC disconnect, Ink unmount, logger flush), exit 0.
+- **Ctrl+C while `idle`** → render `^C Press again within 2s to exit` hint; second press exits.
+- **Ctrl+C while `disconnected`** → exit immediately (no stream or session to protect; waiting is pointless). Hint is not shown.
+- **Ctrl+C while `awaiting-hitl`** → reject the entire batch + exit (per §6 "Keyboard trap"). No hint — HITL abort is an intentional, deliberate action; showing a warning dilutes it.
+
+**Signal handling path.** The SIGINT handler installed in §3.1 step 8 fires on Ctrl+C in environments where Ink does not already capture it (e.g., on non-TTY fallback paths, or if Ink unmounts mid-render). Ink's raw-mode input handler captures Ctrl+C when the render is live; the signal handler is a belt-and-braces safety net.
 
 ### 5.3 Polling paths
 
@@ -254,7 +289,9 @@ Two status panes share `useIpcPoll(method, intervalMs)`, a CLI-local mirror of t
 ### 5.5 IPC client lifecycle
 
 - One `IPCClient` per TUI process, created in `tui.tsx`, passed via React context.
-- Closed in a `process.on("exit")` handler and in the normal exit path.
+- Closed in a unified cleanup path wired to three triggers: `process.on("SIGINT")`, `process.on("SIGTERM")`, and `process.on("exit")` (see §3.1 step 8). Each trigger runs at most once — a flag guards against double-unmount from the overlap between the signal handler and Node's normal exit sequence.
+- Best-effort `client.disconnect()` — failures are swallowed and logged at `DEBUG` (the gateway may already be gone, in which case the disconnect attempt will throw; shutdown proceeds regardless).
+- Ink's `ink.unmount()` runs before `exit()` to restore the terminal (clear alternate-buffer, show cursor, reset ANSI colors). Without this step, a SIGTERM during render leaves the user's terminal in raw mode.
 - No per-pane reconnect logic. All reconnects centralize in the App reducer's `disconnected` state handler (§7).
 
 ---
@@ -394,12 +431,12 @@ Added to `packages/cli/devDependencies`.
 | File | Covers |
 |---|---|
 | `App.test.tsx` | State-machine transitions: idle → streaming → idle; streaming → awaiting-hitl → streaming; any → disconnected → idle. Uses a stub `IPCClient` implementing `call` + `on`, with helpers to push synthetic notifications. |
-| `QueryInput.test.tsx` | History cycling (Up/Down), submit on Enter, double-Ctrl+C exit timing, dimmed+disabled during stream, single-keystroke HITL mode captures `a`/`r`/`d`/`q`. |
+| `QueryInput.test.tsx` | History cycling (Up/Down) **with explicit boundary cases**: Up at the top of history holds the oldest entry; Down at the bottom returns to the empty draft and does not go past it; cycling does not mutate the history file. Submit on Enter. Double-Ctrl+C exit timing. Single Ctrl+C during `streaming` → `^C Press again within 2s to exit` hint renders then clears after 1.5 s. Dimmed+disabled during stream. Single-keystroke HITL mode captures `a`/`r`/`d`/`q` (and only those — other keys no-op). Horizontal-scroll behavior on a 200-char input in an 80-col terminal. |
 | `ResultStream.test.tsx` | Tokens accumulate in live buffer; `streamDone` flushes to `<Static>`; `streamError` renders `❌` line; HITL banner block renders inside live buffer. |
 | `ConnectorHealth.test.tsx` | Poll interval, paused while `disconnected`, `(stale)` marker on reconnect, dot color mapping for ok/degraded/down. |
 | `WatcherPane.test.tsx` | Same shape as ConnectorHealth — truncation beyond 5 names, `N watchers, M firing` rendering. |
 | `SubTaskPane.test.tsx` | Progress-bar render, clear-on-next-submit semantics (Q8), event-driven update path from `agent.subTaskProgress`. |
-| `dumb-terminal.test.ts` | Command-entry fallback for `TERM=dumb`, `NO_COLOR`, and non-TTY stdout. Asserts `runRepl` is invoked and Ink is not rendered. |
+| `dumb-terminal.test.ts` | Command-entry fallback for each trigger: `TERM=dumb`, `NO_COLOR` set, non-TTY stdout, `CI=true`, and `rows < MIN_HEIGHT_THRESHOLD`. Asserts `runRepl` is invoked in each case and Ink is not rendered. Also asserts only one reason is printed (first-match wins). |
 | `query-history.test.ts` | Read/write round-trip, 100-entry cap, dedup-on-repeat-of-last, corrupt-file recovery. |
 
 ### 8.4 Coverage gate
@@ -417,12 +454,16 @@ Added to `.github/workflows/_test-suite.yml` as a row in the coverage-gate matri
 
 New file `docs/manual-smoke-ws6.md` covering:
 
-1. **Launch**: `nimbus tui` launches on Windows Terminal, macOS Terminal.app, macOS iTerm2, Linux gnome-terminal, Linux alacritty. No Ink stack traces; layout renders correctly at default terminal size.
+1. **Launch**: `nimbus tui` launches on Windows Terminal, macOS Terminal.app, macOS iTerm2, Linux gnome-terminal, Linux alacritty. No Ink stack traces; layout renders correctly at default terminal size. The pino log file at `paths.logDir/cli-<date>.log` records startup with no errors and **contains zero stdout/stderr corruption markers** (no raw JSON blobs interleaved with render output).
 2. **Streaming**: submit a query that triggers a 20-second generation. Tokens render continuously without flicker. Prior lines in `<Static>` do not re-render (observable: no cursor flicker on prior text).
 3. **Inline HITL**: trigger a workflow that requires consent mid-stream. Banner appears; approve path resumes the stream and prints `✓ approved all` in the transcript; reject path terminates the stream with `✗ rejected all`; multi-action batch sequences correctly.
-4. **Dumb-terminal fallback**: `TERM=dumb nimbus tui` → prints fallback notice, enters REPL. `NO_COLOR=1 nimbus tui` → same. `nimbus tui < /dev/null` (non-TTY stdin) → same.
-5. **Gateway death**: kill the gateway mid-session. Banner appears within 2s. Restart the gateway. Reconnect banner fades within 30s. Input re-enables.
+4. **Unsuitable-terminal fallback**: `TERM=dumb nimbus tui`, `NO_COLOR=1 nimbus tui`, `nimbus tui < /dev/null` (non-TTY stdin), `CI=true nimbus tui`, and `stty rows 10 && nimbus tui` each print the fallback notice and enter REPL. Terminal is left in a sane state on REPL exit in every case.
+5. **Gateway death**: kill the gateway mid-session. Banner appears within 2 s (during active stream) or ≤ 30 s (idle). Restart the gateway. Reconnect banner fades within 30 s. Input re-enables.
 6. **Narrow-terminal collapse**: resize the terminal below 100 columns while the TUI is running. Layout collapses to single-column; status bar replaces right column. Resize above 100 columns: layout restores.
+7. **Short-terminal runtime drop**: resize the terminal to < 20 rows while the TUI is running. The one-line notice `Terminal too short — exiting; relaunch after resizing or use nimbus repl` prints; Ink unmounts; exit code 0; terminal is restored.
+8. **Cancel semantics**: submit a long query; press Ctrl+C once. `(canceled by user — LLM may continue in the background)` prints; `^C Press again within 2s to exit` hint renders and clears. Press Ctrl+C within 2 s → exit. Relaunch; press single Ctrl+C while idle → exit hint renders; press again within 2 s → exit.
+9. **Signal handling**: while the TUI is rendering, from another terminal run `kill -TERM <pid>` and `kill -INT <pid>` (separate sessions). Both restore the terminal cleanly (no stuck raw mode, no missing cursor, no leftover colors); both flush the pino log file.
+10. **Paste safety**: paste a 5-paragraph prompt (~2 KB of text with newlines) into `QueryInput`. The input does not expand vertically (single-line, horizontal-scroll), does not break the right-column layout, and submits correctly on Enter. Pasted newlines within the prompt are handled consistently with `ink-text-input`'s documented behavior (record actual behavior in the smoke doc for the implementation plan to reference).
 
 Results recorded inline in the file and in the release-gate checklist execution (finish-plan §4.6).
 
@@ -443,12 +484,14 @@ Copy forward into the implementation plan's Final Verification section and into 
 - [ ] `nimbus tui` launches cleanly on Windows Terminal, macOS Terminal.app, macOS iTerm2, Linux gnome-terminal, Linux alacritty. No Ink stack traces; no ANSI leakage into fallback paths.
 - [ ] Token-by-token stream renders continuously without flicker on a 20-second generation. `<Static>`-backed scrollback means prior lines never re-render (observable via cursor-position stability).
 - [ ] Inline HITL banner appears mid-stream. Approving resumes the stream and prints the outcome line. Rejecting terminates the stream. Multi-action batches sequence correctly. `consent.respond` is called once per batch with the full decisions array.
-- [ ] `TERM=dumb nimbus tui` falls back to `runRepl` without rendering Ink. Same for `NO_COLOR` and non-TTY stdout.
+- [ ] Unsuitable-terminal fallback: each of `TERM=dumb`, `NO_COLOR`, non-TTY stdout, `CI=true`, and `rows < MIN_HEIGHT_THRESHOLD` invokes `runRepl` without rendering Ink. Only one reason prints (first-match wins).
 - [ ] `nimbus repl` remains working and unchanged in behavior. Both commands appear in `nimbus --help`.
 - [ ] Gateway-offline banner appears within ≤ 30 s of gateway kill (sub-second during an active stream). Exponential reconnect succeeds on gateway restart. `(stale)` marker on poll data during disconnect. `✓ Reconnected` fade on recovery.
-- [ ] Narrow-terminal collapse (< `NARROW_LAYOUT_COLUMN_THRESHOLD` cols) switches to single-column layout without crash. Resize above threshold restores the 5-pane layout.
-- [ ] Cancel semantics: single Ctrl+C during streaming cancels (best-effort; depends on `engine.cancelStream` existence — see §11). Double Ctrl+C within 2 s exits. Single Ctrl+C while idle exits.
+- [ ] Narrow-terminal collapse (< `NARROW_LAYOUT_COLUMN_THRESHOLD` cols) switches to single-column layout without crash. Resize above threshold restores the 5-pane layout. Runtime drop below `MIN_HEIGHT_THRESHOLD` rows exits Ink cleanly with a one-line notice.
+- [ ] Cancel semantics: single Ctrl+C during streaming flips state to `idle`, prints `(canceled by user — LLM may continue in the background)`, renders the `^C Press again within 2s to exit` hint for 1.5 s. Double Ctrl+C within 2 s exits. Single Ctrl+C while idle shows the hint; second press exits. Ctrl+C while `awaiting-hitl` rejects the batch + exits. Ctrl+C while `disconnected` exits immediately.
 - [ ] `tui-query-history.json` stored in per-OS `cacheDir`, capped at 100 entries, deduped on repeat-of-last, corrupt-file recovery does not crash.
+- [ ] Logging: pino writes only to `paths.logDir/cli-<date>.log`; stdout and stderr contain zero corruption markers during a full session (verified by manual smoke step 1).
+- [ ] Signal handling: SIGINT and SIGTERM both run the unified cleanup (IPC disconnect, Ink unmount, logger flush) and leave the terminal in a restored state.
 - [ ] Coverage on `packages/cli/src/tui/` ≥ 80% lines / ≥ 75% branches. `bun run test:coverage:tui` wired into `_test-suite.yml`.
 - [ ] `docs/manual-smoke-ws6.md` committed with 3-OS verification results (or links to a tracking issue if any platform is blocked).
 - [ ] `CLAUDE.md` + `GEMINI.md` updated: WS6 status, new file-location rows, `test:coverage:tui` command entry.
@@ -460,7 +503,7 @@ Copy forward into the implementation plan's Final Verification section and into 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | Ink's `<Static>` re-renders on certain terminal resizes, causing flicker | Low–Medium | Manual smoke explicitly tests resize behavior; if flicker observed, pin Ink patch version and document minimum terminal requirement. `<Static>` is the documented Ink pattern for exactly this use case. |
-| `engine.cancelStream` does not exist — cancel becomes best-effort only | Medium | Confirm presence during Task 1 of the implementation plan. If absent, spec the cancel path as "local state reset; engine continues in background" in the help output; a follow-up issue adds the method. |
+| `engine.cancelStream` does not exist — cancel is local-only | Accepted (verified absent) | Documented in §5.2 and §11.1 as the v0.1.0 contract. Help output + manual smoke surface the background-continuation caveat to users. Follow-up Gateway work is scoped post-v0.1.0. |
 | Ink ESM-only conflicts with CLI bundling via `bun build --compile` | Low | `bun build` has native ESM support; existing CLI is ESM. If an unexpected bundle failure surfaces, pin Ink version and document in plan. |
 | Sub-task pane clutters on runs with > 20 sub-tasks | Low | Silent truncation at pane height; "…N more" line if truncated. Tunable constant. |
 | Ink render performance on a fast token stream (1 kHz+ notifications) | Low | Batch token appends at 60 fps via `requestAnimationFrame`-equivalent (setImmediate) in the `ResultStream` live-buffer path. Add only if the 20-second smoke shows stutter. |
@@ -476,7 +519,7 @@ Copy forward into the implementation plan's Final Verification section and into 
 
 Small enough to resolve during TDD cycles; none affect architecture.
 
-1. **Confirm `engine.cancelStream` existence.** Grep `packages/gateway/src/ipc/` for `cancelStream`. If present, Ctrl+C is full-fidelity. If absent, document "engine continues in background after cancel" in help output and file a follow-up issue.
+1. **`engine.cancelStream` is confirmed absent (grep of `packages/gateway/src/ipc/server.ts`).** v0.1.0 ships with the local-only cancel documented in §5.2. A **post-v0.1.0 follow-up issue** should add a Gateway `engine.cancelStream` handler that tracks active `agent.invoke` promises by `streamId` and aborts them via `AbortController` — the existing pattern in `packages/gateway/src/ipc/llm-rpc.ts:17` (`activePulls = new Map<string, AbortController>()`) is the reference implementation. Once the Gateway handler exists, the TUI's `handleCancel` swaps one call site from "flip local state" to "call the RPC and wait for `engine.streamError`"; no TUI architecture change.
 2. **Ink + React version pins.** Latest stable at plan-writing time. Record in `packages/cli/package.json`; regenerate lockfile.
 3. **`ink-testing-library` version pin.** Same — latest stable.
 4. **Narrow-terminal threshold value (100 cols).** Reasonable default; tune during manual smoke if 5-pane layout cramps before 100 or wastes space beyond it.
@@ -497,3 +540,45 @@ This spec is the authoritative input to the WS6 implementation plan. Next step: 
 - Phase-1 signing pipeline plan (`docs/superpowers/plans/2026-04-23-signing-pipeline.md`) is independent — WS6 does not block on it, and vice versa. Both can execute in parallel if desired, though solo-dev sequencing is recommended per `finish-plan §3` parallelism rules.
 - WS7 (VS Code extension) follows WS6 per `finish-plan §3`. The Phase 3.5 `@nimbus-dev/client` surface that WS7 consumes is also consumed by `packages/cli/src/ipc-client/index.ts` — shaking out any client issues via WS6 work de-risks WS7.
 - Voice 3-platform verification (`finish-plan §4.5`) runs after WS6 lands, not before — voice paths surface through the TUI's HITL overlay too (voice-triggered consent is a v0.1.1 concern but the overlay plumbing must not regress).
+
+---
+
+## 13. Review Responses (Gemini CLI review, 2026-04-23)
+
+Reviewer feedback from `docs/superpowers/specs/2026-04-23-ws6-rich-tui-review.md`. Each point is classified as **fixed inline** (with a pointer to the section that changed), **already addressed** (reinforced by review, no new change), or **pushed back** (with reasoning). The design above was revised to absorb every accepted fix before writing the implementation plan.
+
+### Fixed inline
+
+- **1.1 (`engine.cancelStream` missing).** Verified via grep of `packages/gateway/src/ipc/server.ts` — `streamId` is generated but no cancel handler exists. §5.2 rewritten to document the v0.1.0 local-only cancel behavior explicitly, including the background-token-consumption caveat the reviewer flagged. §11 Open Item 1 upgraded from "confirm existence" to a concrete post-v0.1.0 follow-up that mirrors the existing `AbortController` pattern in `packages/gateway/src/ipc/llm-rpc.ts:17`. Help output and manual smoke (§8.5 step 8) surface the caveat to users.
+
+- **1.2 (SubTaskPane startup state).** §3.4 SubTaskPane row now states explicitly: "Starts empty on every TUI launch — does NOT hydrate from the `sub_task_results` table. Session-resume-lite is explicitly out of scope per §2.2." Reviewer's suggested simplification adopted.
+
+- **1.3 (terminal height constraints).** §3.3 gains a `MIN_HEIGHT_THRESHOLD = 20` short-terminal fallback. §3.1 step 4 lists it as a launch-time trigger; §3.3 "Runtime resize" paragraph handles downward crossings mid-session (Ink unmounts with a one-line notice rather than attempting a further-collapsed layout). §4.1 constants file adds the new constant. §8.3 `dumb-terminal.test.ts` adds a row-based fallback test. §8.5 manual smoke step 7 verifies runtime behavior.
+
+- **2.1 (visual feedback for double-Ctrl+C).** §5.2 adds the `^C Press again within 2s to exit` hint, rendered into the live buffer, auto-clearing after 1.5 s and flushing into `<Static>` on timeout or on next token. `awaiting-hitl` and `disconnected` intentionally suppress the hint (HITL abort is deliberate; disconnected has nothing to preserve). §8.3 `QueryInput.test.tsx` adds explicit coverage.
+
+- **2.2 (TUI logging strategy).** §3.2 new paragraph "Logging discipline (critical)" mandates `createCliFileLogger(paths)` as the single sink (reusing the existing helper at `packages/cli/src/lib/cli-logger.ts`), a `process.stderr.write = noop` safety net during Ink render, and the project-wide `no-console` Biome rule. §3.1 step 5 wires the logger into the launch sequence. §8.5 step 1 adds a no-stdout-corruption check to manual smoke.
+
+- **2.3 (extended dumb-terminal triggers — `CI=true`).** §3.1 step 4 adds `process.env.CI === "true"` as a fallback trigger. §8.3 `dumb-terminal.test.ts` covers it.
+
+- **2.4 (signal handling — SIGTERM).** §3.1 step 8 now installs SIGINT + SIGTERM + `process.on("exit")` handlers that run a single idempotent cleanup (IPC disconnect, Ink unmount, logger flush). §5.5 rewritten around this unified lifecycle. §8.5 step 9 verifies both signals in manual smoke.
+
+- **2.5 (query input wrapping).** §3.4 QueryInput row pins behavior to single-line horizontal scroll. Rationale (layout stability in short terminals) recorded in the row. §8.3 `QueryInput.test.tsx` adds a 200-char-in-80-col test. §8.5 step 10 adds a paste-safety verification.
+
+- **3.1 (`ink-text-input` history edge cases).** §8.3 `QueryInput.test.tsx` now explicitly lists boundary cases: Up at top of history holds oldest; Down at bottom returns to empty draft and stops; cycling does not mutate the file.
+
+- **4.2 (paste test in manual smoke).** §8.5 step 10 added.
+
+### Already addressed in the original spec (reviewer reinforced, no new change)
+
+- **3.2 (notification batching for high-velocity streams).** §10 Risks already documents the `requestAnimationFrame`-equivalent batching approach with "add only if the 20-second smoke shows stutter" trigger. Reviewer's 16 ms (60 fps) debounce concurs with what's there.
+
+- **4.1 (CLAUDE.md / GEMINI.md updates).** §4.2 already lists both files for modification including `test:coverage:tui`. Reviewer's reinforcement accepted, no new edit needed.
+
+### Pushed back — none
+
+All reviewer points were either accepted as-is or matched what the spec already said. No pushback on this round.
+
+### Meta
+
+The review caught two real design gaps (terminal height, TUI logging discipline) and several meaningful hardening nudges (signal handling, CI=true trigger, paste safety, history boundary tests, cancel-hint visual feedback). The `engine.cancelStream` verification is load-bearing — confirming absence before drafting the plan prevents the plan from committing to a behavior we can't honor. Net: +75 lines of spec, significantly tighter v0.1.0 contract. Worth the read.
