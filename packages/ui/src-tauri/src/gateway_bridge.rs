@@ -189,7 +189,7 @@ pub async fn connect_and_run(app: AppHandle, state: BridgeState) {
         let connect_result = {
             let path = std::env::var("NIMBUS_SOCKET").unwrap_or_else(|_| {
                 let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-                format!("{}/.local/share/nimbus/nimbus.sock", home)
+                format!("{home}/.local/share/nimbus/nimbus.sock")
             });
             let fs_name = path
                 .to_fs_name::<GenericFilePath>()
@@ -280,7 +280,7 @@ pub async fn rpc_call(
     params: Value,
 ) -> Result<Value, String> {
     if !is_method_allowed(&method) {
-        return Err(format!("ERR_METHOD_NOT_ALLOWED:{}", method));
+        return Err(format!("ERR_METHOD_NOT_ALLOWED:{method}"));
     }
     let tx = {
         let guard = state.write_tx.lock().await;
