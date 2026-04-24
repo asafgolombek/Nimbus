@@ -152,7 +152,7 @@
     "test": "bunx vitest run",
     "test:coverage": "bunx vitest run --coverage",
     "package": "bunx vsce package --no-dependencies",
-    "test:integration": "tsc --module commonjs --outDir test-out test/integration/ask-roundtrip.test.ts test/integration/runner.ts && node test-out/test/integration/runner.js",
+    "test:integration": "tsc --project tsconfig.integration.json && node test-out/test/integration/runner.js",
     "clean": "node -e \"import('node:fs').then(f=>{f.rmSync('dist',{recursive:true,force:true});f.rmSync('media/webview.js',{force:true});f.rmSync('media/webview.css',{force:true})})\""
   },
   "dependencies": {
