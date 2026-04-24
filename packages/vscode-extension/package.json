@@ -79,6 +79,16 @@
         "command": "nimbus.reconnect",
         "title": "Reconnect to Gateway",
         "category": "Nimbus"
+      },
+      {
+        "command": "nimbus.openLogs",
+        "title": "Open Logs",
+        "category": "Nimbus"
+      },
+      {
+        "command": "nimbus.showPendingHitl",
+        "title": "Show Pending Consent Requests",
+        "category": "Nimbus"
       }
     ],
     "menus": {
