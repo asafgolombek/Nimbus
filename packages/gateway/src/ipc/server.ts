@@ -932,21 +932,24 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       case "engine.cancelStream":
         return createCancelStreamHandler(streamRegistry)(params);
 
-      case "engine.getSessionTranscript": {
-        if (getSessionTranscriptHandler === undefined) {
-          if (options.localIndex === undefined) {
-            throw new RpcMethodError(-32603, "engine.getSessionTranscript requires local index");
-          }
-          getSessionTranscriptHandler = createGetSessionTranscriptHandler(
-            options.localIndex.getDatabase(),
-          );
-        }
-        return await getSessionTranscriptHandler(params);
-      }
+      case "engine.getSessionTranscript":
+        return await rpcGetSessionTranscript(params);
 
       default:
         return await rpcVaultOrMethodNotFound(method, params);
     }
+  }
+
+  async function rpcGetSessionTranscript(params: unknown): Promise<unknown> {
+    if (getSessionTranscriptHandler === undefined) {
+      if (options.localIndex === undefined) {
+        throw new RpcMethodError(-32603, "engine.getSessionTranscript requires local index");
+      }
+      getSessionTranscriptHandler = createGetSessionTranscriptHandler(
+        options.localIndex.getDatabase(),
+      );
+    }
+    return await getSessionTranscriptHandler(params);
   }
 
   async function dispatchMethod(

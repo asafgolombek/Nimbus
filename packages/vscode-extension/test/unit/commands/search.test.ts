@@ -104,7 +104,7 @@ describe("createSearchCommand", () => {
     const sink = makeSink({ itemId: "" });
     const cmd = createSearchCommand({ client: makeClient([{}]), window: makeWindow("test"), sink, log: noLog });
     await cmd();
-    const picksArg = (sink.showQuickPick as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+    const picksArg = sink.showQuickPick.mock.calls[0][0] as Array<{
       label: string;
       description: string;
       detail: string;

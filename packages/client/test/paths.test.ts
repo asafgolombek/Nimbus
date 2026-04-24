@@ -59,7 +59,7 @@ describe("getNimbusPaths per platform", () => {
     setPlatform("darwin");
     // Use a clearly synthetic path so static-analysis tools don't flag it as
     // a real publicly-writable directory (e.g. /var/folders or /tmp).
-    process.env.TMPDIR = "/nimbus-ci-test/mac-tmpdir";
+    process.env.TMPDIR = "/nimbus-ci-test/mac-tmpdir"; // NOSONAR[javascript:S5443] - unit test only, no file I/O, checks path resolution
     const p = getNimbusPaths();
     expect(p.socketPath.endsWith("nimbus-gateway.sock")).toBe(true);
     expect(p.socketPath).toContain("nimbus-ci-test");
