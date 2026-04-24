@@ -53,7 +53,7 @@ function showEmptyState(sub: "no-transcript" | "disconnected" | "permission-deni
   clearTranscript();
   const card = renderEmptyState({
     sub,
-    socketPath,
+    ...(socketPath !== undefined && { socketPath }),
     onStartGateway: () => vscode.postMessage({ type: "startGateway" }),
     onOpenLogs: () => vscode.postMessage({ type: "openLogs" }),
     onOpenDocs: () =>
