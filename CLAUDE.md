@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · WS7 ✅ · S2 graph-aware watchers ✅)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -100,6 +100,21 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 | `packages/cli/src/tui/state.ts` | Top-level state reducer: `idle` / `streaming` / `awaiting-hitl` / `disconnected` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
+| `packages/client/src/paths.ts` | Bun-free per-platform Nimbus paths — `getNimbusPaths()` |
+| `packages/client/src/discovery.ts` | Node-compat socket discovery — `discoverSocketPath()`, `readGatewayState()` |
+| `packages/client/src/ask-stream.ts` | `createAskStream` AsyncIterable handle |
+| `packages/client/src/stream-events.ts` | `StreamEvent` discriminated union |
+| `packages/gateway/src/ipc/engine-ask-stream.ts` | Extracted `engine.askStream` handler with AbortController-based cancellation |
+| `packages/gateway/src/ipc/engine-cancel-stream.ts` | `engine.cancelStream` IPC handler (idempotent) |
+| `packages/gateway/src/ipc/engine-get-session-transcript.ts` | `engine.getSessionTranscript` over `audit_log` |
+| `packages/vscode-extension/src/extension.ts` | VS Code extension activate/deactivate; only file allowed to import `vscode` |
+| `packages/vscode-extension/src/vscode-shim.ts` | Narrow vscode interfaces for testability boundary |
+| `packages/vscode-extension/src/connection/connection-manager.ts` | `NimbusClient` lifecycle; reconnect; EACCES distinct state |
+| `packages/vscode-extension/src/hitl/hitl-router.ts` | Inline / toast / modal context-sensitive routing |
+| `packages/vscode-extension/src/chat/chat-controller.ts` | `askStream` pump → Webview message translation |
+| `packages/vscode-extension/src/chat/session-store.ts` | `workspaceState` `nimbus.activeSessionId` UUID persistence (metadata only) |
+| `packages/vscode-extension/src/chat/webview/main.ts` | Browser-side Webview entry point |
+| `packages/vscode-extension/src/search/item-provider.ts` | `nimbus-item:` URI scheme provider |
 | `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` — includes credential redaction (5 forbidden keys) |
 | `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, `ProfileListResult`, `TelemetryStatus`, `RouterDecision`/`RouterStatusResult`, `LlmModelInfo`/`LlmListModelsResult`, `LlmAvailabilityResult`, `LlmPullStartedResult`/`LlmPullProgressPayload`/`LlmPullTerminalPayload`, error types |
 | `packages/ui/src/store/index.ts` | `useNimbusStore` — Zustand v5 store with `persist` middleware; 11 slices composed; `partialize` whitelist excludes secrets |
@@ -283,6 +298,11 @@ bun run package:installers:linux -- --version 0.1.0
 # NIMBUS_UPDATER_DISABLE=true        disable auto-update checks entirely
 # NIMBUS_LAN_PORT=<port>             override LAN TCP listen port (default: 7475)
 # NIMBUS_DEV_UPDATER_PUBLIC_KEY=<base64>  override embedded Ed25519 public key (tests only)
+
+# Phase 4 WS7 — VS Code extension
+# packages/vscode-extension/ — bunx vsce package; bun run build; bunx vitest run
+# Tag vscode-v* to publish via .github/workflows/publish-vscode.yml
+bun run test:coverage:vscode-extension     # vitest coverage gate ≥ 80% lines / ≥ 75% branches
 
 # Docs site (packages/docs)
 bun run docs:build                     # from repo root (workspace filter)
