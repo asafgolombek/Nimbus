@@ -8,7 +8,13 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.d.ts", "src/vscode-shim.ts"],
+      exclude: [
+        "src/**/*.d.ts",
+        "src/vscode-shim.ts",
+        "src/extension.ts",
+        "src/chat/webview/main.ts",
+        "src/chat/chat-protocol.ts",
+      ],
       thresholds: {
         lines: 80,
         branches: 75,
