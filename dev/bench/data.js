@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776974287370,
+  "lastUpdate": 1777008358848,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1478,6 +1478,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5016697399999992,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "7d9c6a1bd60d8998ef1c890dbd806a3a3fca0211",
+          "message": "docs(plans): apply WS7 plan-review feedback\n\nAddress the 12-point review in 2026-04-24-ws7-vscode-extension-review.md:\n\nPlan changes (4 fixed inline):\n- Task 14 esbuild.mjs: minify production bundles, isDev-gated\n  sourcemaps; webview always minified (loads on every panel open).\n- Task 16 ConnectionManager: add reconnectNow() bypassing the\n  backoff timer; idempotent if already connected.\n- Task 18 StatusBar: extend StatusBarInputs with degradedConnector\n  Names; tooltip lists specific connector names instead of just a\n  count, so users don't have to open chat to see what's broken.\n- Task 26 extension.ts: register nimbus.reconnect command; poll\n  Connectors collects names + count; manifest commands array gets\n  the new entry.\n- Task 9 / Task 10: add code comments clarifying HITL lifecycle on\n  cancel and the omit-vs-redact rule for transcript turns.\n\nAlready-covered points (re-confirmed in review reply):\n- Session store uses workspaceState (Task 21 + Task 26).\n- HITL toast-vs-modal default with hitlAlwaysModal opt-in\n  (Task 19/20).\n- Selection context with file path + line range (Task 25.1 test).\n- Empty state with Start Gateway CTA (Task 23.5).\n- nimbus-item: URI provider (Task 24 + Task 26.1 registration).\n- Integration test minimal by design (Task 27).\n- cancelStream HITL cleanup is implicit via AbortController +\n  iterator finally (now documented in Task 9).\n- Node 18 compat verified during plan-writing.\n\nDeferred (already deferred in design spec §13.1):\n- connector.onHealthChanged Gateway notification — orthogonal\n  Gateway-wide change; matches Tauri UI's polling pattern for now.\n\nAlso commit the review file itself for future reference.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-24T08:24:34+03:00",
+          "tree_id": "41ea7a9f5f9a7a52498434e4fe089f7e93ace96c",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/7d9c6a1bd60d8998ef1c890dbd806a3a3fca0211"
+        },
+        "date": 1777008358501,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4255218000000003,
             "unit": "ms"
           }
         ]
