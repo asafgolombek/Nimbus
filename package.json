@@ -78,6 +78,7 @@
     "test:coverage:updater": "bun test packages/gateway/src/updater packages/gateway/src/ipc/updater-rpc.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:lan": "bun test packages/gateway/src/ipc/lan-crypto.test.ts packages/gateway/src/ipc/lan-pairing.test.ts packages/gateway/src/ipc/lan-rate-limit.test.ts packages/gateway/src/ipc/lan-rpc.test.ts packages/gateway/src/ipc/lan-server.test.ts packages/gateway/test/integration/lan/ --coverage --coverage-threshold-lines=80",
     "test:coverage:sdk": "bun test packages/sdk --coverage --coverage-threshold-lines=80",
+    "test:coverage:vscode-extension": "cd packages/vscode-extension && bunx vitest run --coverage",
     "docs:build": "bun run --filter @nimbus/docs build",
     "package:headless": "bun scripts/package-headless-bundle.ts",
     "package:installers:linux": "bun scripts/package-linux-installers.ts",
