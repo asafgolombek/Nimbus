@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { createHitlRouter, type HitlRouterDeps } from "../../src/hitl/hitl-router.ts";
+import { createHitlRouter, type HitlDecision, type HitlRouterDeps } from "../../src/hitl/hitl-router.ts";
 import type { HitlRequest } from "@nimbus-dev/client";
 
 function makeDeps(opts: { chatVisibleAndFocused: boolean; alwaysModal?: boolean }): HitlRouterDeps {
@@ -66,7 +66,7 @@ describe("HitlRouter", () => {
     const deps: HitlRouterDeps = {
       ...makeDeps({ chatVisibleAndFocused: false }),
       // never resolve so the request stays pending
-      showToast: vi.fn(() => new Promise(() => undefined)),
+      showToast: vi.fn((): Promise<HitlDecision | undefined> => new Promise(() => undefined)),
     };
     const router = createHitlRouter(deps);
     void router.handle({ requestId: "r-pending", prompt: "p" });

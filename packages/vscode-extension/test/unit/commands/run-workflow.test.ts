@@ -70,7 +70,7 @@ describe("createRunWorkflowCommand", () => {
     await cmd();
     expect(callFn).toHaveBeenCalledWith("workflow.run", { name: "deploy" });
     expect(showProgressToast).toHaveBeenCalled();
-    const toastMsg = showProgressToast.mock.calls[0][0] as string;
+    const toastMsg = showProgressToast.mock.calls[0]![0]! as string;
     expect(toastMsg).toContain("deploy");
   });
 
@@ -89,7 +89,7 @@ describe("createRunWorkflowCommand", () => {
       showProgressToast: vi.fn(),
     });
     await cmd();
-    const picksArg = showQuickPick.mock.calls[0][0] as Array<{
+    const picksArg = showQuickPick.mock.calls[0]![0]! as Array<{
       label: string;
       description: string;
     }>;

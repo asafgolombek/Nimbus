@@ -22,7 +22,7 @@ export interface ChatPanel {
   panel(): WebviewPanelLike | undefined;
   onDispose(handler: () => void): void;
   onMessage(handler: (msg: unknown) => void): void;
-  postMessage(msg: unknown): Thenable<boolean>;
+  postMessage(msg: unknown): Promise<boolean>;
   isVisible(): boolean;
   isActive(): boolean;
 }

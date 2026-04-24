@@ -104,13 +104,13 @@ describe("createSearchCommand", () => {
     const sink = makeSink({ itemId: "" });
     const cmd = createSearchCommand({ client: makeClient([{}]), window: makeWindow("test"), sink, log: noLog });
     await cmd();
-    const picksArg = sink.showQuickPick.mock.calls[0][0] as Array<{
+    const picksArg = sink.showQuickPick.mock.calls[0]![0]! as Array<{
       label: string;
       description: string;
       detail: string;
     }>;
-    expect(picksArg[0].label).toBe("Untitled");
-    expect(picksArg[0].description).toBe("");
-    expect(picksArg[0].detail).toBe("");
+    expect(picksArg[0]!.label).toBe("Untitled");
+    expect(picksArg[0]!.description).toBe("");
+    expect(picksArg[0]!.detail).toBe("");
   });
 });

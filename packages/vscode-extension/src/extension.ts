@@ -252,7 +252,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onMessage: (h: (msg: unknown) => void) => {
       if (chatPanel !== undefined) chatPanel.webview.onDidReceiveMessage(h);
     },
-    postMessage: (m: unknown) => chatPanel?.webview.postMessage(m) ?? Promise.resolve(false),
+    postMessage: (m: unknown) => Promise.resolve(chatPanel?.webview.postMessage(m) ?? false),
     isVisible: () => chatPanel?.visible ?? false,
     isActive: () => chatPanel?.active ?? false,
   };
