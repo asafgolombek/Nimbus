@@ -332,7 +332,7 @@ First-party demonstrations of multi-agent orchestration and multi-connector cont
 
 ### VS Code Extension
 
-- [ ] **VS Code extension** — `@nimbus-dev/client`-based IPC client (Node.js/TypeScript, separate from the Bun Gateway); connects to the running Gateway over domain socket / named pipe using the existing JSON-RPC 2.0 protocol; no new Gateway APIs required
+- [x] **VS Code extension** — `@nimbus-dev/client`-based IPC client (Node.js/TypeScript, separate from the Bun Gateway); connects to the running Gateway over domain socket / named pipe using the existing JSON-RPC 2.0 protocol; no new Gateway APIs required
   - Commands palette: `Nimbus: Ask`, `Nimbus: Search`, `Nimbus: Run Workflow`
   - Inline HITL consent UI — approval/rejection as a VS Code notification with structured diff preview
   - Status bar item: Gateway health + active profile name
