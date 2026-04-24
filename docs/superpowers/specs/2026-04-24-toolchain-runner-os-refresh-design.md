@@ -26,6 +26,8 @@ Land a single PR that refreshes the CI runner OS labels, pins the TypeScript/Rus
 5. Regenerate `bun.lock` via `bun install` — picks up `@tauri-apps/plugin-*@"^2"` patch-level bumps.
 6. Update `.github/BRANCH_PROTECTION.md` required-checks table to reference new job names, and fix the pre-existing typo: doc lists "PR quality — ubuntu-22.04" but the actual job name in `ci.yml` is `"PR quality — TS/Bun (ubuntu-22.04)"` (discovered during spec research — must be corrected in the new-name table).
 7. PR description contains the post-merge branch-protection runbook (admin step).
+8. Add a short diagnostic step to `.github/workflows/_test-suite.yml` that prints `bun --version`, `rustc --version`, `node --version` (best-effort), and `ldd --version` (Linux only) before tests run — makes runner-OS surprises easy to debug in CI logs.
+9. Add a one-paragraph support-matrix note to `docs/SECURITY.md` documenting the new minimum glibc floor (≥ 2.39) for Linux binaries built on ubuntu-24.04.
 
 ## 3. Out of scope
 
@@ -61,6 +63,8 @@ None. This PR does not change license fields, the HITL gate, the Vault interface
 | `packages/ui/src-tauri/Cargo.lock` | Regenerated | auto |
 | `bun.lock` | Regenerated | auto |
 | `.github/BRANCH_PROTECTION.md` | Required-check names table update + typo fix | ~6 |
+| `.github/workflows/_test-suite.yml` (additional) | Add diagnostic `env` print step | ~6 |
+| `docs/SECURITY.md` | Append glibc-floor note to "Supported Versions" | ~3 |
 
 **No changes to:**
 - `.github/actions/setup-nimbus-ci/action.yml` — Bun default `"1.3"` stays; it resolves to 1.3.12 already.
@@ -71,7 +75,7 @@ None. This PR does not change license fields, the HITL gate, the Vault interface
 ### Ubuntu 22.04 → 24.04
 
 - **Tauri Linux deps:** all present on 24.04 with identical package names. No action needed in `setup-rust-tauri/action.yml` or `codeql.yml`.
-- **glibc floor:** 22.04 ships glibc 2.35; 24.04 ships 2.39. Gateway binaries produced by `packages/gateway/compile-gateway.ts` on 24.04 require glibc ≥ 2.39 at runtime. Acceptable: Nimbus targets modern desktop distros and ships Bun's bundled runtime; this matches stated support posture. If a Linux user reports inability to launch on an older distro post-release, document the glibc floor in `docs/SECURITY.md` or installer notes.
+- **glibc floor:** 22.04 ships glibc 2.35; 24.04 ships 2.39. Gateway binaries produced by `packages/gateway/compile-gateway.ts` on 24.04 require glibc ≥ 2.39 at runtime. This drops support for Ubuntu 22.04 LTS (2.35) and Debian 12 (2.36) as a *runtime* environment for the Linux binaries — modern desktop distros (Ubuntu 24.04+, Fedora 40+, Debian 13) are unaffected. **This PR documents the new floor in `docs/SECURITY.md` "Supported Versions"** so the support posture is explicit, not inferred. If a user attempts to run on a pre-2.39 glibc, the dynamic linker already emits `GLIBC_2.39 not found` — no custom check needed at this stage (a friendlier preflight in Gateway startup is tracked as follow-up in § 13).
 - **libsecret / gnome-keyring behavior:** Vault integration tests exercise the real keyring via D-Bus. No API changes 22.04 → 24.04; tests should pass as-is.
 - **Snap vs .deb packaging:** `scripts/package-installers-linux.ts` targets `.deb` + tarball; no Snap today. 24.04 does not change this.
 
@@ -160,6 +164,25 @@ Approach A keeps the "protected merge" invariant intact throughout; Approach B i
 
 - PR-gate E2E is opt-in via `ci:e2e-desktop` label. **Recommended to apply the label on this PR** to exercise the Tauri build + Playwright on `ubuntu-24.04` before merge, since the main reason OS bumps break is the GUI stack.
 
+### Diagnostic environment print
+
+In `_test-suite.yml`, add a step near the top of each test job:
+
+```yaml
+- name: Diagnostic — runtime environment
+  shell: bash
+  run: |
+    echo "=== Runtime versions ==="
+    bun --version
+    rustc --version 2>/dev/null || echo "(rustc not installed on this job)"
+    node --version 2>/dev/null || echo "(node not installed on this job)"
+    if [ "$RUNNER_OS" = "Linux" ]; then
+      ldd --version | head -1
+    fi
+```
+
+Purpose: when a post-merge matrix failure happens on one platform, CI logs will already carry the exact versions, eliminating a round-trip to `ssh -tt` into a runner or add debug commits.
+
 ## 9. Rollback
 
 ### Option 1 — clean revert
@@ -184,7 +207,7 @@ Preferred if the fix is small (e.g., add `lib<foo>-dev` to apt-install on Ubuntu
 Four logical commits for bisectability and partial-rollback support:
 
 1. **`ci: bump runner OS to ubuntu-24.04 / macos-15 / windows-2025`**
-   Edits: 36 runner-OS labels across all workflows + BRANCH_PROTECTION.md required-check names + typo fix.
+   Edits: 36 runner-OS labels across all workflows + BRANCH_PROTECTION.md required-check names + typo fix + diagnostic env-print step in `_test-suite.yml` + glibc floor note in `docs/SECURITY.md`. (These changes all share the same root cause — the OS bump — so they belong in one commit for clean revert.)
 2. **`ci: bump Node to 22 in publish-client workflow`**
    Edits: `publish-client.yml` `node-version`.
 3. **`build(tauri): bump MSRV to 1.95 and regenerate Cargo.lock`**
@@ -217,12 +240,31 @@ PR description bundles the runbook from §7 as the top section.
 4. `BRANCH_PROTECTION.md` on `main` reflects new job names and is internally consistent with `ci.yml` actual names.
 5. No new open Dependabot PRs created during this branch's lifetime that would conflict with the four logical commits (monitor and coordinate with Dependabot by either merging its PRs first or rebasing on top).
 
-## 13. Follow-up specs (explicitly out of scope here)
+## 13. Follow-up specs and tickets (explicitly out of scope here)
+
+**Follow-up specs:**
 
 1. **`2026-04-??-third-party-package-upgrades-design.md`** — npm (`@mastra/*`, React ecosystem, Radix, Zustand, `@xenova/transformers`, etc.) + cargo crates (`serde_json`, `tokio`, `interprocess`, `thiserror`, etc.).
 2. **`2026-04-??-code-quality-audit-design.md`** — security / performance / SOLID / duplication / bug-hunt audit producing a prioritized finding list. Each finding becomes its own small PR triaged against Phase 4 workstream priority.
 
-## 14. Sources
+**Smaller follow-up tickets (do not need full specs):**
+
+3. **Developer-environment doctor check** — a new command (e.g., `nimbus doctor --dev` or a `scripts/dev/check-toolchain.sh`) that validates local Rust ≥ 1.95, Node ≥ 22, Bun ≥ 1.3, and a git pre-commit hook installed. Intentionally *separate* from `nimbus doctor` (end-user command), per review feedback Q1. Low priority.
+4. **Friendlier glibc preflight** — optional check at Gateway startup (or in `nimbus-verify.sh`) that detects the host's glibc version and prints an actionable message if below 2.39 before the dynamic-linker error fires. Low priority; the default error is already parseable by humans.
+5. **Wildcard / OS-agnostic job names** — rename CI jobs from `PR quality — TS/Bun (ubuntu-24.04)` to `PR quality — TS/Bun (linux)` (or drop OS suffix entirely) so future runner-OS refreshes don't require a branch-protection dance. Medium priority; tied into the next OS refresh.
+6. **Tauri plugin minor-version pinning** — switch `tauri-plugin-* = "2"` → `"2.x"` (or explicit minor) in `Cargo.toml` / `package.json` and let Dependabot propose minor bumps. Low priority; current floating-major is fine.
+
+## 14. Dependabot coordination
+
+Dependabot runs weekly on this repo for `bun`, `cargo`, and `github-actions` ecosystems (see `.github/dependabot.yml`). During the lifetime of this branch (expected ≤ a few days), Dependabot may open new PRs that touch `bun.lock`, `Cargo.lock`, or action SHA pins — potentially conflicting with commits 3 and 4 of this branch.
+
+**Preferred strategy:**
+
+1. **Merge Dependabot PRs first, then rebase this branch.** Dependabot PRs are typically single-line lockfile bumps; they are cheap to merge and leave our branch's lockfile-regeneration commits to pick up the already-merged changes when rebased on `main`.
+2. **Do not merge this branch's lockfile commits while a Dependabot lockfile PR is open.** If both land in the same week there's a low risk of textual conflict even though semantically both are "regenerate from current manifest."
+3. **If a Dependabot PR opens a *major* bump** (e.g., a framework upgrade that exits `.github/dependabot.yml`'s ignore-list), defer it entirely — that PR's change is out of scope for the toolchain-refresh spec.
+
+## 15. Sources
 
 - [Bun v1.3.12 release notes](https://bun.com/blog)
 - [Node.js release schedule](https://github.com/nodejs/Release)
