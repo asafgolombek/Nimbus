@@ -36,26 +36,26 @@ describe("getNimbusPaths per platform", () => {
   test("win32 throws when APPDATA missing", () => {
     setPlatform("win32");
     delete process.env.APPDATA;
-    process.env.LOCALAPPDATA = "C:\\Users\\u\\AppData\\Local";
+    process.env.LOCALAPPDATA = String.raw`C:\Users\u\AppData\Local`;
     expect(() => getNimbusPaths()).toThrow(/APPDATA/);
   });
 
   test("win32 throws when LOCALAPPDATA missing", () => {
     setPlatform("win32");
-    process.env.APPDATA = "C:\\Users\\u\\AppData\\Roaming";
+    process.env.APPDATA = String.raw`C:\Users\u\AppData\Roaming`;
     delete process.env.LOCALAPPDATA;
     expect(() => getNimbusPaths()).toThrow(/LOCALAPPDATA/);
   });
 
   test("win32 returns named pipe socketPath", () => {
     setPlatform("win32");
-    process.env.APPDATA = "C:\\Users\\u\\AppData\\Roaming";
-    process.env.LOCALAPPDATA = "C:\\Users\\u\\AppData\\Local";
+    process.env.APPDATA = String.raw`C:\Users\u\AppData\Roaming`;
+    process.env.LOCALAPPDATA = String.raw`C:\Users\u\AppData\Local`;
     const p = getNimbusPaths();
     expect(p.socketPath).toBe(String.raw`\\.\pipe\nimbus-gateway`);
   });
 
-  test("darwin returns sock under TMPDIR or /tmp", () => {
+  test("darwin returns sock under TMPDIR or system temp", () => {
     setPlatform("darwin");
     process.env.TMPDIR = "/var/folders/xx/T/";
     const p = getNimbusPaths();

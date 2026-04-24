@@ -56,7 +56,7 @@ describe("ConnectionManager", () => {
     const states: ConnectionState[] = [];
     mgr.onState((s) => states.push(s));
     await mgr.start();
-    const last = states[states.length - 1];
+    const last = states.at(-1);
     expect(last?.kind).toBe("permission-denied");
     if (last?.kind === "permission-denied") {
       expect(last.socketPath).toBe(SOCK);

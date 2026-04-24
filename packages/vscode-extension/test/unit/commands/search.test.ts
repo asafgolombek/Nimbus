@@ -31,7 +31,7 @@ function makeSink(quickPickResult?: { itemId: string; url?: string; filePath?: s
 describe("createSearchCommand", () => {
   test("returns early when user cancels input box (undefined)", async () => {
     const client = makeClient();
-    const cmd = createSearchCommand({ client, window: makeWindow(undefined), sink: makeSink(), log: noLog });
+    const cmd = createSearchCommand({ client, window: makeWindow(), sink: makeSink(), log: noLog });
     await cmd();
     expect(client.queryItems).not.toHaveBeenCalled();
   });
@@ -62,7 +62,7 @@ describe("createSearchCommand", () => {
   });
 
   test("returns early when user cancels quick pick", async () => {
-    const sink = makeSink(undefined);
+    const sink = makeSink();
     const cmd = createSearchCommand({ client: makeClient([PR_ITEM]), window: makeWindow("doc"), sink, log: noLog });
     await cmd();
     expect(sink.openExternal).not.toHaveBeenCalled();

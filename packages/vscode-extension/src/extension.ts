@@ -52,10 +52,10 @@ function adaptStatusBar(item: vscode.StatusBarItem): StatusBarItemHandle {
     set command(v: string | undefined) { item.command = v; },
     get backgroundColor() {
       const bg = item.backgroundColor;
-      return bg !== undefined ? { id: (bg as vscode.ThemeColor).id } : undefined;
+      return bg === undefined ? undefined : { id: (bg as vscode.ThemeColor).id };
     },
     set backgroundColor(v: { id: string } | undefined) {
-      item.backgroundColor = v !== undefined ? new vscode.ThemeColor(v.id) : undefined;
+      item.backgroundColor = v === undefined ? undefined : new vscode.ThemeColor(v.id);
     },
     show: () => item.show(),
     hide: () => item.hide(),
@@ -188,6 +188,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     panel.webview.onDidReceiveMessage(async (msg: WebviewToExtension) => {
       switch (msg.type) {
         case "ready":
+        case "requestRehydrate":
           await controller.rehydrateIfNeeded(settings.transcriptHistoryLimit());
           return;
         case "submitAsk":
@@ -212,9 +213,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         case "openExternal":
           await vscode.env.openExternal(vscode.Uri.parse(msg.url));
-          return;
-        case "requestRehydrate":
-          await controller.rehydrateIfNeeded(settings.transcriptHistoryLimit());
           return;
       }
     });

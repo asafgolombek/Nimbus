@@ -74,10 +74,7 @@ await test("subscribeHitl receives synthetic agent.hitlBatch", async () => {
   const { proc, socketPath } = await spawnGateway(dataDir);
   try {
     const client = await NimbusClient.open({ socketPath });
-    let received = false;
-    const sub = client.subscribeHitl(() => {
-      received = true;
-    });
+    const sub = client.subscribeHitl(() => undefined);
     // The Gateway in test mode does not naturally fire HITL on a passive
     // socket connection; this test only asserts the subscription wires up
     // without throwing. A full HITL roundtrip is covered by the integration
@@ -105,7 +102,6 @@ await test("cancel() mid-stream terminates iterator", async () => {
       if (events.length > 100) break;
     }
     // Either we got an explicit error (cancelled) or done before timeout
-    assert.ok(events.length >= 0);
     await client.close();
   } finally {
     proc.kill("SIGTERM");

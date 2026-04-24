@@ -20,6 +20,12 @@ import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { VoiceService } from "../voice/service.ts";
 import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
+import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
+import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
+import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
+import { ConsentCoordinatorImpl } from "./consent.ts";
+import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
+import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "./diagnostics-rpc.ts";
 import {
   createAskStreamHandler,
   createStreamRegistry,
@@ -30,12 +36,6 @@ import {
   createGetSessionTranscriptHandler,
   type SessionTranscriptResult,
 } from "./engine-get-session-transcript.ts";
-import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
-import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
-import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
-import { ConsentCoordinatorImpl } from "./consent.ts";
-import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
-import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "./diagnostics-rpc.ts";
 import {
   errorResponse,
   isRequest,
@@ -227,9 +227,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   let agentInvokeHandler: AgentInvokeHandler | undefined = options.agentInvoke;
   let workflowRunHandler: WorkflowRunHandler | undefined = options.workflowRun;
   const streamRegistry: StreamRegistry = createStreamRegistry();
-  let getSessionTranscriptHandler:
-    | ((p: unknown) => Promise<SessionTranscriptResult>)
-    | undefined;
+  let getSessionTranscriptHandler: ((p: unknown) => Promise<SessionTranscriptResult>) | undefined;
   const sessions = new Map<string, ClientSession>();
   const consentImpl = new ConsentCoordinatorImpl((clientId) => {
     const session = sessions.get(clientId);
@@ -876,44 +874,12 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     throw new RpcMethodError(-32601, `Method not found: ${method}`);
   }
 
-  async function dispatchMethod(
+  async function dispatchCoreMethod(
     clientId: string,
     session: ClientSession,
-    req: JsonRpcRequest,
+    method: string,
+    params: unknown,
   ): Promise<unknown> {
-    const { method } = req;
-    const params = req.params;
-
-    const sessionOutcome = await tryDispatchSessionRpc(method, params);
-    if (sessionOutcome !== sessionRpcSkipped) {
-      return sessionOutcome;
-    }
-
-    const automationOutcome = await tryDispatchAutomationRpc(clientId, session, method, params);
-    if (automationOutcome !== automationRpcSkipped) {
-      return automationOutcome;
-    }
-
-    const connectorOutcome = await tryDispatchConnectorRpc(method, params);
-    if (connectorOutcome !== connectorRpcSkipped) {
-      return connectorOutcome;
-    }
-
-    const diagnosticsHit = tryDispatchDiagnosticsRpc(method, params);
-    if (diagnosticsHit !== diagnosticsRpcSkipped) {
-      return diagnosticsHit;
-    }
-
-    const peopleOutcome = tryDispatchPeopleRpc(method, params);
-    if (peopleOutcome !== peopleRpcSkipped) {
-      return peopleOutcome;
-    }
-
-    const phase4Outcome = await tryDispatchPhase4Rpc(method, params);
-    if (phase4Outcome !== phase4RpcSkipped) {
-      return phase4Outcome;
-    }
-
     switch (method) {
       case "gateway.ping":
         return rpcGatewayPing(params);
@@ -981,6 +947,47 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       default:
         return await rpcVaultOrMethodNotFound(method, params);
     }
+  }
+
+  async function dispatchMethod(
+    clientId: string,
+    session: ClientSession,
+    req: JsonRpcRequest,
+  ): Promise<unknown> {
+    const { method } = req;
+    const params = req.params;
+
+    const sessionOutcome = await tryDispatchSessionRpc(method, params);
+    if (sessionOutcome !== sessionRpcSkipped) {
+      return sessionOutcome;
+    }
+
+    const automationOutcome = await tryDispatchAutomationRpc(clientId, session, method, params);
+    if (automationOutcome !== automationRpcSkipped) {
+      return automationOutcome;
+    }
+
+    const connectorOutcome = await tryDispatchConnectorRpc(method, params);
+    if (connectorOutcome !== connectorRpcSkipped) {
+      return connectorOutcome;
+    }
+
+    const diagnosticsHit = tryDispatchDiagnosticsRpc(method, params);
+    if (diagnosticsHit !== diagnosticsRpcSkipped) {
+      return diagnosticsHit;
+    }
+
+    const peopleOutcome = tryDispatchPeopleRpc(method, params);
+    if (peopleOutcome !== peopleRpcSkipped) {
+      return peopleOutcome;
+    }
+
+    const phase4Outcome = await tryDispatchPhase4Rpc(method, params);
+    if (phase4Outcome !== phase4RpcSkipped) {
+      return phase4Outcome;
+    }
+
+    return dispatchCoreMethod(clientId, session, method, params);
   }
 
   function attachSession(write: SessionWrite): ClientSession {

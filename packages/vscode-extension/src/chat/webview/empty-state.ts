@@ -26,7 +26,7 @@ export function renderEmptyState(inp: EmptyStateInput): HTMLElement {
     h.textContent = "Nimbus Gateway is not running";
     const p = document.createElement("p");
     p.textContent = `The extension can't reach the Gateway socket${
-      inp.socketPath !== undefined ? ` at ${inp.socketPath}` : ""
+      inp.socketPath === undefined ? "" : ` at ${inp.socketPath}`
     }. The Gateway is a separate background process.`;
     card.appendChild(h);
     card.appendChild(p);
@@ -48,7 +48,7 @@ export function renderEmptyState(inp: EmptyStateInput): HTMLElement {
   h.textContent = "Permission denied";
   const p = document.createElement("p");
   p.textContent = `The extension cannot access the Gateway socket${
-    inp.socketPath !== undefined ? `: ${inp.socketPath}` : ""
+    inp.socketPath === undefined ? "" : `: ${inp.socketPath}`
   }. Check ownership/mode or set nimbus.socketPath.`;
   card.appendChild(h);
   card.appendChild(p);

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { createAskStream } from "../src/ask-stream.ts";
 import type { StreamEvent } from "../src/stream-events.ts";
@@ -90,7 +90,7 @@ describe("askStream", () => {
   });
 
   test("cancel() calls engine.cancelStream and terminates iterator", async () => {
-    const { handle, events, drain } = await startDrain();
+    const { handle, drain } = await startDrain();
     await handle.cancel();
     await drain;
     const cancelCall = ipc.calls.find((c) => c.method === "engine.cancelStream");

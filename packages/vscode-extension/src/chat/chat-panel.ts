@@ -35,7 +35,6 @@ export interface ChatPanelFactory {
 export function createNoopChatPanel(): ChatPanel {
   let disposed = false;
   const disposeListeners: Array<() => void> = [];
-  const messageListeners: Array<(msg: unknown) => void> = [];
   return {
     reveal: () => undefined,
     dispose: () => {
@@ -47,9 +46,7 @@ export function createNoopChatPanel(): ChatPanel {
     onDispose: (h) => {
       disposeListeners.push(h);
     },
-    onMessage: (h) => {
-      messageListeners.push(h);
-    },
+    onMessage: () => undefined,
     postMessage: () => Promise.resolve(true),
     isVisible: () => false,
     isActive: () => false,

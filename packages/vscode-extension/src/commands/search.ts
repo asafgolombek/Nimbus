@@ -39,9 +39,7 @@ function pickFilePath(item: Record<string, unknown>): string | undefined {
 export function createSearchCommand(deps: SearchCommandDeps): (initial?: string) => Promise<void> {
   return async (initial) => {
     let query = initial;
-    if (query === undefined) {
-      query = await deps.window.showInputBox({ prompt: "Search Nimbus index" });
-    }
+    query ??= await deps.window.showInputBox({ prompt: "Search Nimbus index" });
     if (query === undefined || query.trim().length === 0) return;
     const result = await deps.client.queryItems({ query, limit: 50 });
     if (result.items.length === 0) {
@@ -57,8 +55,8 @@ export function createSearchCommand(deps: SearchCommandDeps): (initial?: string)
         description: typeof it.service === "string" ? it.service : "",
         detail: typeof it.itemType === "string" ? it.itemType : "",
         itemId: id,
-        ...(url !== undefined ? { url } : {}),
-        ...(filePath !== undefined ? { filePath } : {}),
+        ...(url === undefined ? {} : { url }),
+        ...(filePath === undefined ? {} : { filePath }),
       };
     });
     const chosen = await deps.sink.showQuickPick(picks);

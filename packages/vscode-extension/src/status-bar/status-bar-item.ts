@@ -68,7 +68,18 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
     };
   }
 
-  // connection.kind === "connected"
+  return formatConnectedState({ profile, degradedConnectorCount, degradedConnectorNames, pendingHitlCount });
+}
+
+type ConnectedInputs = {
+  profile: string;
+  degradedConnectorCount: number;
+  degradedConnectorNames: string[];
+  pendingHitlCount: number;
+};
+
+function formatConnectedState(inp: ConnectedInputs): StatusBarRender {
+  const { profile, degradedConnectorCount, degradedConnectorNames, pendingHitlCount } = inp;
   const tags: string[] = [];
   if (degradedConnectorCount > 0) tags.push(`${degradedConnectorCount} degraded`);
   if (pendingHitlCount > 0) tags.push(`${pendingHitlCount} pending`);
@@ -85,13 +96,16 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
   const tagSegment = tags.length > 0 ? ` · ${tags.join(" · ")}` : "";
   const text = `Nimbus: ${icon} ${profileSegment}${tagSegment}`;
 
+  let degradedSummary: string;
+  if (degradedConnectorCount === 0) {
+    degradedSummary = "0 connectors degraded";
+  } else if (degradedConnectorNames.length > 0) {
+    degradedSummary = `${degradedConnectorCount} degraded: ${degradedConnectorNames.join(", ")}`;
+  } else {
+    degradedSummary = `${degradedConnectorCount} connectors degraded`;
+  }
+
   let command = "nimbus.ask";
-  const degradedSummary =
-    degradedConnectorCount === 0
-      ? "0 connectors degraded"
-      : degradedConnectorNames.length > 0
-        ? `${degradedConnectorCount} degraded: ${degradedConnectorNames.join(", ")}`
-        : `${degradedConnectorCount} connectors degraded`;
   let tooltip = `Connected · profile=${profileSegment} · ${degradedSummary}`;
   if (pendingHitlCount > 0) {
     command = "nimbus.showPendingHitl";

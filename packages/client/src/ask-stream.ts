@@ -60,12 +60,14 @@ export function createAskStream(
     };
     const onError = (params: unknown): void => {
       if (!matchesStream(params) || params.streamId !== streamId) return;
-      const code = typeof (params as { code?: unknown }).code === "string"
-        ? (params as { code: string }).code
-        : "stream_error";
-      const message = typeof (params as { error?: unknown }).error === "string"
-        ? (params as { error: string }).error
-        : "Stream error";
+      const code =
+        typeof (params as { code?: unknown }).code === "string"
+          ? (params as { code: string }).code
+          : "stream_error";
+      const message =
+        typeof (params as { error?: unknown }).error === "string"
+          ? (params as { error: string }).error
+          : "Stream error";
       push({ type: "error", code, message });
       finish();
     };
@@ -112,8 +114,8 @@ export function createAskStream(
     const params: Record<string, unknown> = { input };
     if (opts.sessionId !== undefined) params.sessionId = opts.sessionId;
     if (opts.agent !== undefined) params.agent = opts.agent;
-    const result = (await ipc.call("engine.askStream", params)) as { streamId?: string };
-    const sid = result?.streamId;
+    const raw: unknown = await ipc.call("engine.askStream", params);
+    const sid = (raw as { streamId?: string } | undefined)?.streamId;
     if (typeof sid !== "string") {
       push({ type: "error", code: "no_stream_id", message: "Gateway returned no streamId" });
       finish();
