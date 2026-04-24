@@ -13,6 +13,7 @@
     "packages/sdk",
     "packages/client",
     "packages/docs",
+    "packages/vscode-extension",
     "packages/mcp-connectors/onedrive",
     "packages/mcp-connectors/outlook",
     "packages/mcp-connectors/google-photos",
