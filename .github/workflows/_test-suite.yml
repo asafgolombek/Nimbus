@@ -60,6 +60,9 @@ jobs:
           security unlock-keychain -p "" nimbus-ci.keychain
           security set-keychain-settings -lut 7200 nimbus-ci.keychain
 
+      - name: Build @nimbus-dev/client (required for vscode-extension typecheck)
+        run: cd packages/client && bun run build
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -295,7 +298,7 @@ jobs:
 
       - name: Run node-compat tests
         env:
-          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && 'packages\\gateway\\dist\\nimbus-gateway.exe' || './packages/gateway/dist/nimbus-gateway' }}
+          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && 'dist\\nimbus-gateway.exe' || './dist/nimbus-gateway' }}
         run: cd packages/client && node --test test/node-compat.test.ts
 
   vscode-extension-integration:
