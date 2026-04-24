@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { build, context } from "esbuild";
 import { copyFileSync } from "node:fs";
 
 const isWatch = process.argv.includes("--watch");
@@ -15,14 +15,7 @@ const baseExt = {
   logLevel: "info",
 };
 
-await build({
-  ...baseExt,
-  entryPoints: ["src/extension.ts"],
-  outfile: "dist/extension.js",
-  watch: isWatch,
-});
-
-await build({
+const webviewCfg = {
   bundle: true,
   platform: "browser",
   target: "es2022",
@@ -34,9 +27,20 @@ await build({
   entryPoints: ["src/chat/webview/main.ts"],
   outfile: "media/webview.js",
   logLevel: "info",
-  watch: isWatch,
-});
+};
 
-copyFileSync("src/chat/webview/styles.css", "media/webview.css");
-
-console.log(`esbuild: bundles produced (minify=${!isDev}, sourcemaps=${isDev})`);
+if (isWatch) {
+  // esbuild 0.17+: watch requires context() + ctx.watch()
+  const [extCtx, webCtx] = await Promise.all([
+    context({ ...baseExt, entryPoints: ["src/extension.ts"], outfile: "dist/extension.js" }),
+    context(webviewCfg),
+  ]);
+  await Promise.all([extCtx.watch(), webCtx.watch()]);
+} else {
+  await Promise.all([
+    build({ ...baseExt, entryPoints: ["src/extension.ts"], outfile: "dist/extension.js" }),
+    build(webviewCfg),
+  ]);
+  copyFileSync("src/chat/webview/styles.css", "media/webview.css");
+  console.log(`esbuild: bundles produced (minify=${!isDev}, sourcemaps=${isDev})`);
+}
