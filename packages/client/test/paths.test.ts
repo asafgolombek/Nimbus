@@ -40,6 +40,13 @@ describe("getNimbusPaths per platform", () => {
     expect(() => getNimbusPaths()).toThrow(/APPDATA/);
   });
 
+  test("win32 throws when LOCALAPPDATA missing", () => {
+    setPlatform("win32");
+    process.env.APPDATA = "C:\\Users\\u\\AppData\\Roaming";
+    delete process.env.LOCALAPPDATA;
+    expect(() => getNimbusPaths()).toThrow(/LOCALAPPDATA/);
+  });
+
   test("win32 returns named pipe socketPath", () => {
     setPlatform("win32");
     process.env.APPDATA = "C:\\Users\\u\\AppData\\Roaming";

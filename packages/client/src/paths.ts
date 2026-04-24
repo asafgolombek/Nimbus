@@ -40,7 +40,7 @@ export function getNimbusPaths(): NimbusPaths {
     }
     case "darwin": {
       const root = join(homedir(), "Library", "Application Support", "Nimbus");
-      const tmp = envOrEmpty("TMPDIR") || "/tmp";
+      const tmp = process.env["TMPDIR"] ?? tmpdir();
       return {
         configDir: root,
         dataDir: root,
