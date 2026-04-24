@@ -43,4 +43,9 @@ describe("Settings", () => {
     expect(s.hitlAlwaysModal()).toBe(true);
     expect(s.logLevel()).toBe("debug");
   });
+
+  test("invalid logLevel falls back to info", () => {
+    const s = createSettings(makeWorkspace({ logLevel: "verbose" }));
+    expect(s.logLevel()).toBe("info");
+  });
 });

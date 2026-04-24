@@ -5,8 +5,7 @@ export type ConnectionState =
   | { kind: "connecting"; socketPath: string }
   | { kind: "connected"; socketPath: string }
   | { kind: "disconnected"; socketPath: string; reason: string }
-  | { kind: "permission-denied"; socketPath: string }
-  | { kind: "starting-gateway"; socketPath: string };
+  | { kind: "permission-denied"; socketPath: string };
 
 export interface NimbusClientLike {
   close(): Promise<void>;
@@ -45,24 +44,26 @@ export function createConnectionManager(deps: ConnectionDeps): ConnectionManager
 
   const tryConnect = async (): Promise<void> => {
     if (stopped) return;
-    const disc = await deps.discoverSocket(deps.socketPathOverride);
-    setState({ kind: "connecting", socketPath: disc.socketPath });
+    let socketPath = "";
     try {
-      const c = await deps.open(disc.socketPath);
+      const disc = await deps.discoverSocket(deps.socketPathOverride);
+      socketPath = disc.socketPath;
+      setState({ kind: "connecting", socketPath });
+      const c = await deps.open(socketPath);
       client = c;
-      setState({ kind: "connected", socketPath: disc.socketPath });
-      deps.log.info(`Connected to Gateway at ${disc.socketPath} (source=${disc.source})`);
+      setState({ kind: "connected", socketPath });
+      deps.log.info(`Connected to Gateway at ${socketPath} (source=${disc.source})`);
     } catch (e) {
       const errno = (e as NodeJS.ErrnoException).code;
       if (errno === "EACCES") {
-        deps.log.error(`Permission denied accessing socket: ${disc.socketPath}`);
-        setState({ kind: "permission-denied", socketPath: disc.socketPath });
+        deps.log.error(`Permission denied accessing socket: ${socketPath}`);
+        setState({ kind: "permission-denied", socketPath });
         scheduleReconnect();
         return;
       }
       const msg = e instanceof Error ? e.message : String(e);
       deps.log.warn(`Connect failed (${errno ?? "unknown"}): ${msg}`);
-      setState({ kind: "disconnected", socketPath: disc.socketPath, reason: msg });
+      setState({ kind: "disconnected", socketPath, reason: msg });
       scheduleReconnect();
     }
   };

@@ -9,8 +9,8 @@ export const window = {
   showInputBox: async () => undefined,
   createStatusBarItem: () => ({
     text: "",
-    tooltip: "",
-    command: "",
+    tooltip: undefined,
+    command: undefined,
     backgroundColor: undefined,
     show: () => undefined,
     hide: () => undefined,

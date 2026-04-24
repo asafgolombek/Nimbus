@@ -4,6 +4,7 @@ import {
   createConnectionManager,
   type ConnectionDeps,
   type ConnectionState,
+  type NimbusClientLike,
 } from "../../src/connection/connection-manager.js";
 
 class FakeClient {
@@ -23,8 +24,8 @@ describe("ConnectionManager", () => {
 
   test("transitions connecting → connected on success", async () => {
     const deps: ConnectionDeps = {
-      open: async () => new FakeClient() as unknown as never,
-      discoverSocket: async () => ({ socketPath: "/tmp/test.sock", source: "default" as const }),
+      open: async () => new FakeClient() as unknown as NimbusClientLike,
+      discoverSocket: async () => ({ socketPath: "/tmp/test.sock", source: "default" }),
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
       reconnectDelayMs: 5,
     };
@@ -43,7 +44,7 @@ describe("ConnectionManager", () => {
         err.code = "EACCES";
         throw err;
       },
-      discoverSocket: async () => ({ socketPath: "/tmp/x.sock", source: "default" as const }),
+      discoverSocket: async () => ({ socketPath: "/tmp/x.sock", source: "default" }),
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
       reconnectDelayMs: 1000,
     };
@@ -69,9 +70,9 @@ describe("ConnectionManager", () => {
           err.code = "ENOENT";
           throw err;
         }
-        return new FakeClient() as unknown as never;
+        return new FakeClient() as unknown as NimbusClientLike;
       },
-      discoverSocket: async () => ({ socketPath: "/tmp/y.sock", source: "default" as const }),
+      discoverSocket: async () => ({ socketPath: "/tmp/y.sock", source: "default" }),
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
       reconnectDelayMs: 1,
     };
