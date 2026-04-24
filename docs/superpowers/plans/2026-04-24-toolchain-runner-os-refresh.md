@@ -700,7 +700,13 @@ Per design spec § 7 Runbook A, the repo admin (AsafGolombek) must first add new
    - `E2E Desktop (PR) — ubuntu-24.04` (optional — only if you'll apply the `ci:e2e-desktop` label to this PR)
    - Security workflow checks (names unchanged; verify still required)
    - `Analyze (JavaScript / TypeScript)` (name unchanged; verify still required)
-4. Save. Do NOT yet remove old-name entries — they will block this PR's merge until step 5 below.
+
+   **GitHub UI quirk:** The check-search dropdown in the ruleset editor only surfaces check names from recent workflow runs. Names that haven't been emitted yet (all the new ones!) will not autocomplete. **Type each name in full and press Enter** to register it as a required check placeholder — once CI runs under that name, the placeholder resolves.
+
+4. While you're in the ruleset: also audit whether `dorny/test-reporter`-emitted check runs are in the required list. These have **different names** from the enclosing jobs:
+   - `ci.yml` line 227 emits check `E2E desktop (PR)` (lowercase "d", no OS suffix) — unchanged by this PR, but verify whether it's required.
+   - `ci.yml` line 295 emits checks `E2E desktop (ubuntu-22.04)` / `E2E desktop (macos-14)` / `E2E desktop (windows-2022)` — these DO change with the OS bump to `E2E desktop (ubuntu-24.04)` etc. If any of these are in the required list, add the new-name variants and plan to remove the old-name variants in Step 7.
+5. Save. Do NOT yet remove old-name entries — they will block this PR's merge until Step 7 below.
 
 - [ ] **Step 3: Push the branch**
 
@@ -718,7 +724,8 @@ gh pr create --title "ci: bump runner OS / Node 22 / Rust MSRV 1.95 / Tauri plug
 
 - Runner OS bump: `ubuntu-22.04` → `ubuntu-24.04`, `macos-14` → `macos-15`, `windows-2022` → `windows-2025` (`macos-15-intel` preserved for Intel builds).
 - Node 20 → 22 in `publish-client.yml` (Node 20 EOL on 2026-04-30).
-- Rust MSRV 1.88.0 → 1.95.0; regenerated `Cargo.lock` and `bun.lock` to pick up patch-level updates for Tauri plugins and transitive deps.
+- Rust MSRV 1.88.0 → 1.95.0; regenerated `Cargo.lock` to pick up patch-level updates for Tauri plugins and transitive deps.
+- `bun.lock` regenerated — __<FILL IN FROM TASK 13 DIFF: either "N @tauri-apps/plugin-* patch bumps" or "verified already current, no changes required">__.
 - Added diagnostic env-print step to `_test-suite.yml` for easier post-bump debugging.
 - Documented the new Linux glibc ≥ 2.39 runtime floor in `docs/SECURITY.md`.
 - Updated `BRANCH_PROTECTION.md`, `architecture.md`, `README.md`, `security-hardening.md`, and `.claude/commands/nimbus-testing.md` to reference new OS/job names.
@@ -783,6 +790,7 @@ Once this PR's required checks are all green:
    - `E2E Desktop (PR) — ubuntu-22.04`
    - `CI — TS/Bun (ubuntu-22.04)`, `CI — TS/Bun (macos-14)`, `CI — TS/Bun (windows-2022)`
    - `CI — Rust/Tauri (ubuntu-22.04)`, `CI — Rust/Tauri (macos-14)`, `CI — Rust/Tauri (windows-2022)`
+   - If you added old-name `dorny/test-reporter` check variants per Step 2.4 (`E2E desktop (ubuntu-22.04)` etc.), remove those too.
 3. Saves.
 4. The PR now passes branch protection.
 
