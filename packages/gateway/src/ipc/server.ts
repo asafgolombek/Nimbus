@@ -918,8 +918,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
               clientId: ctx.clientId,
               input: ctx.input,
               stream: ctx.stream,
+              sendChunk: ctx.sendChunk ?? (() => undefined),
             };
-            if (ctx.sendChunk !== undefined) payload.sendChunk = ctx.sendChunk;
             if (ctx.sessionId !== undefined) payload.sessionId = ctx.sessionId;
             return await handler(payload);
           },

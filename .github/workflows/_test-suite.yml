@@ -291,7 +291,7 @@ jobs:
         run: cd packages/client && bun run build
 
       - name: Build gateway binary
-        run: bun run build --filter=@nimbus/gateway
+        run: bun run --filter '@nimbus/gateway' build
 
       - name: Run node-compat tests
         env:
