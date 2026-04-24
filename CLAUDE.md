@@ -180,13 +180,13 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 
 When setting up isolated workspaces for feature branches, use `.worktrees/<branch-name>`.
 
-**Before opening or updating any PR that touches `packages/vscode-extension/` or `packages/client/`:**
+**Before opening or updating any PR:**
 
 ```bash
-bash scripts/ci/preflight-vscode.sh
+bash scripts/ci/preflight.sh
 ```
 
-Run this from the repo root and fix all failures before pushing. It mirrors the `vscode-extension-integration` CI job: lockfile integrity, security audit, client build, extension build, typecheck, integration-test tsc compilation, and vitest unit tests.
+Run this from the repo root and fix all failures before pushing. It checks lockfile integrity and the security audit, then runs the full CI suite via `bun scripts/run-tests.ts`: typecheck, lint, build, unit tests (all packages), coverage gates, integration tests, e2e tests, UI component tests, and VS Code extension tests.
 
 ---
 
@@ -312,8 +312,8 @@ bun run package:installers:linux -- --version 0.1.0
 # Tag vscode-v* to publish via .github/workflows/publish-vscode.yml
 bun run test:coverage:vscode-extension     # vitest coverage gate ≥ 80% lines / ≥ 75% branches
 
-# VS Code extension preflight — run before every PR open/update
-bash scripts/ci/preflight-vscode.sh       # lockfile + audit + build + typecheck + vitest
+# Full repo preflight — run before every PR open/update
+bash scripts/ci/preflight.sh              # lockfile + audit + full CI suite (all packages + vscode)
 
 # Docs site (packages/docs)
 bun run docs:build                     # from repo root (workspace filter)

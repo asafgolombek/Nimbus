@@ -121,7 +121,7 @@ function runCoverageGates(): void {
   }
 }
 
-/** Run the same test steps as `_test-suite.yml` (typecheck, lint, build, tests, coverage gates, integration, e2e, UI). */
+/** Run the same test steps as `_test-suite.yml` (typecheck, lint, build, tests, coverage gates, integration, e2e, UI, VS Code extension). */
 export async function runCiTestSuite(): Promise<void> {
   run(["bun", "run", "typecheck"], REPO_ROOT);
   run(["bun", "run", "lint"], REPO_ROOT);
@@ -135,4 +135,10 @@ export async function runCiTestSuite(): Promise<void> {
   runBunTest(["packages/cli/test/e2e/"], false);
 
   run(["bun", "run", "--filter", "@nimbus/ui", "test:coverage"], REPO_ROOT, CI_ENV);
+
+  // VS Code extension — mirrors the vscode-extension-integration CI job
+  const vscodePkg = join(REPO_ROOT, "packages", "vscode-extension");
+  run(["bun", "run", "typecheck"], vscodePkg);
+  run(["bunx", "tsc", "--project", "tsconfig.integration.json", "--noEmit", "false"], vscodePkg);
+  run(["bunx", "vitest", "run"], vscodePkg);
 }
