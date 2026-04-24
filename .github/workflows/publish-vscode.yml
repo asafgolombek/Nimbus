@@ -1,0 +1,87 @@
+name: Publish VS Code Extension
+
+on:
+  push:
+    tags:
+      - "vscode-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vscode-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, package, and publish .vsix
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck + lint
+        run: |
+          bun run --filter @nimbus-dev/client typecheck
+          bun run --filter @nimbus-dev/client lint
+          bun run --filter @nimbus/vscode-extension typecheck
+          bun run --filter @nimbus/vscode-extension lint
+
+      - name: Test
+        run: |
+          cd packages/client && bun test
+          cd ../vscode-extension && bunx vitest run
+
+      - name: Build @nimbus-dev/client
+        run: cd packages/client && bun run build
+
+      - name: Build extension bundles
+        run: cd packages/vscode-extension && bun run build
+
+      - name: Package .vsix
+        id: package
+        run: |
+          cd packages/vscode-extension
+          bunx vsce package --no-dependencies
+          VSIX=$(ls *.vsix | head -n1)
+          echo "vsix_path=packages/vscode-extension/$VSIX" >> "$GITHUB_OUTPUT"
+          echo "vsix_name=$VSIX" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          cd packages/vscode-extension
+          bunx vsce publish --packagePath "${{ steps.package.outputs.vsix_name }}" --pat "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        run: |
+          cd packages/vscode-extension
+          bunx ovsx publish "${{ steps.package.outputs.vsix_name }}" --pat "$OVSX_PAT"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - name: Upload .vsix to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.vsix_path }}
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
