@@ -239,6 +239,10 @@ jobs:
         shell: bash
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
 
+      - name: Build @nimbus-dev/client (required for VS Code Extension vitest)
+        if: matrix.gate.name == 'VS Code Extension'
+        run: cd packages/client && bun run build
+
       - name: Run coverage gate
         shell: bash
         run: |
@@ -297,9 +301,10 @@ jobs:
         run: bun run --filter '@nimbus/gateway' build
 
       - name: Run node-compat tests
+        working-directory: packages/client
         env:
-          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && 'dist\\nimbus-gateway.exe' || 'dist/nimbus-gateway' }}
-        run: node --import tsx/esm --test packages/client/test/node-compat.test.ts
+          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && '..\\..\\dist\\nimbus-gateway.exe' || '../../dist/nimbus-gateway' }}
+        run: node --import tsx/esm --test test/node-compat.test.ts
 
   vscode-extension-integration:
     name: VS Code extension integration (${{ matrix.os }})
