@@ -294,13 +294,42 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Linux — libsecret + D-Bus (vault tests)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
+
+      - name: macOS — Strip quarantine from native SQLite extensions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: find node_modules -name "*.dylib" -print0 2>/dev/null | xargs -0 xattr -d com.apple.quarantine 2>/dev/null || true
+
+      - name: macOS — Create and unlock CI Keychain (vault tests)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          security create-keychain -p "" nimbus-ci.keychain
+          security list-keychains -d user -s nimbus-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s nimbus-ci.keychain
+          security unlock-keychain -p "" nimbus-ci.keychain
+          security set-keychain-settings -lut 7200 nimbus-ci.keychain
+
       - name: Build @nimbus-dev/client
         run: cd packages/client && bun run build
 
       - name: Build gateway binary
         run: bun run --filter '@nimbus/gateway' build
 
-      - name: Run node-compat tests
+      - name: Run node-compat tests — Linux
+        if: runner.os == 'Linux'
+        working-directory: packages/client
+        env:
+          NIMBUS_GATEWAY_BIN: ../../dist/nimbus-gateway
+        shell: bash
+        run: bash ../../scripts/ci/run-with-optional-dbus.sh node --import tsx/esm --test test/node-compat.test.ts
+
+      - name: Run node-compat tests — macOS/Windows
+        if: runner.os != 'Linux'
         working-directory: packages/client
         env:
           NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && '..\\..\\dist\\nimbus-gateway.exe' || '../../dist/nimbus-gateway' }}
