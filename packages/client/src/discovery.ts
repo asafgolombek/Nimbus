@@ -1,9 +1,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-
-import { getNimbusPaths } from "./paths.js";
 import type { NimbusPaths } from "./paths.js";
+import { getNimbusPaths } from "./paths.js";
 
 export type GatewayStateFile = {
   pid: number;
@@ -20,9 +19,9 @@ export type SocketDiscoveryResult = {
 function isGatewayState(raw: unknown): raw is GatewayStateFile {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return false;
   const o = raw as Record<string, unknown>;
-  if (typeof o.pid !== "number" || !Number.isFinite(o.pid)) return false;
-  if (typeof o.socketPath !== "string") return false;
-  if (o.logPath !== undefined && typeof o.logPath !== "string") return false;
+  if (typeof o["pid"] !== "number" || !Number.isFinite(o["pid"])) return false;
+  if (typeof o["socketPath"] !== "string") return false;
+  if (o["logPath"] !== undefined && typeof o["logPath"] !== "string") return false;
   return true;
 }
 
@@ -30,9 +29,7 @@ export function gatewayStatePath(paths: NimbusPaths): string {
   return join(paths.dataDir, "gateway.json");
 }
 
-export async function readGatewayState(
-  paths: NimbusPaths,
-): Promise<GatewayStateFile | undefined> {
+export async function readGatewayState(paths: NimbusPaths): Promise<GatewayStateFile | undefined> {
   const p = gatewayStatePath(paths);
   if (!existsSync(p)) return undefined;
   try {

@@ -62,11 +62,11 @@ export function createAskStream(
       if (!matchesStream(params) || params.streamId !== streamId) return;
       const code =
         typeof (params as { code?: unknown }).code === "string"
-          ? (params as { code: string }).code
+          ? (params as unknown as { code: string }).code
           : "stream_error";
       const message =
         typeof (params as { error?: unknown }).error === "string"
-          ? (params as { error: string }).error
+          ? (params as unknown as { error: string }).error
           : "Stream error";
       push({ type: "error", code, message });
       finish();
@@ -112,8 +112,8 @@ export function createAskStream(
   // Kick off the stream; capture streamId asynchronously
   const startPromise = (async (): Promise<string> => {
     const params: Record<string, unknown> = { input };
-    if (opts.sessionId !== undefined) params.sessionId = opts.sessionId;
-    if (opts.agent !== undefined) params.agent = opts.agent;
+    if (opts.sessionId !== undefined) params["sessionId"] = opts.sessionId;
+    if (opts.agent !== undefined) params["agent"] = opts.agent;
     const raw: unknown = await ipc.call("engine.askStream", params);
     const sid = (raw as { streamId?: string } | undefined)?.streamId;
     if (typeof sid !== "string") {
