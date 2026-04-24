@@ -9,7 +9,7 @@ import { platform } from "node:os";
 
 import { NdjsonLineReader } from "@nimbus-dev/sdk/ipc";
 
-const HAS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
+const HAS_BUN = (globalThis as { Bun?: unknown }).Bun !== undefined;
 
 type Pending = {
   resolve: (v: unknown) => void;

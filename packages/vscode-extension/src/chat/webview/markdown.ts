@@ -10,7 +10,7 @@ export function renderMarkdownInto(container: HTMLElement, markdownText: string)
     btn.textContent = "Copy";
     btn.addEventListener("click", () => {
       const code = pre.querySelector("code");
-      if (code !== null && typeof navigator.clipboard !== "undefined") {
+      if (code !== null && navigator.clipboard !== undefined) {
         void navigator.clipboard.writeText(code.textContent ?? "");
       }
     });

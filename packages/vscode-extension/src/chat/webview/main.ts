@@ -63,6 +63,7 @@ function showEmptyState(sub: "no-transcript" | "disconnected" | "permission-deni
 }
 
 window.addEventListener("message", (event) => {
+  if (!event.origin.startsWith("vscode-webview://")) return;
   const msg = event.data as { type: string } & Record<string, unknown>;
   switch (msg.type) {
     case "reset":

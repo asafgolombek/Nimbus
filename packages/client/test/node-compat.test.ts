@@ -97,7 +97,7 @@ await test("cancel() mid-stream terminates iterator", async () => {
     const client = await NimbusClient.open({ socketPath });
     const handle = client.askStream("long-running");
     setTimeout(() => {
-      void handle.cancel();
+      handle.cancel().catch(() => undefined);
     }, 50);
     const events: string[] = [];
     for await (const ev of handle) {

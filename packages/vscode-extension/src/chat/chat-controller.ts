@@ -40,7 +40,43 @@ export function createChatController(deps: ChatControllerDeps): ChatController {
   let active: AskStreamHandle | undefined;
 
   const post = (m: ExtensionToWebview): void => {
-    void deps.panel.postMessage(m);
+    deps.panel.postMessage(m).catch(() => undefined);
+  };
+
+  const pumpHandle = async (handle: AskStreamHandle): Promise<void> => {
+    for await (const ev of handle) {
+      switch (ev.type) {
+        case "token":
+          post({ type: "token", text: ev.text });
+          break;
+        case "subTaskProgress": {
+          const m: ExtensionToWebview & { type: "subTask" } = {
+            type: "subTask",
+            subTaskId: ev.subTaskId,
+            status: ev.status,
+          };
+          if (typeof ev.progress === "number") m.progress = ev.progress;
+          post(m);
+          break;
+        }
+        case "hitlBatch":
+          post({
+            type: "hitlInline",
+            requestId: ev.requestId,
+            prompt: ev.prompt,
+            details: ev.details,
+          });
+          break;
+        case "done":
+          post({ type: "done", reply: ev.reply, sessionId: ev.sessionId });
+          if (ev.sessionId.length > 0) await deps.sessionStore.set(ev.sessionId);
+          return;
+        case "error":
+          post({ type: "error", message: ev.message });
+          deps.log.error(`Stream error: ${ev.code}: ${ev.message}`);
+          return;
+      }
+    }
   };
 
   return {
@@ -55,52 +91,12 @@ export function createChatController(deps: ChatControllerDeps): ChatController {
       if (agent.length > 0) opts.agent = agent;
       const handle = deps.client.askStream(input, opts);
       active = handle;
-      if (handle.streamId.length > 0) {
-        deps.registerStreamWithHitl(handle.streamId);
-      }
+      if (handle.streamId.length > 0) deps.registerStreamWithHitl(handle.streamId);
       post({ type: "userMessage", text: input });
       try {
-        for await (const ev of handle) {
-          if (ev.type === "token") {
-            post({ type: "token", text: ev.text });
-            continue;
-          }
-          if (ev.type === "subTaskProgress") {
-            const m: ExtensionToWebview & { type: "subTask" } = {
-              type: "subTask",
-              subTaskId: ev.subTaskId,
-              status: ev.status,
-            };
-            if (typeof ev.progress === "number") m.progress = ev.progress;
-            post(m);
-            continue;
-          }
-          if (ev.type === "hitlBatch") {
-            post({
-              type: "hitlInline",
-              requestId: ev.requestId,
-              prompt: ev.prompt,
-              details: ev.details,
-            });
-            continue;
-          }
-          if (ev.type === "done") {
-            post({ type: "done", reply: ev.reply, sessionId: ev.sessionId });
-            if (ev.sessionId.length > 0) {
-              await deps.sessionStore.set(ev.sessionId);
-            }
-            break;
-          }
-          if (ev.type === "error") {
-            post({ type: "error", message: ev.message });
-            deps.log.error(`Stream error: ${ev.code}: ${ev.message}`);
-            break;
-          }
-        }
+        await pumpHandle(handle);
       } finally {
-        if (handle.streamId.length > 0) {
-          deps.unregisterStreamWithHitl(handle.streamId);
-        }
+        if (handle.streamId.length > 0) deps.unregisterStreamWithHitl(handle.streamId);
         active = undefined;
       }
     },

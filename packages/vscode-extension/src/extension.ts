@@ -269,12 +269,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showInline: (req) =>
       new Promise<HitlDecision | undefined>((resolve) => {
         pendingInline.set(req.requestId, resolve);
-        void chatPanelAdapter.postMessage({
+        chatPanelAdapter.postMessage({
           type: "hitlInline",
           requestId: req.requestId,
           prompt: req.prompt,
           details: req.details,
-        } as ExtensionToWebview);
+        } as ExtensionToWebview).catch(() => undefined);
       }),
     showToast: createToastSurface(window),
     showModal: createModalSurface(window),
@@ -335,7 +335,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (itemId === undefined) return "";
       const c = connection.client() as unknown as NimbusClient | undefined;
       if (c === undefined) return "Gateway not connected.";
-      const escaped = itemId.replace(/'/g, "''");
+      const escaped = itemId.replaceAll("'", "''");
       const r = await c.querySql(`SELECT * FROM items WHERE id = '${escaped}' LIMIT 1`);
       if (r.rows.length === 0) return `Item not found: ${itemId}`;
       return formatItemMarkdown(r.rows[0] as Record<string, unknown>);
@@ -348,7 +348,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ---------- Commands ----------
   const reveal = (): void => { ensurePanel(); };
   const setInputText = (text: string): void => {
-    void chatPanelAdapter.postMessage({ type: "userMessage", text } as ExtensionToWebview);
+    chatPanelAdapter.postMessage({ type: "userMessage", text } as ExtensionToWebview).catch(() => undefined);
   };
 
   const askCmd = createAskCommand({ controller, reveal, setInputText });
@@ -369,7 +369,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       queryItems: async (params) => {
         const c = connection.client() as unknown as NimbusClient;
         if (params.query !== undefined && params.query.trim().length > 0) {
-          const escaped = params.query.replace(/'/g, "''");
+          const escaped = params.query.replaceAll("'", "''");
           const limit = params.limit ?? 50;
           const r = await c.querySql(
             `SELECT id, name, service, item_type AS "itemType", url, file_path AS "filePath" FROM items WHERE name LIKE '%${escaped}%' LIMIT ${limit}`,
