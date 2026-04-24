@@ -1,5 +1,3 @@
-import { env, pipeline } from "@xenova/transformers";
-
 import { processEnvGet } from "../platform/env-access.ts";
 import type { Embedder } from "./types.ts";
 
@@ -38,8 +36,11 @@ function tensorToRowVectors(tensor: {
 
 /**
  * In-process embedder via `@xenova/transformers` (ONNX). First call may download weights into `cacheDir`.
+ * Dynamic import prevents the ONNX native module from loading at binary startup when embeddings are skipped.
  */
 export async function createLocalEmbedder(options: CreateLocalEmbedderOptions): Promise<Embedder> {
+  // Dynamic import so the ONNX native module is loaded only when actually needed.
+  const { env, pipeline } = await import("@xenova/transformers");
   const override = processEnvGet("NIMBUS_EMBEDDING_MODEL_DIR");
   env.cacheDir = override !== undefined && override !== "" ? override : options.cacheDir;
 
