@@ -57,9 +57,12 @@ describe("getNimbusPaths per platform", () => {
 
   test("darwin returns sock under TMPDIR or system temp", () => {
     setPlatform("darwin");
-    process.env.TMPDIR = "/var/folders/xx/T/";
+    // Use a clearly synthetic path so static-analysis tools don't flag it as
+    // a real publicly-writable directory (e.g. /var/folders or /tmp).
+    process.env.TMPDIR = "/nimbus-ci-test/mac-tmpdir";
     const p = getNimbusPaths();
     expect(p.socketPath.endsWith("nimbus-gateway.sock")).toBe(true);
+    expect(p.socketPath).toContain("nimbus-ci-test");
   });
 
   test("linux honors XDG_RUNTIME_DIR", () => {
