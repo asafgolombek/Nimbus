@@ -125,6 +125,9 @@ function runCoverageGates(): void {
 export async function runCiTestSuite(): Promise<void> {
   run(["bun", "run", "typecheck"], REPO_ROOT);
   run(["bun", "run", "lint"], REPO_ROOT);
+  // Build client before the workspace build so vscode-extension can resolve @nimbus-dev/client.
+  // Root `bun run build` runs workspaces in parallel; the prebuild approach caused a race.
+  run(["bun", "run", "build"], join(REPO_ROOT, "packages", "client"));
   run(["bun", "run", "build"], REPO_ROOT);
 
   runInitialUnitTestsWithCoverage();
