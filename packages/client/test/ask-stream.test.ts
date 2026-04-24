@@ -25,6 +25,16 @@ class FakeIpc {
     arr.push(handler);
   }
 
+  offNotification(method: string, handler: (params: unknown) => void): void {
+    const arr = this.notifHandlers.get(method);
+    if (arr === undefined) return;
+    const idx = arr.indexOf(handler);
+    if (idx >= 0) arr.splice(idx, 1);
+    if (arr.length === 0) {
+      this.notifHandlers.delete(method);
+    }
+  }
+
   emit(method: string, params: unknown): void {
     for (const h of this.notifHandlers.get(method) ?? []) h(params);
   }

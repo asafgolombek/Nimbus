@@ -198,6 +198,15 @@ export class IPCClient {
     set.add(handler);
   }
 
+  offNotification(method: string, handler: (params: unknown) => void): void {
+    const set = this.notifHandlers.get(method);
+    if (set === undefined) return;
+    set.delete(handler);
+    if (set.size === 0) {
+      this.notifHandlers.delete(method);
+    }
+  }
+
   async disconnect(): Promise<void> {
     this.connected = false;
     this.failAll(new Error("IPC disconnected"));

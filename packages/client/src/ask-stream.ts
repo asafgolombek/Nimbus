@@ -77,8 +77,12 @@ export function createAskStream(
         progress?: unknown;
       };
       if (typeof p.subTaskId !== "string" || typeof p.status !== "string") return;
-      const ev: StreamEvent = { type: "subTaskProgress", subTaskId: p.subTaskId, status: p.status };
-      if (typeof p.progress === "number") (ev as { progress?: number }).progress = p.progress;
+      const ev: StreamEvent = {
+        type: "subTaskProgress",
+        subTaskId: p.subTaskId,
+        status: p.status,
+        ...(typeof p.progress === "number" ? { progress: p.progress } : {}),
+      };
       push(ev);
     };
     const onHitl = (params: unknown): void => {
@@ -94,9 +98,13 @@ export function createAskStream(
     ipc.onNotification("agent.subTaskProgress", onSubTask);
     ipc.onNotification("agent.hitlBatch", onHitl);
 
-    unsubscribers.push(() => {
-      /* no-op: IPCClient has no off() yet; guarded by `done` flag */
-    });
+    unsubscribers.push(
+      () => ipc.offNotification("engine.streamToken", onToken),
+      () => ipc.offNotification("engine.streamDone", onDone),
+      () => ipc.offNotification("engine.streamError", onError),
+      () => ipc.offNotification("agent.subTaskProgress", onSubTask),
+      () => ipc.offNotification("agent.hitlBatch", onHitl),
+    );
   };
 
   // Kick off the stream; capture streamId asynchronously
