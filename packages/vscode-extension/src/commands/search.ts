@@ -11,7 +11,14 @@ export type SearchSinkDeps = {
   openExternal(url: string): Promise<boolean>;
   openTextDocument(uriOrPath: string, opts?: { isFile: boolean }): Promise<void>;
   showQuickPick(
-    items: Array<{ label: string; description: string; detail: string; itemId: string; url?: string; filePath?: string }>,
+    items: Array<{
+      label: string;
+      description: string;
+      detail: string;
+      itemId: string;
+      url?: string;
+      filePath?: string;
+    }>,
   ): Promise<{ itemId: string; url?: string; filePath?: string } | undefined>;
 };
 

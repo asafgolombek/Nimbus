@@ -1,11 +1,8 @@
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import {
-  formatStatusBar,
-  type StatusBarInputs,
-} from "../../src/status-bar/status-bar-item.ts";
+import { formatStatusBar, type StatusBarInputs } from "../../src/status-bar/status-bar-item.ts";
 
 const SOCK = join(tmpdir(), "nimbus-test.sock");
 

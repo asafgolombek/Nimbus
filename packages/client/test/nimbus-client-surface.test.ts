@@ -7,9 +7,9 @@ describe("NimbusClient typed surface", () => {
     expect(typeof (NimbusClient.prototype as unknown as Record<string, unknown>).askStream).toBe(
       "function",
     );
-    expect(typeof (NimbusClient.prototype as unknown as Record<string, unknown>).subscribeHitl).toBe(
-      "function",
-    );
+    expect(
+      typeof (NimbusClient.prototype as unknown as Record<string, unknown>).subscribeHitl,
+    ).toBe("function");
     expect(
       typeof (NimbusClient.prototype as unknown as Record<string, unknown>).getSessionTranscript,
     ).toBe("function");

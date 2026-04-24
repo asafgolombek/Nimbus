@@ -1,14 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { EventEmitter } from "node:events";
 
 describe("ipc-transport runtime detection", () => {
   test("source contains both Bun and Node Unix branches", () => {
-    const src = readFileSync(
-      join(import.meta.dir, "..", "src", "ipc-transport.ts"),
-      "utf8",
-    );
+    const src = readFileSync(join(import.meta.dir, "..", "src", "ipc-transport.ts"), "utf8");
     expect(src).toContain("connectUnixBun");
     expect(src).toContain("connectUnixNode");
     expect(src).toContain("HAS_BUN");
@@ -29,6 +26,8 @@ describe("connectUnixNode behavior", () => {
     const testBuf = Buffer.from("hello");
     emitter.emit("data", testBuf);
     expect(chunks.length).toBe(1);
-    expect(chunks[0]).toEqual(new Uint8Array(testBuf.buffer, testBuf.byteOffset, testBuf.byteLength));
+    expect(chunks[0]).toEqual(
+      new Uint8Array(testBuf.buffer, testBuf.byteOffset, testBuf.byteLength),
+    );
   });
 });

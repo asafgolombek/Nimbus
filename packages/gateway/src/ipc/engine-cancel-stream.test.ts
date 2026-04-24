@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-
-import { createCancelStreamHandler } from "./engine-cancel-stream.ts";
 import { createStreamRegistry } from "./engine-ask-stream.ts";
+import { createCancelStreamHandler } from "./engine-cancel-stream.ts";
 
 describe("createCancelStreamHandler", () => {
   test("returns ok=true and aborts the controller for known streamId", () => {

@@ -19,7 +19,7 @@ export function buildAskAboutSelectionPrefill(inp: {
     startHuman === endHuman ? `line ${startHuman}` : `lines ${startHuman}–${endHuman}`;
   return [
     `Context (${inp.relativePath}, ${lineSegment}):`,
-    "```" + inp.languageId,
+    `\`\`\`${inp.languageId}`,
     inp.selectionText,
     "```",
     "",
@@ -36,7 +36,13 @@ export function createAskCommand(deps: AskCommandDeps): () => Promise<void> {
 export function createAskAboutSelectionCommand(
   deps: AskCommandDeps,
   getSelection: () =>
-    | { relativePath: string; startLine: number; endLine: number; languageId: string; selectionText: string }
+    | {
+        relativePath: string;
+        startLine: number;
+        endLine: number;
+        languageId: string;
+        selectionText: string;
+      }
     | undefined,
 ): () => Promise<void> {
   return async () => {

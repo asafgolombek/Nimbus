@@ -75,10 +75,7 @@ describe("createRunWorkflowCommand", () => {
   });
 
   test("passes workflow name (not description) in label for quick pick", async () => {
-    const workflows = [
-      { name: "alpha", description: "first" },
-      { name: "beta" },
-    ];
+    const workflows = [{ name: "alpha", description: "first" }, { name: "beta" }];
     const callFn = vi.fn().mockResolvedValue(workflows);
     const showQuickPick = vi.fn().mockResolvedValue(undefined);
     const cmd = createRunWorkflowCommand({

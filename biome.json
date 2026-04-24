@@ -19,7 +19,9 @@
       "!**/*.d.ts",
       "!packages/cli/src/nimbus.js",
       "!packages/gateway/src/nimbus-gateway.js",
-      "!packages/mcp-connectors/*/src/nimbus-mcp-*.js"
+      "!packages/mcp-connectors/*/src/nimbus-mcp-*.js",
+      "!packages/vscode-extension/media",
+      "!packages/vscode-extension/test-out"
     ]
   },
   "formatter": {
@@ -78,10 +80,21 @@
       "linter": {
         "rules": {
           "suspicious": {
-            "noConsole": "off"
+            "noConsole": "off",
+            "noExplicitAny": "off"
           },
           "style": {
             "noNonNullAssertion": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/test/integration/**/*.ts", "**/esbuild.mjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
           }
         }
       }

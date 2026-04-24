@@ -1,5 +1,5 @@
-import { RpcMethodError } from "./jsonrpc.js";
 import type { StreamRegistry } from "./engine-ask-stream.js";
+import { RpcMethodError } from "./jsonrpc.js";
 
 export type CancelStreamParams = { streamId: string };
 export type CancelStreamResult = { ok: boolean };

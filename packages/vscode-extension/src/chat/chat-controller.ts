@@ -8,10 +8,7 @@ import type { SessionStore } from "./session-store.js";
 export interface ChatClientLike {
   askStream(input: string, opts?: AskStreamOptions): AskStreamHandle;
   cancelStream(streamId: string): Promise<{ ok: boolean }>;
-  getSessionTranscript(params: {
-    sessionId: string;
-    limit?: number;
-  }): Promise<{
+  getSessionTranscript(params: { sessionId: string; limit?: number }): Promise<{
     sessionId: string;
     turns: Array<{ role: "user" | "assistant"; text: string; timestamp: number }>;
     hasMore: boolean;

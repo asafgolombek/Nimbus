@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { createStartGatewayCommand } from "../../../src/commands/start-gateway.js";
 import type { Logger } from "../../../src/logging.js";
@@ -53,7 +53,9 @@ describe("createStartGatewayCommand", () => {
       const { cmd, window } = makeCmd(vi.fn().mockResolvedValue(timeoutResult));
       await cmd();
       expect(window.showErrorMessage).toHaveBeenCalled();
-      expect((window.showErrorMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0]! as string).toContain("timeout");
+      expect(
+        (window.showErrorMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0]! as string,
+      ).toContain("timeout");
     });
 
     test("calls openLogs when user clicks Open Logs", async () => {
@@ -79,7 +81,9 @@ describe("createStartGatewayCommand", () => {
       const { cmd, window } = makeCmd(vi.fn().mockResolvedValue(spawnErrorResult));
       await cmd();
       expect(window.showErrorMessage).toHaveBeenCalled();
-      expect((window.showErrorMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0]! as string).toContain("ENOENT");
+      expect(
+        (window.showErrorMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0]! as string,
+      ).toContain("ENOENT");
     });
 
     test("calls openLogs when user clicks Open Logs", async () => {

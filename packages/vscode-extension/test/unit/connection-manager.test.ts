@@ -1,11 +1,11 @@
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
-  createConnectionManager,
   type ConnectionDeps,
   type ConnectionState,
+  createConnectionManager,
   type NimbusClientLike,
 } from "../../src/connection/connection-manager.js";
 

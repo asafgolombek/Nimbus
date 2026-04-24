@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { createSettings } from "../../src/settings.js";
@@ -8,7 +8,7 @@ import type { WorkspaceApi } from "../../src/vscode-shim.js";
 function makeWorkspace(values: Record<string, unknown>): WorkspaceApi {
   return {
     getConfiguration: () => ({
-      get: <T,>(key: string, dflt: T): T => (key in values ? (values[key] as T) : dflt),
+      get: <T>(key: string, dflt: T): T => (key in values ? (values[key] as T) : dflt),
     }),
   };
 }

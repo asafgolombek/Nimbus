@@ -1,9 +1,9 @@
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { describe, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, test, vi } from "vitest";
 
-import { createAutoStarter, type AutoStartDeps } from "../../src/connection/auto-start.ts";
+import { type AutoStartDeps, createAutoStarter } from "../../src/connection/auto-start.ts";
 
 class FakeChild extends EventEmitter {
   killed = false;
@@ -13,10 +13,7 @@ class FakeChild extends EventEmitter {
   });
 }
 
-function makeDeps(opts: {
-  spawnFails?: boolean;
-  socketAppearsAfterMs?: number;
-}): AutoStartDeps {
+function makeDeps(opts: { spawnFails?: boolean; socketAppearsAfterMs?: number }): AutoStartDeps {
   let socketReady = false;
   setTimeout(() => {
     socketReady = true;

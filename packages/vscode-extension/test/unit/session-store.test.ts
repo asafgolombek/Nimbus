@@ -6,7 +6,7 @@ import type { MementoLike } from "../../src/vscode-shim.js";
 function makeMemento(initial: Record<string, unknown> = {}): MementoLike {
   const data = { ...initial };
   return {
-    get: <T,>(key: string, dflt?: T): T | undefined => (key in data ? (data[key] as T) : dflt),
+    get: <T>(key: string, dflt?: T): T | undefined => (key in data ? (data[key] as T) : dflt),
     update: async (key, value) => {
       if (value === undefined) delete data[key];
       else data[key] = value;

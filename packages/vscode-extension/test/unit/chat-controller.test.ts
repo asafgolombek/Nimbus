@@ -1,8 +1,7 @@
+import { MockClient } from "@nimbus-dev/client";
 import { describe, expect, test, vi } from "vitest";
-
 import { createChatController } from "../../src/chat/chat-controller.js";
 import { createNoopChatPanel } from "../../src/chat/chat-panel.js";
-import { MockClient } from "@nimbus-dev/client";
 
 describe("ChatController", () => {
   test("askStream messages get translated to webview postMessage", async () => {

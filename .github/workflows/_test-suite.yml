@@ -299,7 +299,10 @@ jobs:
       - name: Run node-compat tests
         env:
           NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && 'dist\\nimbus-gateway.exe' || './dist/nimbus-gateway' }}
-        run: cd packages/client && node --test test/node-compat.test.ts
+        run: |
+          cd packages/client
+          bun build test/node-compat.test.ts --outfile=test/node-compat.test.mjs --format=esm --target=node
+          node --test test/node-compat.test.mjs
 
   vscode-extension-integration:
     name: VS Code extension integration (${{ matrix.os }})

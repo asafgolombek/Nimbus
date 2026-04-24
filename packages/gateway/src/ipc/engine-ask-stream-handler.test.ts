@@ -2,8 +2,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  createAskStreamHandler,
   type AskStreamHandlerDeps,
+  createAskStreamHandler,
   type StreamRegistry,
 } from "./engine-ask-stream.ts";
 

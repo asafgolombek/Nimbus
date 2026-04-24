@@ -49,7 +49,10 @@ function clearTranscript(): void {
   currentAssistantText = "";
 }
 
-function showEmptyState(sub: "no-transcript" | "disconnected" | "permission-denied", socketPath?: string): void {
+function showEmptyState(
+  sub: "no-transcript" | "disconnected" | "permission-denied",
+  socketPath?: string,
+): void {
   clearTranscript();
   const card = renderEmptyState({
     sub,

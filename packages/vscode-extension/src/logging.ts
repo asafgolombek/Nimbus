@@ -10,10 +10,7 @@ export interface Logger {
   debug(msg: string): void;
 }
 
-export function createLogger(
-  channel: OutputChannelHandle,
-  getLevel: () => LogLevel,
-): Logger {
+export function createLogger(channel: OutputChannelHandle, getLevel: () => LogLevel): Logger {
   const emit = (level: LogLevel, msg: string): void => {
     if (ORDER[level] > ORDER[getLevel()]) return;
     const ts = new Date().toISOString();

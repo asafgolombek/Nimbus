@@ -1,7 +1,10 @@
-import { describe, expect, test, vi } from "vitest";
-
-import { createHitlRouter, type HitlDecision, type HitlRouterDeps } from "../../src/hitl/hitl-router.ts";
 import type { HitlRequest } from "@nimbus-dev/client";
+import { describe, expect, test, vi } from "vitest";
+import {
+  createHitlRouter,
+  type HitlDecision,
+  type HitlRouterDeps,
+} from "../../src/hitl/hitl-router.ts";
 
 function makeDeps(opts: { chatVisibleAndFocused: boolean; alwaysModal?: boolean }): HitlRouterDeps {
   return {
@@ -56,9 +59,9 @@ describe("HitlRouter", () => {
     const router = createHitlRouter(deps);
     await router.handle({ ...REQ });
     expect(deps.onCountChange).toHaveBeenCalled();
-    const counts = (deps.onCountChange as unknown as { mock: { calls: [number][] } }).mock.calls.map(
-      ([n]) => n,
-    );
+    const counts = (
+      deps.onCountChange as unknown as { mock: { calls: [number][] } }
+    ).mock.calls.map(([n]) => n);
     expect(counts).toEqual(expect.arrayContaining([1, 0]));
   });
 

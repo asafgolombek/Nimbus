@@ -1,25 +1,21 @@
 import { spawn } from "node:child_process";
 import * as net from "node:net";
 
-import {
-  NimbusClient,
-  discoverSocketPath,
-  type HitlRequest,
-} from "@nimbus-dev/client";
+import { discoverSocketPath, type HitlRequest, NimbusClient } from "@nimbus-dev/client";
 import * as vscode from "vscode";
 
 import { createChatController } from "./chat/chat-controller.js";
-import { createSessionStore } from "./chat/session-store.js";
 import type { ExtensionToWebview, WebviewToExtension } from "./chat/chat-protocol.js";
-import { createConnectionManager, type NimbusClientLike } from "./connection/connection-manager.js";
-import { createAutoStarter } from "./connection/auto-start.js";
+import { createSessionStore } from "./chat/session-store.js";
 import { createAskAboutSelectionCommand, createAskCommand } from "./commands/ask.js";
 import { createNewConversationCommand } from "./commands/new-conversation.js";
 import { createRunWorkflowCommand } from "./commands/run-workflow.js";
 import { createSearchCommand } from "./commands/search.js";
 import { createStartGatewayCommand } from "./commands/start-gateway.js";
-import { createHitlRouter, type HitlDecision } from "./hitl/hitl-router.js";
+import { createAutoStarter } from "./connection/auto-start.js";
+import { createConnectionManager, type NimbusClientLike } from "./connection/connection-manager.js";
 import { createModalSurface } from "./hitl/hitl-modal.js";
+import { createHitlRouter, type HitlDecision } from "./hitl/hitl-router.js";
 import { createToastSurface } from "./hitl/hitl-toast.js";
 import { createLogger } from "./logging.js";
 import { formatItemMarkdown, parseItemUri, URI_SCHEME } from "./search/item-provider.js";
@@ -44,12 +40,24 @@ function adaptOutputChannel(channel: vscode.OutputChannel): OutputChannelHandle 
 
 function adaptStatusBar(item: vscode.StatusBarItem): StatusBarItemHandle {
   return {
-    get text() { return item.text; },
-    set text(v: string) { item.text = v; },
-    get tooltip() { return item.tooltip as string | undefined; },
-    set tooltip(v: string | undefined) { item.tooltip = v; },
-    get command() { return typeof item.command === "string" ? item.command : undefined; },
-    set command(v: string | undefined) { item.command = v; },
+    get text() {
+      return item.text;
+    },
+    set text(v: string) {
+      item.text = v;
+    },
+    get tooltip() {
+      return item.tooltip as string | undefined;
+    },
+    set tooltip(v: string | undefined) {
+      item.tooltip = v;
+    },
+    get command() {
+      return typeof item.command === "string" ? item.command : undefined;
+    },
+    set command(v: string | undefined) {
+      item.command = v;
+    },
     get backgroundColor() {
       const bg = item.backgroundColor;
       return bg === undefined ? undefined : { id: (bg as vscode.ThemeColor).id };
@@ -85,7 +93,7 @@ function adaptWorkspace(): WorkspaceApi {
   return {
     getConfiguration: (section) => {
       const cfg = vscode.workspace.getConfiguration(section);
-      return { get: <T,>(key: string, dflt: T): T => cfg.get<T>(key, dflt) };
+      return { get: <T>(key: string, dflt: T): T => cfg.get<T>(key, dflt) };
     },
   };
 }
@@ -121,7 +129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let degraded = 0;
   let degradedNames: string[] = [];
   let pending = 0;
-  let profile = "default";
+  const profile = "default";
   const updateStatusBar = (): void => {
     sbCtl.update({
       connection: connection.current(),
@@ -243,7 +251,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const chatPanelAdapter = {
-    reveal: () => { ensurePanel(); },
+    reveal: () => {
+      ensurePanel();
+    },
     dispose: () => chatPanel?.dispose(),
     panel: () => chatPanel,
     onDispose: (h: () => void) => {
@@ -267,17 +277,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showInline: (req) =>
       new Promise<HitlDecision | undefined>((resolve) => {
         pendingInline.set(req.requestId, resolve);
-        chatPanelAdapter.postMessage({
-          type: "hitlInline",
-          requestId: req.requestId,
-          prompt: req.prompt,
-          details: req.details,
-        } as ExtensionToWebview).catch(() => undefined);
+        chatPanelAdapter
+          .postMessage({
+            type: "hitlInline",
+            requestId: req.requestId,
+            prompt: req.prompt,
+            details: req.details,
+          } as ExtensionToWebview)
+          .catch(() => undefined);
       }),
     showToast: createToastSurface(window),
     showModal: createModalSurface(window),
     sendResponse: async (requestId, decision) => {
-      const c = connection.client() as unknown as { ipc?: { call(m: string, p: unknown): Promise<unknown> } };
+      const c = connection.client() as unknown as {
+        ipc?: { call(m: string, p: unknown): Promise<unknown> };
+      };
       if (c?.ipc !== undefined) {
         await c.ipc.call("consent.respond", { requestId, decisions: [{ decision }] });
       }
@@ -344,9 +358,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // ---------- Commands ----------
-  const reveal = (): void => { ensurePanel(); };
+  const reveal = (): void => {
+    ensurePanel();
+  };
   const setInputText = (text: string): void => {
-    chatPanelAdapter.postMessage({ type: "userMessage", text } as ExtensionToWebview).catch(() => undefined);
+    chatPanelAdapter
+      .postMessage({ type: "userMessage", text } as ExtensionToWebview)
+      .catch(() => undefined);
   };
 
   const askCmd = createAskCommand({ controller, reveal, setInputText });
@@ -383,7 +401,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sink: {
       openExternal: async (url) => vscode.env.openExternal(vscode.Uri.parse(url)),
       openTextDocument: async (uriOrPath, opts) => {
-        const uri = opts?.isFile === true ? vscode.Uri.file(uriOrPath) : vscode.Uri.parse(uriOrPath);
+        const uri =
+          opts?.isFile === true ? vscode.Uri.file(uriOrPath) : vscode.Uri.parse(uriOrPath);
         const doc = await vscode.workspace.openTextDocument(uri);
         await vscode.window.showTextDocument(doc, { preview: true });
       },
@@ -397,7 +416,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const runWfCmd = createRunWorkflowCommand({
     call: async (method, params) => {
-      const c = connection.client() as unknown as { ipc?: { call(m: string, p?: unknown): Promise<unknown> } };
+      const c = connection.client() as unknown as {
+        ipc?: { call(m: string, p?: unknown): Promise<unknown> };
+      };
       if (c?.ipc === undefined) throw new Error("Not connected");
       return await c.ipc.call(method, params);
     },
@@ -460,28 +481,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ---------- Connector polling for status bar ----------
   const pollConnectors = async (): Promise<void> => {
-    const c = connection.client() as unknown as { ipc?: { call(m: string, p?: unknown): Promise<unknown> } } | undefined;
+    const c = connection.client() as unknown as
+      | { ipc?: { call(m: string, p?: unknown): Promise<unknown> } }
+      | undefined;
     if (c?.ipc === undefined) return;
     try {
-      const list = (await c.ipc.call("connector.list")) as Array<{ name?: string; health?: string }>;
+      const list = (await c.ipc.call("connector.list")) as Array<{
+        name?: string;
+        health?: string;
+      }>;
       const broken = Array.isArray(list)
-        ? list.filter((it) => typeof it.health === "string" && it.health !== "healthy" && it.health !== "ok")
+        ? list.filter(
+            (it) => typeof it.health === "string" && it.health !== "healthy" && it.health !== "ok",
+          )
         : [];
       degraded = broken.length;
-      degradedNames = broken.map((it) => (typeof it.name === "string" ? it.name : "")).filter((n) => n.length > 0);
+      degradedNames = broken
+        .map((it) => (typeof it.name === "string" ? it.name : ""))
+        .filter((n) => n.length > 0);
       updateStatusBar();
     } catch {
       // ignored
     }
   };
-  const pollTimer = setInterval(() => { void pollConnectors(); }, settings.statusBarPollMs());
+  const pollTimer = setInterval(() => {
+    void pollConnectors();
+  }, settings.statusBarPollMs());
 
   // ---------- Start ----------
   await connection.start();
 
   disposables.push(
-    new vscode.Disposable(() => { clearInterval(pollTimer); }),
-    new vscode.Disposable(() => { void connection.dispose(); }),
+    new vscode.Disposable(() => {
+      clearInterval(pollTimer);
+    }),
+    new vscode.Disposable(() => {
+      void connection.dispose();
+    }),
     sbCtl,
     rawChannel,
   );

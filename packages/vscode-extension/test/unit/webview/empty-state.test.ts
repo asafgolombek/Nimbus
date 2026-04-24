@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi } from "vitest";
-import { renderEmptyState, type EmptyStateInput } from "../../../src/chat/webview/empty-state.js";
+import { type EmptyStateInput, renderEmptyState } from "../../../src/chat/webview/empty-state.js";
 
 function makeInput(sub: EmptyStateInput["sub"], extra?: Partial<EmptyStateInput>): EmptyStateInput {
   return {
@@ -69,7 +69,8 @@ describe("renderEmptyState", () => {
     });
 
     test("renders paragraph without socket path when socketPath is omitted", () => {
-      const pText = renderEmptyState(makeInput("disconnected")).querySelector("p")?.textContent ?? "";
+      const pText =
+        renderEmptyState(makeInput("disconnected")).querySelector("p")?.textContent ?? "";
       expect(pText).toContain("Gateway socket");
       expect(pText).not.toContain("at /");
     });
@@ -92,12 +93,15 @@ describe("renderEmptyState", () => {
     });
 
     test("includes socket path in paragraph when socketPath is provided", () => {
-      const el = renderEmptyState(makeInput("permission-denied", { socketPath: "/run/nimbus.sock" }));
+      const el = renderEmptyState(
+        makeInput("permission-denied", { socketPath: "/run/nimbus.sock" }),
+      );
       expect(el.querySelector("p")?.textContent).toContain("/run/nimbus.sock");
     });
 
     test("paragraph mentions gateway socket without socket path when omitted", () => {
-      const pText = renderEmptyState(makeInput("permission-denied")).querySelector("p")?.textContent ?? "";
+      const pText =
+        renderEmptyState(makeInput("permission-denied")).querySelector("p")?.textContent ?? "";
       expect(pText.toLowerCase()).toContain("gateway socket");
     });
 

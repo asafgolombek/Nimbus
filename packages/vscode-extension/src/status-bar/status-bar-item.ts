@@ -68,7 +68,12 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
     };
   }
 
-  return formatConnectedState({ profile, degradedConnectorCount, degradedConnectorNames, pendingHitlCount });
+  return formatConnectedState({
+    profile,
+    degradedConnectorCount,
+    degradedConnectorNames,
+    pendingHitlCount,
+  });
 }
 
 type ConnectedInputs = {

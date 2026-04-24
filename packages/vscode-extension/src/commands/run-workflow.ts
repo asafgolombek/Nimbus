@@ -11,7 +11,10 @@ export interface RunWorkflowDeps {
 
 export function createRunWorkflowCommand(deps: RunWorkflowDeps): () => Promise<void> {
   return async () => {
-    const list = (await deps.call("workflow.list")) as Array<{ name: string; description?: string }>;
+    const list = (await deps.call("workflow.list")) as Array<{
+      name: string;
+      description?: string;
+    }>;
     if (!Array.isArray(list) || list.length === 0) {
       await deps.window.showInformationMessage("No workflows defined", {});
       return;
@@ -22,9 +25,7 @@ export function createRunWorkflowCommand(deps: RunWorkflowDeps): () => Promise<v
     if (chosen === undefined) return;
     deps.log.info(`Running workflow: ${chosen.label}`);
     void deps.call("workflow.run", { name: chosen.label }).catch((e: unknown) => {
-      deps.log.error(
-        `workflow.run failed: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      deps.log.error(`workflow.run failed: ${e instanceof Error ? e.message : String(e)}`);
     });
     await deps.showProgressToast(`Running workflow ${chosen.label}…`, () => undefined);
   };

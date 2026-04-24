@@ -1,5 +1,5 @@
-import { build, context } from "esbuild";
 import { copyFileSync } from "node:fs";
+import { build, context } from "esbuild";
 
 const isWatch = process.argv.includes("--watch");
 const isDev = isWatch || process.env.NODE_ENV === "development";

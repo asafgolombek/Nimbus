@@ -1,7 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
-
-import { createToastSurface } from "../../src/hitl/hitl-toast.ts";
 import { createModalSurface } from "../../src/hitl/hitl-modal.ts";
+import { createToastSurface } from "../../src/hitl/hitl-toast.ts";
 import type { WindowApi } from "../../src/vscode-shim.ts";
 
 function fakeWindow(answer: string | undefined): WindowApi {
@@ -21,7 +20,8 @@ function fakeWindow(answer: string | undefined): WindowApi {
       hide: () => undefined,
       dispose: () => undefined,
     }),
-    showInformationMessage: showInformationMessage as unknown as WindowApi["showInformationMessage"],
+    showInformationMessage:
+      showInformationMessage as unknown as WindowApi["showInformationMessage"],
     showErrorMessage: vi.fn() as unknown as WindowApi["showErrorMessage"],
     showInputBox: vi.fn() as unknown as WindowApi["showInputBox"],
   };
