@@ -1,5 +1,5 @@
 {
-  "name": "@nimbus/vscode-extension",
+  "name": "nimbus",
   "displayName": "Nimbus",
   "description": "Local-first AI agent for the editor. Ask, search, and run workflows against your private Nimbus index.",
   "version": "0.1.0",
