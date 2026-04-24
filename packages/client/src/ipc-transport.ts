@@ -138,7 +138,9 @@ export class IPCClient {
         this.onTransportData(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
       });
       sock.on("close", () => {
-        this.onWindowsClosed();
+        this.connected = false;
+        this.netSocket = null;
+        this.failAll(new Error("IPC connection closed"));
       });
     });
   }
