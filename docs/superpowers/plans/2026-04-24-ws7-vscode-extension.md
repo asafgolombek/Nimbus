@@ -1777,6 +1777,8 @@ git commit -m "refactor(gateway): extract askStream handler with AbortController
 
 ## Task 9: Implement `engine.cancelStream` IPC method
 
+**HITL lifecycle note:** When a stream is cancelled, any in-flight HITL request the engine was awaiting resolves implicitly via the AbortController — the engine's `await consent.requestApproval(...)` chain unwinds and the stream loop exits with `code: "cancelled"`. There is no separate "cancel pending HITL" call needed because consent requests are owned per-await, not queued globally on the Gateway. Extension-side, the `pendingInline` map in `chat-controller.ts` cleans up via the iterator's `finally` block (Task 22). If a future HITL implementation moves to a queued model, this assumption needs revisiting.
+
 **Files:**
 - Create: `packages/gateway/src/ipc/engine-cancel-stream.ts`
 - Create: `packages/gateway/src/ipc/engine-cancel-stream.test.ts`
@@ -2039,12 +2041,19 @@ function clampLimit(raw: unknown): number {
 }
 
 function actionToRole(actionType: string): "user" | "assistant" | undefined {
+  // Returns undefined for action types that aren't part of a chat exchange
+  // (e.g., agent.invoke, engine.streamCancelled, audit-only rows). Callers
+  // skip such rows entirely — they are not chat turns and must not appear
+  // in the rehydrated transcript at all.
   if (actionType === "engine.askUser") return "user";
   if (actionType === "engine.askAssistant") return "assistant";
   return undefined;
 }
 
 function parseDetailsText(detailsJson: string | null): string {
+  // For rows that ARE chat turns (actionToRole returned user/assistant)
+  // but whose text is missing/unparseable, return "[redacted]" so the
+  // turn count stays consistent in the UI even when content is absent.
   if (detailsJson === null) return "[redacted]";
   try {
     const parsed = JSON.parse(detailsJson) as { text?: unknown };
@@ -2538,7 +2547,8 @@ Write `packages/vscode-extension/package.json`:
       { "command": "nimbus.searchSelection",    "title": "Search Selection",     "category": "Nimbus" },
       { "command": "nimbus.runWorkflow",        "title": "Run Workflow",         "category": "Nimbus" },
       { "command": "nimbus.newConversation",    "title": "New Conversation",     "category": "Nimbus" },
-      { "command": "nimbus.startGateway",       "title": "Start Gateway",        "category": "Nimbus" }
+      { "command": "nimbus.startGateway",       "title": "Start Gateway",        "category": "Nimbus" },
+      { "command": "nimbus.reconnect",          "title": "Reconnect to Gateway", "category": "Nimbus" }
     ],
     "menus": {
       "editor/context": [
@@ -2697,13 +2707,18 @@ import { build } from "esbuild";
 import { copyFileSync } from "node:fs";
 
 const isWatch = process.argv.includes("--watch");
+// Production = anything that's not an explicit dev/watch invocation.
+// CI/publish-vscode.yml leaves NODE_ENV unset → minified, no sourcemaps.
+// Local `bun run build --watch` → unminified + sourcemaps for debugging.
+const isDev = isWatch || process.env.NODE_ENV === "development";
 
 const baseExt = {
   bundle: true,
   platform: "node",
   target: "node18",
   format: "cjs",
-  sourcemap: true,
+  sourcemap: isDev,
+  minify: !isDev,
   external: ["vscode"],
   logLevel: "info",
 };
@@ -2721,7 +2736,11 @@ await build({
   target: "es2022",
   format: "iife",
   globalName: "NimbusWebview",
-  sourcemap: true,
+  sourcemap: isDev,
+  // Always minify the Webview bundle — it ships in the .vsix and reloads on
+  // every panel open. ~16 KB marked + ~5 KB our code → ~8 KB minified.
+  minify: true,
+  treeShaking: true,
   entryPoints: ["src/chat/webview/main.ts"],
   outfile: "media/webview.js",
   logLevel: "info",
@@ -2730,7 +2749,7 @@ await build({
 
 copyFileSync("src/chat/webview/styles.css", "media/webview.css");
 
-console.log("esbuild: extension + webview bundles produced");
+console.log(`esbuild: bundles produced (minify=${!isDev}, sourcemaps=${isDev})`);
 ```
 
 - [ ] **Step 14.7: Create `.vscodeignore`**
@@ -3345,6 +3364,11 @@ export interface ConnectionDeps {
 export interface ConnectionManager {
   start(): Promise<void>;
   dispose(): Promise<void>;
+  /** Force an immediate reconnect attempt, bypassing the backoff timer.
+   *  Used by the `nimbus.reconnect` command. Idempotent — safe to call
+   *  while already connected (no-op) or while a reconnect is pending
+   *  (cancels the timer and tries now). */
+  reconnectNow(): Promise<void>;
   onState(listener: (s: ConnectionState) => void): { dispose(): void };
   current(): ConnectionState;
   client(): NimbusClientLike | undefined;
@@ -3413,6 +3437,14 @@ export function createConnectionManager(deps: ConnectionDeps): ConnectionManager
         client = undefined;
       }
       listeners.length = 0;
+    },
+    async reconnectNow(): Promise<void> {
+      if (state.kind === "connected") return;
+      if (reconnectTimer !== undefined) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+      }
+      await tryConnect();
     },
     onState(listener): { dispose(): void } {
       listeners.push(listener);
@@ -3622,6 +3654,7 @@ function inputs(p: Partial<StatusBarInputs> = {}): StatusBarInputs {
     connection: { kind: "connected", socketPath: "/tmp/s" },
     profile: "work",
     degradedConnectorCount: 0,
+    degradedConnectorNames: [],
     pendingHitlCount: 0,
     autoStartGateway: false,
     ...p,
@@ -3663,9 +3696,13 @@ describe("formatStatusBar", () => {
   });
 
   test("connected with degraded connector", () => {
-    const r = formatStatusBar(inputs({ degradedConnectorCount: 2 }));
+    const r = formatStatusBar(
+      inputs({ degradedConnectorCount: 2, degradedConnectorNames: ["github", "slack"] }),
+    );
     expect(r.text).toMatch(/2 degraded/);
     expect(r.backgroundColor?.id).toMatch(/warningBackground/);
+    expect(r.tooltip).toContain("github");
+    expect(r.tooltip).toContain("slack");
   });
 
   test("HITL pending wins over degraded for click action", () => {
@@ -3689,6 +3726,9 @@ export type StatusBarInputs = {
   connection: ConnectionState;
   profile: string;
   degradedConnectorCount: number;
+  /** Names of degraded connectors so the tooltip can list them — keeps users
+   *  out of the chat panel for a quick "what's broken?" check. */
+  degradedConnectorNames: string[];
   pendingHitlCount: number;
   autoStartGateway: boolean;
 };
@@ -3704,7 +3744,14 @@ const COLOR_WARN = { id: "statusBarItem.warningBackground" };
 const COLOR_ERR = { id: "statusBarItem.errorBackground" };
 
 export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
-  const { connection, profile, degradedConnectorCount, pendingHitlCount, autoStartGateway } = inp;
+  const {
+    connection,
+    profile,
+    degradedConnectorCount,
+    degradedConnectorNames,
+    pendingHitlCount,
+    autoStartGateway,
+  } = inp;
 
   if (connection.kind === "connecting" || connection.kind === "idle") {
     return {
@@ -3771,10 +3818,18 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
   const text = `Nimbus: ${icon} ${profileSegment}${tagSegment}`;
 
   let command = "nimbus.ask";
-  let tooltip = `Connected · profile=${profileSegment} · ${degradedConnectorCount} connectors degraded`;
+  const degradedSummary =
+    degradedConnectorCount === 0
+      ? "0 connectors degraded"
+      : degradedConnectorNames.length > 0
+        ? `${degradedConnectorCount} degraded: ${degradedConnectorNames.join(", ")}`
+        : `${degradedConnectorCount} connectors degraded`;
+  let tooltip = `Connected · profile=${profileSegment} · ${degradedSummary}`;
   if (pendingHitlCount > 0) {
     command = "nimbus.showPendingHitl";
-    tooltip = `${pendingHitlCount} consent request(s) waiting`;
+    tooltip = `${pendingHitlCount} consent request(s) waiting${
+      degradedConnectorCount > 0 ? ` · ${degradedSummary}` : ""
+    }`;
   }
 
   return { text, tooltip, command, backgroundColor: bg };
@@ -5709,6 +5764,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sbItem = window.createStatusBarItem(1, 100);
   const sbCtl = createStatusBarController(sbItem);
   let degraded = 0;
+  let degradedNames: string[] = [];
   let pending = 0;
   let profile = "default";
   const updateStatusBar = (): void => {
@@ -5716,6 +5772,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       connection: connection.current(),
       profile,
       degradedConnectorCount: degraded,
+      degradedConnectorNames: degradedNames,
       pendingHitlCount: pending,
       autoStartGateway: settings.autoStartGateway(),
     });
@@ -5995,6 +6052,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("nimbus.runWorkflow", runWfCmd),
     vscode.commands.registerCommand("nimbus.newConversation", newConvCmd),
     vscode.commands.registerCommand("nimbus.startGateway", startGwCmd),
+    vscode.commands.registerCommand("nimbus.reconnect", async () => {
+      logger.info("Manual reconnect requested via nimbus.reconnect");
+      await connection.reconnectNow();
+    }),
     vscode.commands.registerCommand("nimbus.openLogs", () => channel.show(true)),
     vscode.commands.registerCommand("nimbus.showPendingHitl", async () => {
       const snap = router.snapshot();
@@ -6065,10 +6126,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const c = connection.client() as unknown as { ipc?: { call: (m: string, p?: unknown) => Promise<unknown> } } | undefined;
     if (c?.ipc === undefined) return;
     try {
-      const list = (await c.ipc.call("connector.list")) as Array<{ health?: string }>;
-      degraded = Array.isArray(list)
-        ? list.filter((it) => typeof it.health === "string" && it.health !== "healthy" && it.health !== "ok").length
-        : 0;
+      const list = (await c.ipc.call("connector.list")) as Array<{
+        name?: string;
+        health?: string;
+      }>;
+      const broken = Array.isArray(list)
+        ? list.filter(
+            (it) =>
+              typeof it.health === "string" && it.health !== "healthy" && it.health !== "ok",
+          )
+        : [];
+      degraded = broken.length;
+      degradedNames = broken
+        .map((it) => (typeof it.name === "string" ? it.name : ""))
+        .filter((n) => n.length > 0);
       updateStatusBar();
     } catch {
       // ignored — status bar rendering tolerates stale data
