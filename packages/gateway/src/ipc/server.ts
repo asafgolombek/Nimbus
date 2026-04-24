@@ -25,6 +25,7 @@ import {
   createStreamRegistry,
   type StreamRegistry,
 } from "./engine-ask-stream.ts";
+import { createCancelStreamHandler } from "./engine-cancel-stream.ts";
 import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
@@ -954,6 +955,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         if (sessionId !== undefined) params2.sessionId = sessionId;
         return await dispatch(clientId, params2);
       }
+
+      case "engine.cancelStream":
+        return createCancelStreamHandler(streamRegistry)(params);
 
       default:
         return await rpcVaultOrMethodNotFound(method, params);
