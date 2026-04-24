@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
@@ -14,6 +16,8 @@ class FakeClient {
   }
 }
 
+const SOCK = join(tmpdir(), "nimbus-test.sock");
+
 describe("ConnectionManager", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -25,7 +29,7 @@ describe("ConnectionManager", () => {
   test("transitions connecting → connected on success", async () => {
     const deps: ConnectionDeps = {
       open: async () => new FakeClient() as unknown as NimbusClientLike,
-      discoverSocket: async () => ({ socketPath: "/tmp/test.sock", source: "default" }),
+      discoverSocket: async () => ({ socketPath: SOCK, source: "default" }),
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
       reconnectDelayMs: 5,
     };
@@ -44,7 +48,7 @@ describe("ConnectionManager", () => {
         err.code = "EACCES";
         throw err;
       },
-      discoverSocket: async () => ({ socketPath: "/tmp/x.sock", source: "default" }),
+      discoverSocket: async () => ({ socketPath: SOCK, source: "default" }),
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
       reconnectDelayMs: 1000,
     };
@@ -55,7 +59,7 @@ describe("ConnectionManager", () => {
     const last = states[states.length - 1];
     expect(last?.kind).toBe("permission-denied");
     if (last?.kind === "permission-denied") {
-      expect(last.socketPath).toBe("/tmp/x.sock");
+      expect(last.socketPath).toBe(SOCK);
     }
     await mgr.dispose();
   });
@@ -72,7 +76,7 @@ describe("ConnectionManager", () => {
         }
         return new FakeClient() as unknown as NimbusClientLike;
       },
-      discoverSocket: async () => ({ socketPath: "/tmp/y.sock", source: "default" }),
+      discoverSocket: async () => ({ socketPath: SOCK, source: "default" }),
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
       reconnectDelayMs: 1,
     };

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
 
@@ -35,25 +37,27 @@ function makeDeps(opts: {
   };
 }
 
+const SOCK = join(tmpdir(), "nimbus-test.sock");
+
 describe("AutoStarter.spawn", () => {
   test("returns success when socket appears within timeout", async () => {
     const deps = makeDeps({ socketAppearsAfterMs: 20 });
     const starter = createAutoStarter(deps);
-    const r = await starter.spawn("/tmp/x.sock");
+    const r = await starter.spawn(SOCK);
     expect(r.kind).toBe("ok");
   });
 
   test("returns timeout when socket never appears", async () => {
     const deps = makeDeps({ socketAppearsAfterMs: 99999 });
     const starter = createAutoStarter(deps);
-    const r = await starter.spawn("/tmp/x.sock");
+    const r = await starter.spawn(SOCK);
     expect(r.kind).toBe("timeout");
   });
 
   test("returns spawn-error when binary not found", async () => {
     const deps = makeDeps({ spawnFails: true });
     const starter = createAutoStarter(deps);
-    const r = await starter.spawn("/tmp/x.sock");
+    const r = await starter.spawn(SOCK);
     expect(r.kind).toBe("spawn-error");
   });
 });

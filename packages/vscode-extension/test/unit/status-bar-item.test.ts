@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -5,9 +7,11 @@ import {
   type StatusBarInputs,
 } from "../../src/status-bar/status-bar-item.ts";
 
+const SOCK = join(tmpdir(), "nimbus-test.sock");
+
 function inputs(p: Partial<StatusBarInputs> = {}): StatusBarInputs {
   return {
-    connection: { kind: "connected", socketPath: "/tmp/s" },
+    connection: { kind: "connected", socketPath: SOCK },
     profile: "work",
     degradedConnectorCount: 0,
     degradedConnectorNames: [],

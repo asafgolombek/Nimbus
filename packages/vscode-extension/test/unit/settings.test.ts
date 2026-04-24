@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
 
 import { createSettings } from "../../src/settings.js";
@@ -24,9 +26,10 @@ describe("Settings", () => {
   });
 
   test("returns user-set values", () => {
+    const customSock = join(tmpdir(), "custom.sock");
     const s = createSettings(
       makeWorkspace({
-        socketPath: "/tmp/custom.sock",
+        socketPath: customSock,
         autoStartGateway: true,
         statusBarPollMs: 5000,
         transcriptHistoryLimit: 200,
@@ -35,7 +38,7 @@ describe("Settings", () => {
         logLevel: "debug",
       }),
     );
-    expect(s.socketPath()).toBe("/tmp/custom.sock");
+    expect(s.socketPath()).toBe(customSock);
     expect(s.autoStartGateway()).toBe(true);
     expect(s.statusBarPollMs()).toBe(5000);
     expect(s.transcriptHistoryLimit()).toBe(200);
