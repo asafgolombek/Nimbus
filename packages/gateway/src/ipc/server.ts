@@ -26,6 +26,10 @@ import {
   type StreamRegistry,
 } from "./engine-ask-stream.ts";
 import { createCancelStreamHandler } from "./engine-cancel-stream.ts";
+import {
+  createGetSessionTranscriptHandler,
+  type SessionTranscriptResult,
+} from "./engine-get-session-transcript.ts";
 import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
@@ -223,6 +227,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   let agentInvokeHandler: AgentInvokeHandler | undefined = options.agentInvoke;
   let workflowRunHandler: WorkflowRunHandler | undefined = options.workflowRun;
   const streamRegistry: StreamRegistry = createStreamRegistry();
+  let getSessionTranscriptHandler:
+    | ((p: unknown) => Promise<SessionTranscriptResult>)
+    | undefined;
   const sessions = new Map<string, ClientSession>();
   const consentImpl = new ConsentCoordinatorImpl((clientId) => {
     const session = sessions.get(clientId);
@@ -958,6 +965,18 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
       case "engine.cancelStream":
         return createCancelStreamHandler(streamRegistry)(params);
+
+      case "engine.getSessionTranscript": {
+        if (getSessionTranscriptHandler === undefined) {
+          if (options.localIndex === undefined) {
+            throw new RpcMethodError(-32603, "engine.getSessionTranscript requires local index");
+          }
+          getSessionTranscriptHandler = createGetSessionTranscriptHandler(
+            options.localIndex.getDatabase(),
+          );
+        }
+        return await getSessionTranscriptHandler(params);
+      }
 
       default:
         return await rpcVaultOrMethodNotFound(method, params);
