@@ -171,6 +171,7 @@
     "marked": "^14.0.0"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.0",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.90.0",
     "@vitest/coverage-v8": "^2.0.0",
@@ -178,6 +179,7 @@
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.23.0",
     "jsdom": "^25.0.0",
+    "mocha": "^10.0.0",
     "ovsx": "^0.10.0",
     "typescript": "^6.0.3",
     "vitest": "^2.0.0"

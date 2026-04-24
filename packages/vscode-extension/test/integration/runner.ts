@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 async function main(): Promise<void> {
   const extensionDevelopmentPath = resolve(__dirname, "..", "..");
-  const extensionTestsPath = resolve(__dirname, "ask-roundtrip.test.js");
+  const extensionTestsPath = resolve(__dirname, "index.js");
   await runTests({ extensionDevelopmentPath, extensionTestsPath });
 }
 
