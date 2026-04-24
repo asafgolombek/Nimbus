@@ -55,8 +55,8 @@ The extension also **drives the long-overdue Node-compat refactor of `@nimbus-de
 
 ### 2.3 Non-goals (architectural)
 
-- The extension does not bypass the HITL gate. Every consent surface (inline card, modal, multi-action diff Webview, status-bar Quick Pick) ultimately calls `consent.respond` exactly once per `requestId`.
-- The extension does not store user content. No transcripts in `workspaceState`/`globalState`. The Gateway is the source of truth (machine-of-record principle, CLAUDE.md non-negotiable #1).
+- The extension does not bypass the HITL gate. Every consent surface (inline card, non-modal toast, modal, multi-action diff view) ultimately calls `consent.respond` exactly once per `requestId`.
+- The extension does not store user content. No prompts, responses, audit data, or any other user-generated text in `workspaceState`/`globalState`. The Gateway is the source of truth (machine-of-record principle, CLAUDE.md non-negotiable #1). **Exception for metadata only:** the current chat panel's `sessionId` (a UUID; not content) MAY be persisted to `workspaceState` so that workbench reload can re-issue `engine.getSessionTranscript(sessionId)` and rehydrate from the Gateway. The `sessionId` is the only thing the extension persists.
 - The extension does not import Gateway source. IPC-only, per the package dependency rules.
 - The extension does not log prompt or response content. The output channel records connection events, routing decisions, and errors — never message bodies.
 
@@ -115,11 +115,12 @@ The CLI gets a small follow-up refactor to consume the moved `paths` and `discov
 
 1. `OutputChannel` ("Nimbus") via `vscode.window.createOutputChannel`.
 2. `Settings` accessor (typed reads of `nimbus.*`).
-3. `ConnectionManager` — owns the `NimbusClient` instance, attempts initial connect, runs reconnect loop on disconnect.
+3. `ConnectionManager` — owns the `NimbusClient` instance, attempts initial connect, runs reconnect loop on disconnect. On connect-error `EACCES` (permission denied accessing the socket — multi-user systems, weird sudo cases), the manager surfaces a distinct state (`permission-denied`) so the status bar tooltip reads "Permission denied accessing socket: <path>" instead of the misleading "Gateway not running"; the full error logs to the output channel.
 4. `StatusBarItem` — subscribes to `ConnectionManager` state and `HitlRouter` count; polls `connector.list` every `nimbus.statusBarPollMs` (default 30 s).
 5. `HitlRouter` — subscribes to `agent.hitlBatch` via `client.subscribeHitl()`.
-6. `ChatPanel` registry — lazy-created on first `nimbus.ask`; survives panel-hide via `retainContextWhenHidden: true`.
-7. Command registrations (7 commands; see §6.1).
+6. `ChatPanel` registry — lazy-created on first `nimbus.ask`; survives panel-hide via `retainContextWhenHidden: true`. Persists current `sessionId` (UUID metadata only — never content) to `workspaceState` under key `nimbus.activeSessionId` so workbench reload can re-issue `engine.getSessionTranscript`.
+7. `nimbus-item:` URI scheme registered via `vscode.workspace.registerTextDocumentContentProvider` for read-only rendering of search-result items without external URLs (§6.1).
+8. Command registrations (7 commands; see §6.1).
 
 **Deactivation.** `extension.ts:deactivate()` disposes the panel, closes the client, cancels reconnect timers, disposes the status bar.
 
@@ -267,6 +268,8 @@ Backed by a `SELECT` against the existing `audit_log` table filtered by `session
 
 Promotes an existing internal primitive. Params `{ streamId: string }`; idempotent (cancelling an unknown or already-finished stream returns `ok: true` without error). Audit-logs as `engine.streamCancelled` for traceability. Handler lives in `engine-cancel-stream.ts`; tests cover (a) cancellation of an active stream halts further token notifications, (b) cancellation of an unknown stream is a no-op success, (c) cancellation during a HITL pause wakes the await and resolves with cancelled status.
 
+**Stream lifetime is bound to the IPC connection.** When the IPC connection drops (extension reload, network blip, Gateway crash), the Gateway terminates any streams owned by that connection as part of normal connection cleanup. This means there is no "orphaned stream after reconnect" scenario — the next connection starts with a clean slate. `engine.cancelStream` is for *in-connection* cancellation only: the stream owner has the `streamId` (in memory) and chooses to stop early.
+
 ### 5.3 Tauri allowlist update
 
 `packages/ui/src-tauri/src/gateway_bridge.rs`:
@@ -284,10 +287,10 @@ Promotes an existing internal primitive. Params `{ streamId: string }`; idempote
 | Command ID | Title | Trigger | Behavior |
 |---|---|---|---|
 | `nimbus.ask` | Ask | palette, status-bar click (when healthy) | Reveal/create chat panel, focus input. If panel already has an active stream, blocked with toast: *"Stream in progress; click Stop or wait for it to finish."* |
-| `nimbus.askAboutSelection` | Ask About Selection | editor right-click (`when: editorHasSelection`) | Same as `ask`, pre-fills input with `Context:\n\`\`\`<langId>\n<selection>\n\`\`\`\n\nQuestion: ` and places caret after `Question: `. Lang fence comes from `editor.document.languageId`. |
-| `nimbus.search` | Search | palette | `vscode.window.showInputBox` for query → `index.queryItems({ query, limit: 50 })` → Quick Pick list (`title — service · type · sinceHuman`). Selecting an item with a URL runs `vscode.env.openExternal`; without a URL, opens a small read-only Webview showing the item's structured fields. |
+| `nimbus.askAboutSelection` | Ask About Selection | editor right-click (`when: editorHasSelection`) | Same as `ask`, pre-fills input with `Context (<workspace-relative-path>, lines <start>–<end>):\n\`\`\`<langId>\n<selection>\n\`\`\`\n\nQuestion: ` and places caret after `Question: `. Path is `vscode.workspace.asRelativePath(editor.document.uri)`; line range is `selection.start.line + 1`–`selection.end.line + 1` (1-based for human readability); lang fence is `editor.document.languageId`. The path + line numbers materially improve LLM accuracy and let the user reference the file in follow-up Asks ("now show me how that interacts with line 80"). |
+| `nimbus.search` | Search | palette | `vscode.window.showInputBox` for query → `index.queryItems({ query, limit: 50 })` → Quick Pick list (`title — service · type · sinceHuman`). Selecting an item: (a) item has a URL → `vscode.env.openExternal(uri)`; (b) item has a local file path → `vscode.workspace.openTextDocument(uri)` then `showTextDocument`; (c) otherwise → `vscode.workspace.openTextDocument(vscode.Uri.parse(\`nimbus-item:\${itemId}\`))` opens the item's structured fields as a read-only markdown editor tab via the registered `TextDocumentContentProvider` (no extra Webview type needed). |
 | `nimbus.searchSelection` | Search Selection | editor right-click | As above with selection text pre-filled (no input box step). |
-| `nimbus.runWorkflow` | Run Workflow | palette | Quick Pick over `workflow.list` → `workflow.run({ name })`. Streams `agent.subTaskProgress` into the "Nimbus" output channel. HITL batches go through the standard router. |
+| `nimbus.runWorkflow` | Run Workflow | palette | Quick Pick over `workflow.list` → `workflow.run({ name })`. Streams `agent.subTaskProgress` into the "Nimbus" output channel. On invocation, fires a non-blocking toast `"Running workflow <name>…"` with a `Show Progress` button that calls `outputChannel.show(true)` to focus the channel. HITL batches go through the standard router. |
 | `nimbus.newConversation` | New Conversation | palette | Cancels active stream if any (via `cancelStream`); resets `sessionId` to undefined; clears Webview transcript with a `{type:"reset"}` postMessage. |
 | `nimbus.startGateway` | Start Gateway | palette | Always callable. Calls `AutoStarter.spawn()` and waits up to 10 s for the socket. Success → status bar flips green + toast confirms. Failure (binary not on PATH, spawn error, socket never appears) → error notification with "Open Logs" button that focuses the output channel. |
 
@@ -300,6 +303,7 @@ Promotes an existing internal primitive. Params `{ streamId: string }`; idempote
 | `nimbus.statusBarPollMs` | number | `30000` | Connector-list poll cadence. Min 5 000 to defend against accidental DoS via misconfig. |
 | `nimbus.transcriptHistoryLimit` | number | `50` | How many turns to rehydrate from `engine.getSessionTranscript` on Webview reload. Min 1, max 500 (matches server clamp). |
 | `nimbus.askAgent` | string | `""` | Optional default agent name passed to `askStream({ agent })`. Blank = Gateway default. |
+| `nimbus.hitlAlwaysModal` | boolean | `false` | When `false` (default), out-of-chat HITL surfaces as a non-modal toast (`showInformationMessage` without `{modal:true}`). When `true`, out-of-chat HITL is always rendered as a blocking modal. In-chat HITL (rendered as inline cards in the chat panel) is unaffected. |
 | `nimbus.logLevel` | enum `"error" \| "warn" \| "info" \| "debug"` | `"info"` | Output-channel verbosity. Stream-level errors always log at `error` regardless. |
 
 No telemetry setting (none is sent). No auto-update setting (VS Code handles extension updates).
@@ -312,6 +316,7 @@ One status-bar item, left-aligned, priority `100`. Renders by precedence:
 |---|---|---|---|
 | Connecting (initial) | `Nimbus: $(sync~spin) connecting…` | normal | no-op |
 | Disconnected, autostart off | `Nimbus: $(circle-slash) Gateway not running` | warning | `nimbus.startGateway` |
+| Permission denied (`EACCES` on socket) | `Nimbus: $(error) Socket permission denied` | error | opens output channel with full diagnostic; tooltip: `Permission denied accessing socket: <path> — check file ownership/mode or socketPath setting` |
 | Disconnected, autostart on, retrying | `Nimbus: $(sync~spin) starting Gateway…` | normal | no-op |
 | Connected, healthy | `Nimbus: $(circle-large-filled) <profile>` | normal | `nimbus.ask` |
 | Connected, degraded connector(s) | `Nimbus: $(warning) <profile> · <n> degraded` | warning | `nimbus.ask` |
@@ -332,7 +337,22 @@ All icons are VS Code built-in codicons; no custom font.
 
 **Stop button.** Appears in the input area while a stream is active; click → `client.askStream(...).cancel()`.
 
-**Reload safety.** On Webview re-creation after a `Developer: Reload Window`, the Webview posts `{type:"requestRehydrate", sessionId}` to the extension. The extension calls `engine.getSessionTranscript({ sessionId, limit: nimbus.transcriptHistoryLimit })` and posts `{type:"hydrate", turns}` back. Webview repaints in turn order.
+**Reload safety.** On Webview re-creation after a `Developer: Reload Window`, the extension reads `nimbus.activeSessionId` from `workspaceState`, then on Webview ready posts `{type:"hydrate", turns}` after calling `engine.getSessionTranscript({ sessionId, limit: nimbus.transcriptHistoryLimit })`. Webview repaints in turn order. If `workspaceState` has no `nimbus.activeSessionId` (fresh install or `Nimbus: New Conversation` was the last action), the empty state (§6.4.1) renders.
+
+#### 6.4.1 Empty state
+
+The chat Webview must render coherently in three "no transcript yet" situations: (a) first-ever launch in a workspace, (b) immediately after `Nimbus: New Conversation`, (c) Gateway is disconnected at panel open. Empty-state UI:
+
+| Sub-state | Hero card content | CTA buttons |
+|---|---|---|
+| Connected, no transcript | Title: "Ask Nimbus anything"; subtitle: "Use the input below, or try one of these commands."; body: outline of `Ask`, `Search`, `Run Workflow` with their keybinding hints. | none — input is the CTA |
+| Disconnected, autostart off | Title: "Nimbus Gateway is not running"; subtitle: "The extension can't reach the Gateway socket at `<path>`."; body: 1-sentence explanation that the Gateway is a separate background process. | primary: **Start Gateway** (calls `nimbus.startGateway`); secondary: link to `docs/install-*.md` (`vscode.env.openExternal`) |
+| Disconnected, EACCES | Title: "Permission denied"; body: full socket path + advice to check ownership/mode or set `nimbus.socketPath`. | secondary: **Open Logs** (focuses output channel); secondary: **Open Settings** (jumps to the `Nimbus: Socket Path` setting) |
+| Connected, no transcript, but `nimbus.autoStartGateway: false` and Gateway was previously down | Standard "Ask Nimbus anything" card | none |
+
+The empty-state card uses the same `--vscode-*` CSS variables as transcript content; no separate stylesheet. Buttons use `--vscode-button-background` / `--vscode-button-foreground`. The hero card disposes the moment the first user message lands in the transcript — there is no "split view" with the empty state visible alongside an in-progress chat.
+
+The empty state is the answer to the reviewer's "should auto-start be on by default?" question (§13 — decided no, keep `false`): users see a prominent **Start Gateway** button without us silently spawning processes from extension activation.
 
 ### 6.5 HITL routing decision tree
 
@@ -355,12 +375,16 @@ All icons are VS Code built-in codicons; no custom font.
               └───┬───────────┬───┘  │ scheduled task       │
                   │ yes       │ no   └──────────┬───────────┘
                   ▼           ▼                 ▼
-        ┌────────────────┐  ┌────────────────────────────┐
-        │ INLINE in chat │  │ MODAL info-message          │
-        │ (Approve/      │  │ (Approve / Reject)          │
-        │  Reject card,  │  │ Multi-action → side Webview │
-        │  blocks stream)│  │ diff panel                  │
-        └───────┬────────┘  └──────────┬─────────────────┘
+        ┌────────────────┐  ┌────────────────────────────────┐
+        │ INLINE in chat │  │ NON-MODAL TOAST (default)      │
+        │ (Approve/      │  │ showInformationMessage(msg,    │
+        │  Reject card,  │  │   "Approve","Reject",          │
+        │  blocks stream)│  │   "View Details")              │
+        │                │  │                                │
+        │                │  │ — OR if nimbus.hitlAlwaysModal │
+        │                │  │ MODAL info-message ({modal:    │
+        │                │  │   true})                       │
+        └───────┬────────┘  └──────────┬─────────────────────┘
                 └──────────┬───────────┘
                            ▼
                 ┌────────────────────────┐
@@ -378,11 +402,18 @@ All icons are VS Code built-in codicons; no custom font.
                 └────────────────────────┘
 ```
 
-**Bookkeeping.** `ChatController` registers its `streamId` with `HitlRouter` on stream start and unregisters on stream end. `HitlRouter` keeps a `Map<streamId, ChatController>` so it can route per-stream batches inline; everything else routes modal.
+**Why non-modal by default.** VS Code's `{modal:true}` blocks all VS Code interaction until the user clicks a button — it is reserved across the ecosystem for genuinely blocking decisions ("overwrite this file?"). HITL batches from background workflows can fire while the user is mid-keystroke in another file; a modal there is hostile UX. The non-modal toast persists in the Notifications panel even after the toast itself fades, and the status-bar count badge always reflects pending requests, so a missed toast remains discoverable. Users who want every HITL to be unmissable can opt into modals via `nimbus.hitlAlwaysModal: true`. **In-chat HITL** (rendered as inline cards in the chat panel) is unaffected by either setting — it is always inline because the chat panel itself is the focused surface.
 
-**Debounce invariant.** Exactly one `consent.respond` per `requestId`. If both the inline card and the modal somehow co-render (panel becomes hidden mid-prompt and a modal then appears), the first response wins; the other surface is silently dismissed when the request resolves on the Gateway side.
+**"View Details" / multi-action HITL surface.** When the request includes multiple actions or a payload too large to fit in the toast/inline card text:
 
-**Background HITL surface.** Status-bar click on `Nimbus: ⚠ N pending` opens a Quick Pick of pending requests. Each entry opens its modal. No new IPC; just `HitlRouter.snapshot()`.
+- **For file-edit actions** (HITL action carries an explicit before/after file URI pair) — clicking "View Details" or the inline card's "View Diff" link opens VS Code's built-in `vscode.diff(left, right, title)` command. This shows side-by-side diff in a normal editor tab, gets all of VS Code's diff editor features for free (jump to next change, copy lines, etc.), and disposes when the user closes it. No custom Webview.
+- **For non-file-edit actions** (e.g., "send email to X with body Y", "create PR titled Z" — the payload is structured data, not a file diff) — clicking "View Details" opens a transient `WebviewPanel` (`viewType: "nimbus.hitl-details"`) that renders the action JSON as syntax-highlighted markdown with Approve / Reject buttons. Disposed when the user responds, presses ESC, or closes the tab. This is the only "transient Webview" type beyond the persistent chat panel.
+
+**Bookkeeping.** `ChatController` registers its `streamId` with `HitlRouter` on stream start and unregisters on stream end. `HitlRouter` keeps a `Map<streamId, ChatController>` so it can route per-stream batches inline; everything else routes via the toast/modal path.
+
+**Debounce invariant.** Exactly one `consent.respond` per `requestId`. If multiple surfaces co-render (toast still visible while user opens "View Details" Webview), the first response wins; the other surface is silently dismissed when the request resolves on the Gateway side.
+
+**Background HITL surface.** Status-bar click on `Nimbus: ⚠ N pending` opens a Quick Pick of pending requests. Each entry triggers the surface chosen by `nimbus.hitlAlwaysModal` (toast or modal). No new IPC; just `HitlRouter.snapshot()`.
 
 ### 6.6 Streaming flow (happy path)
 
@@ -472,11 +503,15 @@ packages/vscode-extension/
 │   │   ├── chat-panel.ts           # WebviewPanel singleton; retainContextWhenHidden
 │   │   ├── chat-protocol.ts        # typed messages over webview.postMessage
 │   │   ├── chat-controller.ts      # askStream → postMessage; HITL inline render
+│   │   ├── session-store.ts        # workspaceState read/write of nimbus.activeSessionId (UUID only)
 │   │   └── webview/                # bundled by esbuild into media/webview.js
 │   │       ├── main.ts             # message pump; transcript renderer; theme listener
 │   │       ├── markdown.ts         # streaming markdown renderer (uses `marked`)
 │   │       ├── hitl-card.ts        # inline HITL card component
+│   │       ├── empty-state.ts      # hero card for §6.4.1 empty-state sub-states
 │   │       └── styles.css          # uses --vscode-* CSS variables
+│   ├── search/
+│   │   └── item-provider.ts        # TextDocumentContentProvider for nimbus-item: URIs
 │   ├── commands/
 │   │   ├── ask.ts                  # nimbus.ask + nimbus.askAboutSelection
 │   │   ├── search.ts               # nimbus.search + nimbus.searchSelection
@@ -485,7 +520,9 @@ packages/vscode-extension/
 │   │   └── start-gateway.ts        # nimbus.startGateway
 │   ├── hitl/
 │   │   ├── hitl-router.ts          # context-sensitive routing (§6.5)
-│   │   └── hitl-modal.ts           # modal info-message wrapper
+│   │   ├── hitl-toast.ts           # non-modal showInformationMessage wrapper (default surface)
+│   │   ├── hitl-modal.ts           # modal info-message wrapper (opt-in via setting)
+│   │   └── hitl-details-webview.ts # transient WebviewPanel for non-file multi-action details
 │   ├── settings.ts                 # typed accessors for nimbus.* settings
 │   └── logging.ts                  # OutputChannel adapter
 ├── media/                          # built artifacts go here (webview.js, webview.css)
@@ -556,8 +593,11 @@ The integration test runs as separate jobs (`vscode-extension-integration-{ubunt
 - Activate extension in real VS Code → status bar shows `Gateway not running` → mock socket appears → status bar flips green → run `nimbus.ask` → Webview opens → mock stream produces 3 tokens → Webview DOM contains all 3.
 
 **Manual smoke.**
-- 3 OSes × VS Code: install `.vsix`, run Ask, see stream, trigger HITL (modal + inline routing), theme switch (Dark→Light→HC), reload window and see transcript rehydrate.
+- 3 OSes × VS Code: install `.vsix`, run Ask, see stream, trigger HITL (toast + inline routing; flip `nimbus.hitlAlwaysModal: true` and verify modal path), theme switch (Dark→Light→HC), reload window and see transcript rehydrate.
 - 1 OS × Cursor: install from Open VSX, run Ask, confirm streams.
+- **Memory check:** after a 100-turn chat session (use a deterministic script of repeated short Asks), open VS Code's process explorer (`Developer: Open Process Explorer`) and confirm the extension host RSS stays below 200 MB. If exceeded, file a follow-up issue for virtual scrolling in the chat Webview transcript renderer.
+- **Empty state:** with Gateway stopped, run `Nimbus: Ask` and verify the empty-state hero card renders the **Start Gateway** CTA (§6.4.1).
+- **Permission denied:** on Linux/macOS, `chmod 000 <socketPath>` and verify the status bar shows `Socket permission denied` (not `Gateway not running`); restore mode after.
 
 ### 8.4 What's not tested automatically (acceptable)
 
@@ -679,16 +719,18 @@ None. The CLI's `paths.ts` and `gateway-process.ts` stay in place during WS7; co
 Reproducing the finish-plan §4.4 list with the design's specifics added:
 
 - [ ] `Nimbus: Ask` streams a result from a running Gateway without manual configuration on VS Code 1.90+ and Cursor.
-- [ ] Inline HITL surfaces in the chat panel when visible+focused; modal otherwise; `consent.respond` called exactly once per `requestId`.
+- [ ] Inline HITL surfaces in the chat panel when visible+focused; non-modal toast otherwise (modal when `nimbus.hitlAlwaysModal: true`); `consent.respond` called exactly once per `requestId`.
+- [ ] Empty-state hero card renders the **Start Gateway** CTA when chat panel opens with the Gateway disconnected (§6.4.1).
+- [ ] Workbench reload restores the chat transcript via `engine.getSessionTranscript({ sessionId })`, reading `sessionId` from `workspaceState`.
 - [ ] `Nimbus: Ask About Selection` from the editor right-click menu pre-fills with a fenced selection.
 - [ ] `Nimbus: Run Workflow` runs a workflow and surfaces sub-task progress in the OutputChannel; HITL routes through the same router.
 - [ ] Status-bar health dot changes within 30 s of a connector transitioning to `degraded`.
 - [ ] Status-bar HITL count badge changes within 1 s of `agent.hitlBatch` arrival.
 - [ ] `Nimbus: New Conversation` cancels active stream + resets `sessionId` + clears Webview.
-- [ ] `Developer: Reload Window` repaints the chat transcript via `engine.getSessionTranscript`.
 - [ ] Extension installs on Open VSX from a published `vscode-v0.1.0` tag (manual smoke).
 - [ ] `@nimbus-dev/client` node-compat test passes on all three OSes under `node --test`.
 - [ ] Webview theme matches VS Code theme on Dark / Light / HC / HC-Light (manual smoke screenshot).
+- [ ] `Nimbus: Search` opens external URLs via `openExternal`, local files via `openTextDocument`, and structured items via the `nimbus-item:` URI scheme (§6.1).
 - [ ] Coverage on `packages/vscode-extension/src/` ≥ 80 % lines / ≥ 75 % branches (CI gate).
 
 ---
@@ -715,17 +757,25 @@ All eight scope questions raised during brainstorming have been resolved:
 2. **Streaming API surface** — Typed `askStream(input, opts) → AsyncIterable<StreamEvent>` in `NimbusClient`. Consolidated `hitlBatch` and `subTaskProgress` events through the same iterator; separate `subscribeHitl()` for non-stream HITL. (§4.2–§4.3)
 3. **Gateway-not-running UX** — Hybrid: passive default + opt-in `nimbus.autoStartGateway` setting + explicit `Nimbus: Start Gateway` command. (§5.1, §6.1, §6.3)
 4. **Chat Webview lifecycle** — Single persistent panel; reused across Asks; `retainContextWhenHidden`; transcripts rehydrated from the Gateway on reload. (§6.4)
-5. **HITL routing** — Context-sensitive: inline in chat when panel visible+focused; modal otherwise; status-bar count badge always reflects pending. (§6.5)
+5. **HITL routing** — Context-sensitive: inline in chat when panel visible+focused; **non-modal toast** otherwise (per design-review feedback — modals are too aggressive for routine HITL); status-bar count badge always reflects pending. Modal behavior remains opt-in via `nimbus.hitlAlwaysModal`. Multi-action HITL: `vscode.diff` for file edits, transient Webview for non-file structured payloads. (§6.5)
 6. **In-editor surfaces beyond §4.4** — Add right-click menu items (`Nimbus: Ask About Selection`, `Nimbus: Search Selection`). Reject status-bar Quick Pick for one-line Ask (revisit if telemetry shows demand). (§6.1)
 7. **Activation strategy** — Eager `onStartupFinished` so the status bar is always visible; required for HITL count badge from background workflows. (§3.3)
-8. **Transcript persistence** — Gateway-backed via new `engine.getSessionTranscript` IPC. No extension-side storage; respects the "machine is the source of truth" non-negotiable. (§5.1, §6.4)
+8. **Transcript persistence** — Gateway-backed via new `engine.getSessionTranscript` IPC. No user content in extension-side storage; the only thing the extension persists to `workspaceState` is the current `sessionId` (UUID metadata) so workbench reload knows which transcript to rehydrate. Respects the "machine is the source of truth" non-negotiable for content. (§2.3, §5.1, §6.4)
 
 Smaller decisions deferred to the implementation plan:
 
 - `marked` vs `markdown-it` for streaming markdown. Default `marked`; benchmark on a 50-token burst.
-- OutputChannel vs side Webview for workflow run progress. Default OutputChannel.
+- OutputChannel vs side Webview for workflow run progress. Default OutputChannel; toast with `Show Progress` button focuses it (§6.1).
 - Code copy-button location (top-right vs hover). Default top-right.
 - Whether `Nimbus: Ask` accepts multi-line input via `showInputBox`. Decision: no — Ask opens the chat panel directly and focuses its input (which is multi-line capable as a Webview `<textarea>`).
+
+### 13.1 Deferred to follow-up (post-v0.1.0)
+
+The following emerged during design review as good ideas that are out of scope for WS7:
+
+1. **`connector.onHealthChanged` IPC notification.** Replacing the 30 s `connector.list` poll in the status bar with a Gateway-pushed notification would make health updates instant, but introducing the notification is a Gateway-wide change that benefits all clients (CLI, TUI, Tauri UI, VS Code) equally. The Tauri UI already uses the polling pattern; matching it in WS7 keeps the surfaces consistent. Track as a Gateway-improvement issue; once the notification exists, the extension switches over with a one-line subscribe-or-poll fallback.
+2. **`@vscode/codicons` inside the Webview body.** Status-bar icons already use codicons via `$(...)` syntax (works natively). Inside the chat Webview body, v0.1.0 content is plain markdown — no icons needed. Service icons (GitHub / Jira / Slack / etc.) aren't in codicons anyway; they'd need a separate icon-pack source. Defer until the Webview surfaces something that needs icons.
+3. **Auto-start by default.** Reviewer asked whether `nimbus.autoStartGateway` should default to `true` for "it just works" UX. Decision stands at `false` — silent process spawning from extension activation is fragile (macOS GUI-launched VS Code has notoriously broken `PATH`) and gets flagged in corporate review. The empty-state Start Gateway button (§6.4.1) gives the same UX without the silent spawn. If post-v0.1.0 telemetry (TBD; opt-in) shows users overwhelmingly enable autostart, revisit.
 
 ---
 
