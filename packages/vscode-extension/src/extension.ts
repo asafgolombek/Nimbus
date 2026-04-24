@@ -335,10 +335,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (itemId === undefined) return "";
       const c = connection.client() as unknown as NimbusClient | undefined;
       if (c === undefined) return "Gateway not connected.";
-      const r = await c.queryItems({ limit: 1 });
-      const found = (r.items as Record<string, unknown>[]).find((it) => it.id === itemId);
-      if (found === undefined) return `Item not found: ${itemId}`;
-      return formatItemMarkdown(found);
+      const escaped = itemId.replace(/'/g, "''");
+      const r = await c.querySql(`SELECT * FROM items WHERE id = '${escaped}' LIMIT 1`);
+      if (r.rows.length === 0) return `Item not found: ${itemId}`;
+      return formatItemMarkdown(r.rows[0] as Record<string, unknown>);
     },
   };
   context.subscriptions.push(
@@ -368,9 +368,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     client: {
       queryItems: async (params) => {
         const c = connection.client() as unknown as NimbusClient;
-        const queryParams: Parameters<typeof c.queryItems>[0] = {};
-        if (params.limit !== undefined) queryParams.limit = params.limit;
-        return await c.queryItems(queryParams);
+        if (params.query !== undefined && params.query.trim().length > 0) {
+          const escaped = params.query.replace(/'/g, "''");
+          const limit = params.limit ?? 50;
+          const r = await c.querySql(
+            `SELECT id, name, service, item_type AS "itemType", url, file_path AS "filePath" FROM items WHERE name LIKE '%${escaped}%' LIMIT ${limit}`,
+          );
+          return { items: r.rows };
+        }
+        const limitedParams: { limit?: number } = {};
+        if (params.limit !== undefined) limitedParams.limit = params.limit;
+        return await c.queryItems(limitedParams);
       },
     },
     window,
