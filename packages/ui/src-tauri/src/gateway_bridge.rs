@@ -80,6 +80,8 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "diag.getVersion",
     "diag.snapshot",
     "engine.askStream",
+    "engine.cancelStream",
+    "engine.getSessionTranscript",
     "extension.disable",
     "extension.enable",
     "extension.install",
@@ -433,7 +435,8 @@ mod tests {
         // WS5-D adds extension.{disable,enable,install,list,remove} + watcher.{create,delete,
         // list,pause,resume} + workflow.{delete,list,run,save} → 14 new methods → 54 total.
         // WS5-D polish adds watcher.listHistory + workflow.listRuns → 2 new methods → 56 total.
-        assert_eq!(ALLOWED_METHODS.len(), 56);
+        // WS7 adds engine.cancelStream + engine.getSessionTranscript → 2 new methods → 58 total.
+        assert_eq!(ALLOWED_METHODS.len(), 58);
     }
 
     #[test]
