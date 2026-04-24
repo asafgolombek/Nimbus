@@ -108,6 +108,19 @@ export function isRequest(msg: JsonRpcRequest | JsonRpcNotification): msg is Jso
   return Object.hasOwn(msg, "id");
 }
 
+export class RpcMethodError extends Error {
+  readonly rpcCode: number;
+  readonly rpcData?: Record<string, unknown>;
+  constructor(rpcCode: number, message: string, rpcData?: Record<string, unknown>) {
+    super(message);
+    this.name = "RpcMethodError";
+    this.rpcCode = rpcCode;
+    if (rpcData !== undefined) {
+      this.rpcData = rpcData;
+    }
+  }
+}
+
 export function errorResponse(
   id: JsonRpcId,
   code: number,

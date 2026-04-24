@@ -20,6 +20,11 @@ import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { VoiceService } from "../voice/service.ts";
 import type { AgentInvokeContext, AgentInvokeHandler } from "./agent-invoke.ts";
+import {
+  createAskStreamHandler,
+  createStreamRegistry,
+  type StreamRegistry,
+} from "./engine-ask-stream.ts";
 import { AuditRpcError, dispatchAuditRpc } from "./audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
@@ -32,6 +37,7 @@ import {
   type JsonRpcId,
   type JsonRpcNotification,
   type JsonRpcRequest,
+  RpcMethodError,
 } from "./jsonrpc.ts";
 import { generatePairingCode, type PairingWindow } from "./lan-pairing.ts";
 // lan-rpc.ts checkLanMethodAllowed is used only on the LAN HTTP path (lan-server.ts), not here.
@@ -46,19 +52,6 @@ import type { IPCServer } from "./types.ts";
 import { dispatchUpdaterRpc, UpdaterRpcError } from "./updater-rpc.ts";
 import { dispatchVoiceRpc, VoiceRpcError } from "./voice-rpc.ts";
 import type { WorkflowRunContext, WorkflowRunHandler } from "./workflow-invoke.ts";
-
-class RpcMethodError extends Error {
-  readonly rpcCode: number;
-  readonly rpcData?: Record<string, unknown>;
-  constructor(rpcCode: number, message: string, rpcData?: Record<string, unknown>) {
-    super(message);
-    this.rpcCode = rpcCode;
-    this.name = "RpcMethodError";
-    if (rpcData !== undefined) {
-      this.rpcData = rpcData;
-    }
-  }
-}
 
 function assertWellFormedVaultKey(key: string): void {
   try {
@@ -228,6 +221,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
   const startedAtMs = options.startedAtMs ?? Date.now();
   let agentInvokeHandler: AgentInvokeHandler | undefined = options.agentInvoke;
   let workflowRunHandler: WorkflowRunHandler | undefined = options.workflowRun;
+  const streamRegistry: StreamRegistry = createStreamRegistry();
   const sessions = new Map<string, ClientSession>();
   const consentImpl = new ConsentCoordinatorImpl((clientId) => {
     const session = sessions.get(clientId);
@@ -936,54 +930,29 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
           typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
             ? sessionIdRaw.trim()
             : undefined;
-        const streamId = randomUUID();
-
         const handler = agentInvokeHandler;
         if (handler === undefined) {
           throw new RpcMethodError(-32603, "No agent handler configured for engine.askStream");
         }
-
-        // Return streamId immediately so caller can track this stream
-        const sendChunk = (text: string) => {
-          session.writeNotification({
-            jsonrpc: "2.0",
-            method: "engine.streamToken",
-            params: { streamId, text },
-          });
-        };
-        void (async () => {
-          try {
-            const requestStore: AgentRequestContext = {};
-            if (sessionId !== undefined) requestStore.sessionId = sessionId;
-            await agentRequestContext.run(requestStore, async () => {
-              const payload: AgentInvokeContext = {
-                clientId,
-                input,
-                stream: true,
-                sendChunk,
-              };
-              if (sessionId !== undefined) payload.sessionId = sessionId;
-              await handler(payload);
-            });
-            session.writeNotification({
-              jsonrpc: "2.0",
-              method: "engine.streamDone",
-              params: {
-                streamId,
-                meta: { modelUsed: "default", isLocal: false, provider: "remote" },
-              },
-            });
-          } catch (e) {
-            const message = e instanceof Error ? e.message : "Stream error";
-            session.writeNotification({
-              jsonrpc: "2.0",
-              method: "engine.streamError",
-              params: { streamId, error: message },
-            });
-          }
-        })();
-
-        return { streamId };
+        const dispatch = createAskStreamHandler({
+          registry: streamRegistry,
+          randomId: () => randomUUID(),
+          sessionWriteNotification: (n) => session.writeNotification(n),
+          runWithRequestContext: (ctx, fn) => agentRequestContext.run(ctx, fn),
+          agentInvokeHandler: async (ctx) => {
+            const payload: AgentInvokeContext = {
+              clientId: ctx.clientId,
+              input: ctx.input,
+              stream: ctx.stream,
+            };
+            if (ctx.sendChunk !== undefined) payload.sendChunk = ctx.sendChunk;
+            if (ctx.sessionId !== undefined) payload.sessionId = ctx.sessionId;
+            return await handler(payload);
+          },
+        });
+        const params2: { input: string; sessionId?: string } = { input };
+        if (sessionId !== undefined) params2.sessionId = sessionId;
+        return await dispatch(clientId, params2);
       }
 
       default:
@@ -1114,4 +1083,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       }
     },
   };
+}
+
+/** @internal Test hook — returns a fresh StreamRegistry for unit testing purposes. */
+export function getStreamRegistryForTesting(): StreamRegistry {
+  return createStreamRegistry();
 }
