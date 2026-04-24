@@ -40,13 +40,26 @@ async function spawnGateway(dataDir: string): Promise<{
       "NIMBUS_GATEWAY_BIN env var must point to a built gateway binary or 'bun run packages/gateway/src/index.ts'",
     );
   }
-  const env = { ...process.env, NIMBUS_DATA_DIR: dataDir };
+  const env = {
+    ...process.env,
+    NIMBUS_DATA_DIR: dataDir,
+    // Skip the 3-minute embedding-worker init so the socket appears quickly.
+    NIMBUS_SKIP_EMBEDDING_RUNTIME: "1",
+  };
   const proc = spawn(GATEWAY_BIN, [], { env });
   proc.stdout.on("data", () => undefined);
-  proc.stderr.on("data", () => undefined);
-  // Discover the socket path the gateway will write to its state file
+  const stderrChunks: Buffer[] = [];
+  proc.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
   const r = await discoverSocketPath();
-  await waitForSocket(r.socketPath, STARTUP_TIMEOUT_MS);
+  try {
+    await waitForSocket(r.socketPath, STARTUP_TIMEOUT_MS);
+  } catch {
+    const stderrText = Buffer.concat(stderrChunks).toString("utf8").trim();
+    throw new Error(
+      `Gateway socket did not appear within ${STARTUP_TIMEOUT_MS}ms: ${r.socketPath}` +
+        (stderrText ? `\nGateway stderr:\n${stderrText}` : ""),
+    );
+  }
   return { proc, socketPath: r.socketPath };
 }
 
