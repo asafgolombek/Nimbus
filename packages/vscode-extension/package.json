@@ -156,6 +156,7 @@
     }
   },
   "scripts": {
+    "prebuild": "cd ../client && bun run build",
     "build": "node esbuild.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",

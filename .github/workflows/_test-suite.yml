@@ -326,6 +326,8 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Build @nimbus-dev/client
+        run: cd packages/client && bun run build
       - name: Build extension
         run: cd packages/vscode-extension && bun run build
       - name: Setup display (Linux)
