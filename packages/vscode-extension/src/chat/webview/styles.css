@@ -1,0 +1,144 @@
+:root {
+  color-scheme: light dark;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1em;
+}
+
+.message {
+  padding: 0.5em 0.75em;
+  margin-bottom: 0.75em;
+  border-radius: 6px;
+}
+
+.message.user {
+  background: var(--vscode-textBlockQuote-background);
+  border-left: 3px solid var(--vscode-textLink-foreground);
+}
+
+.message.assistant {
+  background: var(--vscode-editor-background);
+}
+
+.message.error {
+  color: var(--vscode-errorForeground);
+}
+
+.subtask {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  margin: 0.25em 0;
+}
+
+.hitl-card {
+  border: 1px solid var(--vscode-textBlockQuote-border);
+  background: var(--vscode-textBlockQuote-background);
+  padding: 1em;
+  border-radius: 6px;
+  margin: 0.75em 0;
+}
+
+.hitl-card h4 {
+  margin-top: 0;
+}
+
+.hitl-card pre {
+  background: var(--vscode-editorWidget-background);
+  padding: 0.5em;
+  overflow: auto;
+  font-family: var(--vscode-editor-font-family);
+}
+
+.hitl-actions {
+  display: flex;
+  gap: 0.5em;
+  margin-top: 0.75em;
+}
+
+.hitl-approve,
+.empty-state-primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 0.4em 0.9em;
+  cursor: pointer;
+}
+
+.hitl-reject {
+  background: var(--vscode-errorForeground);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 0.4em 0.9em;
+  cursor: pointer;
+}
+
+.empty-state-card {
+  padding: 2em;
+  text-align: center;
+}
+
+.empty-state-secondary {
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  border: 1px solid var(--vscode-textBlockQuote-border);
+  padding: 0.4em 0.9em;
+  cursor: pointer;
+  margin-left: 0.5em;
+}
+
+#input-area {
+  display: flex;
+  gap: 0.5em;
+  padding: 0.75em;
+  border-top: 1px solid var(--vscode-textBlockQuote-border);
+}
+
+#input {
+  flex: 1;
+  min-height: 60px;
+  resize: vertical;
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  padding: 0.5em;
+}
+
+#submit,
+#stop {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 0.5em 1em;
+  cursor: pointer;
+  align-self: flex-end;
+}
+
+#stop {
+  display: none;
+  background: var(--vscode-errorForeground);
+}
+
+button.copy-code {
+  font-size: 0.75em;
+  padding: 2px 6px;
+}
+
+pre {
+  background: var(--vscode-editorWidget-background);
+  padding: 0.5em;
+  overflow: auto;
+}
