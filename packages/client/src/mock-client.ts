@@ -1,7 +1,16 @@
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
+import type {
+  AskStreamHandle,
+  AskStreamOptions,
+  HitlRequest,
+  StreamEvent,
+} from "./stream-events.js";
+
 export type MockClientFixtures = {
   items?: NimbusItem[];
+  streamTokens?: string[];
+  reply?: string;
 };
 
 /**
@@ -18,7 +27,57 @@ export class MockClient {
     _input: string,
     _options?: { stream?: boolean },
   ): Promise<{ reply: string } & Record<string, unknown>> {
-    return { reply: "[MockClient] agent.invoke" };
+    return { reply: this.fixtures.reply ?? "[MockClient] agent.invoke" };
+  }
+
+  askStream(_input: string, _opts?: AskStreamOptions): AskStreamHandle {
+    const tokens = this.fixtures.streamTokens ?? ["mock", " token"];
+    const reply = this.fixtures.reply ?? tokens.join("");
+    let i = 0;
+    let cancelled = false;
+    const handle: AskStreamHandle = {
+      streamId: "mock-stream",
+      async cancel(): Promise<void> {
+        cancelled = true;
+      },
+      [Symbol.asyncIterator](): AsyncIterator<StreamEvent> {
+        return {
+          async next(): Promise<IteratorResult<StreamEvent>> {
+            if (cancelled) return { value: undefined, done: true };
+            if (i < tokens.length) {
+              const text = tokens[i] as string;
+              i += 1;
+              return { value: { type: "token", text }, done: false };
+            }
+            if (i === tokens.length) {
+              i += 1;
+              return {
+                value: { type: "done", reply, sessionId: "mock-session" },
+                done: false,
+              };
+            }
+            return { value: undefined, done: true };
+          },
+        };
+      },
+    };
+    return handle;
+  }
+
+  subscribeHitl(_handler: (req: HitlRequest) => void): { dispose(): void } {
+    return { dispose: () => undefined };
+  }
+
+  async getSessionTranscript(): Promise<{
+    sessionId: string;
+    turns: Array<{ role: "user" | "assistant"; text: string; timestamp: number }>;
+    hasMore: boolean;
+  }> {
+    return { sessionId: "mock-session", turns: [], hasMore: false };
+  }
+
+  async cancelStream(): Promise<{ ok: boolean }> {
+    return { ok: true };
   }
 
   async queryItems(_params: {
