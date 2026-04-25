@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777094964247,
+  "lastUpdate": 1777096601752,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1536,6 +1536,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5016006399999975,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "85dd4b94ade9a09049ebbe3a5f5705b267e3eb88",
+          "message": "Merge pull request #99 from asafgolombek/dev/asafgolombek/upgrade_packages\n\nci: bump runner OS / Node 22 / Rust MSRV 1.95 / Tauri plugin patches",
+          "timestamp": "2026-04-25T08:56:15+03:00",
+          "tree_id": "743f3a86415810ea3b97cdd5f0acd75572697604",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/85dd4b94ade9a09049ebbe3a5f5705b267e3eb88"
+        },
+        "date": 1777096601399,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4509730599999955,
             "unit": "ms"
           }
         ]
