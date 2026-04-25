@@ -2,7 +2,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { FixedSizeList, type ListChildComponentProps } from "react-window";
+import { List, type RowComponentProps } from "react-window";
 import { AuditFilterChips } from "../../components/settings/audit/AuditFilterChips";
 import { PanelError } from "../../components/settings/PanelError";
 import { PanelHeader } from "../../components/settings/PanelHeader";
@@ -224,12 +224,13 @@ export function AuditPanel() {
   }, [setInFlight]);
 
   const Row = useCallback(
-    ({ index, style }: ListChildComponentProps) => {
+    ({ index, style, ariaAttributes }: RowComponentProps) => {
       const row = runIdFilteredRows[index];
       if (!row) return null;
       const isMatch = runIdFilter !== null && row.runId === runIdFilter;
       return (
         <div
+          {...ariaAttributes}
           style={style}
           className={`grid grid-cols-[180px_120px_1fr_100px] items-center px-3 text-xs border-b border-[var(--color-border)]${isMatch ? " bg-amber-50 dark:bg-amber-900/20" : ""}`}
           data-testid="audit-row"
@@ -321,14 +322,13 @@ export function AuditPanel() {
           <span>Action</span>
           <span>Outcome</span>
         </div>
-        <FixedSizeList
-          height={LIST_HEIGHT}
-          itemCount={runIdFilteredRows.length}
-          itemSize={ROW_HEIGHT}
-          width="100%"
-        >
-          {Row}
-        </FixedSizeList>
+        <List
+          style={{ height: LIST_HEIGHT, width: "100%" }}
+          rowCount={runIdFilteredRows.length}
+          rowHeight={ROW_HEIGHT}
+          rowComponent={Row}
+          rowProps={{}}
+        />
       </div>
     </section>
   );
