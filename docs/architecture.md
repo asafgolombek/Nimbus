@@ -349,8 +349,13 @@ const HITL_REQUIRED: ReadonlySet<string> = Object.freeze(new Set([
 
 export class ToolExecutor {
   async execute(action: PlannedAction): Promise<ActionResult> {
+    // Resolve the tool identity the same way the dispatcher does (C4 / S1-F3 fix):
+    // a payload mcpToolId shadows action.type so HITL cannot be bypassed by pairing
+    // a non-gated action.type with a gated mcpToolId.
+    const rawToolId = action.payload?.["mcpToolId"];
+    const resolvedToolId = typeof rawToolId === "string" ? rawToolId : action.type;
     const requiresHITL =
-      HITL_REQUIRED.has(action.type) ||
+      HITL_REQUIRED.has(resolvedToolId) ||
       this.extensionRegistry.isHITLRequired(action.extensionId, action.toolName);
 
     let hitlStatus: "approved" | "rejected" | "not_required";
