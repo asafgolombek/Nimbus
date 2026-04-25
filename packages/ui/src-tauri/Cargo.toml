@@ -6,7 +6,7 @@ authors = ["Nimbus contributors"]
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/asafgolombek/Nimbus"
 edition = "2021"
-rust-version = "1.88.0"
+rust-version = "1.95.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
