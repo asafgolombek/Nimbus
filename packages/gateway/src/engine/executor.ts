@@ -188,9 +188,7 @@ export class ToolExecutor {
    * use `execute()` which calls `gate()` internally.
    */
   async gate(action: PlannedAction): Promise<ActionResult | "proceed"> {
-    const rawToolId = action.payload?.["mcpToolId"];
-    const resolvedToolId = typeof rawToolId === "string" ? rawToolId : action.type;
-    const requiresHITL = HITL_REQUIRED.has(resolvedToolId);
+    const requiresHITL = HITL_REQUIRED.has(action.type);
 
     let hitlStatus: "approved" | "rejected" | "not_required";
     let rejectReason: string | undefined;
