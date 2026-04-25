@@ -40,7 +40,9 @@ All 21 `MCPClient` spawn sites in `packages/gateway/src/connectors/lazy-mesh.ts`
 
 ### Fix
 
-**New file: `packages/gateway/src/connectors/extension-process-env.ts`**
+**Extend existing `packages/gateway/src/extensions/spawn-env.ts`** (file exists but was never wired; the thin wrapper it contains today only copies injected keys — no baseline vars, so child processes would fail to find executables).
+
+Rewrite to add baseline OS vars from `process.env` plus the caller-supplied extras:
 
 ```typescript
 /**
@@ -49,32 +51,33 @@ All 21 `MCPClient` spawn sites in `packages/gateway/src/connectors/lazy-mesh.ts`
  * Callers pass only the explicit extras the connector needs (its own credentials).
  */
 export function extensionProcessEnv(
-  extra: Record<string, string | undefined>,
-): NodeJS.ProcessEnv {
-  const base: Record<string, string | undefined> = {
+  extra: Record<string, string>,
+): Record<string, string> {
+  const BASELINE_KEYS = [
     // Shell / filesystem
-    PATH:           process.env["PATH"],
-    HOME:           process.env["HOME"],
-    TMPDIR:         process.env["TMPDIR"],
-    TEMP:           process.env["TEMP"],
-    TMP:            process.env["TMP"],
+    "PATH", "HOME", "TMPDIR", "TEMP", "TMP",
     // Windows paths
-    APPDATA:        process.env["APPDATA"],
-    LOCALAPPDATA:   process.env["LOCALAPPDATA"],
-    USERPROFILE:    process.env["USERPROFILE"],
-    SYSTEMROOT:     process.env["SYSTEMROOT"],
+    "APPDATA", "LOCALAPPDATA", "USERPROFILE", "SYSTEMROOT",
     // Bun runtime
-    BUN_INSTALL:    process.env["BUN_INSTALL"],
-  };
-  // Strip undefined keys so the child env is clean
-  return Object.fromEntries(
-    Object.entries({ ...base, ...extra }).filter(([, v]) => v !== undefined),
-  ) as NodeJS.ProcessEnv;
+    "BUN_INSTALL",
+  ] as const;
+  const out: Record<string, string> = {};
+  for (const k of BASELINE_KEYS) {
+    const v = process.env[k];
+    if (v !== undefined) out[k] = v;
+  }
+  // Caller-supplied extras override baseline; explicit is intentional
+  for (const [k, v] of Object.entries(extra)) {
+    out[k] = v;
+  }
+  return out;
 }
 ```
 
-**`lazy-mesh.ts` — all 21 spawn sites:**
-Replace every `{ ...process.env, KEY: value }` with `extensionProcessEnv({ KEY: value })`.
+**`lazy-mesh.ts` — all spawn sites:**
+- Delete the existing `compactProcessEnv()` helper (it is the vulnerability — it spreads all of `process.env`).
+- Replace every `{ ...process.env, KEY: value }` (and bare `{ ...process.env }`) with `extensionProcessEnv({ KEY: value })`.
+- The filesystem connector (line 105) has no explicit `env` — Bun defaults to `process.env`. Add `env: extensionProcessEnv({})` explicitly.
 
 **Extension registry spawn path:**
 Same replacement wherever extensions are spawned as child processes.
@@ -212,6 +215,8 @@ Same pattern: `gate({ type: "connector.remove", payload: { serviceId } })` befor
 
 The HITL dialog shows: `"Permanently delete all [N] items and credentials for [service]? This cannot be undone."` using the pre-fetched stats already computed for the UI preflight in `DataPanel.tsx`.
 
+The stats prefetch (`prefetchDeleteStats`) must run under a timeout (e.g. 5 s `AbortController`) to prevent a DoS if the DB is locked or the table is very large. If the timeout fires, fall back to `"all items"` in the dialog text rather than blocking the consent gate.
+
 ### Tests
 
 - HITL test: call `data.delete` via test harness without going through the consent gate → assert `HITL_REQUIRED` intercepts before any DB deletion.
@@ -256,19 +261,22 @@ IPC handlers for both call `toolExecutor.gate()` before executing. Consent displ
 Replace the WebView IPC call with a Tauri event flow:
 - Marketplace panel emits `install_extension_requested` Tauri event with `{ source: string }`
 - New Rust-side Tauri command `trigger_extension_install` handles the event:
-  1. Shows a native system file-picker or confirmation dialog (outside WebView trust boundary)
-  2. If confirmed, forwards to the Gateway over the internal socket connection
-  3. Gateway's `gate()` still fires — double-gated
-- This closes the XSS → auto-install chain: a WebView XSS payload can no longer reach `extension.install` through the bridge at all
+  1. Shows a native **fixed-text** system dialog — the dialog text must be a hard-coded string ("An extension installation was requested. Open a file picker to select the extension package?"). **The `source` string from the event payload must not appear in the dialog** — this prevents a XSS payload from social-engineering the user through a crafted extension name.
+  2. Opens a native OS file-picker (Tauri `dialog::open`); the user must explicitly pick the package path.
+  3. Forwards the user-selected path (not the event payload source) to the Gateway.
+  4. Gateway's `gate()` still fires — double-gated.
+- This closes the XSS → auto-install chain: a WebView XSS payload can no longer reach `extension.install` through the bridge at all, and even if it triggers the event, the user must physically interact with a native dialog and file-picker.
 
 **Part 3: `connector.addMcp` to `FORBIDDEN_OVER_LAN`**
 
 `packages/gateway/src/ipc/lan-rpc.ts`:
 ```typescript
 const FORBIDDEN_OVER_LAN = new Set([
-  "consent.*",
-  "vault.*",
-  "connector.addMcp",   // arbitrary command execution — never over network
+  // existing namespace prefixes (vault, updater, lan, profile) stay
+  "consent",            // prefix — matches consent.request, consent.respond
+  "audit",              // prefix — matches audit.verify, audit.export (exfiltration-class)
+  "data",               // prefix — matches data.delete, data.export (exfiltration-class)
+  "connector.addMcp",   // full method — arbitrary command execution, never over network
 ]);
 ```
 
@@ -276,12 +284,14 @@ Arbitrary command-line execution must not be reachable from a network peer regar
 
 **Part 4: CSP (defense-in-depth)**
 
-Add `Content-Security-Policy` to the Tauri WebView configuration:
+Set `app.security.csp` in `packages/ui/src-tauri/tauri.conf.json`:
 ```
-default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'
+default-src 'self'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
 ```
 
-Blocks inline script execution, closing the XSS entry point that enables C1.
+- `script-src 'self'` blocks inline script execution, closing the XSS entry point for C1.
+- `connect-src` restricts WebView outbound connections to the Tauri IPC bridge and localhost only — a compromised renderer cannot exfiltrate data to an external server.
+- `frame-ancestors 'none'` prevents clickjacking via iframe embedding.
 
 ### Tests
 
@@ -326,8 +336,8 @@ The gate is now intrinsic to `LanServer`. Correct behavior no longer depends on 
 
 - Remove ghost entries: `workflow.create`, `workflow.update` (handlers replaced by `workflow.save`)
 - Add missing mutating methods from S3-F2 enumeration
-- Add `"audit.*"` and `"data.*"` namespaces to `FORBIDDEN_OVER_LAN` — exfiltration-class operations must never be accessible to LAN peers regardless of write grant
-- `"connector.addMcp"` already covered by G3, confirmed consistent here
+- Add `"audit"` and `"data"` namespace prefixes to `FORBIDDEN_OVER_LAN` — exfiltration-class operations must never be accessible to LAN peers regardless of write grant. `checkLanMethodAllowed` does prefix matching via `method.split(".")[0]`, so plain namespace strings (`"audit"`, `"data"`) are correct; `"audit.*"` / `"data.*"` would never match.
+- `"connector.addMcp"` already covered by G3, confirmed consistent here (full method string, not a namespace, so `.has("connector.addMcp")` is correct)
 
 **Part 3: Change `lan.bind` default**
 
@@ -408,8 +418,8 @@ Prevents replay attacks and downgrade installs. Legitimate updates already satis
 
 | File | Groups | Change type |
 |---|---|---|
-| `packages/gateway/src/connectors/extension-process-env.ts` | G1 | New file |
-| `packages/gateway/src/connectors/lazy-mesh.ts` | G1 | Replace all `{ ...process.env }` spreads |
+| `packages/gateway/src/extensions/spawn-env.ts` | G1 | Extend (was thin no-op, never wired) |
+| `packages/gateway/src/connectors/lazy-mesh.ts` | G1 | Delete `compactProcessEnv()`; replace all spreads with `extensionProcessEnv()` |
 | `packages/gateway/src/extensions/registry.ts` | G1 | Replace extension spawn env |
 | `packages/gateway/src/engine/executor.ts` | G2, G3 | Extract `gate()`, add 4 entries to `HITL_REQUIRED_BACKING` |
 | `packages/gateway/src/commands/data-delete.ts` | G2 | Remove hardcoded `hitlStatus: "approved"` |
@@ -438,4 +448,16 @@ Prevents replay attacks and downgrade installs. Legitimate updates already satis
 - [ ] `extensionProcessEnv` unit tests
 - [ ] `bun run test:coverage:lan` passes (≥80%)
 - [ ] `bun run test:coverage:updater` passes (≥80%)
+- [ ] Every method in `WRITE_METHODS` either calls `gate()` directly or routes through `ToolExecutor.execute()` — no shadow mutation paths
 - [ ] PR description maps each commit to its closed finding IDs
+
+---
+
+## Deferred items (scope for Medium PR)
+
+| Item | Reason for deferral |
+|---|---|
+| OQ2 — Apply `extensionProcessEnv` to voice services (`stt.ts`, `tts.ts`, `wake-word.ts`) and cloud sync wrappers (`aws-sync.ts`, `azure-sync.ts`, `gcp-sync.ts`) | Lower blast radius than connectors (no master gateway keys in their env vars); expanding High PR scope increases merge risk. Include in Medium PR under "process isolation completeness". |
+| S1 — Build-time constant for `NIMBUS_DEV_UPDATER_PUBLIC_KEY` guard | Bun has no stable compile-time substitution. `NODE_ENV` runtime check is the established Bun pattern and is the meaningful improvement here; build-time hardening can be revisited in Phase 9 (Enterprise). |
+| S2 — Unify `SENSITIVE_PAYLOAD_KEY` redaction regex as single source of truth across executor, audit, telemetry | Valid; address in Medium PR alongside other telemetry/audit surface findings. |
+| S5 — Debug-mode guard in `extensionProcessEnv` that warns if `extra` contains a key matching the sensitive pattern | The allow-list design already prevents the regression (output is limited to `BASELINE_KEYS + extra`); a debug assertion can be added in Medium. |
