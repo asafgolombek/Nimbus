@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777096601752,
+  "lastUpdate": 1777109264753,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1565,6 +1565,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4509730599999955,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "5794419415c8b14742f2da27d653ba006de65b40",
+          "message": "refactor: remove deprecated database connection module",
+          "timestamp": "2026-04-25T12:26:52+03:00",
+          "tree_id": "7cc6d3a95c01fa1b99741eb75239d4d92a5eb594",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/5794419415c8b14742f2da27d653ba006de65b40"
+        },
+        "date": 1777109263469,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.1022851599999979,
             "unit": "ms"
           }
         ]
