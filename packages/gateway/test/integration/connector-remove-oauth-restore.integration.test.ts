@@ -5,10 +5,21 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
+import { ToolExecutor } from "../../src/engine/executor.ts";
 import { LocalIndex } from "../../src/index/local-index.ts";
 import { dispatchConnectorRpc } from "../../src/ipc/connector-rpc.ts";
 import { MockVault } from "../../src/vault/mock.ts";
 import type { NimbusVault } from "../../src/vault/nimbus-vault.ts";
+
+const autoApproveExecutor = new ToolExecutor(
+  { requestApproval: async () => true },
+  { recordAudit: () => {} },
+  {
+    dispatch(): Promise<unknown> {
+      return Promise.reject(new Error("stub — should not be called"));
+    },
+  },
+);
 
 const OAUTH_BACKUP = '{"access_token":"redacted-for-test","refresh_token":"also-redacted"}';
 
@@ -61,6 +72,7 @@ describe("connector.remove OAuth restore (integration)", () => {
         localIndex,
         openUrl: async () => {},
         syncScheduler: undefined,
+        toolExecutor: autoApproveExecutor,
       }),
     ).rejects.toThrow(/simulated fault/);
 
