@@ -972,3 +972,181 @@ The forbidden-pattern scan is entirely clean: zero `eval(`, `new Function(`, `da
 Total: **0 Critical, 1 High, 3 Medium, 3 Low**
 
 ---
+
+## Surface 5 — Raw SQL surface
+
+**Reviewer:** Surface-5 subagent
+**Files audited:**
+- `packages/cli/src/commands/query.ts`
+- `packages/gateway/src/db/query-guard.ts`
+- `packages/gateway/src/db/write.ts`
+- `packages/gateway/src/db/verify.ts`
+- `packages/gateway/src/db/repair.ts`
+- `packages/gateway/src/db/audit-chain.ts`
+- `packages/gateway/src/ipc/http-server.ts`
+- `packages/gateway/src/ipc/metrics-server.ts`
+- `packages/gateway/src/ipc/diagnostics-rpc.ts` (rpcIndexQuerySql, rpcDbRepair)
+- `packages/gateway/src/ipc/server.ts` (dispatch routing for index.querySql)
+- `packages/gateway/src/index/item-list-query.ts`
+- `packages/gateway/src/people/person-store.ts` (patchPerson SQL construction)
+- `packages/ui/src-tauri/src/gateway_bridge.rs` (ALLOWED_METHODS — confirming querySql absence)
+
+Secondary grep targets: all `db.run(`, `db.exec(`, `db.query(` call sites in production source; all template-literal SQL strings with `${` interpolations.
+
+---
+
+### Findings
+
+#### Finding S5-F1: `db/verify.ts` `checkFts5Consistency` issues a write during "non-destructive" verification
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/db/verify.ts:72`
+- **Description:** The file header and all documentation describe `nimbus db verify` as a "non-destructive" check. However `checkFts5Consistency` runs `db.run("INSERT INTO item_fts(item_fts) VALUES('integrity-check')")` on the caller-supplied handle. This is the FTS5 internal integrity-check command (a special FTS5 magic command, not a data insert), but it is still a write to the FTS shadow tables. If the caller passes a read-only handle, this throws a `SQLiteError: attempt to write a readonly database`. If passed a read-write handle (as `verifyIndex` is called from `rpcDbVerify` in `diagnostics-rpc.ts` using the live read-write gateway DB), the FTS5 internal integrity-check command succeeds and does not insert user data — but the operation is not truly read-only. The documentation mismatch ("non-destructive") is a Low-severity finding because the FTS5 magic command is idempotent and harmless, but could cause unexpected failures if `verifyIndex` is ever called with a `readonly: true` handle (e.g. from the read-only HTTP server path).
+- **Suggested fix:** Document that `verifyIndex` requires a read-write handle, or use the FTS5 `SELECT item_fts FROM item_fts WHERE item_fts = 'integrity-check'` form (which does not write) if available in the bun:sqlite FTS5 build. At minimum, add a comment in `verify.ts` clarifying that the FTS5 integrity-check command is a special write-that-acts-as-read.
+- **Confidence:** High (confirmed by reading the SQLite FTS5 spec and the code).
+
+---
+
+#### Finding S5-F2: `FORBIDDEN_PRAGMA` blocklist is incomplete — several write-capable PRAGMAs are unblocked
+
+- **Severity:** Medium
+- **File:** `packages/gateway/src/db/query-guard.ts:12-13`
+- **Description:** The `FORBIDDEN_PRAGMA` regex blocks these specific PRAGMAs: `journal_mode`, `synchronous`, `locking_mode`, `schema_version`, `user_version`, `writable_schema`, `recursive_triggers`, `foreign_keys`. However the following PRAGMAs can have write-like side-effects and are NOT in the blocklist:
+  - `PRAGMA secure_delete = ON` — causes SQLite to overwrite deleted content with zeros (observable behavioural change).
+  - `PRAGMA auto_vacuum = 1` — can restructure the DB on `VACUUM` if vacuum is ever called.
+  - `PRAGMA temp_store = 2` — writes to memory rather than disk, affecting query behaviour.
+  - `PRAGMA mmap_size = N` — changes memory-mapping; observable resource side-effect.
+  - `PRAGMA optimize` — can modify FTS5 shadow tables (actually writes).
+  - `PRAGMA data_version` — read-only; fine but worth noting as gap in the documented intent.
+  - `PRAGMA integrity_check` — read-only; could expose internal DB structure in verbose error messages.
+  These are all **Layer 1** bypass candidates only: Layer 2 (the dedicated `readonly: true` SQLite handle in `runReadOnlySelect`) would block any actual write PRAGMA at the C-API level. The Layer-2 defence makes these Medium rather than High — actual data modification cannot occur through `runReadOnlySelect`. However `PRAGMA optimize` issued against the read-only connection still raises an error that is propagated back to the caller, potentially leaking internal error strings.
+- **Suggested fix:** Expand `FORBIDDEN_PRAGMA` to use a positive allowlist: `(?!query_only\b)(?!integrity_check\b)(?!table_info\b)(?!foreign_key_list\b)` (enumerate permitted PRAGMAs) rather than the current negative blocklist. Alternatively, strip PRAGMA statements entirely and let users discover the allowed subset via documentation.
+- **Confidence:** High.
+
+---
+
+#### Finding S5-F3: No query timeout on `runReadOnlySelect` — unbounded execution DoS
+
+- **Severity:** Medium
+- **File:** `packages/gateway/src/db/query-guard.ts:39-47`
+- **Description:** `runReadOnlySelect` opens a fresh `Database` handle with `readonly: true` and calls `ro.query(sql).all()` with no timeout or interrupt mechanism. A user with IPC access can supply a SQL statement that runs indefinitely (e.g. a deep recursive CTE: `WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) SELECT * FROM x`). bun:sqlite does not expose a `Database.interrupt()` method in the public API. The gateway's IPC event loop is single-threaded (Bun uses async I/O); however `ro.query(sql).all()` is synchronous and blocks the event loop for the duration of the query. This can stall all IPC responses, block HITL consent gates, and prevent the gateway from serving any other client for the query duration.
+- **Attack scenario:** A CLI user (or a compromised CLI process) calls `nimbus query --sql "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) SELECT * FROM x"`. The gateway event loop stalls indefinitely.
+- **Suggested fix:** Run `runReadOnlySelect` in a worker thread (Bun `Worker`) with an `AbortController`-gated timeout, killing the worker if the query exceeds N seconds (e.g. 30 s). Alternatively, expose a max-row-count limit (`LIMIT` injection at the guard layer) as a lightweight mitigation.
+- **Confidence:** High.
+
+---
+
+#### Finding S5-F4: Widespread `db.run()` calls outside `dbRun`/`dbExec` wrappers — `SQLITE_FULL` not translated to `DiskFullError`
+
+- **Severity:** Low
+- **File:** Multiple — see SQL call-site inventory below. Key examples: `packages/gateway/src/db/audit-chain.ts:58`, `packages/gateway/src/automation/workflow-store.ts:54-144`, `packages/gateway/src/automation/watcher-store.ts:50-114`, `packages/gateway/src/automation/extension-store.ts:32-85`, `packages/gateway/src/connectors/health.ts:123-352`, `packages/gateway/src/engine/sub-agent.ts:17-52`, `packages/gateway/src/index/local-index.ts:278-870`, `packages/gateway/src/people/person-store.ts:194-342`, `packages/gateway/src/sync/scheduler-store.ts:53-220`, `packages/gateway/src/embedding/pipeline.ts:73-103`, `packages/gateway/src/memory/session-memory-store.ts:65-139`.
+- **Description:** `db/write.ts` documents that "All DB write paths in the gateway MUST go through `dbRun` / `dbExec` so that `SQLITE_FULL` is never swallowed silently." The audit found **79 production `db.run()` call sites** (outside test files, `write.ts`, `repair.ts`, `verify.ts`, `snapshot.ts`, and `migrations/`) that call `db.run()` directly, bypassing the wrapper. This means an `SQLITE_FULL` error thrown from any of these sites propagates as a raw `SQLiteError` rather than a typed `DiskFullError`, bypassing the `setDiskSpaceWarning(true)` notification path. The disk-full health state (`packages/gateway/src/db/health.ts`) may not be updated, and the `onDiskFull` listeners (used for proactive user warnings) will not fire.
+- **Most security-relevant example:** `packages/gateway/src/db/audit-chain.ts:58` — the BLAKE3-chained audit-log INSERT calls `db.run()` directly. If the DB is full, the audit row is not written and the caller (executor.ts) receives a raw `SQLiteError`, not a `DiskFullError`. Depending on the caller's error handling, this could cause a HITL action to proceed with an audit write failure that is silently swallowed or surfaces as an unexpected IPC error — leaving the executor in an inconsistent state (consent granted but no audit row written).
+- **Suggested fix:** Replace all direct `db.run()` calls outside `write.ts` with `dbRun(db, sql, params)` from `db/write.ts`. Add a lint rule (e.g. a Biome custom rule or `no-restricted-syntax` ESLint rule) that forbids direct `db.run(` in files other than `db/write.ts`, `db/repair.ts`, `db/verify.ts`, `db/snapshot.ts`, and `migrations/`.
+- **Confidence:** High.
+
+---
+
+#### Finding S5-F5: `person-store.ts` `patchPerson` builds SQL via template literal with `sets.join()` — column names are internal constants but the pattern is fragile
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/people/person-store.ts:291`
+- **Description:** `patchPerson` constructs SQL as `UPDATE person SET ${sets.join(", ")} WHERE id = ?`. The `sets` array is populated only with string literals from within the function body (e.g. `"display_name = ?"`, `"canonical_email = ?"`), never from user input. The corresponding `params` array holds parameterized values via `?`. This is not an SQL injection risk because the column-name segment is a closed set of hard-coded strings. However it establishes a pattern of template-literal SQL construction that a future contributor could accidentally extend by interpolating user input into `sets`. The threat model systemic question 13 specifically asks to search for `${.*}` inside SQL template strings. This is the only such pattern in production source files.
+- **Suggested fix:** Replace with individual `if (patch.X !== undefined) { dbRun(db, 'UPDATE person SET column = ? WHERE id = ?', [value, id]); }` calls to eliminate the pattern entirely, or add a prominently visible comment documenting that `sets` must only contain compile-time literal strings.
+- **Confidence:** High (not a live vulnerability, but a latent maintenance risk).
+
+---
+
+#### Finding S5-F6: `repair.ts` `repairForeignKeys` uses `escapeIdentifier` from `PRAGMA foreign_key_check` output — potential identifier injection if table name contains adversarial characters
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/db/repair.ts:147` and `157`
+- **Description:** `repairForeignKeys` runs `PRAGMA foreign_key_check` and groups violations by `v.table` (the table name from the violation row). It then constructs: `DELETE FROM ${escapeIdentifier(table)} WHERE rowid IN (${placeholders})`. The `escapeIdentifier` function is `(id) => '"${id.replaceAll('"', '""')}"'` — standard double-quote identifier escaping per the SQL standard. Since table names come from the SQLite system catalog (which stores the table names that the gateway itself created via its migration scripts), the values are always valid SQL identifiers and cannot be externally injected by a remote attacker. However in a theoretical scenario where a DB migration or a bug introduces a table with a name that contains a null byte or non-printable characters, the `escapeIdentifier` function does not sanitise those. SQLite itself would reject such identifiers, so this is defence-in-depth only.
+- **Suggested fix:** Add `if (table.length === 0 || /\x00/.test(table)) return;` guard before constructing the DELETE in `repairForeignKeys`.
+- **Confidence:** Medium (theoretical only given the internal-only source of table names).
+
+---
+
+#### Finding S5-F7: `index.querySql` absence from Tauri `ALLOWED_METHODS` is not explicitly asserted in the allowlist test
+
+- **Severity:** Low
+- **File:** `packages/ui/src-tauri/src/gateway_bridge.rs:421-429`
+- **Description:** The allowlist test `allowlist_rejects_vault_and_raw_db_writes` asserts that `vault.get`, `vault.set`, `vault.list`, `db.put`, `db.delete`, `config.set`, and `index.rebuild` are absent. It does NOT explicitly assert the absence of `index.querySql`. The threat model specifically notes this gap (systemic question 10). Confirming by inspection: `index.querySql` is absent from `ALLOWED_METHODS` in `gateway_bridge.rs:63-120`. But without an explicit assertion, a future allowlist expansion that accidentally adds `index.querySql` would not be caught by the existing test.
+- **Suggested fix:** Add `assert!(!is_method_allowed("index.querySql"));` to the `allowlist_rejects_vault_and_raw_db_writes` test.
+- **Confidence:** High.
+
+---
+
+### SQL call-site inventory
+
+Key production call sites (non-test, non-migration; `db.run()` and `db.exec()` only):
+
+| File:line | Call type | Parameterized? | Input source | Finding |
+|---|---|---|---|---|
+| `db/write.ts:98,100` | `db.run` | Yes / n/a | Internal constant | None — this is the wrapper |
+| `db/write.ts:113` | `db.exec` | n/a (no params) | Internal constant | None — this is the wrapper |
+| `db/audit-chain.ts:58` | `db.run` | Yes (6 params via `?`) | Internal computed | S5-F4 (bypasses DiskFullError wrapper) |
+| `db/verify.ts:72` | `db.run` | n/a | Internal constant | S5-F1 (write inside "non-destructive" verify) |
+| `db/verify.ts:202` | `db.run` | n/a | Internal constant | None — `PRAGMA foreign_keys = ON` is safe |
+| `db/repair.ts:61` | `db.run` | Yes | Internal (slice of rowids) | S5-F4 (bypasses wrapper); S5-F6 (escapeIdentifier) |
+| `db/repair.ts:69` | `db.run` | n/a | Internal constant | S5-F4 (bypasses wrapper) |
+| `db/repair.ts:88` | `db.run` | n/a | Internal constant | S5-F4 (bypasses wrapper) |
+| `db/repair.ts:102-104` | `db.run` | n/a | Internal constant | S5-F4 (bypasses wrapper) |
+| `db/repair.ts:127` | `db.run` | n/a | Internal constant | S5-F4 (bypasses wrapper) |
+| `db/repair.ts:156-158` | `db.run` | Yes (rowids) | From FK-check output | S5-F4 (bypasses wrapper); S5-F6 |
+| `db/repair.ts:183` | `db.run` | Yes | Internal | S5-F4 (bypasses wrapper) |
+| `db/snapshot.ts:81` | `db.run` | Yes | Internal path | S5-F4 (bypasses wrapper) |
+| `ipc/http-server.ts:156` | `db.run` | n/a | Internal constant | None — `PRAGMA query_only` on read-only handle |
+| `index/local-index.ts:278` | `db.run` | n/a | Internal constant | S5-F4 |
+| `index/local-index.ts:428,461,733,807,826,842,849,856,870` | `db.run` | Yes / constant | Internal | S5-F4 |
+| `people/person-store.ts:291` | `db.run` | Yes (params) | User patch — column names from literals only | S5-F5 (template literal SQL construction) |
+| `people/person-store.ts:194,342` | `db.run` | Yes | Internal | S5-F4 |
+| `automation/workflow-store.ts:54-144` | `db.run` (8×) | Yes | Internal | S5-F4 |
+| `automation/watcher-store.ts:50-114` | `db.run` (6×) | Yes | Internal | S5-F4 |
+| `automation/extension-store.ts:32-85` | `db.run` (4×) | Yes | Internal | S5-F4 |
+| `connectors/health.ts:123,127,154,352` | `db.run` (4×) | Yes | Internal | S5-F4 |
+| `connectors/remove-intent.ts:23,31` | `db.run` (2×) | Yes | Internal | S5-F4 |
+| `connectors/user-mcp-store.ts:70,80` | `db.run` (2×) | Yes | Internal | S5-F4 |
+| `engine/sub-agent.ts:17,32,52` | `db.run` (3×) | Yes | Internal | S5-F4 |
+| `embedding/pipeline.ts:73,103` | `db.run` (2×) | Yes | Internal | S5-F4 |
+| `graph/graph-populator.ts:29` | `db.run` | Yes | Internal | S5-F4 |
+| `graph/relationship-graph.ts:57,77,95` | `db.run` (3×) | Yes | Internal | S5-F4 |
+| `index/item-store.ts:71,169,188` | `db.run` (3×) | Yes | Internal | S5-F4 |
+| `llm/registry.ts:106,134` | `db.run` (2×) | Yes | Internal | S5-F4 |
+| `memory/session-memory-store.ts:65,69,130,139` | `db.run` (4×) | Yes | Internal | S5-F4 |
+| `people/linker.ts:408` | `db.run` | Yes | Internal | S5-F4 |
+| `people/prune.ts:10-36` | `db.run` (9×) | n/a / Yes | Internal constant | S5-F4 |
+| `platform/assemble.ts:75` | `db.run` | n/a | Internal constant | S5-F4 (PRAGMA — minor) |
+| `sync/scheduler-store.ts:53-220` | `db.run` (8×) | Yes | Internal | S5-F4 |
+| `automation/workflow-run-history.ts:79` | `db.run` | Yes | Internal | S5-F4 |
+| `migrations/runner.ts:77,119` | `db.run` (2×) | n/a / Yes | Internal constant | None — migrations are write path intentionally |
+
+All `db.query(sql).all(vals)` call sites in the HTTP server (`http-server.ts:74,84,99,109,119`) and in `query-guard.ts` use either parameterized `?` placeholders or read-only static SQL. No user-supplied string is concatenated into any `db.query()` call.
+
+---
+
+### `nimbus query --sql` connection-flag audit
+
+- **Connection open mode:** `runReadOnlySelect` (`query-guard.ts:41`) opens `new Database(dbPath, { readonly: true, create: false })`. bun:sqlite passes `SQLITE_OPEN_READONLY` to the SQLite C library. Confirmed: this is a genuine read-only open — SQLite enforces this at the C-API level, not just through Bun checks.
+- **Layer 1 — keyword blocklist:** `assertReadOnlySelectSql` rejects any SQL not starting with `SELECT` or `WITH`, and rejects strings matching `\b(INSERT|UPDATE|DELETE|DROP|ALTER|ATTACH|DETACH|REPLACE|CREATE|TRUNCATE|VACUUM)\b`. This blocks the most common write statements and the `ATTACH DATABASE` escape.
+- **Layer 2 — read-only connection:** Even if a keyword slips through the regex (e.g. an obscure write form), the `SQLITE_OPEN_READONLY` connection prevents the SQLite engine from executing any write. Confirmed that `PRAGMA writable_schema = 1` is blocked both by `FORBIDDEN_PRAGMA` regex and by the read-only connection flag.
+- **ATTACH disabled at Layer 1:** `ATTACH` is in the `FORBIDDEN` regex. A user cannot attach a second database file (which could be writable) through `runReadOnlySelect`.
+- **PRAGMA filtering gap:** Layer 1 does not block all write-capable PRAGMAs (see S5-F2). Layer 2 (the read-only connection) prevents any actual database mutation from these PRAGMAs. Net risk is that some PRAGMAs may cause observable behavioural side-effects (e.g. `PRAGMA optimize`) on the ephemeral read-only connection, but they cannot mutate the main DB. Finding S5-F2 is Medium because the defence-in-depth gap is real even if Layer 2 prevents actual damage.
+- **No query timeout:** `runReadOnlySelect` has no wall-clock timeout mechanism (see S5-F3). The fresh handle has `PRAGMA busy_timeout` not set (the main DB handle sets 8000 ms in `platform/assemble.ts:75`, but this is a different, ephemeral handle).
+- **Connection leak check:** `runReadOnlySelect` wraps `ro.query(sql).all()` in a `try/finally { ro.close() }`. Even if `query.all()` throws, the handle is closed. No connection leak confirmed.
+- **Read-only at how many layers:** Two: (1) `SQLITE_OPEN_READONLY` at C-API level; (2) `assertReadOnlySelectSql` keyword blocklist at TypeScript level. The HTTP server adds a third: `PRAGMA query_only = ON` on its shared handle, and separately uses `{ readonly: true, create: false }` on the `Database` constructor. Three layers for the HTTP server; two layers for `runReadOnlySelect`.
+- **Tauri allowlist exclusion confirmed:** `index.querySql` is absent from `ALLOWED_METHODS` in `gateway_bridge.rs:63-120`. The test `allowlist_rejects_vault_and_raw_db_writes` does NOT assert this explicitly (see S5-F7).
+
+---
+
+### Summary
+
+The raw SQL surface is architecturally well-defended. The two-layer design (keyword blocklist + dedicated `SQLITE_OPEN_READONLY` connection) for `nimbus query --sql` and `index.querySql` is correct and effective: even a partial bypass of the regex would be stopped at the SQLite C-API level. The HTTP server is correctly bound to `127.0.0.1`, uses `{ readonly: true, create: false }`, adds `PRAGMA query_only = ON`, and rejects non-GET methods — a three-layer defence. All HTTP server query call sites use parameterized `?` placeholders with no user-input concatenation. `db.repair` correctly requires `confirm: true` before executing destructive actions.
+
+The most significant finding is **S5-F3** (Medium): `runReadOnlySelect` has no query timeout, allowing a user-supplied `SELECT` with a recursive CTE to block the Bun gateway event loop indefinitely. The second Medium finding **S5-F2** is a PRAGMA blocklist gap — several write-capable PRAGMAs are unblocked at Layer 1, though Layer 2 prevents actual damage. The systemic finding **S5-F4** (Low) documents 79 production `db.run()` call sites outside the `dbRun`/`dbExec` wrapper — the most security-relevant instance is `audit-chain.ts:58` where a disk-full event during audit writes would bypass the `DiskFullError` translation path. The remaining findings are maintenance hygiene: a misleading "non-destructive" label on `verify.ts` (S5-F1), a fragile template-literal SQL pattern in `person-store.ts` (S5-F5), a narrow `escapeIdentifier` edge case in `repair.ts` (S5-F6), and a missing explicit assertion in the Tauri allowlist test (S5-F7).
+
+Zero SQL injection vulnerabilities found. No user-supplied strings reach `db.run()`, `db.exec()`, or `db.query()` without parameterisation or the `SQLITE_OPEN_READONLY` guard.
+
+**Surface 5 totals: 0 Critical, 0 High, 2 Medium, 5 Low**
+
+---
