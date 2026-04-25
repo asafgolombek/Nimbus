@@ -77,16 +77,5 @@ export async function runDataDelete(input: RunDataDeleteInput): Promise<RunDataD
     await input.vault.delete(key);
   }
 
-  input.index.recordAudit({
-    actionType: "data.delete",
-    hitlStatus: "approved",
-    actionJson: JSON.stringify({
-      service: input.service,
-      itemsDeleted: preflight.itemsToDelete,
-      vaultEntriesDeleted: preflight.vaultEntriesToDelete,
-    }),
-    timestamp: Date.now(),
-  });
-
   return { preflight, deleted: true };
 }

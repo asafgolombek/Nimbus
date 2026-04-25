@@ -102,6 +102,11 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "alert.silence",
   "incident.escalate",
   "incident.resolve",
+  // IPC-native destructive operations
+  "data.delete",
+  "connector.remove",
+  "extension.install",
+  "connector.addMcp",
 ]);
 
 /** Runtime value is an immutable facade; typed as `ReadonlySet` for call sites (`.has`, iteration). */
@@ -173,10 +178,18 @@ export class ToolExecutor {
     private readonly connectors: ConnectorDispatcher,
   ) {}
 
-  async execute(action: PlannedAction): Promise<ActionResult> {
-    // Use the same resolution key the dispatcher uses so HITL cannot be bypassed
-    // by supplying a non-gated action.type with a gated mcpToolId (C4 / S1-F3).
-    const resolvedToolId = action.payload?.["mcpToolId"] ?? action.type;
+  /**
+   * Runs the HITL consent gate and writes the audit record.
+   * Returns `"proceed"` when the action is approved or not gate-required.
+   * Returns an `ActionResult` with status `"rejected"` when the user declines
+   * or the consent channel disconnects — audit already written, do NOT write again.
+   *
+   * Use this when the caller owns execution (not MCP dispatch). For MCP dispatch
+   * use `execute()` which calls `gate()` internally.
+   */
+  async gate(action: PlannedAction): Promise<ActionResult | "proceed"> {
+    const rawToolId = action.payload?.["mcpToolId"];
+    const resolvedToolId = typeof rawToolId === "string" ? rawToolId : action.type;
     const requiresHITL = HITL_REQUIRED.has(resolvedToolId);
 
     let hitlStatus: "approved" | "rejected" | "not_required";
@@ -191,9 +204,7 @@ export class ToolExecutor {
             : (redactPayloadForConsentDisplay(action.payload) as Record<string, unknown>);
         const approved = await this.consent.requestApproval(formatConsentPrompt(action), details);
         hitlStatus = approved ? "approved" : "rejected";
-        if (!approved) {
-          rejectReason = "User declined consent gate.";
-        }
+        if (!approved) rejectReason = "User declined consent gate.";
       } else {
         hitlStatus = "not_required";
       }
@@ -207,7 +218,7 @@ export class ToolExecutor {
       }
     }
 
-    // ALWAYS write audit record BEFORE any connector call
+    // ALWAYS write audit record BEFORE any execution
     this.audit.recordAudit({
       actionType: action.type,
       hitlStatus,
@@ -216,12 +227,14 @@ export class ToolExecutor {
     });
 
     if (hitlStatus === "rejected") {
-      return {
-        status: "rejected",
-        reason: rejectReason ?? "User declined consent gate.",
-      };
+      return { status: "rejected", reason: rejectReason ?? "User declined consent gate." };
     }
+    return "proceed";
+  }
 
+  async execute(action: PlannedAction): Promise<ActionResult> {
+    const gateResult = await this.gate(action);
+    if (gateResult !== "proceed") return gateResult;
     const result = await this.connectors.dispatch(action);
     return { status: "ok", result };
   }
