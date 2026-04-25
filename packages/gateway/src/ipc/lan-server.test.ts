@@ -116,17 +116,19 @@ async function sendEncryptedRpc(
 
 describe("LanServer gate (G4)", () => {
   let server: LanServer | undefined;
-  let hostKeypair: ReturnType<typeof generateBoxKeypair>;
 
   afterEach(async () => {
     await server?.stop();
     server = undefined;
   });
 
-  test("forbidden method (vault.list) is rejected with ERR_METHOD_NOT_ALLOWED", async () => {
-    hostKeypair = generateBoxKeypair();
+  async function makeGateServer(onMessageCalls: string[]): Promise<{
+    hostKeypair: ReturnType<typeof generateBoxKeypair>;
+    clientKeypair: ReturnType<typeof generateBoxKeypair>;
+    port: number;
+  }> {
+    const hostKeypair = generateBoxKeypair();
     const clientKeypair = generateBoxKeypair();
-    const onMessageCalls: string[] = [];
     server = new LanServer({
       bind: "127.0.0.1",
       port: 0,
@@ -147,47 +149,28 @@ describe("LanServer gate (G4)", () => {
       registerPeer: () => "test-peer",
     });
     await server.start();
-    const port = server.listenAddr()!.port;
+    return { hostKeypair, clientKeypair, port: server.listenAddr()!.port };
+  }
 
+  test("forbidden method (vault.list) is rejected with ERR_METHOD_NOT_ALLOWED", async () => {
+    const calls: string[] = [];
+    const { hostKeypair, clientKeypair, port } = await makeGateServer(calls);
     const resp = await sendEncryptedRpc(hostKeypair.publicKey, clientKeypair, port, {
       id: 1,
       method: "vault.list",
     });
     expect(resp.error?.message).toMatch(/ERR_METHOD_NOT_ALLOWED/);
-    expect(onMessageCalls.length).toBe(0);
+    expect(calls.length).toBe(0);
   });
 
   test("write method without write grant is rejected with ERR_LAN_WRITE_FORBIDDEN", async () => {
-    hostKeypair = generateBoxKeypair();
-    const clientKeypair = generateBoxKeypair();
-    const onMessageCalls: string[] = [];
-    server = new LanServer({
-      bind: "127.0.0.1",
-      port: 0,
-      hostKeypair,
-      onMessage: async (method) => {
-        onMessageCalls.push(method);
-        return {};
-      },
-      isKnownPeer: () => ({ peerId: "test-peer", writeAllowed: false }),
-      rateLimit: { checkAllowed: () => true, recordFailure: () => {}, recordSuccess: () => {} },
-      pairing: {
-        isOpen: () => false,
-        consume: () => false,
-        open: () => {},
-        close: () => {},
-        getExpiresAt: () => undefined,
-      },
-      registerPeer: () => "test-peer",
-    });
-    await server.start();
-    const port = server.listenAddr()!.port;
-
+    const calls: string[] = [];
+    const { hostKeypair, clientKeypair, port } = await makeGateServer(calls);
     const resp = await sendEncryptedRpc(hostKeypair.publicKey, clientKeypair, port, {
       id: 1,
       method: "engine.ask",
     });
     expect(resp.error?.message).toMatch(/ERR_LAN_WRITE_FORBIDDEN/);
-    expect(onMessageCalls.length).toBe(0);
+    expect(calls.length).toBe(0);
   });
 });
