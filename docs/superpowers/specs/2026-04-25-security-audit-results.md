@@ -4,17 +4,50 @@
 **Related design:** [2026-04-25-security-audit-design.md](./2026-04-25-security-audit-design.md)
 **Related threat model:** [2026-04-25-security-audit-threat-model.md](./2026-04-25-security-audit-threat-model.md)
 **Audit branch:** `dev/asafgolombek/security-audit`
-**Status:** in progress (per-surface deep-dives accumulating; consolidation in Phase 3)
+**Status:** complete — all 8 surface deep-dives and cross-surface chain analysis finished; 72 findings filed, 6 composite chains documented; GitHub issues pending (Task 13)
 
 ---
 
 ## Summary
 
-_Computed in Phase 3 — see § "Summary table" at the end of this doc._
+### Severity counts by surface
+
+| Surface | Reviewer | Critical | High | Medium | Low | Total |
+|---|---|---|---|---|---|---|
+| S1 — HITL enforcement | Surface-1 subagent | 0 | 2 | 4 | 2 | 8 |
+| S2 — Vault & credential surface | Surface-2 subagent | 0 | 1 | 3 | 6 | 10 |
+| S3 — LAN authorization | Surface-3 subagent | 0 | 2 | 1 | 6 | 9 |
+| S4 — Tauri allowlist | Surface-4 subagent | 0 | 1 | 3 | 4 | 8 |
+| S5 — Raw SQL surface | Surface-5 subagent | 0 | 0 | 2 | 5 | 7 |
+| S6 — Updater pipeline | Surface-6 subagent | 0 | 1 | 5 | 5 | 11 |
+| S7 — Extension sandbox & manifest | Surface-7 subagent | 0 | 2 | 5 | 3 | 10 |
+| S8 — MCP connector boundary | Surface-8 subagent | 0 | 3 | 4 | 3 | 10 |
+| **Subtotal (per-surface)** | | **0** | **12** | **27** | **34** | **73** |
+| Phase 3 — Cross-surface chains | Controller | 0 | 4 | 2 | 0 | 6 |
+| **Grand total** | | **0** | **16** | **29** | **34** | **79** |
+
+> **Note on S3-F1:** S3-F1 (LAN gate never called) is the same root cause as S1-F2. It is counted once in S1 and once in S3 (with added LAN-dispatch detail), giving a double-count of 1 High. Net unique findings: 78.
+
+### Key themes
+
+**Three root causes underlie the most severe findings:**
+
+1. **`{ ...process.env }` spread in `lazy-mesh.ts`** — all 21 MCP child processes inherit the full gateway environment, leaking LLM provider API keys, OAuth client secrets, and every other operator-set env var to connectors including arbitrary user MCPs. Same defect flagged independently in S2-F1, S7-F1, S8-F1, and chains C1–C3. Fix: adopt `extensionProcessEnv()`.
+
+2. **`checkLanMethodAllowed` never called in production** — `LanServer.handleEncryptedMessage` calls `this.opts.onMessage` without invoking the allowlist gate. All IPC methods are accessible to any paired LAN peer. Flagged in S1-F2, S3-F1, chains C3 and C5. Fix: wire the gate intrinsically into `LanServer`.
+
+3. **`extension.install` / `connector.addMcp` are ungated code-execution surfaces** — neither is in `HITL_REQUIRED`, neither has a consent dialog, and `extension.install` is in the Tauri ALLOWED_METHODS. Flagged in S7-F2, S8-F2, chains C1 and C3. Fix: add both to `HITL_REQUIRED`; require a HITL consent dialog displaying the install target before persistence.
+
+**Two features are dormant but have critical gaps that must be fixed before launch:**
+
+- **LAN server** — never instantiated in production (`new LanServer` zero production hits); gaps in S3-F1, S3-F2, S3-F7, S8-F2 would make it immediately exploitable over the local network when wired.
+- **Updater** — never instantiated in production; S6-F2 (dev key override ungated in prod) and S6-F5 (no version re-check) would allow supply-chain RCE via chain C2 when wired.
 
 ## Critical findings
 
-_None yet (Phase 3 will populate this section explicitly; an empty section here indicates no Critical findings discovered)._
+**No Critical-severity findings were identified in this audit.** The highest-severity issues are rated High. The absence of Critical findings reflects the structural strength of the HITL consent gate (which fires before any mutating connector call) and the vault abstraction (which prevents plaintext credential storage). The most dangerous issues are the process.env leak (High) and the ungated install surfaces (High), which compose into High-severity composite chains but do not reach Critical because they require either a malicious local extension, a compromised MCP child, or a XSS entry point as a prerequisite.
+
+The three High chains that are active today (C1, C2, C6) are recommended for immediate remediation before the next release.
 
 ---
 
