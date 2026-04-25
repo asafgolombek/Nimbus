@@ -261,3 +261,192 @@ The dominant pattern of issues is **IPC-layer bypass**: three destructive operat
 Total: **0 Critical, 2 High, 3 Medium, 3 Low**.
 
 ---
+
+## Surface 2 — Vault credential surface
+
+**Reviewer:** Surface-2 subagent
+**Files audited:**
+- `packages/gateway/src/vault/index.ts`
+- `packages/gateway/src/vault/nimbus-vault.ts`
+- `packages/gateway/src/vault/key-format.ts`
+- `packages/gateway/src/vault/factory.ts`
+- `packages/gateway/src/vault/win32.ts`
+- `packages/gateway/src/vault/darwin.ts`
+- `packages/gateway/src/vault/linux.ts`
+- `packages/gateway/src/vault/mock.ts`
+- `packages/gateway/src/vault/ffi-ptr.ts`
+- `packages/gateway/src/auth/google-access-token.ts`
+- `packages/gateway/src/auth/oauth-vault-tokens.ts`
+- `packages/gateway/src/auth/pkce.ts`
+- `packages/gateway/src/connectors/connector-vault.ts`
+- `packages/gateway/src/connectors/connector-secrets-manifest.ts`
+- `packages/gateway/src/connectors/lazy-mesh.ts` (vault.get + spawn-env touch points)
+- `packages/gateway/src/db/data-vault-crypto.ts`
+- `packages/gateway/src/db/recovery-seed.ts`
+- `packages/gateway/src/commands/data-export.ts`
+- `packages/gateway/src/commands/data-import.ts`
+- `packages/gateway/src/ipc/server.ts` (vault.* dispatch)
+- `packages/gateway/src/ipc/connector-rpc-handlers.ts` (vault.set / snapshot paths)
+- `packages/gateway/src/ipc/connector-rpc-shared.ts`
+- `packages/gateway/src/ipc/data-rpc.ts`
+- `packages/gateway/src/embedding/create-embedding-runtime.ts`
+- `packages/gateway/src/platform/assemble.ts`
+- `packages/ui/src/ipc/client.ts`
+- `packages/ui/src/store/partialize.ts`
+
+### Findings
+
+#### S2-F1 — `process.env` is spread into every MCP child env, propagating host-set sensitive variables to all connectors (High)
+
+- **File:** `packages/gateway/src/connectors/lazy-mesh.ts:59-70` (`compactProcessEnv`), and 21 spawn sites at lines 210, 274, 290, 308, 322, 337, 360, 374, 397, 470, 476, 482, 513-515, 527, 532, 537, 568, 573, 601-602, 611, 644-647 plus subsequent connectors.
+- **Description:** Every MCP child process inherits the gateway's full `process.env` via either `compactProcessEnv(extra)` or the inline `{ ...process.env, ...creds }` pattern. Because the gateway sets per-connector OAuth tokens / PATs into spawn-time `extra` objects (`AWS_ACCESS_KEY_ID`, `GITHUB_PAT`, `GOOGLE_OAUTH_ACCESS_TOKEN`, `MICROSOFT_OAUTH_ACCESS_TOKEN`, `GITLAB_PAT`, `BITBUCKET_*`, etc.) only on the connector's own bundle, those credentials are NOT cross-leaked. **However**, anything that the gateway picks up at startup from its host environment — for example `OPENAI_API_KEY` (read at `embedding/create-embedding-runtime.ts:27`), `NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET`, `NIMBUS_DEV_UPDATER_PUBLIC_KEY`, `NIMBUS_UPDATER_URL`, host GitHub/AWS env vars set by the user shell, etc. — is propagated unmodified to every spawned MCP child. A malicious connector (M3) or user-installed MCP (M2 via `mesh:user:<id>`) silently inherits any sensitive variable in the parent process environment. The `extensionProcessEnv` "explicit-keys-only" helper (`extensions/spawn-env.ts:5`) is documented as the intended pattern but is NOT used by `lazy-mesh.ts` for any spawn.
+- **Attack scenario:** A user installs a third-party MCP via `connector.addMcp` (or in Phase 5+, from a marketplace). The user has set `OPENAI_API_KEY` in their shell so Nimbus can drive embeddings against OpenAI. The user-MCP child at `lazy-mesh.ts:210` is spawned with `env: { ...process.env }` and reads `process.env.OPENAI_API_KEY` from its own environment, then exfiltrates the OpenAI key over its own outbound network channel. The same applies to any developer who runs `nimbus start` from a shell with OAuth client secrets exported.
+- **Existing controls:** Per-connector explicit `extra` keys are used for the connector's OWN credentials; the AWS bundle does not automatically receive `GITHUB_PAT`. But this is incidental — it relies on the gateway never leaking connector secrets via env at boot. Not a structural gate.
+- **Suggested fix:** Replace `compactProcessEnv` and inline `{ ...process.env, …creds }` patterns in `lazy-mesh.ts` with a single helper that emits ONLY the keys each connector needs (e.g. `PATH`, `HOME`, `TMPDIR` for Bun runtime, plus the explicit credential keys passed by the caller). This is the documented `extensionProcessEnv` pattern. Refactor all 21 spread sites in one PR. Add a regression test that asserts `compactProcessEnv` strips host env vars not in an allowlist.
+- **Confidence:** High.
+- **Verification:** `Grep ...process.env` in `packages/gateway/src/connectors/lazy-mesh.ts` returns 21 occurrences; `extensionProcessEnv` is defined in `extensions/spawn-env.ts:5` but not imported by `lazy-mesh.ts` (verified — 0 hits).
+
+#### S2-F2 — Audit log persists pre-redaction `action.payload`, allowing planner-supplied secrets to land in `audit_log.action_json` (Medium)
+
+- **File:** `packages/gateway/src/engine/executor.ts:162-166, 208-213` (`auditPayload` → `formatAuditPayload({ action, ... })`); `packages/gateway/src/audit/format-audit-payload.ts:6-12`.
+- **Description:** `redactPayloadForConsentDisplay` (executor.ts:140) is applied to the consent-display path (the IPC `consent.request` notification's `details` field) but NOT to the audit body. `auditPayload(action, …)` passes the original `action` object to `formatAuditPayload`, which `JSON.stringify`s the full payload. If the planner constructs a `PlannedAction` whose `payload` includes a literal credential — e.g. an MCP tool call carrying `{ headers: { Authorization: "Bearer …" } }` or a connector mutate-tool that the planner has spliced a token into — that credential is persisted verbatim into `audit_log.action_json`. The audit chain BLAKE3-includes the JSON, so the secret is also covered by the chain hash.
+- **Attack scenario:** A future change wires a connector mutate-tool whose input schema contains an explicit `apiToken` field. The planner builds `action.payload = { input: { apiToken: <vault value> } }` and submits it to `ToolExecutor.execute`. After consent approval, `audit_log` records the literal token in `action_json`. The HITL consent UI never showed the token (consent display was redacted), but the token is now permanently in the SQLite DB and exported with every `data.export` (audit-chain.json side file in the bundle). On a multi-user host where another user can read `nimbus.db` (e.g. via a missing umask), or where the user shares an unredacted bundle for support, the credential leaks.
+- **Existing controls:** `formatAuditPayload` truncates serialized output at 4096 bytes — too generous to mitigate this. Tauri allowlist excludes `index.querySql` and raw DB access from the frontend; CLI/IPC clients can still read via `audit.list` / `audit.export` / `index.querySql`.
+- **Suggested fix:** Apply `redactPayloadForConsentDisplay` (or a stricter audit-redaction variant that strips known token-shaped values, not just keys) to the action payload BEFORE it is passed to `formatAuditPayload`. Add a contract test that submits an action with `{ apiToken: "secret-xyz" }` and asserts the audit_log row does NOT contain `secret-xyz`.
+- **Confidence:** Medium (the threat depends on the planner/tool schema actually putting credentials in payload — currently no first-party tool does, but the surface is permitted by design).
+- **Verification:** `executor.ts:166` — `formatAuditPayload(extras === undefined ? { action } : { action, ...extras })` passes the unmodified `action` (i.e. with original `payload`). The redaction at `executor.ts:140-152` is only used at the consent-display call site (`executor.ts:188-189` and the prompt formatter at `:154-160`), never for the audit row.
+
+#### S2-F3 — DPAPI vault `writeFile` is non-atomic; a crash mid-write corrupts the encrypted blob (Medium)
+
+- **File:** `packages/gateway/src/vault/win32.ts:128`.
+- **Description:** `DpapiVault.set` writes the base64-encoded encrypted blob with `await writeFile(this.encPath(key), b64, "utf8")`. `node:fs/promises` writeFile is NOT atomic on Windows: it performs `open(O_WRONLY | O_CREAT | O_TRUNC)` then writes in chunks. If the gateway process is killed (or the OS panics) between the `O_TRUNC` and the final write, the `<configDir>/vault/<key>.enc` file is left empty or partial, and on next `get` `Buffer.from(b64, "base64")` produces a zero-length buffer. `CryptUnprotectData` then returns 0 → "Vault decryption failed". The user loses the credential and must re-authenticate. Worse, the credential rotation pattern in `getValidVaultOAuthAccessToken` (oauth-vault-tokens.ts:79 → pkce.ts:818) refreshes a token and writes the result back: a crash mid-rotation means the user has burned their refresh window AND lost the local copy.
+- **Attack scenario:** Power loss / OS crash / `taskkill /F` during an OAuth refresh writes a half-truncated file. On reboot, the user must re-OAuth every connector. This is primarily a reliability finding but is exploitable as a denial-of-credentials attack by any local-uid attacker who can `kill -9` the gateway during a known refresh window.
+- **Existing controls:** None — libsecret (Linux) and Keychain (macOS) handle atomicity transactionally via D-Bus / SecItemAdd. Only Windows DPAPI uses raw filesystem writes.
+- **Suggested fix:** Adopt a temp-file + rename pattern: write to `<key>.enc.tmp.<pid>.<rand>` then `rename` to the final path. On Windows ReFS/NTFS the rename is atomic for same-volume moves. Optionally also `fsync` the temp file before rename. Add a unit test that simulates a crash between `writeFile` and `rename` and confirms the previous `.enc` remains valid.
+- **Confidence:** High (filesystem semantics are well-known; `writeFile` does not promise atomicity).
+- **Verification:** Read `win32.ts:94-129` — `set()` calls `writeFile` directly, no temp+rename, no fsync.
+
+#### S2-F4 — DPAPI uses no optional entropy; encrypted blob is decryptable by any process running as the user without proving Nimbus identity (Low)
+
+- **File:** `packages/gateway/src/vault/win32.ts:105-113`, `:161-169`.
+- **Description:** `CryptProtectData` and `CryptUnprotectData` are invoked with the `pOptionalEntropy` argument set to `null` (the third pointer arg is `null` at both sites). Per Microsoft docs, supplying optional entropy (e.g. a fixed Nimbus-per-user random secret stored separately, or a derivation of `paths.configDir`) means another application running as the same user account cannot decrypt the blob without knowing the entropy. Without it, any code running as the same user (a malicious browser extension, a third-party app, a compromised IDE plugin) can read `<configDir>/vault/*.enc` and call `CryptUnprotectData` with no entropy to recover plaintext. This matches the documented "M2 same-uid attacker" residual risk but is more permissive than necessary.
+- **Attack scenario:** A user installs a PowerShell-based developer tool that scans `%APPDATA%` for known credential stores. It finds `<configDir>/vault/github.pat.enc`, calls `CryptUnprotectData` without entropy, and recovers the GitHub PAT. Without entropy, no Nimbus-specific gate applies.
+- **Existing controls:** Filesystem ACLs on `<configDir>` typically grant only the user (acceptable). The DPAPI bind to user+machine SID prevents off-machine decrypt. No application-level isolation.
+- **Suggested fix:** Generate a random 32-byte entropy at first run, store it via DPAPI itself (or in a known-location file) and pass it to all subsequent `CryptProtectData` / `CryptUnprotectData` calls. This raises the bar from "any same-user process" to "any process that has read Nimbus's entropy file" — meaningful defense-in-depth on Windows.
+- **Confidence:** Medium (the user-trusted threat model accepts same-uid attackers in residual risks). Listed as Low because it is a defense-in-depth gap.
+- **Verification:** Read `win32.ts:105-113` and `:161-169` — both `crypt32.symbols.CryptProtectData` and `crypt32.symbols.CryptUnprotectData` calls pass `null` for the third (`pOptionalEntropy`) argument.
+
+#### S2-F5 — `data.export` returns the freshly generated recovery seed in the IPC reply without HITL gating (Medium)
+
+- **File:** `packages/gateway/src/commands/data-export.ts:101-106`; `packages/gateway/src/ipc/data-rpc.ts:51-79` (`handleDataExport`); `packages/gateway/src/db/recovery-seed.ts:16-24`.
+- **Description:** `runDataExport` returns `{ outputPath, recoverySeed: seed.mnemonic, recoverySeedGenerated, itemsExported }` — the 24-word BIP39 mnemonic that, paired with the export bundle, decrypts the entire vault. The IPC handler returns this verbatim to the caller. Important properties: (a) `data.export` is NOT in `HITL_REQUIRED` (`executor.ts:22-105`) — it's a direct IPC handler in `data-rpc.ts:197`, never traversing the consent gate; (b) the seed is sent in the JSON-RPC reply over the IPC socket; (c) frontend `redactSensitiveSubstrings` (`ui/src/ipc/client.ts:137-156`) only redacts `passphrase`/`recoverySeed`/`mnemonic` in ERROR messages, not in success-result bodies. The seed therefore reaches the React state at `data.ts` slice and the `ExportWizard.tsx` component, where it is rendered for the user.
+- **Attack scenario:** A WebView XSS in the Tauri renderer (S4 surface) calls `data.export` with a passphrase known to the attacker, captures the returned `recoverySeed` from the JSON reply, and exfiltrates it. Combined with the export bundle (which the attacker also wrote via the user's filesystem-write capability), the entire vault is decryptable. Also: any local-IPC client (any process on the user's machine) can call `data.export` directly and capture both the seed and bundle.
+- **Existing controls:** UI flows show the seed once and require user attestation. Tauri UI shows but does not auto-copy. No IPC-side gate.
+- **Suggested fix:** Add `data.export` to `HITL_REQUIRED` so the consent gate fires (the user already sees a wizard, but a structural gate stops a malicious frontend from doing this silently). Also ensure the seed is NEVER returned in the JSON reply for cases where it was not freshly generated — `recoverySeedGenerated: false` paths could omit `recoverySeed` entirely. Add a contract test that asserts a re-export reuses the existing vault key and returns an empty/redacted seed for non-first exports.
+- **Confidence:** Medium (the user is intentionally seeing the seed; the issue is the absence of a structural gate around an action that exposes the master decryption key).
+- **Verification:** Confirmed via `executor.ts:22-105` (`HITL_REQUIRED` does not include `data.export`), `data-rpc.ts:75-79` (`runDataExport` result is returned to caller without filtering), `data-export.ts:103` (`recoverySeed: seed.mnemonic`).
+
+#### S2-F6 — Frontend redaction list (5 keys) excludes connector-secret value names (Low)
+
+- **File:** `packages/ui/src/ipc/client.ts:137-143` (`FORBIDDEN_VALUE_KEYS`); `packages/ui/src/store/partialize.ts:25-31` (`FORBIDDEN_PERSIST_KEYS`).
+- **Description:** Both lists contain only 5 names: `passphrase`, `recoverySeed`, `mnemonic`, `privateKey`, `encryptedVaultManifest`. They do NOT include the names that connector OAuth payloads use (`accessToken`, `refreshToken`, `apiToken`, `clientSecret`, `pat`, `bot_token`, `api_key`, `app_password`). The frontend deep-scrub at persist time (`partialize.ts:40-57`) and the error-message redaction (`client.ts:145-156`) therefore do nothing if a future bug accidentally puts a connector secret into a persisted slice or a JsonRpcError message. The threat-model `redactPayloadForConsentDisplay` regex (`executor.ts:137`) is broader (matches `token|key|secret|password|credential|bearer|auth`) — the gateway side is conservative, but the frontend's defense-in-depth is narrower than the gateway's redaction. This is a "consistency" gap: three independent redaction implementations (consent-display, frontend-error, persist-scrub) use three different keyword sets.
+- **Attack scenario:** Theoretical: a future bug in a slice writes `connectorsList: [{ pat: "ghp_…" }]`. Persist middleware writes the secret to `localStorage`. Defense-in-depth (which the comment in `partialize.ts:7-12` claims) does not catch this because `pat` is not in `FORBIDDEN_PERSIST_KEYS`.
+- **Existing controls:** Whitelist of persisted keys (`WHITELISTED_PERSIST_KEYS`) is the primary control; the forbidden list is documented as redundant defense-in-depth. Tauri allowlist blocks vault.* methods from the frontend, so vault values shouldn't reach the renderer in the first place.
+- **Suggested fix:** Unify the three redaction implementations behind a single shared module that mirrors the gateway-side regex, and use it for (a) error-message redaction, (b) persist deep-scrub, (c) any future console.log helper. Add a CI lint that asserts the keyword sets match across surfaces.
+- **Confidence:** Low (no current concrete exploit; this is hardening).
+- **Verification:** Confirmed by reading the two referenced files and comparing against `executor.ts:137` (`SENSITIVE_PAYLOAD_KEY = /(token|key|secret|password|credential|bearer|auth)/i`).
+
+#### S2-F7 — Vault key validation regex permits uppercase via `/i` flag, allowing case-folded near-collisions (Low)
+
+- **File:** `packages/gateway/src/vault/key-format.ts:9`.
+- **Description:** `isWellFormedVaultKey` tests `/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/i` — the `/i` flag means uppercase letters are accepted by the character class. A connector author can write `Github.PAT` and `github.pat` as two distinct vault keys. Filesystem case-sensitivity matches on Linux/macOS (case-sensitive distinct entries); on Windows the DPAPI vault uses `<key>.enc` filenames which are case-INSENSITIVE on NTFS, so `Github.PAT.enc` and `github.pat.enc` collide and Windows last-write-wins. The libsecret backend on Linux uses `nimbus-key` attribute matching which IS case-sensitive — so on Linux the two keys are independent entries that `listKeys` returns, but on Windows one silently overwrites the other.
+- **Attack scenario:** A first-party connector writes `github.pat`. A user-installed extension writes `Github.PAT` thinking it's a new namespace. On Linux/macOS the extension's key is independent; on Windows it overwrites the first-party PAT. The first-party connector's PAT is silently corrupted.
+- **Existing controls:** None — `validateVaultKeyOrThrow` calls `isWellFormedVaultKey`, which accepts uppercase.
+- **Suggested fix:** Drop the `/i` flag: `/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/`. Add a migration check that warns if any existing key in the vault contains uppercase. Document the lowercase-only convention in the connector authoring guide.
+- **Confidence:** High (regex behaviour is unambiguous).
+- **Verification:** Read `key-format.ts:5-10` directly: the `/i` flag is present and the character class is `[a-z]` (would be `[a-zA-Z]` if intentional).
+
+#### S2-F8 — `vault.set` IPC method is dispatched without HITL gating; any local IPC client can overwrite or plant secrets (Low)
+
+- **File:** `packages/gateway/src/ipc/server.ts:99-108` (`vault.set` handler in `dispatchVaultIfPresent`).
+- **Description:** The `vault.set` IPC method validates only `key` format and that `value` is a string; it never traverses HITL. Any local-IPC client (CLI alias, malicious shell wrapper, IDE extension that has access to the IPC socket) can call `vault.set("github.pat", "<attacker-controlled>")` and overwrite the user's GitHub PAT, then later read it back via `vault.get`. The Tauri allowlist blocks `vault.*` methods (good), and the LAN method-allowlist excludes `vault` (good). But the local Unix-socket / Windows-named-pipe surface is wide-open.
+- **Attack scenario:** A malicious IDE extension calls `vault.set("github.pat", "<attacker-PAT>")` to swap the user's PAT for one the attacker controls. On the next sync, Nimbus uses the attacker's PAT and the attacker captures the user's GitHub data via API access patterns. Or the attacker calls `vault.set("aws.access_key_id", "<attacker-AWS-key>")` and waits for a HITL-approved AWS action — the action is then dispatched against the attacker's AWS account, not the user's intended target.
+- **Existing controls:** Local IPC socket is `chmod 0o600` (`server.ts:82-88`) — same-user processes only, by uid. Tauri allowlist blocks frontend access. LAN forbidden-namespace blocks LAN peers.
+- **Suggested fix:** Add `vault.set` (and `vault.delete`) to a HITL-gated path or to a method allowlist that requires an out-of-band confirmation token (a CLI prompt with explicit "Yes, overwrite vault key X?"). Consider whether `vault.set` should even be reachable via IPC — the only legitimate callers are `connector.auth*` flows, most of which already use purpose-built handlers.
+- **Confidence:** Medium-High (the dispatcher is verified, but the actual reachability requires an attacker who already has IPC-socket access, which is the user-trusted boundary).
+- **Verification:** Read `server.ts:99-135` — `vault.set` writes directly to the vault with only key-format validation. Cross-referenced with `executor.ts:22-105` — vault methods are not in `HITL_REQUIRED`.
+
+#### S2-F9 — `pino` logger error serialization in embedding init may leak the OpenAI API key in error chains (Low)
+
+- **File:** `packages/gateway/src/embedding/create-embedding-runtime.ts:48`.
+- **Description:** `logger.warn({ err }, "OpenAI embedder init failed")` passes the raw `err` object to pino. Pino's default `err` serializer extracts `message`, `name`, and `stack`. If `createOpenAIEmbedder` (a third-party SDK call) ever embeds the API key into its error message — e.g. an "Invalid API key starting with `sk-…`" hint, or a request-context dump that includes the auth header — the key reaches the gateway log file. Today the OpenAI SDK does NOT typically echo the key into error messages, but this is a third-party contract that can change. The same pattern in other connectors using third-party SDKs would be similarly at risk.
+- **Attack scenario:** A future OpenAI SDK version adds verbose error context (e.g. for debugging). The gateway log files (configurable, frequently world-readable in dev environments) accumulate fragments of the API key.
+- **Existing controls:** Pino default `err` serializer extracts message/name/stack. No explicit redaction layer on top.
+- **Suggested fix:** Wrap third-party SDK errors before logging — replace `{ err }` with a sanitized object: `{ errMessage: redactSensitive(err.message), errName: err.name }`. Add a custom pino redaction config that strips `authorization|api[-_]?key|token|secret|bearer` patterns from log output (pino's `redact` option supports this).
+- **Confidence:** Low (depends on third-party SDK behaviour).
+- **Verification:** Read `embedding/create-embedding-runtime.ts:44-50` — the `try/catch` passes raw err. No redaction layer is configured on the logger (`assemble.ts:244` calls `createGatewayPinoLogger(paths.logDir)` — would need separate audit to verify pino redact config).
+
+#### S2-F10 — `decryptVaultManifest` trusts attacker-supplied KDF parameters in the bundle (Low)
+
+- **File:** `packages/gateway/src/db/data-vault-crypto.ts:89-111`.
+- **Description:** `decryptVaultManifest` reads the `kdf` object from the bundle (`blob.kdf`) and passes it directly to `kdf(passphrase, …, blob.kdf)` without bounds-checking. An attacker who has crafted a forged or tampered bundle could supply `kdf: { t: 1, m: 8, p: 1 }`, forcing the recipient to derive a weak KEK on import. While the AEAD tag still requires the attacker to have either (a) the matching wrapped DEK, or (b) the passphrase, this introduces unnecessary trust in untrusted bundle contents and could enable amplification of a partial-credential leak.
+- **Attack scenario:** An attacker who has obtained the user's passphrase but not the recovery seed could craft a bundle with weakened KDF params, resulting in faster brute-forcing if the attacker subsequently steals additional partial material. More importantly, accepting arbitrary KDF parameters means a forensic-image attacker who recovers a damaged bundle can substitute weak params before attempting offline brute-force.
+- **Existing controls:** The KDF parameters used at encryption time (DEFAULT_KDF) are strong (Argon2id t=3, m=64 MiB, p=1) — but on decrypt, whatever was stored in the bundle is trusted.
+- **Suggested fix:** Reject any blob whose `kdf` deviates from a fixed allowlist (e.g. accept only the `DEFAULT_KDF` shape, or a small set of known-good profiles). Add a contract test that asserts decrypting a blob with `kdf: { t: 1, m: 8, p: 1 }` is rejected with a clear error.
+- **Confidence:** Medium.
+- **Verification:** `decryptVaultManifest` (data-vault-crypto.ts:89-111) calls `kdf(secret, salt, blob.kdf)` directly without inspecting the parameters.
+
+### Vault read-path matrix
+
+| Read path | Source file:line | Sink (log/IPC/error/audit/telemetry/LAN) | Redaction in place | Notes |
+|---|---|---|---|---|
+| `vault.get` IPC dispatcher | `server.ts:109-116` | IPC reply (caller-visible) | None — value returned verbatim | Tauri allowlist blocks `vault.*`; LAN `FORBIDDEN_OVER_LAN` blocks `vault.*`; local IPC clients see raw values. |
+| Google OAuth token resolve | `google-access-token.ts:48, 53, 67-81` | In-process; no log | N/A | Token flows to `getValidVaultOAuthAccessToken` → `refreshAccessToken` → spawn env. Never logged. |
+| Generic OAuth refresh read | `oauth-vault-tokens.ts:59` | In-process | N/A | Parsed via `parseStoredOAuthTokens` with caller-supplied generic error strings (no `${raw}` interpolation). |
+| OAuth refresh write-back | `pkce.ts:818` (`persistOAuthTokensToVaultKey`) | Vault only | N/A | Atomic per OS keystore (libsecret/Keychain); on Windows DPAPI non-atomic — see S2-F3. |
+| Microsoft scopes parse | `oauth-vault-tokens.ts:113-138` | In-process; returns string for env | Defensive default (`undefined` on bad payload) | Used only to set `MICROSOFT_OAUTH_SCOPES` env on Outlook child. |
+| OpenAI API key read | `embedding/create-embedding-runtime.ts:29` | Spawned env to embedder | Pino logger may serialize error chain — see S2-F9 | Read once at runtime init. |
+| Connector vault snapshots (remove path) | `connector-rpc-handlers.ts:343-350, 365` | In-process; restored on remove failure | N/A | Held in JS heap during remove transaction. |
+| All `phase3Add*Mcp` reads | `lazy-mesh.ts:249-398` | Spawned env to MCP children | N/A — child processes get full `process.env` plus extra (see S2-F1) | Each connector reads only its own keys. Cross-leak risk via shared `process.env` spread. |
+| `lazy-mesh.ts` Google bundle | `lazy-mesh.ts:465, 470, 476, 482` | Spawned env (`GOOGLE_OAUTH_ACCESS_TOKEN`) | N/A | Token is the resolved access-token, not the refresh-token JSON. |
+| `lazy-mesh.ts` Microsoft bundle | `lazy-mesh.ts:510-514, 527, 532, 537` | Spawned env | N/A | Same access-token-only pattern. |
+| `lazy-mesh.ts` GitHub | `lazy-mesh.ts:556, 568, 573` | Spawned env (`GITHUB_PAT`) | N/A | Raw PAT. |
+| Per-connector PATs / API tokens | `lazy-mesh.ts:592, 630-631, 702, 733-735, 778, 818-820, 863-864, 895-897, 941, 972, 1003, 1043-1107` | Spawned env | N/A | Same pattern across 14 connectors. |
+| `vault.set` IPC dispatcher | `server.ts:100-108` | Writes to keystore | N/A | No HITL — see S2-F8. |
+| Recovery seed read | `recovery-seed.ts:17` | In-process; included in `data.export` reply | None — seed returned directly to IPC caller (see S2-F5) | First-time generation writes back to vault (`recovery-seed.ts:22`). |
+| Vault manifest export | `data-export.ts:32-41` (`collectVaultManifestPlaintext`) | Encrypted bundle file | KDF-wrapped (Argon2id + AES-256-GCM) | All keys except `backup.recovery_seed` are included. |
+| Vault manifest import | `data-import.ts:84-94` | Vault writes | Decrypted in heap, written via `vault.set` | Failure rolls back via `vault.delete`. |
+| Audit log payload | `executor.ts:208-213` | SQLite `audit_log.action_json` | Redaction NOT applied (see S2-F2) | Truncated at 4096 bytes by `formatAuditPayload`. |
+| Consent display | `executor.ts:184-189` | IPC `consent.request` notification | `redactPayloadForConsentDisplay` (regex-based deep scrub) | Working correctly per `audit-payload-safety.test.ts:125-132`. |
+| Slack OAuth refresh | `pkce.ts:826-840` | Vault write only | N/A | Same persistTokens → vault.set pattern. |
+| Notion OAuth refresh | `pkce.ts:846-884` | Vault write only | N/A | Same pattern. |
+
+### KDF parameters review (data-vault-crypto.ts)
+
+| Parameter | Value | OWASP 2024 recommendation | Finding ID if non-conformant |
+|---|---|---|---|
+| KDF algorithm | Argon2id (`@noble/hashes/argon2.js`) | Argon2id required | Conformant |
+| Time cost (`t`) | 3 iterations | >=2 (with m=64 MiB profile); >=3 (with m=12 MiB profile) | Conformant — exceeds the m=64 MiB / t=2 baseline |
+| Memory cost (`m`) | 64 MiB (= `64 * 1024` KiB) | >=19 MiB minimum; 64 MiB is one of OWASP's four recommended profiles | Conformant — at OWASP's strongest recommended-profile memory level |
+| Parallelism (`p`) | 1 lane | 1 (per OWASP recommended profiles) | Conformant |
+| Output length (`dkLen`) | 32 bytes (AES-256 KEK) | >=16 bytes for symmetric; 32 bytes for AES-256 | Conformant |
+| Salt length | 16 bytes per wrap (`randomBytes(16)`) | >=16 bytes (CSPRNG, unique per derivation) | Conformant |
+| Salt source | `node:crypto` `randomBytes` | CSPRNG required | Conformant |
+| Cipher | AES-256-GCM (DEK; passphrase-wrap; seed-wrap) | AEAD recommended; AES-GCM acceptable | Conformant |
+| IV length | 12 bytes (`randomBytes(12)`) | 12 bytes for AES-GCM | Conformant |
+| IV source | `node:crypto` `randomBytes` | CSPRNG; never reused | Conformant |
+| Tag length | 16 bytes (default for `createCipheriv`/`getAuthTag`) | 16 bytes | Conformant |
+| Tag verification timing | Node's internal AES-GCM final() — constant-time per OpenSSL | Constant-time required | Conformant |
+| Number of independent wraps | 2 (passphrase, seed) | N/A — defense-in-depth | Conformant; both use the same KDF profile and independent salts/IVs. |
+| Recovery seed entropy | 256 bits (24-word BIP39 via `@scure/bip39`) | >=128 bits | Conformant — exceeds threat-model concern Q4. |
+| KDF parameter validation on decrypt | Reads `blob.kdf` from the bundle and trusts it | Should validate the KDF params are within an accepted range to prevent attacker-supplied weak params | Non-conformant — see S2-F10 |
+
+### Summary
+
+The Vault credential surface is well-implemented at its core: every read path is tagged with `validateVaultKeyOrThrow`, no `console.log` / `console.error` exists in `vault/`, `auth/`, or `connectors/` production code, no hardcoded test tokens leak outside `*.test.ts`, no `JSON.stringify` of token/credential/config objects survives in production, and no `// TODO remove` / `// FIXME` / `// HACK` comments persist near vault paths. The KDF parameters for export bundles meet OWASP 2024 recommendations across the board — Argon2id at t=3, m=64 MiB, p=1 with 16-byte salts, 12-byte IVs, and 256-bit recovery seeds.
+
+The dominant risks are systemic rather than per-call. **(S2-F1, High)** the gateway's `process.env` is spread to every MCP child, propagating any host-set sensitive variables to all connectors and especially to user-installed MCPs. **(S2-F2, Medium)** the `audit_log.action_json` body uses the unredacted `action.payload` while consent-display redaction is correctly applied — a future tool schema with explicit credential fields would persist secrets to SQLite. **(S2-F3, Medium)** the Windows DPAPI `writeFile` is non-atomic, exposing a credential-loss DoS on power loss / kill. **(S2-F5, Medium)** `data.export` returns the recovery seed in the IPC reply without HITL gating. Five Low-severity findings cover defense-in-depth gaps (DPAPI optional-entropy, frontend redaction list, vault key-format `/i` flag, third-party SDK error chains potentially leaking the OpenAI API key into pino logs, KDF-params-trust gap on decrypt). One additional Low covers the absence of HITL on `vault.set` over IPC.
+
+Total: **0 Critical, 1 High, 3 Medium, 6 Low**.
+
+---
