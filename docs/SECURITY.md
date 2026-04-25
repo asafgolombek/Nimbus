@@ -103,13 +103,9 @@ Every action Nimbus takes under a HITL approval is recorded with the action type
 
 Third-party extensions run as child processes. They:
 
-- Receive only the credentials for their declared service, via environment variable injection at spawn time
-- Cannot enumerate Vault keys
-- Cannot connect to the Gateway's IPC socket
-- Cannot read other connectors' credentials
 - Have their manifest SHA-256 hash verified on every Gateway startup — a tampered manifest causes the extension to be disabled before it runs
 
-> **Current sandbox depth:** The current isolation mechanism is scoped environment injection and process separation. Full syscall-level and network-level isolation (seccomp / sandbox profiles) was originally planned for Phase 3 hardening but was deferred; it is now tracked for Phase 5. The current model is honest and reasonable, but users who install third-party extensions from untrusted sources should treat them with the same caution as any arbitrary npm package — the sandbox does not prevent a malicious extension from making outbound network calls or reading files the OS user can access.
+> **⚠️ Current sandbox depth:** The isolation mechanism is **OS process separation only**. Extensions currently receive the gateway's full environment at spawn time (a known gap tracked in `dev/asafgolombek/security-audit` — S7-F1/S8-F1), which means they inherit parent-process environment variables including LLM provider API keys. Full credential scoping (via the `extensionProcessEnv` helper), syscall-level isolation (seccomp/sandbox profiles), and network restrictions are tracked for remediation. Until those fixes land, treat third-party extensions as user-UID-equivalent code — equivalent to any arbitrary npm package with full read access to your home directory. Do not install extensions from untrusted sources.
 
 ---
 
@@ -117,11 +113,19 @@ Third-party extensions run as child processes. They:
 
 The Gateway listens only on a local domain socket (Unix) or named pipe (Windows), created with owner-only permissions (`chmod 0600` on Unix; DACL owner-only on Windows). There is no TCP listener. No Nimbus Gateway port is opened on any network interface.
 
+> **⚠️ LAN Server (Phase 4 WS5) — pre-flight security audit in progress:** The LAN TCP server (`nimbus lan enable`) is implemented but not yet wired into the production gateway entrypoint. A security audit has identified several gaps — including the method-allowlist gate not being called in the production path — that must be resolved before the feature is enabled. Do **not** force-enable the LAN server via config or environment hacks; it is not secure until the audit findings are addressed. Tracked in branch `dev/asafgolombek/security-audit`.
+
+> **⚠️ Auto-updater (Phase 4 WS4) — pre-flight security audit in progress:** The auto-update pipeline (`nimbus update`) is implemented but not yet wired into the production gateway entrypoint. A security audit has identified that the `NIMBUS_DEV_UPDATER_PUBLIC_KEY` environment override is honoured in production builds (no build-time gate), and that the download does not re-verify the version order before proceeding. These gaps must be fixed before the updater is enabled. Tracked in branch `dev/asafgolombek/security-audit`.
+
 ---
 
 ### Prompt Injection
 
-File content, email bodies, and external API responses are injected into the agent's context as typed `<tool_output>` data blocks. They are treated as untrusted data — not as instructions. The Engine's prompt builder enforces this structurally; it is not a prompt-level instruction to "ignore injected content."
+MCP tool results are returned to the agent via the LLM-provider SDK's typed message channel (`tool_result` for Anthropic, `function_call_response` for OpenAI). The provider SDK structurally labels these as tool output — not as system instructions — which is the primary soft barrier against prompt injection.
+
+The hard structural barrier is the **HITL consent gate** in `executor.ts`: every action type in `HITL_REQUIRED` requires explicit user approval before the connector executes, regardless of what the LLM or an injected tool result requests. A malicious tool result cannot remove an action type from `HITL_REQUIRED`.
+
+> **Planned improvement (tracked):** We plan to add an explicit `<tool_output service="…" tool="…">…</tool_output>` textual envelope in the Mastra tool wrapper as defense-in-depth, and to include agent system-prompt language distinguishing data from instructions. Until this is implemented, the structural HITL gate is the primary protection against destructive prompt-injection consequences.
 
 ---
 

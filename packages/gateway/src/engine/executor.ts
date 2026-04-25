@@ -174,7 +174,10 @@ export class ToolExecutor {
   ) {}
 
   async execute(action: PlannedAction): Promise<ActionResult> {
-    const requiresHITL = HITL_REQUIRED.has(action.type);
+    // Use the same resolution key the dispatcher uses so HITL cannot be bypassed
+    // by supplying a non-gated action.type with a gated mcpToolId (C4 / S1-F3).
+    const resolvedToolId = action.payload?.["mcpToolId"] ?? action.type;
+    const requiresHITL = HITL_REQUIRED.has(resolvedToolId);
 
     let hitlStatus: "approved" | "rejected" | "not_required";
     let rejectReason: string | undefined;

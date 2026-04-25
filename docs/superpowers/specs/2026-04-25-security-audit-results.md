@@ -1807,6 +1807,8 @@ The `extensionProcessEnv` helper at `packages/gateway/src/extensions/spawn-env.t
 
 #### S8-F2 — High — `connector.addMcp` is RCE-class and missing from LAN allowlists
 
+> **Post-audit clarification (2026-04-25):** `connector.addMcp` is confirmed **absent** from the Tauri `ALLOWED_METHODS` in `gateway_bridge.rs`. A compromised WebView renderer cannot call it directly. The threat is scoped to: (a) local IPC callers (any process knowing the socket path), and (b) LAN peers once the server is wired. The chain C3 attack is latent, not directly reachable via XSS.
+
 **File:** `packages/gateway/src/ipc/connector-rpc-handlers.ts:99-137`, `packages/gateway/src/ipc/lan-rpc.ts:10-28`, `packages/gateway/src/connectors/lazy-mesh.ts:204-213`, `packages/gateway/src/connectors/user-mcp-store.ts:23-33`
 
 **Description:** `connector.addMcp` accepts an arbitrary `commandLine` string from the IPC peer; `parseUserMcpCommandLine` (`user-mcp-store.ts:23-33`) splits it on whitespace and stores `command` + `args` in `user_mcp_connector` with no allowlist, no signature, no consent gate, and no HITL prompt. On the next `ensureUserMcpClient` call (`lazy-mesh.ts:186-217`), the row is read and passed to `MCPClient` → `StdioClientTransport` → `cross-spawn(command, args, { shell: false })`. While `shell: false` blocks shell-meta injection, the user-supplied `command` is itself the executable — it can be **any binary** on the user's `PATH`. This is direct, persistent code execution as the gateway-process UID, by design of the feature. Today the IPC peer-auth (Surface 2) restricts this to local processes only, but:
