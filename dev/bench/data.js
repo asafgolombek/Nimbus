@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777008358848,
+  "lastUpdate": 1777094964247,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1507,6 +1507,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4255218000000003,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54378f8aac751733d8e5f9401cf2633ce9195979",
+          "message": "Merge pull request #98 from asafgolombek/fix/main-breakages\n\nfix: unblock main preflight (react-window v2 + ink/react-devtools-core)",
+          "timestamp": "2026-04-25T08:28:49+03:00",
+          "tree_id": "8a7e0d9a9a5b3fcd3160366999de7685dd8b5814",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/54378f8aac751733d8e5f9401cf2633ce9195979"
+        },
+        "date": 1777094963281,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5016006399999975,
             "unit": "ms"
           }
         ]
