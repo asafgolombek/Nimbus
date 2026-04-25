@@ -4,7 +4,7 @@
 **Related design:** [2026-04-25-security-audit-design.md](./2026-04-25-security-audit-design.md)
 **Related threat model:** [2026-04-25-security-audit-threat-model.md](./2026-04-25-security-audit-threat-model.md)
 **Audit branch:** `dev/asafgolombek/security-audit`
-**Status:** complete — all 8 surface deep-dives and cross-surface chain analysis finished; 72 findings filed, 6 composite chains documented; GitHub issues pending (Task 13)
+**Status:** complete — all 8 surface deep-dives and cross-surface chain analysis finished; 72 findings filed, 6 composite chains documented; GitHub issues pending (Task 13). **Fixes applied:** S1-F3 / C4 structural split closed (`ae27fe9`, 2026-04-25).
 
 ---
 
@@ -111,11 +111,13 @@ Secondary grep targets: dispatch() callers, HITL_REQUIRED mutation attempts, che
 #### Finding S1-F3: `mcpToolId` in planner payload allows dispatch to a different MCP tool than the one checked by `HITL_REQUIRED`
 
 - **Severity:** Medium
-- **File:** `packages/gateway/src/connectors/registry.ts:141-143` and `packages/gateway/src/engine/executor.ts:177`
+- **Status:** ✅ **FIXED** — commit `ae27fe9` (`fix(executor): align HITL check key with dispatch key (C4/S1-F3)`). Follow-up TypeScript type error resolved in `dev/asafgolombek/security-audit` (2026-04-25).
+- **File:** `packages/gateway/src/connectors/registry.ts:141-143` and `packages/gateway/src/engine/executor.ts:179-181`
 - **Description:** `HITL_REQUIRED.has(action.type)` is evaluated at `executor.ts:177` using the logical action type (e.g. `"file.move"`). However, the actual MCP tool that executes is resolved at dispatch time in `registry.ts:141-143` as `action.payload.mcpToolId ?? action.type`. This two-key resolution means the HITL gate and the dispatcher resolve identity from different fields. Today, all planner-generated actions correctly pair their `action.type` (which is in `HITL_REQUIRED`) with a `mcpToolId` pointing to the correct MCP tool. However, if a malicious or buggy planner constructs `{ type: "filesystem_search_files", payload: { mcpToolId: "gmail_gmail_message_send", input: {...} } }`, the HITL gate sees the non-gated `"filesystem_search_files"` type and passes without consent, while the dispatcher executes `gmail_gmail_message_send`. Similarly, a prompt-injection attack that influences the planner's action construction (M3 via crafted MCP response) could exploit this split.
 - **Attack scenario:** A compromised MCP connector (M3) returns a crafted tool result that the planner interprets as a file-search context. The planner constructs `{ type: "filesystem_search_files", payload: { mcpToolId: "slack_slack_message_post", input: { channel: "#general", text: "pwned" } } }`. The executor checks `HITL_REQUIRED.has("filesystem_search_files")` → false → no consent gate. The dispatcher resolves `toolId = "slack_slack_message_post"` and posts the Slack message.
 - **Existing controls that don't prevent it:** The conversational agent (`agent.ts`) does not expose connector tools, so this attack requires the planner path. The planner today only constructs two action types (`filesystem_search_files` and `file.move`), both correctly mapped. The attack requires influencing the planner's output, which requires prompt injection through a connector. No static check prevents a planner from emitting a mismatched pair.
 - **Suggested fix:** In `ToolExecutor.execute`, after resolving `requiresHITL` from `action.type`, also check whether `action.payload?.mcpToolId` (if present) is independently in `HITL_REQUIRED` or maps to a tool that requires it. A simpler mitigation: maintain a `HITL_REQUIRED_MCP_IDS` set of known destructive MCP tool ids and gate on the union of both checks before dispatch. Alternatively, enforce in the planner that any action with a `mcpToolId` that is destructive must also have a gated `action.type`.
+- **Applied fix:** `executor.ts` now resolves `const rawToolId = action.payload?.["mcpToolId"]; const resolvedToolId = typeof rawToolId === "string" ? rawToolId : action.type;` and calls `HITL_REQUIRED.has(resolvedToolId)`. The HITL gate and the dispatcher now use the same identity key. The `tool_output` envelope (C4 fix #2) remains outstanding.
 - **Confidence:** Medium — the attack requires planner compromise (prompt-injection through M3), which is documented as in-scope. The current planner is static and safe; the risk is structural in the two-key resolution design.
 - **Verification:** `code-trace` — traced `executor.ts:177` (checks `action.type`) → `registry.ts:141-143` (dispatches on `mcpToolId ?? action.type`). Confirmed the fields are independent with no cross-validation.
 
@@ -2170,7 +2172,7 @@ Six composite chains were identified: three active (exploitable today against a 
 - **Verification:** Structural gap confirmed: if an IPC caller submits `{ action.type: "files.list", payload: { mcpToolId: "github_repo_pr_merge", ... } }`, the executor gate misses the dispatch target. The only remaining defense is that the Mastra tool-dispatch path must find a tool named `"github_repo_pr_merge"` in the merged registry — which it would, since all MCP tools are registered there.
 
 - **Suggested fix priority:**
-  1. *(High — closes the structural split)* In `executor.ts`, align HITL resolution with dispatch resolution: `const resolvedId = action.payload?.mcpToolId ?? action.type; if (HITL_REQUIRED.has(resolvedId))`. This ensures the HITL gate checks the same key that will be dispatched.
+  1. ✅ **FIXED** *(High — closes the structural split)* `executor.ts` now resolves `const rawToolId = action.payload?.["mcpToolId"]; const resolvedToolId = typeof rawToolId === "string" ? rawToolId : action.type;` and gates on `HITL_REQUIRED.has(resolvedToolId)`. Commit `ae27fe9`; TypeScript type error (`unknown` → `string` narrowing) fixed 2026-04-25.
   2. *(High — defense-in-depth, also S8-F3)* Implement the documented `<tool_output>` envelope: in the Mastra tool wrapper, post-process each `execute` result through a function that wraps raw text in `<tool_output service="…" tool="…">…</tool_output>` and adds a system-prompt instruction that content inside this tag is data, not instructions. This raises the bar for prompt-injection significantly.
   3. *(Medium)* Validate that `payload.mcpToolId`, if supplied, either (a) matches `action.type` or (b) is also present in `HITL_REQUIRED`. Reject calls where it does neither.
 
@@ -2235,7 +2237,7 @@ Six composite chains were identified: three active (exploitable today against a 
 | **C1** | XSS → extension.install → credential exfil | **High** | Active | S4, S7, S8 | Set CSP; remove extension.install from ALLOWED_METHODS; adopt extensionProcessEnv() |
 | **C2** | MCP env read → updater key hijack → supply-chain RCE | **High** | Active | S8, S7, S6 | extensionProcessEnv(); build-time gate on dev key override; semverGreater re-check |
 | **C3** | LAN peer → connector.addMcp → persistent RCE | **High** | Latent | S3, S8 | Wire checkLanMethodAllowed; add connector.addMcp to WRITE_METHODS; change bind default |
-| **C4** | Prompt injection → action.type/mcpToolId split → HITL bypass | **Medium** | Active | S8, S1 | Align HITL resolution with dispatch key; implement tool_output envelope |
+| **C4** | Prompt injection → action.type/mcpToolId split → HITL bypass | **Medium** | Partial fix (`ae27fe9` closes structural split; `tool_output` envelope pending) | S8, S1 | ~~Align HITL resolution with dispatch key~~ ✅; implement tool_output envelope |
 | **C5** | LAN peer → dead allowlist → audit log exfil | **Medium** | Latent | S3 | Wire checkLanMethodAllowed; reconcile FORBIDDEN_OVER_LAN to include audit.*/data.* |
 | **C6** | data.delete hardcoded HITL bypass → data destruction | **High** | Active | S1 | Remove hardcoded hitlStatus; add data.delete to HITL_REQUIRED |
 
