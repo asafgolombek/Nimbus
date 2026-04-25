@@ -6,6 +6,10 @@
 
 **Architecture:** Three phases, all running on `dev/asafgolombek/security-audit`: (1) one subagent writes the threat model covering all 8 boundaries with STRIDE breakdowns, (2) eight sequential subagents perform per-surface deep-dive review and emit structured findings into a shared results doc, (3) the controller (this session) does cross-surface chain analysis, computes the summary table, and files GitHub issues. No production code is modified — output is documentation + issues only.
 
+**Subagent model selection:** Phase 2 surfaces with high crypto/credential/data-flow stakes use `opus` (Surfaces 2, 3, 6, 8 — Vault, LAN, Updater, MCP). Surfaces with more mechanical review (Surfaces 1, 4, 5, 7 — HITL enumeration, Tauri parameter audit, SQL parameterization, capability quantification) use `sonnet`. Threat model (Task 2) uses `opus` for holistic synthesis. Rationale: per-surface focus areas already structure the work; sonnet is sufficient where the questions are well-bounded and the answers are checklist-style verifications. Opus is reserved for surfaces where subtle logic flaws are most likely.
+
+**Context-management note:** Per-surface findings are durably written to the results doc *before* the controller marks the task complete. If the controller's session is restarted between Phase 2 tasks, no work is lost — Tasks 11 and 12 re-read the doc end-to-end. If your context is approaching limits after Phase 2, complete Phase 3 (Tasks 11–14) in a fresh session by re-reading the spec, plan, and results doc to rebuild context.
+
 **Tech Stack:** Markdown documentation only. Read-only static-analysis tools (Read, Grep, Bash for inspection). `gh` CLI for issue filing. No tests, no builds, no runtime execution of the gateway.
 
 **Spec:** [`docs/superpowers/specs/2026-04-25-security-audit-design.md`](../specs/2026-04-25-security-audit-design.md)
@@ -402,7 +406,7 @@ EOF
 
 - [ ] **Step 1: Dispatch the Surface 2 subagent**
 
-Send this prompt to a new general-purpose subagent (model: `sonnet`):
+Send this prompt to a new general-purpose subagent (model: `opus` — credential-flow surfaces are high-stakes and benefit from extra rigor):
 
 ````markdown
 You are the Surface 2 (Vault credential surface) deep-dive subagent for the Nimbus security audit. Zero prior context.
@@ -442,6 +446,11 @@ Read the "Surface 2 — Vault credential surface" section of `docs/superpowers/s
 - **Memory residence:** boundary-check only. Question is whether the boundary holds (no extension reads gateway memory, no debug endpoint dumps process state). Fixing JS string residence is largely outside our control and out of scope for Suggested-Fix proposals.
 - **Master-key path:** OS-keystore-stored vault entries are *not* wrapped with a session key. The exception is `data-vault-crypto.ts`. Verify (a) the KDF parameters (Argon2id / scrypt cost factors), (b) no leakage of passphrase or derived key in error/log paths, (c) recovery-seed handling matches the same hygiene.
 - Per-service OAuth refresh: confirm refreshed tokens overwrite the old vault entry atomically (no plaintext window on disk).
+- **Forbidden debug-code patterns (vault context):** Grep across `packages/gateway/src/vault/`, `packages/gateway/src/auth/`, and `packages/gateway/src/connectors/` for these patterns. Each match in production code is a finding (severity High if a real secret is logged, Medium otherwise):
+  - `console\.(log|error|warn|debug).*[Tt]oken`, `console\.(log|error|warn|debug).*[Ss]ecret`, `console\.(log|error|warn|debug).*[Pp]assword`, `console\.(log|error|warn|debug).*[Kk]ey` (cases where output isn't pre-redacted)
+  - `JSON\.stringify.*token`, `JSON\.stringify.*credential`, `JSON\.stringify.*config` (full-object dumps in error/log paths)
+  - `// TODO.*remove`, `// FIXME.*before.*release`, `// HACK`
+  - Hardcoded test tokens — strings that look like real credentials (`sk-`, `ghp_`, `xoxb-`, `gho_`, `oauth2_`, `Bearer ` followed by a literal) outside `*.test.ts` files
 
 # Severity rubric
 
@@ -517,7 +526,7 @@ EOF
 
 - [ ] **Step 1: Dispatch the Surface 3 subagent**
 
-Send this prompt to a new general-purpose subagent (model: `sonnet`):
+Send this prompt to a new general-purpose subagent (model: `opus` — LAN crypto + state machines + auth has subtle-flaw risk):
 
 ````markdown
 You are the Surface 3 (LAN authorization) deep-dive subagent for the Nimbus security audit. Zero prior context.
@@ -653,6 +662,12 @@ Read "Surface 4 — Tauri allowlist" section of the threat model doc.
 - `NO_TIMEOUT_METHODS` list: does the absence of timeout open a DoS vector from the frontend?
 - `GLOBAL_BROADCAST_METHODS`: does the broadcast leak any per-window state to other windows that shouldn't see it?
 - `capabilities/default.json`: confirm `fs.allow`/`fs.deny`, `shell.allow`, etc. are minimal.
+- **Forbidden debug-code patterns (frontend/Tauri context):** Grep across `packages/ui/src/` and `packages/ui/src-tauri/src/` for these patterns. Each match is a finding (severity Medium normally, High if security-sensitive data flows in):
+  - `alert\(.*\)`, `confirm\(.*\)`, `console\.log.*config`, `console\.log.*state` (UI debug aids that may leak state)
+  - `eval\(`, `new Function\(`, `dangerouslySetInnerHTML` (XSS / code-execution risk in React)
+  - `// TODO.*remove`, `// FIXME.*before.*release`, `// HACK`
+  - `localStorage\.setItem.*token`, `sessionStorage\.setItem.*token` (frontend should never persist tokens; vault is gateway-side only)
+  - Hardcoded URLs to non-localhost in dev/test paths that could leak in production builds
 
 # Severity rubric
 
@@ -819,7 +834,7 @@ EOF
 
 - [ ] **Step 1: Dispatch the Surface 6 subagent**
 
-Send this prompt to a new general-purpose subagent (model: `sonnet`):
+Send this prompt to a new general-purpose subagent (model: `opus` — signature verification + downgrade-attack analysis is high-stakes crypto-correctness work):
 
 ````markdown
 You are the Surface 6 (Updater pipeline) deep-dive subagent for the Nimbus security audit. Zero prior context.
@@ -1015,7 +1030,7 @@ EOF
 
 - [ ] **Step 1: Dispatch the Surface 8 subagent**
 
-Send this prompt to a new general-purpose subagent (model: `sonnet`):
+Send this prompt to a new general-purpose subagent (model: `opus` — prompt injection + complex MCP-response data flows benefit from deeper reasoning):
 
 ````markdown
 You are the Surface 8 (MCP connector boundary) deep-dive subagent for the Nimbus security audit. Zero prior context.
@@ -1133,6 +1148,16 @@ Common chain patterns to look for:
 - **Bypass → execution:** validation gap in one surface (Low) + read-as-write proxy elsewhere (Low) = HITL bypass (High)
 - **Persistence → impact:** weak crypto choice (Medium) + audit forgeable (Medium) = undetectable post-compromise persistence (High)
 
+- [ ] **Step 2.5: Verify each candidate chain by re-reading the intersection code**
+
+For every candidate chain identified in Step 2, before writing it up:
+
+1. Re-read the file:line cited in each component finding (use Read tool — don't rely on memory).
+2. Trace whether data flows from the "source" surface's vulnerability into the "trigger point" of the next surface. Specifically: is there a real call path from finding A's location to finding B's location, or is the chain only conceptual?
+3. If the data flow can't be confirmed via static reading, demote the chain to "speculative" verification or drop it entirely.
+
+This step prevents false-positive chain findings that look plausible at the abstraction level but don't actually exploit when the code is examined. Chains with `verification: speculative` are still recorded but flagged for runtime confirmation in the fix-PR phase.
+
 - [ ] **Step 3: Append the chain-analysis section**
 
 Append to the results doc:
@@ -1148,6 +1173,8 @@ Append to the results doc:
 - **Component findings:** S{X}-F{Y}, S{Z}-F{W}, ...
 - **Chain attack scenario:** Step-by-step what an attacker does, naming each component finding's role.
 - **Why severity is higher than components:** What new capability the composition unlocks.
+- **Data-flow verification:** Confirmed via re-reading `path/to/A.ts:LINE` and `path/to/B.ts:LINE` — call path A → ... → B exists.
+- **Verification:** `code-trace` (data flow confirmed via static reading) | `speculative` (composition plausible but couldn't fully confirm flow without runtime).
 - **Suggested fix priority:** Which component finding to fix first to break the chain.
 
 [If no composite chains found, state explicitly:]
@@ -1221,6 +1248,8 @@ Re-read the doc with fresh eyes. Confirm:
 - No placeholder text remaining.
 - Summary table totals are arithmetically correct.
 - Composite chains reference valid component finding IDs.
+- **No real secret values appear in the audit doc.** If a finding cites a line containing what appears to be an actual credential (e.g., a developer left a real test token in source), the audit doc must redact the value to `<REDACTED>` and reference the file:line only — otherwise the audit doc itself becomes a credential-disclosure vector. Run a grep over the results doc for patterns matching: `sk-[A-Za-z0-9]{20,}`, `ghp_[A-Za-z0-9]{20,}`, `xoxb-[A-Za-z0-9-]{20,}`, `Bearer [A-Za-z0-9._-]{30,}`, `[A-Za-z0-9+/]{40,}={0,3}` (base64 ≥40 chars). Any hit that isn't `<REDACTED>` requires immediate redaction in the doc.
+- **Every High and Critical finding's Suggested Fix has a concrete file:line target.** If the suggested fix says "review and refactor" or other vague language, send it back to the surface subagent for sharpening — High/Critical findings deserve actionable fixes, not just acknowledgment.
 
 If issues: fix inline, no need to re-review.
 
