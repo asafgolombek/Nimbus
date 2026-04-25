@@ -1150,3 +1150,313 @@ Zero SQL injection vulnerabilities found. No user-supplied strings reach `db.run
 **Surface 5 totals: 0 Critical, 0 High, 2 Medium, 5 Low**
 
 ---
+
+## Surface 6 — Updater pipeline
+
+**Reviewer:** Surface-6 subagent
+**Files audited:**
+- `packages/gateway/src/updater/updater.ts` (194 lines) — `Updater` state machine + `downloadAsset` + `semverGreater` + `writeToTempFile`
+- `packages/gateway/src/updater/manifest-fetcher.ts` (98 lines) — `fetchUpdateManifest` + manifest schema validator
+- `packages/gateway/src/updater/signature-verifier.ts` (30 lines) — `verifyBinarySignature` Ed25519 over SHA-256 + `sha256Hex`
+- `packages/gateway/src/updater/public-key.ts` (29 lines) — embedded base64 Ed25519 key + `loadUpdaterPublicKey` env override
+- `packages/gateway/src/updater/types.ts` (32 lines) — `PlatformAsset` / `UpdateManifest` / `UpdaterStatus`
+- `packages/gateway/src/updater/installer.ts` (65 lines) — `buildInstallerCommand` + `executeReplaceInPlace`
+- `packages/gateway/src/ipc/updater-rpc.ts` (56 lines) — `dispatchUpdaterRpc`
+- `packages/gateway/src/ipc/server.ts:179-180,387-399` — `options.updater` injection point and dispatcher wiring
+- `packages/gateway/src/platform/assemble.ts:284-319` — production `createIpcServer` options assembly (does NOT pass `updater`)
+- `packages/gateway/src/config/nimbus-toml.ts:460-491` — `parseNimbusUpdaterToml` + `NIMBUS_UPDATER_URL` / `NIMBUS_UPDATER_DISABLE` env-var consumption
+- `packages/gateway/src/platform/env-access.ts` — `processEnvGet`
+- `packages/cli/src/commands/update.ts` (96 lines) — `nimbus update` CLI command
+- Test fixtures: `updater.test.ts`, `signature-verifier.test.ts`, `manifest-fetcher.test.ts`, `installer.test.ts`, `updater-test-fixtures.ts`, `updater-rpc.test.ts`, `test/integration/updater/air-gap.test.ts`
+
+Secondary grep targets: `Updater\b`, `loadUpdaterPublicKey`, `NIMBUS_DEV_UPDATER_PUBLIC_KEY`, `NIMBUS_UPDATER_URL`, `NIMBUS_UPDATER_DISABLE`, `audit_log` (within updater path), `appendAuditEntry`, `downloadAsset`, `redirect: "follow"`.
+
+---
+
+### Findings
+
+#### Finding S6-F1: `Updater` is never instantiated in production — entire updater feature is dormant
+
+- **Severity:** Low (informational; not a bug, but the surface is currently inert)
+- **File:** `packages/gateway/src/platform/assemble.ts:284-319` and `packages/gateway/src/ipc/server.ts:179-180`
+- **Description:** `createIpcServer` accepts `options.updater?: Updater` (`server.ts:179-180`). The production assembly path in `platform/assemble.ts:284-319` constructs `ipcOpts` without setting `updater`. Therefore every call to `updater.checkNow / applyUpdate / getStatus / rollback` over IPC returns `ERR_UPDATER_NOT_CONFIGURED` (`updater-rpc.ts:21-26`). `grep -rn 'new Updater(' packages/gateway/src/` returns zero hits outside test files (only `updater.test.ts`, `updater-rpc.test.ts`, `test/integration/updater/air-gap.test.ts`). The CLI `nimbus update` command (`packages/cli/src/commands/update.ts`) dispatches over IPC and would receive `ERR_UPDATER_NOT_CONFIGURED`. The Tauri updater bridge (`packages/ui/src-tauri/src/updater.rs`) likewise depends on the same IPC path. The integration test `air-gap.test.ts:9-16` confirms the not-configured behavior is the current reality.
+- **Attack scenario:** None. This is a Phase-4-WS4 wiring gap; the surface is inert until production code calls `new Updater({ ... loadUpdaterPublicKey() ... })` and wires it into `createIpcServer`. All findings below describe latent risks that activate when wiring lands.
+- **Existing controls:** N/A — surface is dormant.
+- **Suggested fix:** When the production wiring lands, ensure (a) `loadUpdaterPublicKey()` is the only key source, (b) `manifestUrl` is read from `parseNimbusUpdaterToml` + `NIMBUS_UPDATER_URL`, (c) `NIMBUS_UPDATER_DISABLE=1` short-circuits before construction (currently honoured by `parseNimbusUpdaterToml:471-473` but the consumer must respect `enabled=false`).
+- **Confidence:** High.
+- **Verification:** `code-trace` — searched all `new Updater(` instantiations; all are in `*.test.ts`. Read `assemble.ts:284-319` confirming `updater` is not assigned to `ipcOpts`. Confirmed `dispatchUpdaterRpc` immediately throws when `ctx.updater` is `undefined`.
+
+---
+
+#### Finding S6-F2: `NIMBUS_DEV_UPDATER_PUBLIC_KEY` env-var override is honoured in production builds — trust-anchor substitution
+
+- **Severity:** High
+- **File:** `packages/gateway/src/updater/public-key.ts:15-28`
+- **Description:** `loadUpdaterPublicKey` reads `NIMBUS_DEV_UPDATER_PUBLIC_KEY` via `processEnvGet` and uses the value verbatim if present (`public-key.ts:16-17`). There is **no** `NODE_ENV`, `BUN_ENV`, build-flag, or `NIMBUS_TEST_BUILD` gate. The doc-comment claims "Override for tests via the NIMBUS_DEV_UPDATER_PUBLIC_KEY env var" (`public-key.ts:9`) and the threat model (`threat-model.md:368`) describes it as "intentionally test-only", but neither the function nor any caller enforces this. Any process able to set environment variables in the gateway's process — a malicious `~/.profile`, a tampered systemd unit, a Windows User-Environment-Variables write, a hostile launchd plist, a tampered `nimbus start` autostart shim — substitutes the trust anchor for the entire updater path. An attacker who controls the manifest CDN and pairs it with their own keypair, plus the env-var write, can install arbitrary code on the next `applyUpdate`.
+- **Attack scenario:** M5-adjacent (network attacker with one additional foothold) or M2 (malicious extension if it can mutate the user's shell rc files before the next gateway start): (1) attacker writes `NIMBUS_DEV_UPDATER_PUBLIC_KEY=<attacker-pubkey>` into `~/.bashrc`, `~/.profile`, or the Windows Registry user environment block; (2) attacker also points `NIMBUS_UPDATER_URL` at an attacker-controlled CDN (also unrestricted, see S6-F4); (3) on next gateway start, `loadUpdaterPublicKey` returns the attacker's key; (4) user runs `nimbus update` (or Tauri auto-prompts), the attacker's manifest + binary verify against the attacker's key, `invokeInstaller` runs the binary with whatever privileges the platform installer escalates to (`sudo dpkg -i` on Linux, NSIS `/S` silent on Windows, `open -W` `.pkg` on macOS — all of which can execute arbitrary code). End-to-end remote-code-execution via env poisoning + network position.
+- **Existing controls that don't prevent it:** None. The env override is honoured at any build time; there is no build-time stripping; `processEnvGet` does not check for a development sentinel. The 32-byte length check (`public-key.ts:24-26`) does not constrain the key's authenticity — any 32-byte value is accepted.
+- **Suggested fix:** (1) Gate the override on a build-time constant — e.g. only honour `NIMBUS_DEV_UPDATER_PUBLIC_KEY` when `process.env.NODE_ENV !== "production"` AND when the binary was compiled with `--define NIMBUS_TEST_BUILD=true`. (2) Alternatively, remove the env override entirely from production builds via `bun build --define UPDATER_DEV_OVERRIDE=false` and emit `loadUpdaterPublicKey` with the override branch dead-code-eliminated. (3) Log a prominent warning at startup if the override is set, regardless of build flag, so an attempted poisoning is visible. (4) The release prerequisite doc (`docs/release/v0.1.0-prerequisites.md:88,107`) already flags this as "unshippable" pending a proper key — the build-time gate must land before v0.1.0 GA.
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `public-key.ts:15-28` end-to-end; the only conditional is `if (source === "<DEV-PLACEHOLDER>")` which is a sentinel for an unset compile-time key, NOT a dev-build gate. `processEnvGet` (`env-access.ts:2-5`) is a thin wrapper over `process.env[name]` with no gating. Searched for `NODE_ENV` / `BUN_ENV` / build-time-define references near the function — none.
+
+---
+
+#### Finding S6-F3: No download size cap — manifest-controlled OOM via `downloadAsset`
+
+- **Severity:** Medium (DoS) — downgrades to High if combined with S6-F2 because attacker's manifest is also trusted
+- **File:** `packages/gateway/src/updater/updater.ts:128-152`
+- **Description:** `downloadAsset` reads the response body via `getReader()` and accumulates each chunk in a `chunks: Uint8Array[]` array (`updater.ts:134-144`), then concatenates everything into a single `new Uint8Array(downloaded)` of arbitrary size (`updater.ts:145-150`). There is no `Content-Length` cap, no `downloaded > MAX` short-circuit inside the read loop, and no streaming-to-disk option. The total declared by `Content-Length` is read at line 131 but is used only as a denominator for progress events — never as an upper bound. A manifest can advertise (or a CDN can serve) an asset of unbounded size, OOM-ing the gateway process. Since the gateway is the only Bun process holding the SQLite write handle, this also disrupts every active sync/HITL/automation flow.
+- **Attack scenario:** (1) Attacker controls `NIMBUS_UPDATER_URL` (see S6-F4) or successfully MITM-intercepts a non-TLS-pinned manifest endpoint (Bun fetch verifies TLS by default but does not pin); (2) manifest serves a valid-looking asset entry whose `url` points to a 32 GB dummy file; (3) user clicks "apply update"; (4) `downloadAsset` runs to completion (or until the OS OOM-kills the gateway), with `chunks` accumulating multi-GB buffer slices in a single Bun heap. Even if the SHA-256 / Ed25519 verify would later fail, the OOM happens before verification.
+- **Existing controls that don't prevent it:** None. The streaming reader emits `downloadProgress` events but never aborts. The fetch has no `Content-Length` ceiling. `AbortController` is not used here (only `manifest-fetcher.ts` uses one for the manifest fetch).
+- **Suggested fix:** (1) Read `Content-Length` from the response header and reject before reading body if it exceeds a sensible cap (e.g. 500 MB). (2) Track `downloaded` against the cap inside the read loop and `reader.cancel()` + throw `DownloadTooLargeError` when exceeded — this also defends against `Content-Length: 100MB` / actual-payload-50GB mismatches. (3) Consider streaming to a temp file (`createWriteStream`) instead of buffering in memory, then hashing the file. The current temp-file write happens AFTER full buffering, defeating that benefit.
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `downloadAsset:128-152`; counted chunks accumulation, no `if (downloaded > MAX)` guard. The function has only one early-exit (`!resp.ok` at line 130) and one undefined-reader exit (line 133). `total` is captured for telemetry only.
+
+---
+
+#### Finding S6-F4: `manifest-fetcher.ts` accepts arbitrary URL schemes — no `https://` enforcement
+
+- **Severity:** Medium
+- **File:** `packages/gateway/src/updater/manifest-fetcher.ts:73-97` and `packages/gateway/src/updater/updater.ts:129`
+- **Description:** Neither `fetchUpdateManifest` nor `downloadAsset` validates the URL scheme. `fetch(url, { signal })` (`manifest-fetcher.ts:81`) and `fetch(url, { redirect: "follow" })` (`updater.ts:129`) follow whatever scheme the URL declares. If `NIMBUS_UPDATER_URL=http://evil.example/manifest.json` is set (env override consumed in `nimbus-toml.ts:467-470`), the manifest is fetched in plaintext over HTTP — defeating the TLS authentication of the CDN. Worse, `fetch` with `redirect: "follow"` (default) will follow `https://` → `http://` redirect chains; while modern fetch implementations may demote to `http`-only when the original was `http`, Bun's fetch follows whatever the redirect chain declares. Although the Ed25519 signature on the binary still gates installation, the manifest-driven `version` field is consulted by `semverGreater` BEFORE signature verification and influences UI prompts — a downgraded plaintext manifest could be combined with S6-F5 (no version floor in `applyUpdate`) for a downgrade attack.
+- **Attack scenario:** (1) Attacker sets `NIMBUS_UPDATER_URL=http://attacker/manifest.json` via env-var injection; (2) attacker is on the same network as the user (coffee-shop Wi-Fi); (3) user runs `nimbus update --check`; (4) manifest is fetched over plaintext HTTP; (5) attacker substitutes a manifest pointing to a known-vulnerable older signed Nimbus binary (re-using a legitimate prior release's signature, since both the binary and signature are public artifacts on the official CDN). The Ed25519 verify passes (signature is real), the SHA-256 matches (hash is real), but the user is downgraded to a version with known CVEs.
+- **Existing controls that don't prevent it:** None. TLS is opportunistic: enabled when scheme is `https://`, absent when `http://`. No URL validator inside the updater.
+- **Suggested fix:** (1) In `fetchUpdateManifest`, reject any URL whose `.protocol` is not `https:` (with a single dev-only escape via a build-time flag or for `127.0.0.1` test endpoints). (2) In `downloadAsset` similarly require `https://` for asset URLs. (3) Reject HTTP downgrade across redirects: parse `redirect: "manual"` and reject any cross-scheme jump. (4) Document the scheme requirement in `nimbus-toml.ts` and the CLI/UI configuration surfaces.
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `manifest-fetcher.ts:73-97` and `updater.ts:128-152`; no scheme check. Read `nimbus-toml.ts:460-475` confirming `NIMBUS_UPDATER_URL` is taken verbatim. The integration test `updater.test.ts:14-22` itself uses `http://127.0.0.1:${server.port}/latest.json` confirming HTTP is wholly accepted in the current implementation.
+
+---
+
+#### Finding S6-F5: `applyUpdate` does not re-check version against `currentVersion` — downgrade via UI/CLI replay
+
+- **Severity:** Medium
+- **File:** `packages/gateway/src/updater/updater.ts:73-126`
+- **Description:** `applyUpdate` reads `this.lastManifest` (set by the most recent `checkNow`) and downloads/verifies/installs whatever version that manifest advertises (`updater.ts:74-117`). There is no comparison against `this.opts.currentVersion` inside `applyUpdate`. The only version-check is in `checkNow` via `semverGreater(manifest.version, currentVersion)` at line 48, but the result of that check (`updateAvailable`) is not consumed by `applyUpdate` — the manifest is unconditionally trusted once stored. Two consequences: (1) **manifest swap between checkNow and applyUpdate** — if an attacker controls the manifest endpoint (S6-F4) and the user calls `checkNow` once (gets version 0.3.0, sees "update available"), then `checkNow` again (now serving 0.1.5), then `applyUpdate`, the older 0.1.5 is installed (since `lastManifest` is overwritten on every `checkNow`); (2) **downgrade after external upgrade** — if the user upgraded Nimbus by other means (brew, dpkg, manual binary swap) between the last `checkNow` and the next `applyUpdate`, the cached `lastManifest` may now describe an OLDER version than `currentVersion`, but `applyUpdate` still installs it. There is no `if (!semverGreater(this.lastManifest.version, this.opts.currentVersion)) throw` guard.
+- **Attack scenario:** A signed legacy Nimbus binary with a known privilege-escalation bug existed in 0.0.5; the official manifest from that era was Ed25519-signed. An attacker replays the old manifest (S6-F4 makes this trivial) — the user's gateway's `applyUpdate` happily installs 0.0.5 over the current 0.4.0 because the only barrier is "did the official key sign this binary" (yes, it did, six months ago) — not "is this newer than what I have." Once 0.0.5 is installed, the attacker exploits the known bug.
+- **Existing controls that don't prevent it:** Ed25519 + SHA-256 verify the binary's authenticity but not its monotonic-newness. The `semverGreater` check in `checkNow` only gates the `updateAvailable` flag and the `updater.updateAvailable` notification — it has no enforcement role.
+- **Suggested fix:** (1) Inside `applyUpdate`, after re-loading `this.lastManifest`, immediately call `if (!semverGreater(this.lastManifest.version, this.opts.currentVersion)) throw new Error('refusing to downgrade …')`. (2) Stronger: include `version` and `target` inside the signed envelope (sign `JSON.stringify({version, target, sha256})` instead of just the SHA-256) so a manifest-swap attack cannot recombine an old asset with a new manifest. (3) Optionally keep an `installed_versions` table to remember the highest version ever installed and refuse anything ≤ that.
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `applyUpdate:73-126` end-to-end; no `currentVersion` reference inside the method body. The only `currentVersion` mentions in `updater.ts` are in the `checkNow` semver compare (line 48) and the `updater.restarting` event payload (line 116). Confirmed `lastManifest` is reassigned on every `checkNow:46` with no monotonic guard.
+
+---
+
+#### Finding S6-F6: Ed25519 signature lacks context-binding (signs only `SHA-256(binary)`, not version/target/expiry)
+
+- **Severity:** Medium
+- **File:** `packages/gateway/src/updater/signature-verifier.ts:8-22` and `packages/gateway/src/updater/updater-test-fixtures.ts:21-23`
+- **Description:** `verifyBinarySignature` verifies an Ed25519 signature over `SHA-256(binary)` only — no version, no platform target, no expiry, no manifest-fingerprint context (`signature-verifier.ts:8-22`). This is also visible in the test fixture's `buildSignedManifest:21-23` which signs `Buffer.from(sha, "hex")` directly. Therefore a signed `darwin-aarch64@0.5.0` binary is signature-equivalent to the same bytes installed as `linux-x86_64@0.1.0` — the verifier cannot tell the manifest's claimed `target` or `version` matches the binary's identity. The asset's `sha256`/`signature` are checked individually but the manifest does not bind them together cryptographically. Combined with S6-F5, this magnifies the downgrade-replay attack: a legitimately signed asset for a different platform target could be swapped into the local-platform slot of a forged manifest, and verification still succeeds.
+- **Attack scenario:** (1) Attacker harvests a pair of legitimate signed binaries from past releases (one for Linux 0.0.5 with known CVE, one for macOS 0.0.5 with same CVE); (2) attacker controls manifest endpoint via S6-F4; (3) attacker serves a manifest claiming `version: "0.5.0"` but the `linux-x86_64.url`/`sha256`/`signature` triple actually points to the old 0.0.5 Linux binary; (4) `checkNow` reports "update available" (0.5.0 > current 0.4.0); (5) `applyUpdate` downloads the asset, hash matches (it's a real published 0.0.5), Ed25519 verifies (it's a real signature for those bytes), installer runs the vulnerable binary. The "0.5.0" version label was never cryptographically bound to the bytes.
+- **Existing controls that don't prevent it:** Ed25519 is correctly implemented over SHA-256, but the SHA-256 alone is not sufficient context. There is no signed-envelope or expiry.
+- **Suggested fix:** (1) Sign a canonical JSON envelope: `{ version, target, sha256, pub_date }` instead of just the SHA-256. Verifier reconstructs the envelope from manifest fields and verifies. This binds the binary identity to its manifest claim. (2) Add an `expiry` field to the envelope (e.g. 90 days from `pub_date`) so even a leaked legacy manifest cannot be replayed indefinitely. (3) Document the verification format change in `docs/SECURITY.md` and the release runbook.
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `signature-verifier.ts` end-to-end; the Ed25519 input is `digest = SHA-256(binary)` and that's it. Read `updater-test-fixtures.ts:21-23` confirming the test produces signatures over the bare SHA-256 (no envelope). Cross-referenced threat-model question Section 6.2 (`threat-model.md:390`) which raises the same concern.
+
+---
+
+#### Finding S6-F7: No `audit_log` row for `updater.applyUpdate` — no install history, no tamper-evident record
+
+- **Severity:** Medium
+- **File:** `packages/gateway/src/ipc/updater-rpc.ts:39-49` and `packages/gateway/src/updater/updater.ts:73-126`
+- **Description:** Neither `dispatchUpdaterRpc("updater.applyUpdate", ...)` nor `Updater.applyUpdate` writes to `audit_log` or any other persistent record. State is held in memory on the `Updater` instance (`state`, `lastManifest`, `lastError`, `lastCheckAt` — all instance fields). On gateway restart (which `applyUpdate` triggers via `invokeInstaller` + `updater.restarting` event), all install history is lost. Searching `appendAuditEntry`, `audit_log`, `recordAudit` inside `packages/gateway/src/updater/` and `packages/gateway/src/ipc/updater-rpc.ts` returns zero hits. By contrast, every HITL-gated action through `ToolExecutor` writes a chained audit row before dispatch (`executor.ts:208-213`). An update — which replaces the gateway binary — is the most consequential single action a Nimbus install can take, yet leaves no auditable trace.
+- **Attack scenario:** A user observes anomalous Nimbus behaviour and runs `nimbus audit verify`. The audit chain shows no record of the recent update. There is no way to confirm: (a) that an update happened, (b) which version was installed, (c) whether the manifest URL was the official one, (d) whether the binary's SHA-256 matches the manifest's. If the install was forged (via S6-F2/F4/F5/F6), the user has no forensic trail at all. Combined with the threat-model's "tamper-evident but only if the verifier runs and the user notices" acknowledgement, the absence of any update record makes detection of a malicious install effectively impossible.
+- **Existing controls that don't prevent it:** None. The `Updater` class does not receive a reference to `LocalIndex` (its constructor takes only `currentVersion`, `manifestUrl`, `publicKey`, `target`, `emit`, `timeoutMs`, `invokeInstaller` — `updater.ts:15-23`). The IPC handler does not have access to the `localIndex` either (only `ctx.updater`).
+- **Suggested fix:** (1) Plumb a `recordUpdateEvent` callback into `UpdaterOptions` (or pass `localIndex.recordAudit`) so each state transition (`checking` → `verifying` → `applying` → terminal) writes a row to `audit_log` with `action_type = "system.update.<phase>"` and `action_json = { fromVersion, toVersion, manifestUrl, sha256 }`. (2) The pre-`applyUpdate` row should land BEFORE the installer runs, so even if the installer crashes mid-write, the intent is recorded (mirroring the executor's pre-dispatch audit pattern at `executor.ts:208-213`). (3) Optionally promote `system.update.apply` into `HITL_REQUIRED` so the user must confirm the version transition through the same gate as connector mutations — this would require `Updater` to be constructed with a `consent` reference, but is structurally consistent with the rest of the engine.
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `updater.ts:1-194`, `updater-rpc.ts:1-56` and grepped `audit_log\|appendAuditEntry\|recordAudit` inside `packages/gateway/src/updater/` (zero hits) and `packages/gateway/src/ipc/updater-rpc.ts` (zero hits). The state machine fields are documented in `types.ts:25-31` — all in-memory.
+
+---
+
+#### Finding S6-F8: Temp directory `nimbus-update-*` and `installer.bin` are never cleaned up
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/updater/updater.ts:182-191`
+- **Description:** `writeToTempFile` creates a fresh `mkdtempSync(join(tmpdir(), "nimbus-update-"))` directory and writes `installer.bin` inside it (`updater.ts:185-189`). After `invokeInstaller` returns (success or failure), `applyUpdate` does not delete the directory or the binary (`updater.ts:109-126`). On Linux/macOS, `tmpdir()` (`/tmp`) is world-readable on a multi-user host — every previous nimbus update binary remains visible to other users until system reboot or `tmpwatch`. On Windows, `%TEMP%` is per-user but the directory accumulates across updates. This is also a disk-space leak (each update is a multi-MB-to-GB binary). More importantly, the leftover binary on disk is a forensic artifact that survives the install — a malicious extension could read it post-install for offline analysis.
+- **Attack scenario:** Multi-user Linux host, two separate uids share `/tmp`. User A's nimbus runs `applyUpdate` and writes `/tmp/nimbus-update-XXXX/installer.bin`. The directory's mode is `0700` (per `mkdtempSync` defaults on most fs/os combos) but the file's permissions inherit the umask — verify whether umask is restrictive. If User B can read the binary, they have a free copy of User A's verified nimbus install (low impact since the binary is also publicly available, but it leaks the exact version and signature timestamp).
+- **Existing controls that don't prevent it:** `mkdtempSync` ensures the directory name is random + atomically created, defending against TOCTOU. But there is no `try { ... } finally { rmSync(dir, { recursive: true }) }` cleanup.
+- **Suggested fix:** (1) Wrap the install attempt in a `try { ... } finally { ... }` and `rmSync(dir, { recursive: true, force: true })` after the installer returns. (2) Set the temp file mode to `0o600` explicitly via a second `chmodSync` after `writeFileSync`. (3) For replace-in-place (`installer.ts` `executeReplaceInPlace`), the source is read once then could be deleted immediately. (4) Document the cleanup contract in `installer.ts`.
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `writeToTempFile:182-191`, `applyUpdate:109-126`. No `rm`/`unlink`/`rmSync` reference anywhere in `updater.ts`. The directory persists for the gateway's lifetime — and beyond, since it's outside the gateway's own data dir.
+
+---
+
+#### Finding S6-F9: `getStatus.lastError` echoes raw fetch/JSON error strings — minor info-disclosure surface
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/updater/updater.ts:66-70,154-167` and `packages/gateway/src/updater/manifest-fetcher.ts:80-95`
+- **Description:** `Updater.checkNow`'s catch block stores `err.message` verbatim into `this.lastError` (`updater.ts:68`). `getStatus` returns `lastError` to any caller (`updater.ts:163-165`). `ManifestFetchError` wraps the raw `String(err)` of the underlying fetch error (`manifest-fetcher.ts:83`) and JSON parse error (`manifest-fetcher.ts:94`). Bun's fetch errors generally do not include credentials or request bodies, but they DO include the full URL — including any user-info, query-string, or fragment that the configured `manifestUrl` carried. If a user (or a malicious config writer) sets `NIMBUS_UPDATER_URL=https://user:apikey@cdn.example/...`, that secret echoes back through `lastError` to every IPC caller of `updater.getStatus` (Tauri allowlist exposes this method — `gateway_bridge.rs:105`). The Tauri renderer can then forward to a third party, ad services, etc.
+- **Attack scenario:** Low-impact info disclosure: an XSS in the Tauri renderer (M6) reads `updater.getStatus().lastError`, extracts the URL, and exfiltrates any inline credentials. The credential surface is small (only manifests-with-userinfo URLs), but the broader principle — "error strings flow back to the renderer unfiltered" — is generally undesirable.
+- **Existing controls that don't prevent it:** None at the updater layer. The Tauri allowlist gates which methods are callable but not what they return. There is no error-string scrubbing.
+- **Suggested fix:** (1) Sanitize `lastError` before storing — strip URL `userinfo` (`URL` parser, then `url.username = ""; url.password = ""`); replace any sequence matching common token patterns. (2) Alternatively, store an enum-typed error code (`MANIFEST_UNREACHABLE`, `INVALID_JSON`, `MISSING_PLATFORMS`) and let the UI render a stock message. The `UpdaterRpcError` codes (`updater-rpc.ts:35,46`) already follow this pattern at the RPC layer — extend to the in-state representation.
+- **Confidence:** Medium (depends on whether any production deployment uses URLs-with-userinfo; documented as a hardening recommendation).
+- **Verification:** `code-trace` — read `checkNow:40-71` and `getStatus:154-167`; raw `err.message` propagation confirmed. Read `manifest-fetcher.ts:80-95`; `ManifestFetchError` includes URL in its `HTTP ${response.status} from ${url}` message.
+
+---
+
+#### Finding S6-F10: Hash comparison `computedSha !== asset.sha256` is not constant-time
+
+- **Severity:** Low (theoretical only — see below)
+- **File:** `packages/gateway/src/updater/updater.ts:94-100`
+- **Description:** The SHA-256 hex equality check uses JavaScript `!==`, which short-circuits on the first byte mismatch. In a remote-timing-attack model, this could reveal the hash byte-by-byte. However: (a) the hash is computed over the binary that the verifier just downloaded and the manifest is also publicly reachable, so the "secret" in this comparison is not actually secret; (b) the update flow runs on the user's local machine, not over a network, so timing cannot be observed cross-process by a remote attacker without a separate side-channel. Listed for completeness because the project audits constant-time hygiene cross-cuttingly (cross-boundary observation #3 in the threat model).
+- **Attack scenario:** None practical. A theoretical local same-uid attacker measuring timing-side-channels could in principle learn the order of mismatching bytes, but they could just `hexdump` the manifest directly.
+- **Existing controls that don't prevent it:** N/A — the comparison is acceptable given the threat model.
+- **Suggested fix:** Replace with `crypto.timingSafeEqual(Buffer.from(computedSha, 'hex'), Buffer.from(asset.sha256, 'hex'))` for parity with `signature-verifier.ts` (which delegates to tweetnacl's CT `nacl.sign.detached.verify`). Cosmetic — improves audit-readability and fences future model changes.
+- **Confidence:** High.
+- **Verification:** `code-trace` — `updater.ts:95` direct `!==` compare. No usage of `crypto.timingSafeEqual` anywhere in the updater path.
+
+---
+
+#### Finding S6-F11: Manifest validator does not check `version` is well-formed semver
+
+- **Severity:** Low
+- **File:** `packages/gateway/src/updater/manifest-fetcher.ts:36-71` and `packages/gateway/src/updater/updater.ts:170-180`
+- **Description:** `validateManifest` checks `typeof version === "string"` (`manifest-fetcher.ts:42-44`) but does not validate the format. `semverGreater` (`updater.ts:170-180`) splits on `.`, takes only the first 3 segments, calls `parseInt(s, 10)` on each, and treats `NaN ?? 0` as `0`. Therefore a manifest with `version: "evil"` parses as `0.0.0`; `version: "9999999999999999"` parses to a finite number; a manifest with `version: "0.0.0 0.99.0"` (null-byte injection) parses just `0.0.0`; `version: "../etc"` parses as `NaN.NaN.NaN` then `0.0.0`. None of these are exploitable for code execution (the binary still has to verify), but the version field also flows into UI strings, into `audit_log` payloads (if S6-F7 is fixed), and into release-notes display. A maliciously crafted version string could XSS the UI if the UI ever rendered it via `dangerouslySetInnerHTML` (it doesn't — ref Surface-4 audit's verification of `StructuredPreview.tsx`).
+- **Attack scenario:** Future-proofing concern. If a developer ever surfaces `manifest.version` into a context that interprets HTML or shell, the lack of format validation is an injection vector. Currently no such surface exists.
+- **Existing controls that don't prevent it:** None at the manifest-validator layer.
+- **Suggested fix:** Add a strict semver regex (`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`) to `validateManifest`. Reject manifests where `version` does not match. Apply the same constraint to the `pub_date` field (currently typed-checked but not date-format-checked).
+- **Confidence:** High.
+- **Verification:** `code-trace` — read `validateManifest:36-71`; only `typeof version === "string"`. `semverGreater:170-180` uses `parseInt` with no input validation.
+
+---
+
+### Signature-verification trace
+
+Step-by-step trace of the signature verification flow (single ground-truth path, `Updater.applyUpdate` → `verifyBinarySignature` → tweetnacl):
+
+1. **Manifest fetch** (`updater.ts:43-46`): `Updater.checkNow` calls `fetchUpdateManifest(manifestUrl, { timeoutMs })` → `manifest-fetcher.ts:73-97` → `fetch(url, { signal: AbortController })` → JSON parse → schema validate (`validateManifest:36-71` requires `version`, `pub_date`, all four `platforms.<target>` triples). Result stored as `this.lastManifest`.
+
+2. **Asset selection** (`updater.ts:77-80`): `applyUpdate` reads `this.lastManifest.platforms[this.opts.target]` to get `{ url, sha256, signature }` for the running platform target.
+
+3. **Binary download** (`updater.ts:82-91`, `downloadAsset:128-152`): `fetch(asset.url, { redirect: "follow" })`. No scheme guard, no size cap. Response body streamed via `body.getReader()`; chunks accumulated in `chunks: Uint8Array[]`; on `done`, concatenated into `bytes: Uint8Array`. Progress emitted per chunk as `updater.downloadProgress { bytes, total }`.
+
+4. **SHA-256 hash compute** (`updater.ts:94`): `computedSha = sha256Hex(bytes)` → `signature-verifier.ts:27-29` → `createHash("sha256").update(binary).digest("hex")` (Node `node:crypto`, lowercase hex).
+
+5. **SHA-256 hash compare** (`updater.ts:95-100`): `computedSha !== asset.sha256` (string `!==`, NOT constant-time — see S6-F10). On mismatch: state then `rolled_back`; emits `updater.verifyFailed { reason: "hash_mismatch" }` then `updater.rolledBack { reason: "hash_mismatch" }`; throws.
+
+6. **Signature decode** (`updater.ts:101`): `sigBytes = new Uint8Array(Buffer.from(asset.signature, "base64"))`. No length check at this layer; the verifier checks length next.
+
+7. **Ed25519 verify entry** (`updater.ts:102`, `signature-verifier.ts:8-22`): `verifyBinarySignature(bytes, sigBytes, publicKey)`:
+   - **Length pre-check** (`signature-verifier.ts:13-15`): `signature.length !== 64 || publicKey.length !== 32` then `return false`. NOT constant-time but operates on length only — no information leak.
+   - **Digest** (`signature-verifier.ts:17`): `digest = new Uint8Array(createHash("sha256").update(binary).digest())` — the SHA-256 is recomputed (the earlier `sha256Hex` result is discarded).
+   - **Verify** (`signature-verifier.ts:18`): `nacl.sign.detached.verify(digest, signature, publicKey)`. Tweetnacl's verify is constant-time per its docs. Returns boolean. The function NEVER throws (`try/catch` at line 16/19 absorbs any throw and returns false).
+
+8. **Verify result handling** (`updater.ts:102-107`): If false then state `rolled_back`, emit `updater.verifyFailed { reason: "signature_invalid" }` + `updater.rolledBack { reason: "signature_invalid" }`, throw `Error("Ed25519 signature verification failed")`.
+
+9. **Public key source** (`public-key.ts:15-28`): `loadUpdaterPublicKey()` is the single producer of `this.opts.publicKey`. Reads `NIMBUS_DEV_UPDATER_PUBLIC_KEY` (env override — see S6-F2) or falls back to the embedded base64 string (`UPDATER_PUBLIC_KEY_BASE64 = "aHCEta3sioGdbjyRtS0TdSowop//jqaBr3MqDVb7nSc="`). Decoded via `Buffer.from(source, "base64")`; rejects if length is not 32. NOTE: `loadUpdaterPublicKey` is never invoked in production code — only in tests — because `Updater` is never instantiated in production (S6-F1).
+
+10. **Install** (`updater.ts:109-125`): On verify success, `writeToTempFile(bytes)` writes `installer.bin` to a fresh `mkdtempSync(...)`; `invokeInstaller(binaryPath)` is called if provided. Note: `writeToTempFile` is a closure over the post-verify bytes, so a TOCTOU between verify and write is impossible (the verified buffer is the buffer written).
+
+**What's CORRECT in this trace:**
+- The verifier never throws (`return false` on any failure).
+- The Ed25519 input is the SHA-256 digest, which prevents the binary from being trivially malleable.
+- The 64/32-byte length pre-check defends against malformed input crashes.
+- The temp file is written from the in-memory verified buffer, not re-fetched.
+
+**What's DEFICIENT in this trace:**
+- Hash compare is not constant-time (S6-F10 — Low risk in this model).
+- Signature input is bare SHA-256, not a context-bound envelope (S6-F6 — Medium).
+- Public key source is mutable via env override on production builds (S6-F2 — High).
+- No version comparison in `applyUpdate` (S6-F5 — Medium).
+- No size cap on download (S6-F3 — Medium).
+- No audit row for the verify-pass-and-install transition (S6-F7 — Medium).
+
+---
+
+### Downgrade-attack verification
+
+`semverGreater(a, b)` source (`updater.ts:170-180`):
+
+```typescript
+function semverGreater(a: string, b: string): boolean {
+  const pa = a.split(".").map((s) => Number.parseInt(s, 10));
+  const pb = b.split(".").map((s) => Number.parseInt(s, 10));
+  for (let i = 0; i < 3; i++) {
+    const ai = pa[i] ?? 0;
+    const bi = pb[i] ?? 0;
+    if (ai > bi) return true;
+    if (ai < bi) return false;
+  }
+  return false;
+}
+```
+
+**Operator analysis:**
+- The comparison is **strictly `>`** for each segment (`ai > bi` returns true; `ai < bi` returns false). Equal segments fall through to the next. All-equal returns `false`.
+- Therefore `semverGreater("0.1.0", "0.1.0") === false` — equal versions do NOT trigger updateAvailable.
+- `semverGreater("0.0.5", "0.1.0") === false` — older versions do NOT trigger updateAvailable.
+
+**Edge cases:**
+- `semverGreater("1.0.0", "0.99.99") === true` — major beats minor.
+- `semverGreater("0.1.0-rc.1", "0.0.5")` — `parseInt` on `"0-rc"` returns 0; result depends on parseInt reading leading digits only (so "1" stays as 1). Pre-release suffixes are not respected (a `-rc` is treated as the bare numeric prefix).
+- `semverGreater("0.1.0+build.5", "0.1.0+build.4") === false` — equal because `0.1.0` segments match; build metadata stripped by parseInt.
+- `semverGreater("evil", "0.0.0") === false` (NaN ?? 0 = 0; 0 > 0 false; falls through to return false). Defensive.
+- `semverGreater("99.99.99.99", "0.0.0") === true` — only first 3 segments compared; 4th ignored.
+
+**Manifest-driven downgrade check:**
+
+The downgrade-attack question is: "Can an attacker controlling the manifest force the user to install an older version?" The answer is mixed:
+
+1. **`checkNow` path:** Returns `updateAvailable = false` for any manifest version less-or-equal to currentVersion. The UI/CLI then SHOULD not offer "apply update", and the user normally won't trigger `applyUpdate`. PROTECTED.
+
+2. **`applyUpdate` path:** **NOT PROTECTED** (Finding S6-F5). `applyUpdate` does NOT consult `currentVersion` at all. It downloads/verifies/installs whatever `lastManifest.version` advertises, even if smaller. Attacker can manipulate `lastManifest` by having `checkNow` return a newer-looking manifest, then change the upstream manifest to a downgrade, then trick the user into pressing "apply" (which calls `checkNow` again immediately before `applyUpdate` — but if the user already pressed "apply" in the UI, the popup might cache a "newer version available" decision; trace carefully). Even simpler: if the user runs `nimbus update --check` (gets newer), then later runs `nimbus update --yes` (runs another `checkNow` then `applyUpdate`), and the attacker times their downgrade between these calls, downgrade succeeds.
+
+3. **No version floor / monotonic-counter:** The gateway does not persist "highest version ever installed". A fresh `applyUpdate` after a manual rollback (e.g. `dpkg -i nimbus_0.0.5_amd64.deb`) would let an attacker re-downgrade to anything they like.
+
+4. **No signed envelope:** Even if `applyUpdate` did re-check the version (S6-F5 fix), the version is taken from the unsigned manifest field — not from the signed envelope. An attacker who has a valid signed binary (from a past release) but wants to relabel its version can construct a manifest with `version: "9.9.9"` pointing to the legitimately-signed old binary's URL/SHA256/signature; the cryptographic verify passes (signature is valid for those bytes), and the user thinks they got 9.9.9 (S6-F6).
+
+**Summary:** `semverGreater` itself is correctly strict-greater. The `checkNow` path is sound. The `applyUpdate` path is NOT sound; combined with S6-F4 (HTTP manifest accepted) and S6-F6 (signature lacks context-binding), an attacker controlling the manifest endpoint can replay legitimate-but-older signed binaries onto the user's machine.
+
+---
+
+### NIMBUS_DEV_UPDATER_PUBLIC_KEY override audit
+
+**Source location:** `packages/gateway/src/updater/public-key.ts:15-28`.
+
+**Read site:**
+
+```typescript
+export function loadUpdaterPublicKey(): Uint8Array {
+  const override = processEnvGet("NIMBUS_DEV_UPDATER_PUBLIC_KEY");
+  const source = override ?? UPDATER_PUBLIC_KEY_BASE64;
+  if (source === "<DEV-PLACEHOLDER>") { /* throw */ }
+  const bytes = Buffer.from(source, "base64");
+  if (bytes.length !== 32) { /* throw */ }
+  return new Uint8Array(bytes);
+}
+```
+
+**Build-time gating:** **NONE.** The function unconditionally consults `processEnvGet("NIMBUS_DEV_UPDATER_PUBLIC_KEY")` regardless of build flag, `NODE_ENV`, `BUN_ENV`, or any compile-time define. There is no `if (process.env.NODE_ENV !== "production")` guard. There is no separate `loadUpdaterPublicKeyForTests` function gated to test files. The doc-comment claims "Override for tests via the NIMBUS_DEV_UPDATER_PUBLIC_KEY env var" (line 9) but the comment is non-enforcing.
+
+**Runtime detection:** **NONE.** The function does not log a warning when the override is set. There is no startup banner, no audit row, no telemetry event. A user whose env was poisoned cannot detect the override without checking environment variables manually.
+
+**Who can set this env var on a normal end-user system:**
+
+- **Linux:** Anyone with write access to `~/.bashrc`, `~/.profile`, `~/.zshrc`, `~/.config/systemd/user/nimbus.service` (the autostart unit). A malicious extension running under the user's uid (M2) can append a line. A malicious npm install-script run by the user can append.
+- **macOS:** Same plus `~/Library/LaunchAgents/*.plist` (autostart). The launchctl plist's `EnvironmentVariables` dict is honored.
+- **Windows:** Anyone with write access to `HKCU\Environment` registry, or who can modify the `nimbus start` shortcut, or who can poison user-PATH-injected shims. The DPAPI-encrypted vault is bound to the user, but environment variables are not.
+
+**Attempt vector chain (re-stated from S6-F2 attack scenario for clarity):**
+
+1. Attacker (M2 extension or malicious package post-install hook) appends `export NIMBUS_DEV_UPDATER_PUBLIC_KEY=<attacker-pubkey-base64>` to `~/.bashrc`.
+2. User restarts shell then next gateway start then `loadUpdaterPublicKey()` returns the attacker's key.
+3. Attacker also poisons `NIMBUS_UPDATER_URL=https://attacker-cdn/manifest.json` (also unrestricted, S6-F4).
+4. User runs `nimbus update`. Manifest verifies under attacker's key. Installer runs attacker's binary as a "legitimate" signed Nimbus update.
+
+**Recommended gates (in priority order):**
+
+1. **Build-time strip:** Use `bun build --define UPDATER_DEV_OVERRIDE_ENABLED=false` for release artifacts; gate the `processEnvGet(...)` call inside `if (UPDATER_DEV_OVERRIDE_ENABLED)`. The dead-code-elimination pass removes the override entirely from production binaries.
+2. **NODE_ENV gate:** Even without build-define support, `if (process.env.NODE_ENV === "production") return null` before reading the override.
+3. **Runtime warn:** Emit a fatal-level log line ("WARNING: updater public key has been overridden by environment variable; this is a development-only feature") at startup if the override is set, regardless of build flag. Provides forensic visibility.
+4. **Allowlist of test-fixture keys:** Maintain a hardcoded set of acceptable test-keypair pubkeys. Reject any other `NIMBUS_DEV_UPDATER_PUBLIC_KEY` value even in dev. (Limits accidental misuse; actual attacker who could write the env var can also modify the source.)
+5. **Document the residual risk** in `docs/SECURITY.md` so users know to audit their env at install time.
+
+**Cross-reference:** `docs/release/v0.1.0-prerequisites.md:107` already states "Keep the `NIMBUS_DEV_UPDATER_PUBLIC_KEY` override working for tests — don't remove it." This is correct guidance — but the override must be conditionally compiled, not unconditionally exposed. The current state is the worst of both worlds: tests need it, production exposes it.
+
+---
+
+### Summary
+
+The Surface 6 updater pipeline has a structurally correct cryptographic design (Ed25519 over SHA-256, embedded public key, schema-validated manifest, streaming download with progress events, state machine with explicit verify/rollback transitions) but is hardened with significant gaps that would matter the moment the surface is wired into production. The most critical issue is **S6-F2** (High): the `NIMBUS_DEV_UPDATER_PUBLIC_KEY` env-var override is honoured in production builds with no build-time gate, allowing a single env-poisoning step to substitute the entire updater trust anchor. **S6-F3** (Medium) — no download size cap — and **S6-F4** (Medium) — no `https://` enforcement on manifest/asset URLs — combine into a multi-vector attack chain alongside **S6-F5** (Medium, no version floor in `applyUpdate`) and **S6-F6** (Medium, signature does not bind version/target). **S6-F7** (Medium) — no `audit_log` row for `applyUpdate` — means the most consequential single action a Nimbus install can take leaves no tamper-evident trace. **S6-F1** (Low/informational) is the saving grace: the entire surface is currently dormant because production code never instantiates `Updater`, so none of the above vulnerabilities are presently reachable. Before wiring the updater into `assemble.ts`, all High/Medium findings here should be addressed, the release prerequisite (real Ed25519 keypair, S6-F2 build-time gate) must land, and the `audit_log` integration (S6-F7) should be in place to provide forensic visibility from day one.
+
+**Surface 6 totals: 0 Critical, 1 High, 5 Medium, 5 Low**
+
+---
