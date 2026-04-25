@@ -283,7 +283,7 @@ NIMBUS_RUN_LOCAL_BENCH=1 bun test
 | Trigger | Jobs |
 |---|---|
 | PR opened/updated | `pr-quality` on Ubuntu only: lint (Biome), typecheck, unit + integration tests, `bun audit` |
-| Push to `main` / `develop` | Full 3-platform matrix: `windows-2022`, `macos-14`, `ubuntu-22.04` |
+| Push to `main` / `develop` | Full 3-platform matrix: `windows-2025`, `macos-15`, `ubuntu-24.04` |
 | Push to `main` + release tags | E2E Desktop (Playwright + Tauri WebDriver) on all three platforms |
 
 Security scans run on every PR: `bun audit`, `trivy`, CodeQL. HIGH/CRITICAL findings block the merge.

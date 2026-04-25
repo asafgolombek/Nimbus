@@ -364,7 +364,7 @@ nimbus extension list
 | **Notifications** | Win32 Toast | NSUserNotification | libnotify/D-Bus |
 | **Config dir** | `%APPDATA%\Nimbus` | `~/Library/…/Nimbus` | `~/.config/nimbus` |
 | **Desktop UI** | WebView2 | WKWebView | WebKitGTK |
-| **CI runner** | `windows-2022` | `macos-14` | `ubuntu-22.04` |
+| **CI runner** | `windows-2025` | `macos-15` | `ubuntu-24.04` |
 | **Release** | `.exe` (signed) | `.dmg` (notarized) | `.deb` + AppImage |
 
 ---

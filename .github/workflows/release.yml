@@ -16,7 +16,7 @@ jobs:
   # Single typecheck pass — no need to repeat across all build platforms
   validate:
     name: Validate
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -47,7 +47,7 @@ jobs:
     needs: validate
     uses: ./.github/workflows/_test-suite.yml
     with:
-      runner: ubuntu-22.04
+      runner: ubuntu-24.04
       run-packaging: false
     permissions:
       contents: read
@@ -67,7 +67,7 @@ jobs:
       matrix:
         target:
           - os: linux
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             artifact: nimbus-gateway-linux-x64
             ext: ""
           # Intel/x64 image — matches nimbus-gateway-macos-x64 (macos-13 retired)
@@ -77,11 +77,11 @@ jobs:
             ext: ""
           # Apple Silicon — native arm64 binary (no Rosetta)
           - os: macos-arm64
-            runner: macos-14
+            runner: macos-15
             artifact: nimbus-gateway-macos-arm64
             ext: ""
           - os: windows
-            runner: windows-2022
+            runner: windows-2025
             artifact: nimbus-gateway-windows-x64
             ext: ".exe"
 
@@ -147,7 +147,7 @@ jobs:
       matrix:
         target:
           - os: linux
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             artifact: nimbus-cli-linux-x64
             ext: ""
           - os: macos
@@ -156,11 +156,11 @@ jobs:
             ext: ""
           # Apple Silicon — native arm64 binary (no Rosetta)
           - os: macos-arm64
-            runner: macos-14
+            runner: macos-15
             artifact: nimbus-cli-macos-arm64
             ext: ""
           - os: windows
-            runner: windows-2022
+            runner: windows-2025
             artifact: nimbus-cli-windows-x64
             ext: ".exe"
 
@@ -203,7 +203,7 @@ jobs:
     needs:
       - build-gateway
       - build-cli
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: release
     # Keep GITHUB_TOKEN read-only here; GitHub Release API uses RELEASE_PAT (fine-grained: Contents RW).
@@ -408,7 +408,7 @@ jobs:
   update-manifest:
     name: Publish updater manifest
     needs: publish-release
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release
     permissions:

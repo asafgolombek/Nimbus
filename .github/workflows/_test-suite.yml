@@ -6,7 +6,7 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: GitHub-hosted runner label (e.g. ubuntu-22.04)
+        description: GitHub-hosted runner label (e.g. ubuntu-24.04)
         type: string
         required: true
       run-packaging:
@@ -39,6 +39,17 @@ jobs:
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Diagnostic — runtime environment
+        shell: bash
+        run: |
+          echo "=== Runtime versions ==="
+          bun --version
+          rustc --version 2>/dev/null || echo "(rustc not installed on this job)"
+          node --version 2>/dev/null || echo "(node not installed on this job)"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            ldd --version | head -1
+          fi
 
       - name: Linux — libsecret + D-Bus (vault / PAL tests)
         if: runner.os == 'Linux'
