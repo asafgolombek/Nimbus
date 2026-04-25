@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777109264753,
+  "lastUpdate": 1777114948371,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1594,6 +1594,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.1022851599999979,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "2548f7d6dffe1b70eeacb9f2d5ee6b9f970159cd",
+          "message": "docs: add architecture documentation, security audit findings, and implement tool execution engine",
+          "timestamp": "2026-04-25T14:01:54+03:00",
+          "tree_id": "4129caa8f09ec8821d141c948e234b3c126cf81f",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/2548f7d6dffe1b70eeacb9f2d5ee6b9f970159cd"
+        },
+        "date": 1777114947429,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4477367800000007,
             "unit": "ms"
           }
         ]
