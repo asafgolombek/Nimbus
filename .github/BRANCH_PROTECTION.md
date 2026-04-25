@@ -64,11 +64,14 @@ After workflows have run at least once, add as **required checks**:
 
 | Check | Workflow | When it runs |
 |--------|-----------|----------------|
-| **PR quality — ubuntu-22.04** | CI | Every pull request |
-| **E2E Desktop (PR) — ubuntu-22.04** | CI | Every pull request (Tauri + Playwright) |
+| **PR quality — TS/Bun (ubuntu-24.04)** | CI | Every pull request |
+| **PR quality — Rust/Tauri (ubuntu-24.04)** | CI | Every pull request (when `packages/ui/src-tauri/` changes) |
+| **PR quality — Duplication scan** | CI | Every pull request |
+| **E2E Desktop (PR) — ubuntu-24.04** | CI | Every pull request carrying the `ci:e2e-desktop` label |
 | **Security** jobs | Security | Every pull request (`Dependency audit`, `Trivy vulnerability scan`, `Gateway audit JSON + connector.remove vault restore`, `Cargo audit (Tauri)`) |
 | **Analyze (JavaScript / TypeScript)** | CodeQL | Pull requests and pushes |
-| **CI —** `ubuntu-22.04` / `macos-14` / `windows-2022` | CI | Pushes to `main` / `develop` (full matrix) |
+| **CI — TS/Bun (ubuntu-24.04)** / **CI — TS/Bun (macos-15)** / **CI — TS/Bun (windows-2025)** | CI | Pushes to `main` / `develop` (TS/Bun matrix) |
+| **CI — Rust/Tauri (ubuntu-24.04)** / **CI — Rust/Tauri (macos-15)** / **CI — Rust/Tauri (windows-2025)** | CI | Pushes to `main` / `develop` (Rust/Tauri matrix) |
 
 **Note:** Required checks must match the **exact** job names shown in the Actions UI. After changing workflow job names, update the rule accordingly. Marking every Security job as required ensures `bun audit`, Trivy, gateway contract tests, and `cargo audit` all block merges when they fail.
 

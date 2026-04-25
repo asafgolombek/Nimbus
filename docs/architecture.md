@@ -64,7 +64,7 @@ export async function createPlatformServices(): Promise<PlatformServices> {
 | **Extensions dir** | `%LOCALAPPDATA%\Nimbus\extensions` | `~/Library/Application Support/Nimbus/extensions` | `~/.local/share/nimbus/extensions` |
 | **Notifications** | Win32 Toast API (via Tauri plugin) | `NSUserNotification` (via Tauri plugin) | `libnotify` via D-Bus |
 | **Shell setup** | PowerShell profile + `$PATH` | `~/.zshrc` / `~/.bashrc` | `~/.bashrc` / `~/.zshrc` / fish config |
-| **CI runner** | `windows-2022` | `macos-14` | `ubuntu-22.04` |
+| **CI runner** | `windows-2025` | `macos-15` | `ubuntu-24.04` |
 | **Release artifact** | `.exe` (signed) | `.dmg` / `.app` (signed + notarized) | `.deb` + AppImage |
 
 ### Platform Path API
@@ -1187,7 +1187,7 @@ PRs that drop below threshold are blocked when checks are required.
 **CI breakdown:**
 
 - **PR (`pr-quality`, Ubuntu only):** typecheck → Biome lint/format → build → Rust fmt/clippy → unit + integration tests (JUnit reports) + coverage gates → Vitest UI
-- **Push to `main`/`develop` (`ci`, 3-platform matrix):** same steps on `ubuntu-22.04`, `macos-14`, `windows-2022` in parallel
+- **Push to `main`/`develop` (`ci`, 3-platform matrix):** same steps on `ubuntu-24.04`, `macos-15`, `windows-2025` in parallel
 - **Push to `main` only:** E2E Desktop (Playwright + Tauri WebDriver), after matrix `ci` succeeds
 
 **Security scans:** `bun audit` + `trivy` on every PR and nightly; `CodeQL` static analysis; Dependabot for dependency updates. HIGH/CRITICAL findings block merges.

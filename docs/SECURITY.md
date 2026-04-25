@@ -11,6 +11,12 @@ Nimbus is in active development (Phase 4 — Presence; Phase 3.5 Observability i
 
 Once versioned releases begin (target: Phase 4 — `v0.1.0`), this table will be updated with a supported version range.
 
+### Linux runtime support — glibc floor
+
+Starting with releases built on or after 2026-04-24, Nimbus Linux binaries are compiled on Ubuntu 24.04 runners and require **glibc ≥ 2.39** at runtime. Supported distros (tested): Ubuntu 24.04+, Fedora 40+, Debian 13+, Arch and other current rolling releases. Older distros (Ubuntu 22.04 LTS, Debian 12, RHEL 9 and their derivatives) will emit a `GLIBC_2.39 not found` dynamic-linker error on launch; no workaround beyond upgrading the host OS.
+
+macOS and Windows binaries are unaffected by this change.
+
 ---
 
 ## Reporting a Vulnerability

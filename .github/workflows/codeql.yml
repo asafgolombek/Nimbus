@@ -23,13 +23,13 @@ jobs:
       matrix:
         include:
           - language: javascript-typescript
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             build-mode: none
           # Tauri shell, IPC bridge, updater signature verification, LAN crypto.
           # CodeQL Rust support is GA on github-hosted Linux; manual build mode lets us
           # control toolchain (matches setup-rust-tauri) and skip Tauri's heavy GTK deps.
           - language: rust
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             build-mode: manual
 
     steps:

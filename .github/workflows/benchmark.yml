@@ -10,7 +10,7 @@ permissions:
 jobs:
   benchmark:
     name: Run benchmarks
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Default GITHUB_TOKEN needs write to push gh-pages; optional BENCHMARK_PUSH_TOKEN uses PAT instead.
     permissions:
