@@ -28,6 +28,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/react": "^18.3.12",
-    "ink-testing-library": "^4.0.0"
+    "ink-testing-library": "^4.0.0",
+    "react-devtools-core": "^6.1.5"
   }
 }
