@@ -499,7 +499,7 @@ export class LazyConnectorMesh {
     const outlookScopes = await readMicrosoftOAuthScopesForOutlookEnv(this.vault);
     const outlookEnv = extensionProcessEnv({
       MICROSOFT_OAUTH_ACCESS_TOKEN: token,
-      ...(outlookScopes !== undefined ? { MICROSOFT_OAUTH_SCOPES: outlookScopes } : {}),
+      ...(outlookScopes === undefined ? {} : { MICROSOFT_OAUTH_SCOPES: outlookScopes }),
     });
     this.setLazyClient(
       slotKey,

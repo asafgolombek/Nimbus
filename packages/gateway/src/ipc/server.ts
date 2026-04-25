@@ -460,20 +460,20 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         },
       };
       const toolExecutor =
-        options.localIndex !== undefined
-          ? new ToolExecutor(
+        options.localIndex === undefined
+          ? undefined
+          : new ToolExecutor(
               bindConsentChannel(consentImpl, clientId),
               options.localIndex,
               stubDispatcher,
-            )
-          : undefined;
+            );
       const out = await dispatchDataRpc(method, params, {
         index: options.localIndex,
         vault: options.vault,
         platform: rpcPlatform,
         nimbusVersion: options.version ?? "0.1.0",
         schemaVersion: CURRENT_SCHEMA_VERSION,
-        ...(toolExecutor !== undefined ? { toolExecutor } : {}),
+        ...(toolExecutor === undefined ? {} : { toolExecutor }),
       });
       if (out.kind === "hit") return out.value;
     } catch (e) {
@@ -774,7 +774,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         syncScheduler: options.syncScheduler,
         ...(options.connectorMesh === undefined ? {} : { connectorMesh: options.connectorMesh }),
         notify: broadcastNotification,
-        ...(toolExecutor !== undefined ? { toolExecutor } : {}),
+        toolExecutor,
       });
       if (out.kind === "hit") {
         return out.value;
