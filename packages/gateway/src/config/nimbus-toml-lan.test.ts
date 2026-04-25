@@ -34,4 +34,8 @@ lockout_seconds = 5
       else process.env["NIMBUS_LAN_PORT"] = prev;
     }
   });
+
+  test("DEFAULT_NIMBUS_LAN_TOML bind is loopback, not all-interfaces", () => {
+    expect(DEFAULT_NIMBUS_LAN_TOML.bind).toBe("127.0.0.1");
+  });
 });
