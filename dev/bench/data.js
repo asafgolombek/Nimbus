@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777207209339,
+  "lastUpdate": 1777210164985,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1884,6 +1884,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4850863599999997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "f68e962cfe82628e610fda3c3c17e56cb79a18c8",
+          "message": "Merge branch 'main' of github.com:asafgolombek/Nimbus",
+          "timestamp": "2026-04-26T16:28:56+03:00",
+          "tree_id": "a49d8726c841a4dce272517e5183c773341eb5e8",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/f68e962cfe82628e610fda3c3c17e56cb79a18c8"
+        },
+        "date": 1777210164340,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.495105020000002,
             "unit": "ms"
           }
         ]
