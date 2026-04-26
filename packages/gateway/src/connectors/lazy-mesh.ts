@@ -26,9 +26,72 @@ function mcpConnectorServerScript(packageDir: string): string {
   return join(MCP_CONNECTORS_ROOT, packageDir, "src", "server.ts");
 }
 
+/**
+ * S8-F7 — per-slot in-flight refcount with awaitable drain.
+ * Used by LazyConnectorMesh to defer disconnect while tool calls are running.
+ */
+export class LazyDrainTracker {
+  private inFlight = 0;
+  private resolveDrained: (() => void) | undefined;
+  private drained: Promise<void> | undefined;
+
+  bump(): void {
+    this.inFlight += 1;
+    if (this.drained === undefined) {
+      this.drained = new Promise<void>((r) => {
+        this.resolveDrained = r;
+      });
+    }
+  }
+
+  drop(): void {
+    if (this.inFlight > 0) this.inFlight -= 1;
+    if (this.inFlight === 0 && this.resolveDrained !== undefined) {
+      this.resolveDrained();
+      this.drained = undefined;
+      this.resolveDrained = undefined;
+    }
+  }
+
+  awaitDrain(): Promise<void> {
+    return this.drained ?? Promise.resolve();
+  }
+
+  get count(): number {
+    return this.inFlight;
+  }
+}
+
+/**
+ * S8-F4 — explicit collision detection. The Mastra per-server prefix should
+ * structurally prevent collisions (mcp_* prefix on user MCPs vs. built-in
+ * server names without that prefix), but a future Mastra change or a manual
+ * misconfiguration could regress to a silent override. Fail loud.
+ */
+export function mergeToolMapsOrThrow(
+  sources: ReadonlyArray<{ map: LazyMeshToolMap; name: string }>,
+): LazyMeshToolMap {
+  const merged: LazyMeshToolMap = {};
+  const owners: Record<string, string> = {};
+  for (const { map, name } of sources) {
+    for (const [key, value] of Object.entries(map)) {
+      if (key in merged) {
+        throw new Error(
+          `MCP tool-name collision: ${key} provided by both ${owners[key]} and ${name}`,
+        );
+      }
+      merged[key] = value;
+      owners[key] = name;
+    }
+  }
+  return merged;
+}
+
 type LazyMcpSlot = {
   client: MCPClient | undefined;
   idleTimer: ReturnType<typeof setTimeout> | undefined;
+  /** S8-F7 — per-slot in-flight refcount. */
+  drain: LazyDrainTracker;
 };
 
 const LAZY_MESH = {
@@ -111,7 +174,7 @@ export class LazyConnectorMesh {
   private lazySlot(key: string): LazyMcpSlot {
     let s = this.lazySlots.get(key);
     if (s === undefined) {
-      s = { client: undefined, idleTimer: undefined };
+      s = { client: undefined, idleTimer: undefined, drain: new LazyDrainTracker() };
       this.lazySlots.set(key, s);
     }
     return s;
@@ -147,6 +210,15 @@ export class LazyConnectorMesh {
     const slot = this.lazySlots.get(key);
     if (slot === undefined) {
       return;
+    }
+    // S8-F7 — wait for in-flight calls before tearing down. Hard cap at
+    // 10 minutes total so a stuck tool call cannot indefinitely defer
+    // disconnect; beyond that, force-disconnect anyway.
+    if (slot.drain.count > 0) {
+      await Promise.race([
+        slot.drain.awaitDrain(),
+        new Promise<void>((r) => setTimeout(r, 10 * 60_000)),
+      ]);
     }
     const c = slot.client;
     slot.client = undefined;
@@ -1147,26 +1219,67 @@ export class LazyConnectorMesh {
         userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
       }
     }
-    return {
-      ...fsTools,
-      ...gdTools,
-      ...msTools,
-      ...ghTools,
-      ...glTools,
-      ...bbTools,
-      ...slackTools,
-      ...linearTools,
-      ...jiraTools,
-      ...notionTools,
-      ...confluenceTools,
-      ...discordTools,
-      ...jenkinsTools,
-      ...circleciTools,
-      ...pagerdutyTools,
-      ...kubernetesTools,
-      ...phase3Tools,
-      ...userMcpMerged,
-    } as LazyMeshToolMap;
+    const merged = mergeToolMapsOrThrow([
+      { map: fsTools as LazyMeshToolMap, name: "filesystem" },
+      { map: gdTools, name: "google-bundle" },
+      { map: msTools, name: "microsoft-bundle" },
+      { map: ghTools, name: "github" },
+      { map: glTools, name: "gitlab" },
+      { map: bbTools, name: "bitbucket" },
+      { map: slackTools, name: "slack" },
+      { map: linearTools, name: "linear" },
+      { map: jiraTools, name: "jira" },
+      { map: notionTools, name: "notion" },
+      { map: confluenceTools, name: "confluence" },
+      { map: discordTools, name: "discord" },
+      { map: jenkinsTools, name: "jenkins" },
+      { map: circleciTools, name: "circleci" },
+      { map: pagerdutyTools, name: "pagerduty" },
+      { map: kubernetesTools, name: "kubernetes" },
+      { map: phase3Tools, name: "phase3-bundle" },
+      { map: userMcpMerged, name: "user-mcp" },
+    ]);
+    // S8-F7 — wrap each tool's execute with bump/drop counters keyed to the
+    // owning slot, so stopLazyClient can defer disconnect while calls are in
+    // flight. Slot ownership is resolved best-effort by re-listing tools per
+    // slot; if a tool is no longer present in any slot's map (race with
+    // disconnect), the wrapper still calls the original execute without
+    // refcount tracking.
+    const slotForTool = new Map<string, LazyDrainTracker>();
+    for (const [meshKey, slot] of this.lazySlots) {
+      const c = slot.client;
+      if (c === undefined) continue;
+      try {
+        const tools = (await c.listTools()) as LazyMeshToolMap;
+        for (const k of Object.keys(tools)) {
+          if (!slotForTool.has(k)) slotForTool.set(k, slot.drain);
+        }
+      } catch {
+        /* slot disappearing — skip */
+      }
+      // Reference meshKey to silence the linter; the variable is used as
+      // the iteration key for clarity in future debugging.
+      void meshKey;
+    }
+    for (const key of Object.keys(merged)) {
+      const value = merged[key];
+      if (value === undefined) continue;
+      const original = value.execute;
+      if (original === undefined) continue;
+      const drain = slotForTool.get(key);
+      if (drain === undefined) continue;
+      merged[key] = {
+        execute: async (input: unknown, ctx?: unknown): Promise<unknown> => {
+          drain.bump();
+          try {
+            return await original(input, ctx);
+          } finally {
+            drain.drop();
+          }
+        },
+      };
+    }
+    return merged;
   }
 
   async disconnect(): Promise<void> {
