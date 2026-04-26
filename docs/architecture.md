@@ -16,7 +16,7 @@ Nimbus is a local-first AI agent for DevOps engineers, security practitioners, a
 | **MCP Connector Mesh** | Integration surface: unified interface to all cloud and local services |
 | **Secure Vault** | Secrets layer: OS-native credential storage, zero plaintext exposure |
 | **Extension Registry** | Plugin layer: sandboxed third-party MCP connectors + local marketplace |
-| **Observability Layer** | Health model, index metrics, query latency ring buffer, Prometheus endpoint, HTTP read API |
+| **Observability Layer** | Health model, index metrics, query latency ring buffer, bench harness, Prometheus endpoint, HTTP read API |
 
 Starting in Phase 5, Nimbus also serves as a unified metadata layer for the data stack — dbt models, orchestration DAGs, warehouse schemas, and BI dashboards are indexed as first-class items so lineage queries resolve from the local index without additional warehouse or BI API calls. Row data and binary extracts never cross the connector boundary.
 
