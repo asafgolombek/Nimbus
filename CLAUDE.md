@@ -80,6 +80,8 @@ When changing a wiring site referenced above, update both the test and `SECURITY
 | `packages/gateway/src/db/metrics.ts` | `IndexMetrics` — item counts, embedding coverage, query latency percentiles |
 | `packages/gateway/src/db/latency-ring-buffer.ts` | In-memory ring buffer for query latency samples; async batch flush to `query_latency_log` |
 | `packages/gateway/src/db/write.ts` | Central DB write wrapper — catches `SQLITE_FULL`, re-throws `DiskFullError` |
+| `packages/gateway/src/perf/` | B2 bench harness — `BenchHarness`, `PerfFixture`, `HistoryLine`, `bench-cli.ts`; one S2-a driver under `surfaces/` |
+| `packages/cli/src/commands/bench.ts` | `nimbus bench` CLI command — thin `Bun.spawn` wrapper around `bench-runner.ts` |
 | `packages/gateway/src/telemetry/collector.ts` | Opt-in telemetry — aggregate counters only, no content, configurable endpoint |
 | `packages/gateway/src/config/profiles.ts` | Named configuration profiles (`work`, `personal`); Vault key prefixing |
 | `packages/gateway/src/llm/types.ts` | LLM provider interfaces — `LlmProvider`, `LlmTaskType`, `LlmModelInfo`, `LlmGenerateOptions/Result` |
@@ -232,6 +234,7 @@ bun run test:coverage:sdk          # ≥80% threshold (@nimbus-dev/sdk)
 # Phase 4 WS4 coverage gates
 bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
 bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
+bun run test:coverage:perf      # ≥80% threshold (perf bench harness)
 
 # Phase 4 WS5-A UI coverage gate (Vitest — separate runner)
 cd packages/ui && bunx vitest run --coverage  # ≥80% lines / ≥75% branches
@@ -292,6 +295,10 @@ bun run package:installers:linux -- --version 0.1.0
 # nimbus data delete --service <name> [--dry-run] [--yes]
 # nimbus audit verify [--full] [--since <id>]
 # nimbus audit export --output <path.json>
+
+# Phase 4 B2 — Perf bench (Phase 1A scaffolding)
+# nimbus bench --surface S2-a --runs 5 --corpus small --gha
+# nimbus bench --all --reference                     # interactive protocol confirmation required
 
 # Phase 4 WS4 — Release Infrastructure
 # nimbus update --check              # check for update; exit 1 if available, 0 if current

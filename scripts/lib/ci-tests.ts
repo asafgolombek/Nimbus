@@ -110,6 +110,7 @@ function runCoverageGates(): void {
     { script: "test:coverage:mcp" },
     { script: "test:coverage:updater" },
     { script: "test:coverage:lan" },
+    { script: "test:coverage:perf" },
     { script: "test:coverage:sdk" },
   ];
 
