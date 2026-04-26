@@ -30,12 +30,33 @@ export const FORBIDDEN_PERSIST_KEYS = [
   "encryptedVaultManifest",
 ] as const;
 
+/**
+ * S2-F6 — mirror gateway-side `executor.ts:SENSITIVE_PAYLOAD_KEY` so the
+ * persist-side scrubber catches the same connector-secret names. Catches
+ * `apiToken`, `clientSecret`, `accessToken`, `refreshToken`, `bot_token`,
+ * `api_key`, `app_password`, `Authorization`, etc. — independent of the
+ * `FORBIDDEN_PERSIST_KEYS` exact-match list, which remains unchanged for
+ * cross-surface stability.
+ *
+ * Keep in sync with packages/gateway/src/engine/executor.ts.
+ */
+const SENSITIVE_KEY_PATTERN = /(token|key|secret|password|credential|bearer|auth)/i;
+// `pat` is short and would not match the generic pattern; treat it as exact.
+const EXTRA_EXACT_KEYS: readonly string[] = ["pat"];
+
+function isForbiddenKeyName(name: string): boolean {
+  if ((FORBIDDEN_PERSIST_KEYS as readonly string[]).includes(name)) return true;
+  if (EXTRA_EXACT_KEYS.includes(name)) return true;
+  return SENSITIVE_KEY_PATTERN.test(name);
+}
+
 type Whitelisted = (typeof WHITELISTED_PERSIST_KEYS)[number];
 
 /**
- * Recursively walks `value` and deletes any key matching `FORBIDDEN_PERSIST_KEYS`,
- * regardless of nesting depth. Tolerates cycles via a seen-set. Mutates `value`
- * in place — callers supply an already-cloned/new value.
+ * Recursively walks `value` and deletes any key matching `FORBIDDEN_PERSIST_KEYS`
+ * OR the gateway-side sensitive-key pattern (S2-F6), regardless of nesting
+ * depth. Tolerates cycles via a seen-set. Mutates `value` in place — callers
+ * supply an already-cloned/new value.
  */
 function deepScrubForbidden(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
   if (value === null || typeof value !== "object") return;
@@ -46,9 +67,9 @@ function deepScrubForbidden(value: unknown, seen: WeakSet<object> = new WeakSet(
     return;
   }
   const rec = value as Record<string, unknown>;
-  for (const forbidden of FORBIDDEN_PERSIST_KEYS) {
-    if (forbidden in rec) {
-      delete rec[forbidden];
+  for (const k of Object.keys(rec)) {
+    if (isForbiddenKeyName(k)) {
+      delete rec[k];
     }
   }
   for (const child of Object.values(rec)) {
