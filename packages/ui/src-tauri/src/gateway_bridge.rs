@@ -421,10 +421,16 @@ mod tests {
         assert!(!is_method_allowed("vault.get"));
         assert!(!is_method_allowed("vault.set"));
         assert!(!is_method_allowed("vault.list"));
+        assert!(!is_method_allowed("vault.delete"));
+        assert!(!is_method_allowed("vault.listKeys"));
         assert!(!is_method_allowed("db.put"));
         assert!(!is_method_allowed("db.delete"));
         assert!(!is_method_allowed("config.set"));
         assert!(!is_method_allowed("index.rebuild"));
+        // S5-F7 — `index.querySql` is the raw-SQL escape hatch behind the
+        // CLI `nimbus query --sql` flag; the renderer must not be able to
+        // reach it. Explicit guard against future allowlist drift.
+        assert!(!is_method_allowed("index.querySql"));
     }
 
     #[test]

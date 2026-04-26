@@ -193,3 +193,63 @@ describe("connector.setConfig", () => {
     expect(calls).toContain("pause:github");
   });
 });
+
+describe("connector.startAuth deprecated alias (S4-F2)", () => {
+  test("connector.startAuth dispatches to the same handler as connector.auth", async () => {
+    // Both methods route through `handleConnectorAuth` which calls
+    // `parseServiceArg` first; passing an unknown service yields the same
+    // error from both paths, proving they share the handler.
+    const baseLocalIndex = makeIndex();
+    const start = dispatchConnectorRpc({
+      ...baseOpts,
+      localIndex: baseLocalIndex,
+      method: "connector.startAuth",
+      params: { service: "totally-not-a-real-connector" },
+    });
+    const auth = dispatchConnectorRpc({
+      ...baseOpts,
+      localIndex: baseLocalIndex,
+      method: "connector.auth",
+      params: { service: "totally-not-a-real-connector" },
+    });
+    // Both must reject with the same error class — proves they share the
+    // handler-side dispatch (parseServiceArg in handleConnectorAuth).
+    let startErr: unknown;
+    let authErr: unknown;
+    try {
+      await start;
+    } catch (e) {
+      startErr = e;
+    }
+    try {
+      await auth;
+    } catch (e) {
+      authErr = e;
+    }
+    expect(startErr).toBeDefined();
+    expect(authErr).toBeDefined();
+    expect((startErr as Error).constructor.name).toBe((authErr as Error).constructor.name);
+    expect((startErr as Error).message).toBe((authErr as Error).message);
+  });
+
+  test("connector.unknown returns miss; connector.startAuth does not", async () => {
+    const idx = makeIndex();
+    const miss = await dispatchConnectorRpc({
+      ...baseOpts,
+      localIndex: idx,
+      method: "connector.unknownMethod",
+      params: {},
+    });
+    expect(miss.kind).toBe("miss");
+    // The alias case is hit, so it does NOT return miss — it routes to the
+    // auth handler which throws on a missing/invalid `service` param.
+    await expect(
+      dispatchConnectorRpc({
+        ...baseOpts,
+        localIndex: idx,
+        method: "connector.startAuth",
+        params: {},
+      }),
+    ).rejects.toBeDefined();
+  });
+});
