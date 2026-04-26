@@ -182,20 +182,25 @@ bun test
 # Run with coverage
 bun run test:coverage
 
-# Coverage gates (enforced in CI)
-bun run test:coverage:engine   # ≥85% threshold (engine)
-bun run test:coverage:vault    # ≥90% threshold (vault)
-bun run test:coverage:embedding # ≥80% threshold (embedding)
-bun run test:coverage:workflow  # ≥80% threshold (workflow runner + store)
-bun run test:coverage:watcher   # ≥80% threshold (watcher engine + store + anomaly stub)
-bun run test:coverage:extensions # ≥85% threshold (extension registry + manifest + verify)
+# Coverage gates (enforced in CI) — run all: bun run test:ci
+bun run test:coverage:engine       # ≥85% threshold (engine)
+bun run test:coverage:vault        # ≥90% threshold (vault)
+bun run test:coverage:sync         # ≥80% threshold (sync scheduler)
+bun run test:coverage:rate-limiter # ≥85% threshold (per-provider rate limiter)
+bun run test:coverage:people       # ≥80% threshold (people graph + cross-service linker)
+bun run test:coverage:embedding    # ≥80% threshold (embedding)
+bun run test:coverage:workflow     # ≥80% threshold (workflow runner + store)
+bun run test:coverage:watcher      # ≥80% threshold (watcher engine + store + anomaly stub)
+bun run test:coverage:extensions   # ≥85% threshold (extension registry + manifest + verify)
 bun run test:coverage:config       # ≥80% threshold (config loader, profiles, env overrides)
 bun run test:coverage:client       # ≥80% threshold (@nimbus-dev/client)
 bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — payload safety gate)
 bun run test:coverage:db           # ≥85% threshold (verify, repair, migrations, metrics, latency buffer)
 bun run test:coverage:health       # ≥85% threshold (connectors/health.ts)
 bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
-bun run test:coverage:tui         # ≥80% threshold (packages/cli/src/tui — TUI components)
+bun run test:coverage:tui          # ≥80% threshold (packages/cli/src/tui — TUI components)
+bun run test:coverage:mcp          # ≥70% threshold (mcp-connectors)
+bun run test:coverage:sdk          # ≥80% threshold (@nimbus-dev/sdk)
 # Phase 4 WS4 coverage gates
 bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
 bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
@@ -215,6 +220,10 @@ cd packages/ui && bunx vitest run --coverage  # with branch/line coverage report
 
 # Build all packages
 bun run build
+
+# Full validate-and-build (runs CI test suite first, then builds)
+bun run build:debug    # debug build with sourcemaps (also: scripts/linux/build-debug.sh, scripts/windows/build-debug.ps1)
+bun run build:release  # production build (also: scripts/linux/build-release.sh, scripts/windows/build-release.ps1)
 
 # Docs site (Starlight — static output under packages/docs/dist)
 bun run docs:build

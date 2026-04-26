@@ -5,12 +5,18 @@
 > **Constraint:** Solo developer — workstreams are sequential unless explicitly noted as parallelisable.  
 > **Release gate:** `v0.1.0` does not ship until every acceptance criterion in this document passes on Windows, macOS, and Linux. Release timeline is intentionally unconstrained — ship when complete, not by a date.
 
-> **Status (2026-04-19):**
+> **Status (2026-04-26):**
 > - **WS1 — Local LLM & Multi-Agent:** ✅ Merged. `OllamaProvider`, `LlamaCppProvider`, `LlmRouter`, `LlmRegistry`, `GpuArbiter`, `AgentCoordinator`, `runSubAgent`, `engine.askStream`, `llm.*` IPC, V16 + V17 migrations.
 > - **WS2 — Voice Interface:** ✅ Merged (PR #52). `VoiceService` + STT/TTS providers + `voice.*` IPC.
 > - **WS3 — Data Sovereignty:** ✅ Merged (PR #53). `nimbus data export|import|delete`, `nimbus audit verify|export`, BLAKE3-chained audit log (V18), envelope-encrypted vault bundle, BIP39 recovery seed, `nimbus connector reindex`.
 > - **WS4 — Release Infrastructure:** ✅ Implemented (Tasks 1–18 complete). Signing plumbing (Ed25519 + binary-hash manifest), Ed25519-verified auto-updater + `nimbus update` CLI, Plugin API v1 frozen (`AuditLogger` + `HitlRequest` in SDK), opt-in encrypted LAN remote access (`lan-crypto`, `lan-pairing`, `lan-rate-limit`, `lan-server`, `lan-rpc`, `nimbus lan` CLI), V19 migration (`lan_peers`), coverage gates added. Pending: cert procurement, mDNS host discovery, npm publish.
-> - **WS5–WS7:** Blocked on WS4 IPC stability.
+> - **WS5-A — App Shell Foundation:** ✅ Merged. React 19 + Tailwind v4 + Radix + Zustand + React Router v7 scaffolding, Rust Tauri bridge (`ALLOWED_METHODS`), Quick Query popup, onboarding wizard, first-run routing, macOS accessory mode.
+> - **WS5-B — System Tray & Dashboard:** ✅ Merged. Health-dot tray icon, pending-HITL badge, connectors menu, Dashboard page, HITL consent popup.
+> - **WS5-C — Settings Shell (Plans 1–5):** ✅ Merged. Profiles panel, Telemetry panel, Connectors panel, Model panel, Audit panel, Updates panel, Data panel (export/import/delete wizards).
+> - **WS5-D — Polish:** ✅ Merged. Watcher history drawer, workflow run history + "Run with params…", connector remove integration test fixes.
+> - **WS6 — Rich TUI:** ✅ Merged. Ink-based TUI with pane layout, keyboard navigation, inline HITL consent.
+> - **S2 — Graph-Aware Watchers:** ✅ Merged. `graph_predicate_json` conditions, `parseGraphPredicate`/`itemMatchesGraphPredicate`, V22 migration.
+> - **WS7 — VS Code Extension:** Not started. Planned after v0.1.0 release gate.
 
 ---
 

@@ -45,6 +45,8 @@
   "scripts": {
     "dev": "bun run --filter './packages/gateway' dev & bun run --filter './packages/cli' dev",
     "build": "bun run --filter '*' build",
+    "build:debug": "bun scripts/build-debug.ts",
+    "build:release": "bun scripts/build-release.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "audit:high": "bun audit --audit-level high",
     "lint": "biome check .",
