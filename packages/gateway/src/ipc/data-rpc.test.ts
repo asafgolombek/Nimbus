@@ -63,10 +63,11 @@ describe("dispatchDataRpc", () => {
   });
 
   test("data.export without toolExecutor throws DataRpcError -32603 (S2-F5)", async () => {
+    const out = join(mkdtempSync(join(tmpdir(), "nimbus-rpc-noexec-")), "b.tar.gz");
     await expect(
       dispatchDataRpc(
         "data.export",
-        { output: "/tmp/x", passphrase: "p", includeIndex: false },
+        { output: out, passphrase: "p", includeIndex: false },
         {
           index: newIndex(),
           vault: memVault(),

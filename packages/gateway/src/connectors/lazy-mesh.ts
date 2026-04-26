@@ -38,11 +38,9 @@ export class LazyDrainTracker {
 
   bump(): void {
     this.inFlight += 1;
-    if (this.drained === undefined) {
-      this.drained = new Promise<void>((r) => {
-        this.resolveDrained = r;
-      });
-    }
+    this.drained ??= new Promise<void>((r) => {
+      this.resolveDrained = r;
+    });
   }
 
   drop(): void {
@@ -1187,93 +1185,77 @@ export class LazyConnectorMesh {
     await this.ensurePhase3BundleRunning();
   }
 
-  /**
-   * Bare tool map — for the planner path (`ConnectorDispatcher` →
-   * `ToolExecutor`). Returns refcount-wrapped but otherwise structured tool
-   * results so `ToolExecutor` consumers see the same shape as upstream MCPs.
-   */
-  async listToolsForDispatcher(): Promise<
-    Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
+  /** Collect tool maps from all built-in lazy slots. */
+  private async collectBuiltInToolMaps(): Promise<
+    ReadonlyArray<{ map: LazyMeshToolMap; name: string }>
   > {
-    await this.ensureCredentialConnectorsRunning();
-    await this.ensureUserMcpConnectorsRunning();
+    const list = async (mesh: string): Promise<LazyMeshToolMap> =>
+      listLazyMeshClientTools(this.getLazyClient(mesh));
+    const fsTools = (await this.filesystem.listTools()) as LazyMeshToolMap;
+    return [
+      { map: fsTools, name: "filesystem" },
+      { map: await list(LAZY_MESH.googleBundle), name: "google-bundle" },
+      { map: await list(LAZY_MESH.microsoftBundle), name: "microsoft-bundle" },
+      { map: await list(LAZY_MESH.github), name: "github" },
+      { map: await list(LAZY_MESH.gitlab), name: "gitlab" },
+      { map: await list(LAZY_MESH.bitbucket), name: "bitbucket" },
+      { map: await list(LAZY_MESH.slack), name: "slack" },
+      { map: await list(LAZY_MESH.linear), name: "linear" },
+      { map: await list(LAZY_MESH.jira), name: "jira" },
+      { map: await list(LAZY_MESH.notion), name: "notion" },
+      { map: await list(LAZY_MESH.confluence), name: "confluence" },
+      { map: await list(LAZY_MESH.discord), name: "discord" },
+      { map: await list(LAZY_MESH.jenkins), name: "jenkins" },
+      { map: await list(LAZY_MESH.circleci), name: "circleci" },
+      { map: await list(LAZY_MESH.pagerduty), name: "pagerduty" },
+      { map: await list(LAZY_MESH.kubernetes), name: "kubernetes" },
+      { map: await list(LAZY_MESH.phase3Bundle), name: "phase3-bundle" },
+    ];
+  }
 
-    const fsTools = await this.filesystem.listTools();
-    const gdTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.googleBundle));
-    const msTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.microsoftBundle));
-    const ghTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.github));
-    const glTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.gitlab));
-    const bbTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.bitbucket));
-    const slackTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.slack));
-    const linearTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.linear));
-    const jiraTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.jira));
-    const notionTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.notion));
-    const confluenceTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.confluence));
-    const discordTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.discord));
-    const jenkinsTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.jenkins));
-    const circleciTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.circleci));
-    const pagerdutyTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.pagerduty));
-    const kubernetesTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.kubernetes));
-    const phase3Tools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.phase3Bundle));
-    let userMcpMerged: LazyMeshToolMap = {};
+  /** Merge tool maps from every active user MCP slot. */
+  private async collectUserMcpToolMap(): Promise<LazyMeshToolMap> {
+    let merged: LazyMeshToolMap = {};
     for (const [meshKey, slot] of this.lazySlots) {
-      if (!meshKey.startsWith(USER_MESH_PREFIX)) {
+      if (!meshKey.startsWith(USER_MESH_PREFIX) || slot.client === undefined) {
         continue;
       }
-      const c = slot.client;
-      if (c !== undefined) {
-        userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
-      }
+      merged = { ...merged, ...(await listLazyMeshClientTools(slot.client)) };
     }
-    const merged = mergeToolMapsOrThrow([
-      { map: fsTools as LazyMeshToolMap, name: "filesystem" },
-      { map: gdTools, name: "google-bundle" },
-      { map: msTools, name: "microsoft-bundle" },
-      { map: ghTools, name: "github" },
-      { map: glTools, name: "gitlab" },
-      { map: bbTools, name: "bitbucket" },
-      { map: slackTools, name: "slack" },
-      { map: linearTools, name: "linear" },
-      { map: jiraTools, name: "jira" },
-      { map: notionTools, name: "notion" },
-      { map: confluenceTools, name: "confluence" },
-      { map: discordTools, name: "discord" },
-      { map: jenkinsTools, name: "jenkins" },
-      { map: circleciTools, name: "circleci" },
-      { map: pagerdutyTools, name: "pagerduty" },
-      { map: kubernetesTools, name: "kubernetes" },
-      { map: phase3Tools, name: "phase3-bundle" },
-      { map: userMcpMerged, name: "user-mcp" },
-    ]);
-    // S8-F7 — wrap each tool's execute with bump/drop counters keyed to the
-    // owning slot, so stopLazyClient can defer disconnect while calls are in
-    // flight. Slot ownership is resolved best-effort by re-listing tools per
-    // slot; if a tool is no longer present in any slot's map (race with
-    // disconnect), the wrapper still calls the original execute without
-    // refcount tracking.
+    return merged;
+  }
+
+  /** Index every tool key to its owning slot's drain tracker. Best-effort; races with disconnect are ignored. */
+  private async buildSlotForToolMap(): Promise<Map<string, LazyDrainTracker>> {
     const slotForTool = new Map<string, LazyDrainTracker>();
-    for (const [meshKey, slot] of this.lazySlots) {
-      const c = slot.client;
-      if (c === undefined) continue;
+    for (const slot of this.lazySlots.values()) {
+      if (slot.client === undefined) continue;
       try {
-        const tools = (await c.listTools()) as LazyMeshToolMap;
+        const tools = (await slot.client.listTools()) as LazyMeshToolMap;
         for (const k of Object.keys(tools)) {
           if (!slotForTool.has(k)) slotForTool.set(k, slot.drain);
         }
       } catch {
         /* slot disappearing — skip */
       }
-      // Reference meshKey to silence the linter; the variable is used as
-      // the iteration key for clarity in future debugging.
-      void meshKey;
     }
+    return slotForTool;
+  }
+
+  /**
+   * S8-F7 — wrap each tool's execute with bump/drop counters keyed to the
+   * owning slot, so stopLazyClient can defer disconnect while calls are in
+   * flight.
+   */
+  private wrapMergedToolsWithRefcount(
+    merged: LazyMeshToolMap,
+    slotForTool: ReadonlyMap<string, LazyDrainTracker>,
+  ): void {
     for (const key of Object.keys(merged)) {
       const value = merged[key];
-      if (value === undefined) continue;
-      const original = value.execute;
-      if (original === undefined) continue;
+      const original = value?.execute;
       const drain = slotForTool.get(key);
-      if (drain === undefined) continue;
+      if (value === undefined || original === undefined || drain === undefined) continue;
       merged[key] = {
         execute: async (input: unknown, ctx?: unknown): Promise<unknown> => {
           drain.bump();
@@ -1285,6 +1267,24 @@ export class LazyConnectorMesh {
         },
       };
     }
+  }
+
+  /**
+   * Bare tool map — for the planner path (`ConnectorDispatcher` →
+   * `ToolExecutor`). Returns refcount-wrapped but otherwise structured tool
+   * results so `ToolExecutor` consumers see the same shape as upstream MCPs.
+   */
+  async listToolsForDispatcher(): Promise<
+    Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
+  > {
+    await this.ensureCredentialConnectorsRunning();
+    await this.ensureUserMcpConnectorsRunning();
+
+    const builtIns = await this.collectBuiltInToolMaps();
+    const userMcpMerged = await this.collectUserMcpToolMap();
+    const merged = mergeToolMapsOrThrow([...builtIns, { map: userMcpMerged, name: "user-mcp" }]);
+    const slotForTool = await this.buildSlotForToolMap();
+    this.wrapMergedToolsWithRefcount(merged, slotForTool);
     return merged;
   }
 

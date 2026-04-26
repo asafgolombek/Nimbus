@@ -145,6 +145,20 @@ function scanForSymlinks(root: string): void {
   }
 }
 
+/** Check a single extracted entry; throws on path-escape or symlink. Pushes subdirectories onto `stack`. */
+function checkExtractedEntry(absRoot: string, dir: string, ent: Dirent, stack: string[]): void {
+  const full = join(dir, ent.name);
+  const rel = relative(absRoot, resolve(full));
+  if (rel.startsWith("..") || rel === "..") {
+    throw new Error(`archive entry escapes install root: ${full}`);
+  }
+  const st = lstatSync(full);
+  if (st.isSymbolicLink()) {
+    throw new Error(`archive contains symlink: ${full}`);
+  }
+  if (st.isDirectory()) stack.push(full);
+}
+
 /**
  * S7-F4 — post-extract path-traversal sweep. Even if `tar` ignored an entry's
  * `..` prefix, a final-path resolve must stay inside destDir.
@@ -162,16 +176,7 @@ function assertNoEntryEscapes(destDir: string): void {
       continue;
     }
     for (const ent of entries) {
-      const full = join(dir, ent.name);
-      const rel = relative(absRoot, resolve(full));
-      if (rel.startsWith("..") || rel === "..") {
-        throw new Error(`archive entry escapes install root: ${full}`);
-      }
-      const st = lstatSync(full);
-      if (st.isSymbolicLink()) {
-        throw new Error(`archive contains symlink: ${full}`);
-      }
-      if (st.isDirectory()) stack.push(full);
+      checkExtractedEntry(absRoot, dir, ent, stack);
     }
   }
 }

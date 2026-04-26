@@ -20,6 +20,6 @@ describe("ConnectorDispatcher returns bare results (G9 regression)", () => {
     const d = createConnectorDispatcher(client);
     const r = await d.dispatch({ type: "github_repo_get", payload: {} });
     expect(r).toEqual({ name: "repo", stars: 42 });
-    expect(typeof r === "string" && (r as string).startsWith("<tool_output")).toBe(false);
+    expect(typeof r === "string" && r.startsWith("<tool_output")).toBe(false);
   });
 });

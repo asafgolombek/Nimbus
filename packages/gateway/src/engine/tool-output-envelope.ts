@@ -28,6 +28,6 @@ function escapeAttr(s: string): string {
  */
 export function wrapToolOutput(ctx: ToolOutputContext, result: unknown): string {
   const body = JSON.stringify(result ?? null);
-  const safeBody = body.replaceAll("</tool_output>", "<\\/tool_output>");
+  const safeBody = body.replaceAll("</tool_output>", String.raw`<\/tool_output>`);
   return `<tool_output service="${escapeAttr(ctx.service)}" tool="${escapeAttr(ctx.tool)}">${safeBody}</tool_output>`;
 }

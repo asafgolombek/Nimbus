@@ -145,7 +145,12 @@ export class Updater {
       signature: sigBytes,
       publicKey: this.opts.publicKey,
     });
-    if (!envelopeOk) {
+    if (envelopeOk) {
+      this.opts.recordUpdateEvent?.("system.update.verified", {
+        toVersion: this.lastManifest.version,
+        envelope: true,
+      });
+    } else {
       const bareOk = verifyBinarySignature(bytes, sigBytes, this.opts.publicKey);
       if (!bareOk) {
         this.state = "rolled_back";
@@ -160,11 +165,6 @@ export class Updater {
       this.opts.recordUpdateEvent?.("system.update.verified", {
         toVersion: this.lastManifest.version,
         envelope: false,
-      });
-    } else {
-      this.opts.recordUpdateEvent?.("system.update.verified", {
-        toVersion: this.lastManifest.version,
-        envelope: true,
       });
     }
 

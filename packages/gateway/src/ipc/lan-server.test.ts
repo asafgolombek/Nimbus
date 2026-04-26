@@ -183,9 +183,13 @@ describe("LanServer frame-size caps (S3-F3)", () => {
     svr = undefined;
   });
 
-  test("rejects pre-handshake frame whose declared length exceeds MAX_HANDSHAKE_FRAME", async () => {
-    const { LanServer: Cls, MAX_HANDSHAKE_FRAME } = await import("./lan-server.ts");
-    const recordedFailures: string[] = [];
+  /** Spin up a LanServer with no-op pairing/peer hooks; tests inject a custom rateLimit. */
+  async function startBareServer(
+    rateLimit?: Partial<{
+      recordFailure: (ip: string) => void;
+    }>,
+  ): Promise<{ port: number }> {
+    const { LanServer: Cls } = await import("./lan-server.ts");
     svr = new Cls({
       bind: "127.0.0.1",
       port: 0,
@@ -194,7 +198,7 @@ describe("LanServer frame-size caps (S3-F3)", () => {
       isKnownPeer: () => null,
       rateLimit: {
         checkAllowed: () => true,
-        recordFailure: (ip) => recordedFailures.push(ip),
+        recordFailure: rateLimit?.recordFailure ?? (() => {}),
         recordSuccess: () => {},
       },
       pairing: {
@@ -207,8 +211,11 @@ describe("LanServer frame-size caps (S3-F3)", () => {
       registerPeer: () => "p",
     });
     await svr.start();
-    const port = svr.listenAddr()!.port;
+    return { port: svr.listenAddr()!.port };
+  }
 
+  /** Connect, send a single length header, wait, return whether the server closed the socket. */
+  async function probeClosedAfterHeader(port: number, declaredLength: number): Promise<boolean> {
     let closed = false;
     const conn = await Bun.connect({
       hostname: "127.0.0.1",
@@ -216,7 +223,7 @@ describe("LanServer frame-size caps (S3-F3)", () => {
       socket: {
         open(socket) {
           const buf = new Uint8Array(4);
-          new DataView(buf.buffer).setUint32(0, MAX_HANDSHAKE_FRAME + 1, false);
+          new DataView(buf.buffer).setUint32(0, declaredLength, false);
           socket.write(buf);
         },
         data() {},
@@ -229,58 +236,28 @@ describe("LanServer frame-size caps (S3-F3)", () => {
       },
     });
     await new Promise((r) => setTimeout(r, 200));
-    const closedBeforeEnd = closed;
+    const result = closed;
     conn.end();
-    expect(closedBeforeEnd).toBe(true);
+    return result;
+  }
+
+  test("rejects pre-handshake frame whose declared length exceeds MAX_HANDSHAKE_FRAME", async () => {
+    const { MAX_HANDSHAKE_FRAME } = await import("./lan-server.ts");
+    const recordedFailures: string[] = [];
+    const { port } = await startBareServer({
+      recordFailure: (ip) => recordedFailures.push(ip),
+    });
+    const closed = await probeClosedAfterHeader(port, MAX_HANDSHAKE_FRAME + 1);
+    expect(closed).toBe(true);
     expect(recordedFailures.length).toBeGreaterThan(0);
   });
 
   test("permits a small declared length (e.g. tiny JSON handshake) without closing", async () => {
-    const { LanServer: Cls } = await import("./lan-server.ts");
-    svr = new Cls({
-      bind: "127.0.0.1",
-      port: 0,
-      hostKeypair: generateBoxKeypair(),
-      onMessage: async () => ({}),
-      isKnownPeer: () => null,
-      rateLimit: { checkAllowed: () => true, recordFailure: () => {}, recordSuccess: () => {} },
-      pairing: {
-        isOpen: () => false,
-        consume: () => false,
-        open: () => {},
-        close: () => {},
-        getExpiresAt: () => undefined,
-      },
-      registerPeer: () => "p",
-    });
-    await svr.start();
-    const port = svr.listenAddr()!.port;
-
+    const { port } = await startBareServer();
     // Connect and send only a length header for a small (well under cap) frame.
     // We do NOT send the body, so handleChunk will return without closing —
     // proving the cap is what triggers the close, not the mere presence of a header.
-    let closed = false;
-    const conn = await Bun.connect({
-      hostname: "127.0.0.1",
-      port,
-      socket: {
-        open(socket) {
-          const buf = new Uint8Array(4);
-          new DataView(buf.buffer).setUint32(0, 100, false);
-          socket.write(buf);
-        },
-        data() {},
-        close() {
-          closed = true;
-        },
-        error() {
-          closed = true;
-        },
-      },
-    });
-    await new Promise((r) => setTimeout(r, 200));
-    const closedBeforeEnd = closed;
-    conn.end();
-    expect(closedBeforeEnd).toBe(false);
+    const closed = await probeClosedAfterHeader(port, 100);
+    expect(closed).toBe(false);
   });
 });

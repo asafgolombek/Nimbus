@@ -21,7 +21,10 @@ describe("mergeToolMapsOrThrow (S8-F4)", () => {
       { map: { github_repo_get: fake }, name: "github" },
       { map: { mcp_x_some_tool: fake }, name: "user-mcp" },
     ]);
-    expect(Object.keys(merged).sort()).toEqual(["github_repo_get", "mcp_x_some_tool"]);
+    expect(Object.keys(merged).sort((a, b) => a.localeCompare(b))).toEqual([
+      "github_repo_get",
+      "mcp_x_some_tool",
+    ]);
   });
 
   test("error message names both colliding sources", () => {

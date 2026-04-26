@@ -277,24 +277,38 @@ describe("G6 — updater hardening", () => {
     downloadServer?.stop(true);
   });
 
-  test("downloadAsset rejects body that exceeds the configured cap (S6-F3)", async () => {
-    // Use a small cap (1 KiB) and stream more than that; runtime accumulator
-    // fires before MAX_DOWNLOAD_BYTES is even relevant. This validates the
-    // accumulator code path; the production cap of 500 MiB has the same shape.
-    const binary = new Uint8Array(randomBytes(8 * 1024)); // 8 KiB > 1 KiB cap
+  type ManifestBuilder = (
+    binary: Uint8Array,
+    downloadUrl: string,
+  ) => ReturnType<typeof buildSignedManifest>;
+
+  /**
+   * Spin up a download server + manifest server pair. Returns the binary so
+   * tests can derive expectations from it.
+   */
+  function startManifestAndDownloadServers(
+    binary: Uint8Array,
+    build: ManifestBuilder = (b, url) => buildSignedManifest(b, kp, url, "0.2.0"),
+  ): void {
     downloadServer = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       fetch: () => new Response(binary),
     });
+    const downloadUrl = `http://127.0.0.1:${downloadServer.port}/bin`;
     server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () =>
-        jsonResponse(
-          buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`, "0.2.0"),
-        ),
+      fetch: () => jsonResponse(build(binary, downloadUrl)),
     });
+  }
+
+  test("downloadAsset rejects body that exceeds the configured cap (S6-F3)", async () => {
+    // Use a small cap (1 KiB) and stream more than that; runtime accumulator
+    // fires before MAX_DOWNLOAD_BYTES is even relevant. This validates the
+    // accumulator code path; the production cap of 500 MiB has the same shape.
+    const binary = new Uint8Array(randomBytes(8 * 1024)); // 8 KiB > 1 KiB cap
+    startManifestAndDownloadServers(binary);
     const u = makeUpdater({ maxDownloadBytes: 1024 });
     await u.checkNow();
     await expect(u.applyUpdate()).rejects.toThrow(/exceeds.*size cap/);
@@ -364,24 +378,9 @@ describe("G6 — updater hardening", () => {
 
   test("applyUpdate accepts envelope-signed manifest (S6-F6)", async () => {
     const binary = new Uint8Array(randomBytes(512));
-    downloadServer = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(binary),
-    });
-    server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () =>
-        jsonResponse(
-          buildEnvelopeSignedManifest(
-            binary,
-            kp,
-            `http://127.0.0.1:${downloadServer.port}/bin`,
-            "0.2.0",
-          ),
-        ),
-    });
+    startManifestAndDownloadServers(binary, (b, url) =>
+      buildEnvelopeSignedManifest(b, kp, url, "0.2.0"),
+    );
     const events: Array<{ phase: string; envelope?: unknown }> = [];
     const u = makeUpdater({
       recordUpdateEvent: (phase, payload) => events.push({ phase, envelope: payload["envelope"] }),
@@ -396,19 +395,7 @@ describe("G6 — updater hardening", () => {
 
   test("applyUpdate emits start + verified + installed audit phases (S6-F7)", async () => {
     const binary = new Uint8Array(randomBytes(512));
-    downloadServer = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(binary),
-    });
-    server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () =>
-        jsonResponse(
-          buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`, "0.2.0"),
-        ),
-    });
+    startManifestAndDownloadServers(binary);
     const events: string[] = [];
     const u = makeUpdater({
       recordUpdateEvent: (phase) => events.push(phase),
@@ -426,19 +413,7 @@ describe("G6 — updater hardening", () => {
 
   test("applyUpdate emits failed audit phase when installer throws (S6-F7)", async () => {
     const binary = new Uint8Array(randomBytes(512));
-    downloadServer = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(binary),
-    });
-    server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () =>
-        jsonResponse(
-          buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`, "0.2.0"),
-        ),
-    });
+    startManifestAndDownloadServers(binary);
     const events: string[] = [];
     const u = makeUpdater({
       recordUpdateEvent: (phase) => events.push(phase),
