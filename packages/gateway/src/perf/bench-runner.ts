@@ -27,7 +27,7 @@ function takeFlag(args: string[], flag: string): string | undefined {
 }
 
 function hasFlag(args: string[], flag: string): boolean {
-  return args.indexOf(flag) >= 0;
+  return args.includes(flag);
 }
 
 const HELP = `nimbus bench — perf bench harness (Phase 1A)
@@ -90,7 +90,7 @@ export async function runBenchRunnerMain(
     runner,
     reason: "interrupted",
     nimbusGitSha: process.env["GITHUB_SHA"] ?? "unknown",
-    bunVersion: typeof Bun !== "undefined" ? Bun.version : "unknown",
+    bunVersion: typeof Bun === "undefined" ? "unknown" : Bun.version,
     osVersion: `${process.platform} ${process.arch}`,
   });
   const uninstall = installIncompleteSignalHandler(historyPath, ctxFactory);
@@ -99,7 +99,7 @@ export async function runBenchRunnerMain(
     return await runBenchCli(args, {
       runId,
       historyPath,
-      ...(fixtureCacheDir !== undefined ? { fixtureCacheDir } : {}),
+      ...(fixtureCacheDir !== undefined && { fixtureCacheDir }),
       stdout,
       stderr: (s) => process.stderr.write(`${s}\n`),
     });

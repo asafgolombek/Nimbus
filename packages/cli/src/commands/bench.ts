@@ -17,7 +17,7 @@
 import { resolve } from "node:path";
 
 function hasFlag(args: string[], flag: string): boolean {
-  return args.indexOf(flag) >= 0;
+  return args.includes(flag);
 }
 
 const HELP = `nimbus bench — perf bench harness (Phase 1A)

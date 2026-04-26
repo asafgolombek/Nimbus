@@ -28,6 +28,25 @@ export interface RunBenchDeps {
   stderr?: (s: string) => void;
 }
 
+async function runSurfaceOnce(
+  surfaceId: BenchSurfaceId,
+  fn: SurfaceFn,
+  opts: BenchRunOptions,
+  runIndex: number,
+  stderr: (s: string) => void,
+): Promise<number[]> {
+  try {
+    return await fn(opts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const suffix = err instanceof Error && err.stack ? `\n${err.stack}` : "";
+    stderr(`[bench:${surfaceId}] run ${runIndex + 1}/${opts.runs} failed: ${msg}${suffix}`);
+    throw new Error(
+      `bench surface ${surfaceId} failed on run ${runIndex + 1}/${opts.runs}: ${msg}`,
+    );
+  }
+}
+
 export async function runBench(
   surfaceId: BenchSurfaceId,
   fn: SurfaceFn,
@@ -45,19 +64,7 @@ export async function runBench(
   let totalSamples = 0;
 
   for (let i = 0; i < opts.runs; i += 1) {
-    let samples: number[];
-    try {
-      samples = await fn(opts);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error && err.stack ? err.stack : "";
-      // Emit per-run failure context to stderr immediately so multi-run debugging
-      // does not have to wait for the final throw to surface details.
-      stderr(
-        `[bench:${surfaceId}] run ${i + 1}/${opts.runs} failed: ${msg}${stack ? `\n${stack}` : ""}`,
-      );
-      throw new Error(`bench surface ${surfaceId} failed on run ${i + 1}/${opts.runs}: ${msg}`);
-    }
+    const samples = await runSurfaceOnce(surfaceId, fn, opts, i, stderr);
     totalSamples += samples.length;
     const p = computePercentiles(samples);
     if (p.p50 !== undefined) perRunP50.push(p.p50);

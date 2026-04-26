@@ -40,6 +40,6 @@ export function computePercentiles(samples: number[]): PercentileResult {
     p50: pickPercentile(sorted, 50),
     p95: pickPercentile(sorted, 95),
     p99: pickPercentile(sorted, 99),
-    max: sorted[sorted.length - 1],
+    max: sorted.at(-1),
   };
 }

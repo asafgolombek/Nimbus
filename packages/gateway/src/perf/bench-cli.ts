@@ -48,7 +48,7 @@ function takeFlag(args: string[], flag: string): string | undefined {
 }
 
 function hasFlag(args: string[], flag: string): boolean {
-  return args.indexOf(flag) >= 0;
+  return args.includes(flag);
 }
 
 function detectRunner(args: string[]): RunnerKind {
@@ -83,12 +83,18 @@ function resultToHistorySurface(r: BenchSurfaceResult): HistoryLineSurface {
   return out;
 }
 
+function resolveSurfaces(args: string[], surfaceArg: string | undefined): BenchSurfaceId[] {
+  if (hasFlag(args, "--all")) return Object.keys(SURFACE_REGISTRY) as BenchSurfaceId[];
+  if (surfaceArg !== undefined) return [surfaceArg as BenchSurfaceId];
+  return [];
+}
+
 export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<number> {
   const stderr = deps.stderr ?? ((s: string) => process.stderr.write(`${s}\n`));
   const surfaceArg = takeFlag(args, "--surface");
   const runsArg = takeFlag(args, "--runs");
   const corpusArg = takeFlag(args, "--corpus");
-  const runs = runsArg !== undefined ? Number.parseInt(runsArg, 10) : 5;
+  const runs = runsArg === undefined ? 5 : Number.parseInt(runsArg, 10);
   const runner = detectRunner(args);
   const corpus =
     corpusArg === "small" || corpusArg === "medium" || corpusArg === "large"
@@ -97,7 +103,7 @@ export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<n
   const opts: BenchRunOptions = {
     runs: Number.isFinite(runs) && runs > 0 ? runs : 5,
     runner,
-    ...(corpus !== undefined ? { corpus } : {}),
+    ...(corpus !== undefined && { corpus }),
   };
 
   if (runner === "reference-m1air") {
@@ -109,15 +115,7 @@ export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<n
     }
   }
 
-  const surfaces: BenchSurfaceId[] = (() => {
-    if (hasFlag(args, "--all")) {
-      return Object.keys(SURFACE_REGISTRY) as BenchSurfaceId[];
-    }
-    if (surfaceArg !== undefined) {
-      return [surfaceArg as BenchSurfaceId];
-    }
-    return [];
-  })();
+  const surfaces = resolveSurfaces(args, surfaceArg);
 
   if (surfaces.length === 0) {
     stderr(
@@ -134,8 +132,8 @@ export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<n
       stderr(`Surface ${id} has no driver registered yet (PR-B-2 work).`);
       return 2;
     }
-    const runOpts = deps.fixtureCacheDir !== undefined ? { cacheDir: deps.fixtureCacheDir } : {};
-    const result = await runBench(id, (o) => driver(o, runOpts), opts);
+    const runOpts = deps.fixtureCacheDir !== undefined && { cacheDir: deps.fixtureCacheDir };
+    const result = await runBench(id, (o) => driver(o, runOpts || {}), opts);
     surfaceResults[id] = resultToHistorySurface(result);
     deps.stdout(
       `${id}  p95=${result.p95Ms?.toFixed(2) ?? "-"}ms  p99=${result.p99Ms?.toFixed(2) ?? "-"}ms  samples=${result.samplesCount}`,
@@ -150,9 +148,9 @@ export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<n
     runner,
     os_version: `${platform()} ${release()} (${hostname()})`,
     nimbus_git_sha: resolveGitSha(),
-    bun_version: typeof Bun !== "undefined" ? Bun.version : "unknown",
+    bun_version: typeof Bun === "undefined" ? "unknown" : Bun.version,
     surfaces: surfaceResults as Partial<Record<BenchSurfaceId, HistoryLineSurface>>,
-    ...(runner === "reference-m1air" ? { reference_protocol_compliant: true } : {}),
+    ...(runner === "reference-m1air" && { reference_protocol_compliant: true }),
   };
   appendHistoryLine(deps.historyPath, line);
   return 0;
