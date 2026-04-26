@@ -1078,3 +1078,9 @@ describe("HITL_REQUIRED new entries (G2/G3)", () => {
     });
   }
 });
+
+describe("HITL_REQUIRED data.export (S2-F5)", () => {
+  test("data.export is HITL-gated", () => {
+    expect(HITL_REQUIRED.has("data.export")).toBe(true);
+  });
+});

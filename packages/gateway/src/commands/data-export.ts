@@ -100,7 +100,10 @@ export async function runDataExport(input: RunDataExportInput): Promise<RunDataE
 
   return {
     outputPath: input.output,
-    recoverySeed: seed.mnemonic,
+    // S2-F5 — only return the seed on the run that just generated it. On
+    // subsequent runs the user already wrote it down; re-disclosing it through
+    // every export reply is gratuitous credential exposure.
+    recoverySeed: seed.generated ? seed.mnemonic : "",
     recoverySeedGenerated: seed.generated,
     itemsExported: parsedVault.length,
   };

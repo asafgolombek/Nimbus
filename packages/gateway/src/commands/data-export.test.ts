@@ -57,6 +57,29 @@ describe("data export", () => {
       kdfParams: { t: 1, m: 1024, p: 1 },
     });
     expect(second.recoverySeedGenerated).toBe(false);
+    // S2-F5 — subsequent exports must not re-disclose the seed.
+    expect(second.recoverySeed).toBe("");
     expect(readdirSync(outDir).sort()).toEqual(["a.tar.gz", "b.tar.gz"]);
+  });
+
+  test("first export still returns the freshly-generated seed (S2-F5)", async () => {
+    const vault = memVault();
+    const idx = newIndex();
+    const outPath = join(mkdtempSync(join(tmpdir(), "nimbus-export3-")), "backup.tar.gz");
+
+    const result = await runDataExport({
+      output: outPath,
+      includeIndex: false,
+      passphrase: "pw",
+      vault,
+      index: idx,
+      platform: "linux",
+      nimbusVersion: "0.1.0",
+      schemaVersion: 21,
+      kdfParams: { t: 1, m: 1024, p: 1 },
+    });
+
+    expect(result.recoverySeedGenerated).toBe(true);
+    expect(result.recoverySeed.split(" ").length).toBeGreaterThanOrEqual(12);
   });
 });

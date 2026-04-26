@@ -107,6 +107,7 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "connector.remove",
   "extension.install",
   "connector.addMcp",
+  "data.export",
 ]);
 
 /** Runtime value is an immutable facade; typed as `ReadonlySet` for call sites (`.has`, iteration). */

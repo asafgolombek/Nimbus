@@ -55,7 +55,6 @@ async function handleDataExport(
   rec: Record<string, unknown>,
   ctx: DataRpcContext,
 ): Promise<unknown> {
-  const { index, vault } = requireDeps(ctx);
   const output = rec["output"];
   const passphrase = rec["passphrase"];
   const includeIndex = rec["includeIndex"] === true;
@@ -63,6 +62,21 @@ async function handleDataExport(
     throw new DataRpcError(-32602, "Missing param: output");
   if (typeof passphrase !== "string" || passphrase === "")
     throw new DataRpcError(-32602, "Missing param: passphrase");
+  // S2-F5 — gate before unpacking. The encrypted bundle contains a vault dump,
+  // so producing one is a destructive credential operation that must require
+  // user consent.
+  const executor = ctx.toolExecutor;
+  if (executor === undefined) {
+    throw new DataRpcError(-32603, "data.export requires a toolExecutor in context");
+  }
+  const gateResult = await executor.gate({
+    type: "data.export",
+    payload: { output, includeIndex },
+  });
+  if (gateResult !== "proceed") {
+    return gateResult;
+  }
+  const { index, vault } = requireDeps(ctx);
   ctx.notify?.("data.exportProgress", { stage: "packing", bytesWritten: 0, totalBytes: 0 });
   const result = await runDataExport({
     output,
