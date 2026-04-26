@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { formatAuditPayload } from "../audit/format-audit-payload.ts";
+import { redactAuditPayload } from "../audit/format-audit-payload.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
 import { ConsentDisconnectedError } from "../ipc/consent.ts";
 import type {
@@ -107,6 +107,7 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "connector.remove",
   "extension.install",
   "connector.addMcp",
+  "data.export",
 ]);
 
 /** Runtime value is an immutable facade; typed as `ReadonlySet` for call sites (`.has`, iteration). */
@@ -168,7 +169,7 @@ function auditPayload(
   action: PlannedAction,
   extras: { hitlRejectReason?: string } | undefined,
 ): string {
-  return formatAuditPayload(extras === undefined ? { action } : { action, ...extras });
+  return redactAuditPayload(extras === undefined ? { action } : { action, ...extras });
 }
 
 export class ToolExecutor {

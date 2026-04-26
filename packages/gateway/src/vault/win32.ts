@@ -3,7 +3,8 @@
  */
 
 import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
-import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { PlatformPaths } from "../platform/paths.ts";
@@ -125,7 +126,51 @@ export class DpapiVault implements NimbusVault {
     }
 
     const b64 = encrypted.toString("base64");
-    await writeFile(this.encPath(key), b64, "utf8");
+    const finalPath = this.encPath(key);
+    // S2-F3 — atomic write: write to a per-process per-call random temp file
+    // in the same directory (so rename is atomic on NTFS/ReFS), fsync, then rename.
+    const tag = `${process.pid}.${randomBytes(8).toString("hex")}`;
+    const tmpPath = `${finalPath}.tmp.${tag}`;
+    const handle = await open(tmpPath, "w", 0o600);
+    try {
+      await handle.writeFile(b64, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    try {
+      await rename(tmpPath, finalPath);
+    } catch (err) {
+      try {
+        await unlink(tmpPath);
+      } catch {
+        /* best effort */
+      }
+      throw err;
+    }
+
+    // Sweep stale .tmp.* fragments from prior crashes (best-effort).
+    await this.sweepStaleTempFiles(key);
+  }
+
+  private async sweepStaleTempFiles(key: string): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await readdir(this.vaultDir);
+    } catch {
+      return;
+    }
+    const prefix = `${key}.enc.tmp.`;
+    for (const entry of entries) {
+      if (!entry.startsWith(prefix)) continue;
+      const full = join(this.vaultDir, entry);
+      try {
+        await stat(full);
+        await unlink(full);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   async get(key: string): Promise<string | null> {

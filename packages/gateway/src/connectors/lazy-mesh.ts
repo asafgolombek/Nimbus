@@ -13,6 +13,7 @@ import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts"
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { readMicrosoftOAuthScopesForOutlookEnv } from "../auth/oauth-vault-tokens.ts";
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
+import { wrapToolOutput } from "../engine/tool-output-envelope.ts";
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
@@ -26,9 +27,70 @@ function mcpConnectorServerScript(packageDir: string): string {
   return join(MCP_CONNECTORS_ROOT, packageDir, "src", "server.ts");
 }
 
+/**
+ * S8-F7 — per-slot in-flight refcount with awaitable drain.
+ * Used by LazyConnectorMesh to defer disconnect while tool calls are running.
+ */
+export class LazyDrainTracker {
+  private inFlight = 0;
+  private resolveDrained: (() => void) | undefined;
+  private drained: Promise<void> | undefined;
+
+  bump(): void {
+    this.inFlight += 1;
+    this.drained ??= new Promise<void>((r) => {
+      this.resolveDrained = r;
+    });
+  }
+
+  drop(): void {
+    if (this.inFlight > 0) this.inFlight -= 1;
+    if (this.inFlight === 0 && this.resolveDrained !== undefined) {
+      this.resolveDrained();
+      this.drained = undefined;
+      this.resolveDrained = undefined;
+    }
+  }
+
+  awaitDrain(): Promise<void> {
+    return this.drained ?? Promise.resolve();
+  }
+
+  get count(): number {
+    return this.inFlight;
+  }
+}
+
+/**
+ * S8-F4 — explicit collision detection. The Mastra per-server prefix should
+ * structurally prevent collisions (mcp_* prefix on user MCPs vs. built-in
+ * server names without that prefix), but a future Mastra change or a manual
+ * misconfiguration could regress to a silent override. Fail loud.
+ */
+export function mergeToolMapsOrThrow(
+  sources: ReadonlyArray<{ map: LazyMeshToolMap; name: string }>,
+): LazyMeshToolMap {
+  const merged: LazyMeshToolMap = {};
+  const owners: Record<string, string> = {};
+  for (const { map, name } of sources) {
+    for (const [key, value] of Object.entries(map)) {
+      if (key in merged) {
+        throw new Error(
+          `MCP tool-name collision: ${key} provided by both ${owners[key]} and ${name}`,
+        );
+      }
+      merged[key] = value;
+      owners[key] = name;
+    }
+  }
+  return merged;
+}
+
 type LazyMcpSlot = {
   client: MCPClient | undefined;
   idleTimer: ReturnType<typeof setTimeout> | undefined;
+  /** S8-F7 — per-slot in-flight refcount. */
+  drain: LazyDrainTracker;
 };
 
 const LAZY_MESH = {
@@ -111,7 +173,7 @@ export class LazyConnectorMesh {
   private lazySlot(key: string): LazyMcpSlot {
     let s = this.lazySlots.get(key);
     if (s === undefined) {
-      s = { client: undefined, idleTimer: undefined };
+      s = { client: undefined, idleTimer: undefined, drain: new LazyDrainTracker() };
       this.lazySlots.set(key, s);
     }
     return s;
@@ -147,6 +209,15 @@ export class LazyConnectorMesh {
     const slot = this.lazySlots.get(key);
     if (slot === undefined) {
       return;
+    }
+    // S8-F7 — wait for in-flight calls before tearing down. Hard cap at
+    // 10 minutes total so a stuck tool call cannot indefinitely defer
+    // disconnect; beyond that, force-disconnect anyway.
+    if (slot.drain.count > 0) {
+      await Promise.race([
+        slot.drain.awaitDrain(),
+        new Promise<void>((r) => setTimeout(r, 10 * 60_000)),
+      ]);
     }
     const c = slot.client;
     slot.client = undefined;
@@ -1114,59 +1185,132 @@ export class LazyConnectorMesh {
     await this.ensurePhase3BundleRunning();
   }
 
-  async listTools(): Promise<
+  /** Collect tool maps from all built-in lazy slots. */
+  private async collectBuiltInToolMaps(): Promise<
+    ReadonlyArray<{ map: LazyMeshToolMap; name: string }>
+  > {
+    const list = async (mesh: string): Promise<LazyMeshToolMap> =>
+      listLazyMeshClientTools(this.getLazyClient(mesh));
+    const fsTools = (await this.filesystem.listTools()) as LazyMeshToolMap;
+    return [
+      { map: fsTools, name: "filesystem" },
+      { map: await list(LAZY_MESH.googleBundle), name: "google-bundle" },
+      { map: await list(LAZY_MESH.microsoftBundle), name: "microsoft-bundle" },
+      { map: await list(LAZY_MESH.github), name: "github" },
+      { map: await list(LAZY_MESH.gitlab), name: "gitlab" },
+      { map: await list(LAZY_MESH.bitbucket), name: "bitbucket" },
+      { map: await list(LAZY_MESH.slack), name: "slack" },
+      { map: await list(LAZY_MESH.linear), name: "linear" },
+      { map: await list(LAZY_MESH.jira), name: "jira" },
+      { map: await list(LAZY_MESH.notion), name: "notion" },
+      { map: await list(LAZY_MESH.confluence), name: "confluence" },
+      { map: await list(LAZY_MESH.discord), name: "discord" },
+      { map: await list(LAZY_MESH.jenkins), name: "jenkins" },
+      { map: await list(LAZY_MESH.circleci), name: "circleci" },
+      { map: await list(LAZY_MESH.pagerduty), name: "pagerduty" },
+      { map: await list(LAZY_MESH.kubernetes), name: "kubernetes" },
+      { map: await list(LAZY_MESH.phase3Bundle), name: "phase3-bundle" },
+    ];
+  }
+
+  /** Merge tool maps from every active user MCP slot. */
+  private async collectUserMcpToolMap(): Promise<LazyMeshToolMap> {
+    let merged: LazyMeshToolMap = {};
+    for (const [meshKey, slot] of this.lazySlots) {
+      if (!meshKey.startsWith(USER_MESH_PREFIX) || slot.client === undefined) {
+        continue;
+      }
+      merged = { ...merged, ...(await listLazyMeshClientTools(slot.client)) };
+    }
+    return merged;
+  }
+
+  /** Index every tool key to its owning slot's drain tracker. Best-effort; races with disconnect are ignored. */
+  private async buildSlotForToolMap(): Promise<Map<string, LazyDrainTracker>> {
+    const slotForTool = new Map<string, LazyDrainTracker>();
+    for (const slot of this.lazySlots.values()) {
+      if (slot.client === undefined) continue;
+      try {
+        const tools = (await slot.client.listTools()) as LazyMeshToolMap;
+        for (const k of Object.keys(tools)) {
+          if (!slotForTool.has(k)) slotForTool.set(k, slot.drain);
+        }
+      } catch {
+        /* slot disappearing — skip */
+      }
+    }
+    return slotForTool;
+  }
+
+  /**
+   * S8-F7 — wrap each tool's execute with bump/drop counters keyed to the
+   * owning slot, so stopLazyClient can defer disconnect while calls are in
+   * flight.
+   */
+  private wrapMergedToolsWithRefcount(
+    merged: LazyMeshToolMap,
+    slotForTool: ReadonlyMap<string, LazyDrainTracker>,
+  ): void {
+    for (const key of Object.keys(merged)) {
+      const value = merged[key];
+      const original = value?.execute;
+      const drain = slotForTool.get(key);
+      if (value === undefined || original === undefined || drain === undefined) continue;
+      merged[key] = {
+        execute: async (input: unknown, ctx?: unknown): Promise<unknown> => {
+          drain.bump();
+          try {
+            return await original(input, ctx);
+          } finally {
+            drain.drop();
+          }
+        },
+      };
+    }
+  }
+
+  /**
+   * Bare tool map — for the planner path (`ConnectorDispatcher` →
+   * `ToolExecutor`). Returns refcount-wrapped but otherwise structured tool
+   * results so `ToolExecutor` consumers see the same shape as upstream MCPs.
+   */
+  async listToolsForDispatcher(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
     await this.ensureCredentialConnectorsRunning();
     await this.ensureUserMcpConnectorsRunning();
 
-    const fsTools = await this.filesystem.listTools();
-    const gdTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.googleBundle));
-    const msTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.microsoftBundle));
-    const ghTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.github));
-    const glTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.gitlab));
-    const bbTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.bitbucket));
-    const slackTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.slack));
-    const linearTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.linear));
-    const jiraTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.jira));
-    const notionTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.notion));
-    const confluenceTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.confluence));
-    const discordTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.discord));
-    const jenkinsTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.jenkins));
-    const circleciTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.circleci));
-    const pagerdutyTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.pagerduty));
-    const kubernetesTools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.kubernetes));
-    const phase3Tools = await listLazyMeshClientTools(this.getLazyClient(LAZY_MESH.phase3Bundle));
-    let userMcpMerged: LazyMeshToolMap = {};
-    for (const [meshKey, slot] of this.lazySlots) {
-      if (!meshKey.startsWith(USER_MESH_PREFIX)) {
-        continue;
-      }
-      const c = slot.client;
-      if (c !== undefined) {
-        userMcpMerged = { ...userMcpMerged, ...(await listLazyMeshClientTools(c)) };
-      }
+    const builtIns = await this.collectBuiltInToolMaps();
+    const userMcpMerged = await this.collectUserMcpToolMap();
+    const merged = mergeToolMapsOrThrow([...builtIns, { map: userMcpMerged, name: "user-mcp" }]);
+    const slotForTool = await this.buildSlotForToolMap();
+    this.wrapMergedToolsWithRefcount(merged, slotForTool);
+    return merged;
+  }
+
+  /**
+   * Envelope-wrapped tool map — for the LLM-visible surface via Mastra. Each
+   * tool's execute returns a `<tool_output>`-tagged string. Use this for the
+   * agent / Mastra path; use `listToolsForDispatcher` for the planner path.
+   */
+  async listTools(): Promise<
+    Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
+  > {
+    const merged = await this.listToolsForDispatcher();
+    for (const key of Object.keys(merged)) {
+      const value = merged[key];
+      if (value === undefined) continue;
+      const inner = value.execute;
+      if (inner === undefined) continue;
+      const service = key.split("_")[0] ?? "mcp";
+      merged[key] = {
+        execute: async (input: unknown, ctx?: unknown): Promise<string> => {
+          const raw = await inner(input, ctx);
+          return wrapToolOutput({ service, tool: key }, raw);
+        },
+      };
     }
-    return {
-      ...fsTools,
-      ...gdTools,
-      ...msTools,
-      ...ghTools,
-      ...glTools,
-      ...bbTools,
-      ...slackTools,
-      ...linearTools,
-      ...jiraTools,
-      ...notionTools,
-      ...confluenceTools,
-      ...discordTools,
-      ...jenkinsTools,
-      ...circleciTools,
-      ...pagerdutyTools,
-      ...kubernetesTools,
-      ...phase3Tools,
-      ...userMcpMerged,
-    } as LazyMeshToolMap;
+    return merged;
   }
 
   async disconnect(): Promise<void> {

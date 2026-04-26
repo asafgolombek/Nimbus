@@ -16,10 +16,10 @@ function makeCtx(dataDir: string): DiagnosticsRpcContext {
 }
 
 describe("telemetry.getStatus", () => {
-  test("returns enabled:true when marker file absent", () => {
+  test("returns enabled:true when marker file absent", async () => {
     const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-"));
     try {
-      const r = dispatchDiagnosticsRpc("telemetry.getStatus", null, makeCtx(dir));
+      const r = await dispatchDiagnosticsRpc("telemetry.getStatus", null, makeCtx(dir));
       expect(r.kind).toBe("hit");
       expect((r as { kind: "hit"; value: { enabled: boolean } }).value.enabled).toBe(true);
     } finally {
@@ -27,11 +27,11 @@ describe("telemetry.getStatus", () => {
     }
   });
 
-  test("returns enabled:false when marker file present", () => {
+  test("returns enabled:false when marker file present", async () => {
     const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-"));
     try {
       writeFileSync(join(dir, ".nimbus-telemetry-disabled"), `${Date.now()}\n`);
-      const r = dispatchDiagnosticsRpc("telemetry.getStatus", null, makeCtx(dir));
+      const r = await dispatchDiagnosticsRpc("telemetry.getStatus", null, makeCtx(dir));
       expect(r.kind).toBe("hit");
       expect((r as { kind: "hit"; value: { enabled: boolean } }).value.enabled).toBe(false);
     } finally {
@@ -73,10 +73,10 @@ describe("telemetry.setEnabled", () => {
 });
 
 describe("diag.getVersion", () => {
-  test("returns gateway version string", () => {
+  test("returns gateway version string", async () => {
     const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-ver-"));
     try {
-      const r = dispatchDiagnosticsRpc("diag.getVersion", null, makeCtx(dir));
+      const r = await dispatchDiagnosticsRpc("diag.getVersion", null, makeCtx(dir));
       expect(r.kind).toBe("hit");
       const v = (r as { kind: "hit"; value: { version: string; uptimeMs: number } }).value;
       expect(typeof v.version).toBe("string");

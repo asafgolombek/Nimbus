@@ -131,3 +131,32 @@ describe("install-from-local", () => {
     }
   });
 });
+
+describe("install-from-local symlink + traversal hardening (G7)", () => {
+  test("rejects extension source that contains a symlink (S7-F5)", async () => {
+    if (process.platform === "win32") {
+      // Symlink creation requires elevated privileges on Windows; skip.
+      return;
+    }
+    const { symlinkSync, unlinkSync } = await import("node:fs");
+    const { extensionsDir, src, db } = createExtensionInstallFixture(
+      "nimbus-symlink-",
+      "src-symlink",
+    );
+    writeFileSync(
+      join(src, "nimbus.extension.json"),
+      JSON.stringify({ id: "ext.symlink", version: "1.0.0", entry: "dist/index.js" }),
+      "utf8",
+    );
+    writeFileSync(join(src, "dist", "index.js"), "/* legit */\n", "utf8");
+
+    // Replace dist/index.js with a symlink to a system file.
+    const sym = join(src, "dist", "index.js");
+    unlinkSync(sym);
+    symlinkSync("/etc/hostname", sym);
+
+    expect(() =>
+      installExtensionFromLocalDirectory({ db, extensionsDir, sourcePath: src }),
+    ).toThrow(/symlink/i);
+  });
+});

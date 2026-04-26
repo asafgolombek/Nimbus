@@ -73,6 +73,36 @@ function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now
 }
 
 /**
+ * S7-F3 — strict re-verify, intended for the moment immediately before a child
+ * spawn. Returns `true` when manifest+entry hashes still match the row, `false`
+ * otherwise (in which case the caller must refuse to spawn). Does NOT mutate
+ * the row (no side effect on enabled flag); the caller decides remediation.
+ */
+export function verifyOneExtensionStrict(row: ExtensionRow): boolean {
+  const manifestPath = resolveExtensionManifestPath(row.install_path);
+  if (manifestPath === undefined) return false;
+  let manifestBytes: Buffer;
+  try {
+    manifestBytes = readFileSync(manifestPath);
+  } catch {
+    return false;
+  }
+  if (sha256HexOfBytes(manifestBytes) !== row.manifest_hash) return false;
+  const manifest = parseExtensionManifestJson(manifestBytes.toString("utf8"));
+  const entryRel =
+    manifest.entry !== undefined && manifest.entry !== "" ? manifest.entry : "dist/index.js";
+  const entryPath = join(row.install_path, entryRel);
+  if (!existsSync(entryPath)) return false;
+  let entryBytes: Buffer;
+  try {
+    entryBytes = readFileSync(entryPath);
+  } catch {
+    return false;
+  }
+  return sha256HexOfBytes(entryBytes) === row.entry_hash;
+}
+
+/**
  * Verifies enabled extensions: manifest + entry file SHA-256 vs registry columns.
  * Logs warnings on most issues; manifest or entry hash mismatch logs ERROR and disables the extension.
  * Updates `last_verified_at` when checks complete.

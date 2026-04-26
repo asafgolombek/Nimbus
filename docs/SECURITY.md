@@ -104,8 +104,10 @@ Every action Nimbus takes under a HITL approval is recorded with the action type
 Third-party extensions run as child processes. They:
 
 - Have their manifest SHA-256 hash verified on every Gateway startup — a tampered manifest causes the extension to be disabled before it runs
+- Are also re-hashed via `verifyOneExtensionStrict` immediately before any pre-spawn check to catch mutations between startup verify and child spawn (S7-F3 fix)
+- Are installed only from non-symlinked source trees (`scanForSymlinks` rejects any symlink in the source) and tar archives are extracted with explicit safety flags (`--no-overwrite-dir`, `--no-same-owner`, `--no-same-permissions`) plus a post-extract path-traversal sweep (`assertNoEntryEscapes`) that refuses any entry whose final-path resolve falls outside the install root (S7-F4, S7-F5 fixes)
 
-> **⚠️ Current sandbox depth:** The isolation mechanism is **OS process separation only**. Extensions currently receive the gateway's full environment at spawn time (a known gap tracked in `dev/asafgolombek/security-audit` — S7-F1/S8-F1), which means they inherit parent-process environment variables including LLM provider API keys. Full credential scoping (via the `extensionProcessEnv` helper), syscall-level isolation (seccomp/sandbox profiles), and network restrictions are tracked for remediation. Until those fixes land, treat third-party extensions as user-UID-equivalent code — equivalent to any arbitrary npm package with full read access to your home directory. Do not install extensions from untrusted sources.
+**Extension isolation.** Extensions run as child processes spawned by the gateway. They share the gateway's user UID and have full filesystem and network access at that UID's permissions — there is no `seccomp` / `bwrap` / `sandbox-exec` / AppContainer sandbox in this release. The only structural barriers are: (a) `extensionProcessEnv()` filters parent-process environment variables, blocking propagation of OAuth client secrets and LLM provider API keys; (b) startup SHA-256 verification detects post-install drift and disables affected rows; (c) the same SHA-256 is re-checked immediately before each spawn (S7-F3 fix). OS-level sandboxing is on the Phase 7 roadmap. Until then, extensions must be considered code that runs at full user-UID equivalence — do not install extensions from untrusted sources.
 
 ---
 
@@ -121,11 +123,13 @@ The Gateway listens only on a local domain socket (Unix) or named pipe (Windows)
 
 ### Prompt Injection
 
-MCP tool results are returned to the agent via the LLM-provider SDK's typed message channel (`tool_result` for Anthropic, `function_call_response` for OpenAI). The provider SDK structurally labels these as tool output — not as system instructions — which is the primary soft barrier against prompt injection.
+**Tool output envelope.** Every tool result that flows into an LLM context — both gateway-internal read tools (`searchLocalIndex`, `getAuditLog`, etc.) and MCP-backed tools — is wrapped in a textual `<tool_output service="…" tool="…">…</tool_output>` envelope at the LLM-facing boundary. Literal `</tool_output>` substrings in the tool body are escaped to `<\/tool_output>` so an attacker-controlled tool result cannot terminate the envelope and re-enter "instruction mode". The agent's system prompt instructs the model to treat content inside this tag as data, not instructions.
+
+The bare result still flows through the planner path (`ConnectorDispatcher` → `ToolExecutor`), where the structural HITL gate is the defense regardless of LLM compliance. This is a soft defense for the conversational read-tool surface (probabilistic LLM compliance); the HITL gate remains the structural defense for destructive actions.
 
 The hard structural barrier is the **HITL consent gate** in `executor.ts`: every action type in `HITL_REQUIRED` requires explicit user approval before the connector executes, regardless of what the LLM or an injected tool result requests. A malicious tool result cannot remove an action type from `HITL_REQUIRED`.
 
-> **Planned improvement (tracked):** We plan to add an explicit `<tool_output service="…" tool="…">…</tool_output>` textual envelope in the Mastra tool wrapper as defense-in-depth, and to include agent system-prompt language distinguishing data from instructions. Until this is implemented, the structural HITL gate is the primary protection against destructive prompt-injection consequences.
+In addition to the textual labeling, MCP tool results are returned to the agent via the LLM-provider SDK's typed message channel (`tool_result` for Anthropic, `function_call_response` for OpenAI). The provider SDK structurally labels these as tool output — not as system instructions — which is the primary soft barrier against prompt injection.
 
 ---
 
@@ -237,7 +241,11 @@ gh attestation verify nimbus-gateway-linux-x64 --owner nimbus-dev
 
 ## Updater Signing Key Lifecycle
 
-Nimbus auto-updates are gated on an **Ed25519 signature over SHA-256 of each binary**. The public key is embedded in the binary at build time (`packages/gateway/src/updater/public-key.ts`); the private key lives only in the `UPDATER_SIGNING_KEY` repository secret and is never present on a developer machine.
+Nimbus auto-updates are gated on an **Ed25519 signature over a canonical JSON envelope** of `{ version, target, sha256 }` (see `packages/gateway/src/updater/signature-verifier.ts:verifyManifestEnvelope`). The verifier reconstructs this envelope from the manifest's claimed fields before checking the signature, so an attacker who replays a legitimate signed binary into a fresh manifest cannot mismatch the version/target without invalidating the signature. A legacy bare-SHA mode is retained for the migration window of one release; once the next signed manifest ships, the fallback is removed.
+
+Update binaries are downloaded only over HTTPS (with an `http://127.0.0.1` test escape that is disabled in production). The download is hard-capped at 500 MiB (`MAX_DOWNLOAD_BYTES`) — any Content-Length above the cap is rejected before the body is read, and a streaming accumulator aborts mid-download if the running total exceeds the cap. Every `applyUpdate` invocation emits four ordered audit phases (`system.update.start` / `system.update.verified` / `system.update.installed` / `system.update.failed`) via the optional `recordUpdateEvent` callback, so `nimbus audit verify` shows install history.
+
+The public key is embedded in the binary at build time (`packages/gateway/src/updater/public-key.ts`); the private key lives only in the `UPDATER_SIGNING_KEY` repository secret and is never present on a developer machine.
 
 ### Rotation procedure
 

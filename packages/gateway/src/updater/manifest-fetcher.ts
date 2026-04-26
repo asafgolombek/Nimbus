@@ -10,6 +10,31 @@ export class ManifestFetchError extends Error {
   }
 }
 
+/**
+ * S6-F4 — permit https:// always; permit http://127.0.0.1 / http://localhost
+ * ONLY when NODE_ENV is not "production". In production, even a local
+ * malicious process serving a manifest on loopback cannot bypass HTTPS.
+ * Mirrors the dev-key override gate added in the High-tier PR (public-key.ts).
+ */
+export function isPermittedSchemeForUpdater(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol === "https:") return true;
+    if (
+      u.protocol === "http:" &&
+      (u.hostname === "127.0.0.1" || u.hostname === "::1" || u.hostname === "localhost") &&
+      process.env["NODE_ENV"] !== "production"
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
 const PLATFORM_TARGETS = new Set<string>([
   "darwin-x86_64",
   "darwin-aarch64",
@@ -41,6 +66,9 @@ function validateManifest(raw: unknown): UpdateManifest {
   const version = m["version"];
   if (typeof version !== "string") {
     throw new ManifestFetchError("manifest.version must be a string");
+  }
+  if (!SEMVER_RE.test(version)) {
+    throw new ManifestFetchError(`manifest.version is not well-formed semver: ${version}`);
   }
   const pub_date = m["pub_date"];
   if (typeof pub_date !== "string") {
@@ -74,6 +102,17 @@ export async function fetchUpdateManifest(
   url: string,
   options: { timeoutMs: number },
 ): Promise<UpdateManifest> {
+  if (!isPermittedSchemeForUpdater(url)) {
+    let scheme: string;
+    try {
+      scheme = new URL(url).protocol;
+    } catch {
+      scheme = url;
+    }
+    throw new ManifestFetchError(
+      `manifest URL must be https:// (got ${scheme}); only http://127.0.0.1 is permitted for local tests`,
+    );
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
   let response: Response;

@@ -120,7 +120,17 @@ export type McpToolListingClient = {
  * IaC (HITL): `iac.terraform.apply` → `iac_iac_terraform_apply`; `iac.terraform.destroy` → `iac_iac_terraform_destroy`;
  * `iac.cloudformation.deploy` → `iac_iac_cloudformation_deploy`; `iac.pulumi.up` → `iac_iac_pulumi_up`.
  */
-export function createConnectorDispatcher(client: McpToolListingClient): ConnectorDispatcher {
+/** S8-F5 — wall-clock timeout for a single MCP tool dispatch. */
+export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+/** S8-F5 — JSON-serialised result size cap for a single MCP tool dispatch. */
+export const MAX_TOOL_RESULT_BYTES = 4 * 1024 * 1024;
+
+export function createConnectorDispatcher(
+  client: McpToolListingClient,
+  options?: { toolTimeoutMs?: number; maxResultBytes?: number },
+): ConnectorDispatcher {
+  const toolTimeoutMs = options?.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+  const maxResultBytes = options?.maxResultBytes ?? MAX_TOOL_RESULT_BYTES;
   let toolsPromise: ReturnType<McpToolListingClient["listTools"]> | undefined;
   let cachedEpoch = -1;
 
@@ -155,7 +165,31 @@ export function createConnectorDispatcher(client: McpToolListingClient): Connect
         throw new Error(`MCP tool "${toolId}" has no execute implementation`);
       }
       const input = extractToolInput(action);
-      return await execute(input, {});
+
+      // S8-F5 — wall-clock timeout via Promise.race. A buggy or malicious MCP
+      // that never resolves is bounded by toolTimeoutMs; the upstream HITL
+      // gate is the structural defense against destructive ops, not the only one.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        execute(input, {}),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Tool ${toolId} exceeded ${toolTimeoutMs}ms timeout`));
+          }, toolTimeoutMs);
+        }),
+      ]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer);
+      });
+
+      // S8-F5 — result-size cap. JSON-serialised because that is the form
+      // that flows into LLM context windows.
+      const serialized = JSON.stringify(result);
+      if (serialized !== undefined && serialized.length > maxResultBytes) {
+        throw new Error(
+          `Tool ${toolId} result size ${serialized.length} bytes exceeds cap ${maxResultBytes}`,
+        );
+      }
+      return result;
     },
   };
 }

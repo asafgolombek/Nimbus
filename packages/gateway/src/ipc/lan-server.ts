@@ -3,6 +3,17 @@ import type { BoxKeypair } from "./lan-crypto.ts";
 import { openBoxFrame, sealBoxFrame } from "./lan-crypto.ts";
 import { checkLanMethodAllowed, LanError } from "./lan-rpc.ts";
 
+/**
+ * Frame-size caps — S3-F3.
+ * MAX_HANDSHAKE_FRAME caps the unauthenticated pre-pair JSON envelope.
+ * MAX_ENCRYPTED_FRAME caps the post-pair NaCl-box ciphertext (incl. nonce + tag).
+ * MAX_PENDING_BYTES caps the per-socket merged buffer (defends against TCP
+ * drip-feed where the attacker streams bytes one at a time).
+ */
+export const MAX_HANDSHAKE_FRAME = 4_096;
+export const MAX_ENCRYPTED_FRAME = 4 * 1024 * 1024; // 4 MiB
+export const MAX_PENDING_BYTES = MAX_ENCRYPTED_FRAME + 65_536;
+
 export interface PairingService {
   isOpen(): boolean;
   consume(code: string): boolean;
@@ -77,6 +88,11 @@ export class LanServer {
 
   private async handleChunk(socket: Socket<SessionState>, chunk: Uint8Array): Promise<void> {
     const prev = socket.data.buffer;
+    if (prev.length + chunk.length > MAX_PENDING_BYTES) {
+      // S3-F3 — refuse to accumulate gigabytes of drip-fed bytes.
+      socket.end();
+      return;
+    }
     const merged = new Uint8Array(prev.length + chunk.length);
     merged.set(prev, 0);
     merged.set(chunk, prev.length);
@@ -89,6 +105,16 @@ export class LanServer {
         socket.data.buffer.byteLength,
       );
       const length = view.getUint32(0, false);
+      const cap = socket.data.peerPubkey ? MAX_ENCRYPTED_FRAME : MAX_HANDSHAKE_FRAME;
+      if (length > cap) {
+        // S3-F3 — declared frame is too large; for unauthenticated peers, also
+        // record a rate-limit failure so repeat offenders are locked out.
+        if (!socket.data.peerPubkey) {
+          this.opts.rateLimit.recordFailure(socket.data.peerIp);
+        }
+        socket.end();
+        return;
+      }
       if (socket.data.buffer.length < 4 + length) return;
       const payload = socket.data.buffer.slice(4, 4 + length);
       socket.data.buffer = socket.data.buffer.slice(4 + length);

@@ -812,10 +812,10 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
 
   const diagnosticsRpcSkipped = Symbol("diagnosticsRpcSkipped");
 
-  function tryDispatchDiagnosticsRpc(
+  async function tryDispatchDiagnosticsRpc(
     method: string,
     params: unknown,
-  ): typeof diagnosticsRpcSkipped | object {
+  ): Promise<typeof diagnosticsRpcSkipped | object> {
     const wantsConfig = method.startsWith("config.");
     const wantsTelemetry = method.startsWith("telemetry.");
     const wantsDiagnostics =
@@ -838,7 +838,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       };
       const diagCtx =
         options.localIndex === undefined ? ctxBase : { ...ctxBase, localIndex: options.localIndex };
-      const out = dispatchDiagnosticsRpc(method, params, diagCtx);
+      const out = await dispatchDiagnosticsRpc(method, params, diagCtx);
       if (out.kind === "hit") {
         return out.value as object;
       }
@@ -938,7 +938,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return connectorOutcome;
     }
 
-    const diagnosticsHit = tryDispatchDiagnosticsRpc(method, params);
+    const diagnosticsHit = await tryDispatchDiagnosticsRpc(method, params);
     if (diagnosticsHit !== diagnosticsRpcSkipped) {
       return diagnosticsHit;
     }

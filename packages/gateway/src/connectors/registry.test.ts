@@ -74,3 +74,55 @@ describe("createConnectorDispatcher", () => {
     await expect(d.dispatch({ type: "missing_tool" })).rejects.toThrow(/Tool not found/);
   });
 });
+
+describe("createConnectorDispatcher G8 — size cap + timeout", () => {
+  test("rejects oversized tool result (S8-F5)", async () => {
+    const big = "x".repeat(5 * 1024 * 1024); // 5 MiB > default 4 MiB cap
+    const client: McpToolListingClient = {
+      async listTools() {
+        return {
+          big_tool: {
+            async execute() {
+              return { content: big };
+            },
+          },
+        };
+      },
+    };
+    const d = createConnectorDispatcher(client);
+    await expect(d.dispatch({ type: "big_tool" })).rejects.toThrow(/result size/);
+  });
+
+  test("aborts a tool call that exceeds the timeout (S8-F5)", async () => {
+    const client: McpToolListingClient = {
+      async listTools() {
+        return {
+          slow_tool: {
+            execute: () => new Promise(() => {}),
+          },
+        };
+      },
+    };
+    const d = createConnectorDispatcher(client, { toolTimeoutMs: 200 });
+    await expect(d.dispatch({ type: "slow_tool" })).rejects.toThrow(/exceeded.*200ms/);
+  });
+
+  test("permits result under cap and within timeout", async () => {
+    const client: McpToolListingClient = {
+      async listTools() {
+        return {
+          small_tool: {
+            async execute() {
+              return { ok: true };
+            },
+          },
+        };
+      },
+    };
+    const d = createConnectorDispatcher(client, {
+      maxResultBytes: 1024,
+      toolTimeoutMs: 5000,
+    });
+    await expect(d.dispatch({ type: "small_tool" })).resolves.toEqual({ ok: true });
+  });
+});

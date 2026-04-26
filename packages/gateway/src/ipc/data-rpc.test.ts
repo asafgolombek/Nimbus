@@ -3,12 +3,22 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
+import type { ToolExecutor } from "../engine/executor.ts";
 import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
 
 const testKdf = { t: 1, m: 1024, p: 1 } as const;
 
 function emptyCtx(): Parameters<typeof dispatchDataRpc>[2] {
   return { index: undefined, vault: undefined, platform: "linux", nimbusVersion: "0.0.0-test" };
+}
+
+/** Auto-approving stub executor that bypasses HITL for tests that just want
+ *  to exercise the post-gate code path. */
+function approvingExecutor(): ToolExecutor {
+  return {
+    gate: async () => "proceed" as const,
+    execute: async () => ({ status: "ok" as const }),
+  } as unknown as ToolExecutor;
 }
 
 describe("dispatchDataRpc", () => {
@@ -41,6 +51,7 @@ describe("dispatchDataRpc", () => {
         platform: "linux",
         nimbusVersion: "0.1.0",
         kdfParams: testKdf,
+        toolExecutor: approvingExecutor(),
       },
     );
     expect(out.kind).toBe("hit");
@@ -49,6 +60,45 @@ describe("dispatchDataRpc", () => {
       expect(value.outputPath).toMatch(/b\.tar\.gz$/);
       expect(value.recoverySeed.split(" ")).toHaveLength(24);
     }
+  });
+
+  test("data.export without toolExecutor throws DataRpcError -32603 (S2-F5)", async () => {
+    const out = join(mkdtempSync(join(tmpdir(), "nimbus-rpc-noexec-")), "b.tar.gz");
+    await expect(
+      dispatchDataRpc(
+        "data.export",
+        { output: out, passphrase: "p", includeIndex: false },
+        {
+          index: newIndex(),
+          vault: memVault(),
+          platform: "linux",
+          nimbusVersion: "0.0.0-test",
+        },
+      ),
+    ).rejects.toMatchObject({ rpcCode: -32603 });
+  });
+
+  test("data.export rejected by HITL returns rejected ActionResult (S2-F5)", async () => {
+    const rejectingExecutor = {
+      gate: async () => ({ status: "rejected" as const, reason: "user said no" }),
+      execute: async () => ({ status: "rejected" as const, reason: "n/a" }),
+    } as unknown as ToolExecutor;
+    const r = await dispatchDataRpc(
+      "data.export",
+      {
+        output: join(mkdtempSync(join(tmpdir(), "nimbus-rpc-rej-")), "b.tar.gz"),
+        passphrase: "p",
+        includeIndex: false,
+      },
+      {
+        index: newIndex(),
+        vault: memVault(),
+        platform: "linux",
+        nimbusVersion: "0.0.0-test",
+        toolExecutor: rejectingExecutor,
+      },
+    );
+    expect(r).toEqual({ kind: "hit", value: { status: "rejected", reason: "user said no" } });
   });
 
   test("data.delete with dryRun=true returns preflight and does not delete", async () => {
@@ -214,6 +264,7 @@ describe("data.export emits progress notifications", () => {
         nimbusVersion: "0.1.0",
         kdfParams: testKdf,
         notify: (m, p) => notifications.push({ method: m, params: p }),
+        toolExecutor: approvingExecutor(),
       },
     );
     expect(out.kind).toBe("hit");
@@ -236,6 +287,7 @@ describe("data.import emits progress notifications", () => {
         platform: "linux",
         nimbusVersion: "0.1.0",
         kdfParams: testKdf,
+        toolExecutor: approvingExecutor(),
       },
     );
 
