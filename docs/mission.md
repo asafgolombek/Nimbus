@@ -121,6 +121,8 @@ Sovereignty requires responsibility. When your machine is the source of truth, t
 
 **Nimbus secures everything within its process boundary.** Credentials are in the OS keystore. The HITL gate is in the executor. The local index is never transmitted. Extensions are sandboxed. Every contract is verified by automated tests across all three platforms on every commit.
 
+Every structural defense Nimbus claims is paired with an enforcement test that fails if the defense is removed or routed around — a defense without a caller is not a defense, and Nimbus refuses to ship one. The full list lives in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md).
+
 **Below the process boundary is your responsibility:**
 
 - Strong OS login or biometric authentication

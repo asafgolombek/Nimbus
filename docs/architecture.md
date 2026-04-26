@@ -1201,6 +1201,16 @@ PRs that drop below threshold are blocked when checks are required.
 
 ## Security Model
 
+### Defense-in-depth contracts
+
+Every structural defense Nimbus relies on is documented as a **security invariant** in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). Each invariant pairs the defense with (a) the production wiring site that makes it active and (b) an enforcement test in `packages/gateway/src/security-invariants.test.ts` that fails if the wiring is removed.
+
+This pairing exists because the B1 audit found that several defenses (`extensionProcessEnv`, `checkLanMethodAllowed`, the `<tool_output>` envelope) were **defined in code but had zero production callers** — orphaned helpers that documentation continued to claim as active. The invariants file + enforcement test are how that gap is prevented from recurring: if a defense has no caller, the test fails.
+
+A new structural defense lands as a *triple*: the production wiring, an entry in the invariants file, and an assertion in the test. If any of the three is missing, the defense is not yet real.
+
+### Threat-to-mitigation table
+
 | Threat | Mitigation | Enforced At |
 |---|---|---|
 | Credential theft from disk | OS-native keystore; zero plaintext code paths | Vault PAL |

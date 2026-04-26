@@ -378,6 +378,14 @@ These items resolve deferred decisions from Phase 3.
 - [x] Auto-update — Ed25519-signed binary manifest (`latest.json`); `Updater` state machine verifies signature before install; `nimbus update --check` / `nimbus update`; Gateway emits `updater.updateAvailable` on startup
 - [x] Plugin API v1 — `@nimbus-dev/sdk` frozen at v1.0.0; `AuditLogger`, `HitlRequest`, `runContractTests` stable surface; `CHANGELOG.md` documents breaking-change policy
 
+### Security audit follow-ups (B1)
+
+Items deferred from the [Phase 4 security audit (B1)](./superpowers/specs/2026-04-25-security-audit-results.md). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain scoped to Phase 4 because they are pre-`v0.1.0` blockers.
+
+- [ ] **Tauri-native file picker for `data.import` (S4-F6)** — replace the renderer-supplied `path` string with a Rust-side native dialog so the gateway never trusts a caller-controlled filesystem path; folds into the same UI-rebuild PR as the existing `extension.install` path-validation work (S4-F5 / S7-F7)
+- [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6
+- [ ] **Updater production wiring (S6-F1)** — instantiate the `Updater` state machine in gateway startup so `nimbus update --check` and `updater.updateAvailable` run against a live state object; lands when GA prerequisites (signing certs, manifest server) are signed off
+
 ### Acceptance Criteria
 
 - `v0.1.0` installers pass Gatekeeper (macOS) and SmartScreen (Windows) without user override required
@@ -512,6 +520,13 @@ These items resolve deferred decisions from Phase 3.
 
 - [ ] **Multi-model embedding** — add `vec_items_1536` virtual table for OpenAI `text-embedding-3-small` (and compatible) embeddings alongside the existing `vec_items_384` (`all-MiniLM-L6-v2`); `embedding_chunk.dims` and `embedding_chunk.model` are already recorded — schema is pre-positioned (Phase 3); per-item-type model routing: code symbols use local MiniLM by default; prose items use the configured model; `nimbus index reembed --model <id>` triggers selective backfill; multiple models can be active simultaneously with queries fan-out across matching vec tables and RRF-merged
 - [ ] **Extension sandbox hardening** — enforce full syscall/network isolation for extension child processes: seccomp BPF filter on Linux, App Sandbox entitlements on macOS, AppContainer token on Windows; network access must be declared in `nimbus.extension.json` under a `permissions.network` key and enforced at the kernel level; replaces the Phase 3 honour-system env restriction; extensions without `permissions.network` run fully offline; contract tests in `@nimbus-dev/sdk` verify sandbox enforcement on all three platforms
+
+### Security audit follow-ups (B1)
+
+Items deferred from the [Phase 4 security audit (B1)](./superpowers/specs/2026-04-25-security-audit-results.md) that fit naturally with Phase 5's hardening pass.
+
+- [ ] **Typed `dbRun` / `dbExec` migration (S5-F4)** — convert the 79 production `db.run()` call sites to the centralised typed wrapper used by `db/write.ts` so every SQL execution path goes through the `SQLITE_FULL` / `DiskFullError` translation layer; tracked separately from the high-throughput refactor work because the change touches every package
+- [ ] **Structured tool-call result auditing (S8-F10)** — capture each MCP tool call's full `output` (subject to `redactPayloadForConsentDisplay`) into a new `tool_call_log` table so post-incident forensics can reconstruct the exact data that flowed back to the LLM; complements the Phase 4 `<tool_output>` envelope by recording the envelope's contents at audit time
 
 ### Extension Marketplace v2
 
@@ -648,6 +663,10 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - [ ] **Personalization layer** — agent adapts communication style and tool selection priority based on observed user preferences; preferences are explicit (configurable), not inferred silently
 - [ ] **Automated PR pre-review** — agent performs "lint-plus" review based on team's historical review patterns (e.g., "In this repo, we usually ask for Y when X is changed")
 - [ ] **Decision pattern recognition** — agent identifies repeated HITL decision patterns across history; surfaces them as standing rule candidates
+
+### Core — LAN Hardening (deferred from Phase 4 B1 audit)
+
+- [ ] **LAN forward secrecy (S3-F8)** — replace the static X25519 pairing identity with per-session ephemeral DH so a future pairing-key compromise cannot decrypt past LAN sessions; multi-PR handshake redesign incompatible with the v0.1.0 LAN protocol — gated on a versioned LAN handshake bump; tracked from the [Phase 4 security audit (B1)](./superpowers/specs/2026-04-25-security-audit-results.md)
 
 ### Stretch — Local Model Fine-Tuning
 

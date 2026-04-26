@@ -115,9 +115,7 @@ Third-party extensions run as child processes. They:
 
 The Gateway listens only on a local domain socket (Unix) or named pipe (Windows), created with owner-only permissions (`chmod 0600` on Unix; DACL owner-only on Windows). There is no TCP listener. No Nimbus Gateway port is opened on any network interface.
 
-> **⚠️ LAN Server (Phase 4 WS5) — pre-flight security audit in progress:** The LAN TCP server (`nimbus lan enable`) is implemented but not yet wired into the production gateway entrypoint. A security audit has identified several gaps — including the method-allowlist gate not being called in the production path — that must be resolved before the feature is enabled. Do **not** force-enable the LAN server via config or environment hacks; it is not secure until the audit findings are addressed. Tracked in branch `dev/asafgolombek/security-audit`.
-
-> **⚠️ Auto-updater (Phase 4 WS4) — pre-flight security audit in progress:** The auto-update pipeline (`nimbus update`) is implemented but not yet wired into the production gateway entrypoint. A security audit has identified that the `NIMBUS_DEV_UPDATER_PUBLIC_KEY` environment override is honoured in production builds (no build-time gate), and that the download does not re-verify the version order before proceeding. These gaps must be fixed before the updater is enabled. Tracked in branch `dev/asafgolombek/security-audit`.
+The optional LAN server (`nimbus lan enable`) and auto-updater (`nimbus update`) are guarded by the structural defenses listed in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md) — the LAN method allowlist (`I5`), loopback bind default (`I6`), and updater signature/version checks. The B1 audit ([`superpowers/specs/2026-04-25-security-audit-results.md`](./superpowers/specs/2026-04-25-security-audit-results.md)) closed the High and Medium findings on these subsystems; remaining Low items are tracked in the [Phase 4 / Phase 7 roadmap entries](./roadmap.md). Production wiring of both features lands once GA prerequisites (signing certs, manifest server, LAN forward-secrecy redesign) are signed off.
 
 ---
 

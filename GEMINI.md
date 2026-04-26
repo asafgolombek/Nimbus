@@ -25,6 +25,29 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 
 ---
 
+## Security Invariants
+
+These are the structural defenses Nimbus relies on. Each one has a production wiring site and an enforcement test in `packages/gateway/src/security-invariants.test.ts` that fails if the defense is removed or orphaned. Full rationale, anti-patterns, and audit cross-references in [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md).
+
+| # | Invariant | Wired at | Anti-pattern that regresses it |
+|---|---|---|---|
+| I1 | Child-process env scoping via `extensionProcessEnv()` | `connectors/lazy-mesh.ts` (every spawn) | `spawn(..., { env: { ...process.env } })` anywhere under `connectors/` |
+| I2 | HITL frozen-set membership; `HITL_REQUIRED_BACKING` is module-private | `engine/executor.ts:192` | New destructive RPC that skips `ToolExecutor` or omits the action type from the set |
+| I3 | HITL gate consults `action.type` only (NOT `payload.mcpToolId`) | `engine/executor.ts` | Gating on `mcpToolId` or `resolvedToolId` — the set holds logical types, not MCP ids |
+| I4 | `hitlStatus` is set only by the consent gate | `engine/executor.ts:194-210` | Hardcoding `hitlStatus: "approved"` in any handler |
+| I5 | `checkLanMethodAllowed` is intrinsic to `LanServer` | `ipc/lan-server.ts:242` | Moving the check into the dispatcher or any caller |
+| I6 | LAN bind defaults to `127.0.0.1` | `config/nimbus-toml.ts` | Defaulting to `0.0.0.0` or auto-binding all interfaces from an env var |
+| I7 | Tauri `ALLOWED_METHODS` matches gateway handlers; no RCE-class methods exposed to renderer | `ui/src-tauri/src/gateway_bridge.rs` | Adding `extension.install` / `connector.addMcp` to the renderer allowlist |
+| I8 | Tauri renderer CSP is restrictive (no `unsafe-inline`, no `unsafe-eval`) | `ui/src-tauri/tauri.conf.json` | `"csp": null` or loosening with `unsafe-*` |
+| I9 | All SQL uses bound parameters; identifiers go through `escapeIdentifier` | `db/write.ts`, `db/repair.ts`, `people/person-store.ts` | Template-literal SQL on caller-supplied data |
+| I10 | Constant-time compare for hashes / MACs / pairing codes | `extensions/verify-extensions.ts`, `updater/updater.ts`, `ipc/lan-pairing.ts` | `===` / `!==` on hash bytes |
+| I11 | LLM-facing tool results wrapped via `wrapToolOutput` | `engine/agent.ts`, `engine/tool-output-envelope.ts` | New agent surface that feeds raw tool results to the LLM |
+| I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
+
+When changing a wiring site referenced above, update both the test and `SECURITY-INVARIANTS.md` in the same commit. When retiring an invariant, delete the row — never leave it as documentation drift.
+
+---
+
 ## Key File Locations
 
 | File | Purpose |
