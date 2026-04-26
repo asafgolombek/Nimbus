@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777210164985,
+  "lastUpdate": 1777228462246,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1913,6 +1913,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.495105020000002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "145a90befb5a77b9c247c1aec3c1044200671a79",
+          "message": "Merge pull request #115 from asafgolombek/dev/asafgolombek/perf-audit\n\nfeat(perf): B2 Phase 1A — bench harness scaffolding + S2-a proof driver",
+          "timestamp": "2026-04-26T21:33:59+03:00",
+          "tree_id": "e5e55679bd58692b7c2451673fd4733d3d69be55",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/145a90befb5a77b9c247c1aec3c1044200671a79"
+        },
+        "date": 1777228461861,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4268478999999996,
             "unit": "ms"
           }
         ]
