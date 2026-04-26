@@ -205,6 +205,10 @@ async function createSchedulerWithMesh(
   }
   const connectorMesh = await createLazyConnectorMesh(paths, vault, {
     listUserMcpConnectors: () => listUserMcpConnectors(db),
+    // S8-F9 — pass db + logger so args_json failures surface as
+    // persistent_error in connector health and a warn log line.
+    healthDb: db,
+    logger: syncLogger,
   });
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
   registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);

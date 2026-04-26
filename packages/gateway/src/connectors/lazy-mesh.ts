@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +19,7 @@ import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { transitionHealth } from "./health.ts";
 import type { UserMcpConnectorRow } from "./user-mcp-store.ts";
 
 const _LAZY_MESH_DIR = dirname(fileURLToPath(import.meta.url));
@@ -133,12 +135,20 @@ async function listLazyMeshClientTools(client: MCPClient | undefined): Promise<L
 /**
  * Eager filesystem MCP + lazily spawned Google MCP bundle (Drive + Gmail + Photos) + Microsoft bundle (OneDrive + Outlook + Teams) + GitHub (includes GitHub Actions MCP child) / GitLab / Bitbucket / Slack / Linear / Jira / Notion / Confluence / Jenkins / CircleCI / PagerDuty / Kubernetes credential MCP when vault keys exist; Phase 3 bundle (AWS, Azure, GCP, IaC, Grafana, Sentry, New Relic, Datadog) when matching vault keys exist; Discord MCP when **`discord.enabled`** + **`discord.bot_token`** are set (Q2 §1.6 / Phase 2–5 + §4.3).
  */
+/** Minimal logger shape — accepts the pino `(bindings, msg)` form. */
+export interface MeshLogger {
+  warn(bindings: Record<string, unknown>, msg?: string): void;
+}
+
 export class LazyConnectorMesh {
   private readonly filesystem: MCPClient;
   /** Lazy MCP stdio children: built-in bundles use `LAZY_MESH.*`; user MCP uses `mesh:user:<serviceId>`. */
   private readonly lazySlots = new Map<string, LazyMcpSlot>();
   private readonly listUserMcpConnectors: () => readonly UserMcpConnectorRow[];
   private readonly inactivityMs: number;
+  /** S8-F9 — optional db + logger so args_json failures can transition health and log. */
+  private readonly healthDb: import("bun:sqlite").Database | undefined;
+  private readonly logger: MeshLogger | undefined;
   private toolsEpoch = 0;
 
   constructor(
@@ -147,10 +157,16 @@ export class LazyConnectorMesh {
     options?: {
       inactivityMs?: number;
       listUserMcpConnectors?: () => readonly UserMcpConnectorRow[];
+      /** S8-F9 — when supplied, args_json parse failures call transitionHealth. */
+      healthDb?: import("bun:sqlite").Database;
+      /** S8-F9 — when supplied, args_json parse failures emit a warn line. */
+      logger?: MeshLogger;
     },
   ) {
     this.inactivityMs = options?.inactivityMs ?? 300_000;
     this.listUserMcpConnectors = options?.listUserMcpConnectors ?? (() => []);
+    this.healthDb = options?.healthDb;
+    this.logger = options?.logger;
     this.filesystem = new MCPClient({
       servers: {
         filesystem: {
@@ -257,6 +273,28 @@ export class LazyConnectorMesh {
     await this.stopLazyClient(extensionId);
   }
 
+  /**
+   * S8-F9 — central failure handler for malformed user_mcp_connector.args_json.
+   * Logs a warn line (when a logger was supplied) and transitions connector
+   * health to `persistent_error` (when a healthDb was supplied) so the
+   * failure is observable via `nimbus connector status` instead of silently
+   * leaving the slot unconfigured.
+   */
+  private recordArgsJsonFailure(serviceId: string, reason: string): void {
+    if (this.logger !== undefined) {
+      this.logger.warn(
+        { serviceId, reason },
+        "user MCP args_json failed to parse — slot left unconfigured",
+      );
+    }
+    if (this.healthDb !== undefined) {
+      transitionHealth(this.healthDb, serviceId, {
+        type: "persistent_error",
+        error: `malformed args_json (${reason})`,
+      });
+    }
+  }
+
   private mcpServerKeyForUserConnector(serviceId: string): string {
     return serviceId.replaceAll(/[^a-zA-Z0-9_-]/g, "_");
   }
@@ -272,15 +310,20 @@ export class LazyConnectorMesh {
     try {
       const parsed: unknown = JSON.parse(row.args_json);
       if (!Array.isArray(parsed) || !parsed.every((x) => typeof x === "string")) {
+        // S8-F9 — surface the failure instead of silently leaving the slot
+        // unconfigured. Health transition makes it visible in
+        // `nimbus connector status`.
+        this.recordArgsJsonFailure(row.service_id, "expected string array");
         return;
       }
       args = parsed;
     } catch {
+      this.recordArgsJsonFailure(row.service_id, "JSON parse failed");
       return;
     }
     const key = this.mcpServerKeyForUserConnector(row.service_id);
     const client = new MCPClient({
-      id: `nimbus-user-mcp-${row.service_id}-${String(Date.now())}`,
+      id: `nimbus-user-mcp-${row.service_id}-${randomUUID()}`,
       servers: {
         [key]: {
           command: row.command,
@@ -511,7 +554,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-phase3-${String(Date.now())}`,
+        id: `nimbus-phase3-${randomUUID()}`,
         servers,
       }),
     );
@@ -567,7 +610,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-google-${String(Date.now())}`,
+        id: `nimbus-google-${randomUUID()}`,
         servers: googleServers,
       }),
     );
@@ -594,7 +637,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-ms-${String(Date.now())}`,
+        id: `nimbus-ms-${randomUUID()}`,
         servers: {
           onedrive: {
             command: "bun",
@@ -635,7 +678,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-github-${String(Date.now())}`,
+        id: `nimbus-github-${randomUUID()}`,
         servers: {
           github: {
             command: "bun",
@@ -679,7 +722,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-gitlab-${String(Date.now())}`,
+        id: `nimbus-gitlab-${randomUUID()}`,
         servers: {
           gitlab: {
             command: "bun",
@@ -711,7 +754,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-bitbucket-${String(Date.now())}`,
+        id: `nimbus-bitbucket-${randomUUID()}`,
         servers: {
           bitbucket: {
             command: "bun",
@@ -750,7 +793,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-slack-${String(Date.now())}`,
+        id: `nimbus-slack-${randomUUID()}`,
         servers: {
           slack: {
             command: "bun",
@@ -781,7 +824,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-linear-${String(Date.now())}`,
+        id: `nimbus-linear-${randomUUID()}`,
         servers: {
           linear: {
             command: "bun",
@@ -821,7 +864,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-jira-${String(Date.now())}`,
+        id: `nimbus-jira-${randomUUID()}`,
         servers: {
           jira: {
             command: "bun",
@@ -865,7 +908,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-notion-${String(Date.now())}`,
+        id: `nimbus-notion-${randomUUID()}`,
         servers: {
           notion: {
             command: "bun",
@@ -905,7 +948,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-confluence-${String(Date.now())}`,
+        id: `nimbus-confluence-${randomUUID()}`,
         servers: {
           confluence: {
             command: "bun",
@@ -941,7 +984,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-discord-${String(Date.now())}`,
+        id: `nimbus-discord-${randomUUID()}`,
         servers: {
           discord: {
             command: "bun",
@@ -982,7 +1025,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-jenkins-${String(Date.now())}`,
+        id: `nimbus-jenkins-${randomUUID()}`,
         servers: {
           jenkins: {
             command: "bun",
@@ -1017,7 +1060,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-circleci-${String(Date.now())}`,
+        id: `nimbus-circleci-${randomUUID()}`,
         servers: {
           circleci: {
             command: "bun",
@@ -1048,7 +1091,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-pagerduty-${String(Date.now())}`,
+        id: `nimbus-pagerduty-${randomUUID()}`,
         servers: {
           pagerduty: {
             command: "bun",
@@ -1084,7 +1127,7 @@ export class LazyConnectorMesh {
     this.setLazyClient(
       slotKey,
       new MCPClient({
-        id: `nimbus-kubernetes-${String(Date.now())}`,
+        id: `nimbus-kubernetes-${randomUUID()}`,
         servers: {
           kubernetes: {
             command: "bun",
@@ -1347,7 +1390,12 @@ export class LazyConnectorMesh {
 export async function createLazyConnectorMesh(
   paths: PlatformPaths,
   vault: NimbusVault,
-  options?: { inactivityMs?: number; listUserMcpConnectors?: () => readonly UserMcpConnectorRow[] },
+  options?: {
+    inactivityMs?: number;
+    listUserMcpConnectors?: () => readonly UserMcpConnectorRow[];
+    healthDb?: import("bun:sqlite").Database;
+    logger?: MeshLogger;
+  },
 ): Promise<LazyConnectorMesh> {
   return new LazyConnectorMesh(paths, vault, options);
 }
