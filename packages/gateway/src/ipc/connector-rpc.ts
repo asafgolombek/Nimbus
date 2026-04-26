@@ -22,7 +22,6 @@ export { ConnectorRpcError } from "./connector-rpc-shared.ts";
 
 // S4-F2 — module-level once-flag so the deprecation warning logs at most
 // once per gateway boot. Mutated by dispatchConnectorRpc on first hit.
-// biome-ignore lint/style/useConst: intentionally mutable across module-scope writes
 let warnedConnectorStartAuth = false;
 
 export async function dispatchConnectorRpc(options: {
@@ -111,9 +110,12 @@ export async function dispatchConnectorRpc(options: {
     case "connector.auth": {
       if (method === "connector.startAuth" && !warnedConnectorStartAuth) {
         warnedConnectorStartAuth = true;
-        // No structured logger threaded through here yet; console.warn is
-        // captured by pino mirror and the redact-aware destination.
-        console.warn("connector.startAuth is deprecated; use connector.auth (S4-F2 alias)");
+        // No structured logger threaded through here yet; write to stderr
+        // directly so pino's mirror (when wired) and the daily log file
+        // both capture the deprecation notice exactly once.
+        process.stderr.write(
+          "connector.startAuth is deprecated; use connector.auth (S4-F2 alias)\n",
+        );
       }
       return handleConnectorAuth(ctx);
     }

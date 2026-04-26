@@ -153,7 +153,7 @@ function repairForeignKeys(db: Database): RepairOutcome {
         // null-byte-bearing identifiers from PRAGMA foreign_key_check, but
         // skip them anyway so a future code path that injects synthetic
         // violations cannot smuggle a malformed identifier past escapeIdentifier.
-        if (table.length === 0 || /\x00/.test(table)) {
+        if (table.length === 0 || table.indexOf("\u0000") !== -1) {
           continue;
         }
         const BATCH = 999;

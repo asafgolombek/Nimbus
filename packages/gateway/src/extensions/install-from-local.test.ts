@@ -42,7 +42,7 @@ describe("install-from-local", () => {
   test("assertSafeExtensionId rejects ids longer than 128 characters", () => {
     expect(() => assertSafeExtensionId("a".repeat(128))).not.toThrow();
     expect(() => assertSafeExtensionId("a".repeat(129))).toThrow(/too long/i);
-    expect(() => assertSafeExtensionId("@scope/" + "a".repeat(200))).toThrow(/too long/i);
+    expect(() => assertSafeExtensionId(`@scope/${"a".repeat(200)}`)).toThrow(/too long/i);
   });
 
   test("extensionInstallDirectory joins scoped id safely", () => {

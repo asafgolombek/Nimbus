@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sha256HexEqualConstantTime } from "./hex-compare.ts";
 
 const HEX_A = "0".repeat(64);
-const HEX_B = "0".repeat(63) + "1";
+const HEX_B = `${"0".repeat(63)}1`;
 const HEX_C = "f".repeat(64);
 
 describe("sha256HexEqualConstantTime", () => {
