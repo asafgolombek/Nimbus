@@ -4,6 +4,7 @@
 
 export { runAsk } from "./ask.ts";
 export { runAudit } from "./audit.ts";
+export { runBench } from "./bench.ts";
 export { runConfig } from "./config.ts";
 export { runConnector } from "./connector.ts";
 export { runData } from "./data.ts";

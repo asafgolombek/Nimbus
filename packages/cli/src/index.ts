@@ -10,6 +10,7 @@ import {
   printHelp,
   runAsk,
   runAudit,
+  runBench,
   runConfig,
   runConnector,
   runData,
@@ -111,6 +112,9 @@ async function main(): Promise<void> {
           break;
         case "audit":
           await runAudit(args);
+          break;
+        case "bench":
+          process.exitCode = await runBench(args);
           break;
         case "connector":
           await runConnector(args);
