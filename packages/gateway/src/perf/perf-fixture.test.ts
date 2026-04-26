@@ -1,0 +1,57 @@
+import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildSyntheticIndex, FIXTURE_TIER_SIZES } from "./perf-fixture.ts";
+
+function freshCacheDir(): string {
+  return mkdtempSync(join(tmpdir(), "perf-fixture-test-"));
+}
+
+describe("buildSyntheticIndex", () => {
+  test("generates a file containing exactly the expected number of items for `small`", async () => {
+    const dir = freshCacheDir();
+    try {
+      const path = await buildSyntheticIndex("small", { cacheDir: dir });
+      const db = new Database(path, { readonly: true });
+      const row = db.query("SELECT COUNT(*) AS n FROM item").get() as { n: number };
+      db.close();
+      expect(row.n).toBe(FIXTURE_TIER_SIZES.small);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("is deterministic — two invocations of the same tier produce byte-identical files", async () => {
+    const dir = freshCacheDir();
+    try {
+      const a = await buildSyntheticIndex("small", { cacheDir: dir });
+      const contentA = readFileSync(a);
+      // Force regeneration by deleting and re-running.
+      rmSync(a);
+      const b = await buildSyntheticIndex("small", { cacheDir: dir });
+      const contentB = readFileSync(b);
+      expect(contentA.length).toBe(contentB.length);
+      expect(contentA.equals(contentB)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reuses cached file when present (does not regenerate)", async () => {
+    const dir = freshCacheDir();
+    try {
+      const path = await buildSyntheticIndex("small", { cacheDir: dir });
+      const mtime1 = statSync(path).mtimeMs;
+      // Wait briefly so a regeneration would change mtime.
+      await new Promise((r) => setTimeout(r, 20));
+      const path2 = await buildSyntheticIndex("small", { cacheDir: dir });
+      const mtime2 = statSync(path2).mtimeMs;
+      expect(path).toBe(path2);
+      expect(mtime2).toBe(mtime1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
