@@ -174,3 +174,113 @@ describe("LanServer gate (G4)", () => {
     expect(calls.length).toBe(0);
   });
 });
+
+describe("LanServer frame-size caps (S3-F3)", () => {
+  let svr: LanServer | undefined;
+
+  afterEach(async () => {
+    await svr?.stop();
+    svr = undefined;
+  });
+
+  test("rejects pre-handshake frame whose declared length exceeds MAX_HANDSHAKE_FRAME", async () => {
+    const { LanServer: Cls, MAX_HANDSHAKE_FRAME } = await import("./lan-server.ts");
+    const recordedFailures: string[] = [];
+    svr = new Cls({
+      bind: "127.0.0.1",
+      port: 0,
+      hostKeypair: generateBoxKeypair(),
+      onMessage: async () => ({}),
+      isKnownPeer: () => null,
+      rateLimit: {
+        checkAllowed: () => true,
+        recordFailure: (ip) => recordedFailures.push(ip),
+        recordSuccess: () => {},
+      },
+      pairing: {
+        isOpen: () => false,
+        consume: () => false,
+        open: () => {},
+        close: () => {},
+        getExpiresAt: () => undefined,
+      },
+      registerPeer: () => "p",
+    });
+    await svr.start();
+    const port = svr.listenAddr()!.port;
+
+    let closed = false;
+    const conn = await Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        open(socket) {
+          const buf = new Uint8Array(4);
+          new DataView(buf.buffer).setUint32(0, MAX_HANDSHAKE_FRAME + 1, false);
+          socket.write(buf);
+        },
+        data() {},
+        close() {
+          closed = true;
+        },
+        error() {
+          closed = true;
+        },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    const closedBeforeEnd = closed;
+    conn.end();
+    expect(closedBeforeEnd).toBe(true);
+    expect(recordedFailures.length).toBeGreaterThan(0);
+  });
+
+  test("permits a small declared length (e.g. tiny JSON handshake) without closing", async () => {
+    const { LanServer: Cls } = await import("./lan-server.ts");
+    svr = new Cls({
+      bind: "127.0.0.1",
+      port: 0,
+      hostKeypair: generateBoxKeypair(),
+      onMessage: async () => ({}),
+      isKnownPeer: () => null,
+      rateLimit: { checkAllowed: () => true, recordFailure: () => {}, recordSuccess: () => {} },
+      pairing: {
+        isOpen: () => false,
+        consume: () => false,
+        open: () => {},
+        close: () => {},
+        getExpiresAt: () => undefined,
+      },
+      registerPeer: () => "p",
+    });
+    await svr.start();
+    const port = svr.listenAddr()!.port;
+
+    // Connect and send only a length header for a small (well under cap) frame.
+    // We do NOT send the body, so handleChunk will return without closing —
+    // proving the cap is what triggers the close, not the mere presence of a header.
+    let closed = false;
+    const conn = await Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        open(socket) {
+          const buf = new Uint8Array(4);
+          new DataView(buf.buffer).setUint32(0, 100, false);
+          socket.write(buf);
+        },
+        data() {},
+        close() {
+          closed = true;
+        },
+        error() {
+          closed = true;
+        },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    const closedBeforeEnd = closed;
+    conn.end();
+    expect(closedBeforeEnd).toBe(false);
+  });
+});
