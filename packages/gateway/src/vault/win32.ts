@@ -118,9 +118,16 @@ function loadOrCreateEntropy(vaultDir: string): Buffer {
     // Hidden + System so a casual file-explorer browse does not surface the
     // entropy file. Defense against accidental deletion — losing .entropy
     // makes every vault entry unrecoverable until rotation.
+    //
+    // Use the absolute path under the Windows directory rather than relying
+    // on PATH lookup, so a poisoned PATH (e.g. attacker-controlled directory
+    // earlier in PATH containing a binary named `attrib.exe`) cannot
+    // hijack this call.
     if (process.platform === "win32") {
       try {
-        spawnSync("attrib", ["+H", "+S", path], { windowsHide: true });
+        const winDir = process.env["SystemRoot"] ?? process.env["windir"] ?? "C:\\Windows";
+        const attribExe = `${winDir}\\System32\\attrib.exe`;
+        spawnSync(attribExe, ["+H", "+S", path], { windowsHide: true });
       } catch {
         /* best effort — entropy still works without the attribute */
       }

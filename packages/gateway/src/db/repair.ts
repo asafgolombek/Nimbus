@@ -125,7 +125,7 @@ function repairOrphanedSyncTokens(db: Database): RepairOutcome {
 // null-byte-bearing identifiers from PRAGMA foreign_key_check, but skip them
 // anyway so a future code path that injects synthetic violations cannot
 // smuggle a malformed identifier past escapeIdentifier.
-const NUL_CHAR = String.fromCharCode(0);
+const NUL_CHAR = String.fromCodePoint(0);
 function isUnsafeSqlIdentifier(id: string): boolean {
   return id.length === 0 || id.includes(NUL_CHAR);
 }

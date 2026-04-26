@@ -36,8 +36,12 @@ describeWin("DpapiVault — optional entropy (S2-F4)", () => {
     // Strip Hidden+System attrs (we set them at creation time as a casual-
     // delete defense) so the test harness can overwrite. The clear is part
     // of the simulated tamper, not part of the security boundary itself.
+    // Use the absolute path (matches the production caller in win32.ts).
     const entropyPath = join(cfg, "vault", ".entropy");
-    spawnSync("attrib", ["-H", "-S", entropyPath], { windowsHide: true });
+    const winDir = process.env["SystemRoot"] ?? process.env["windir"] ?? "C:\\Windows";
+    spawnSync(`${winDir}\\System32\\attrib.exe`, ["-H", "-S", entropyPath], {
+      windowsHide: true,
+    });
     // Overwrite entropy with new random bytes — simulates a different
     // process / user attempting to decrypt. DPAPI decrypt should fail and
     // the legacy fallback (no-entropy) should also fail.
