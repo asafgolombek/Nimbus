@@ -29,12 +29,14 @@
 | `packages/gateway/src/perf/signal-handler.test.ts` | Create | Unit tests for handler installation + uninstall |
 | `packages/gateway/src/perf/surfaces/bench-query-latency.ts` | Create | S2-a driver: warm 10 K-row in-memory SQLite, runs 100 `buildItemListSql` queries, returns `BenchSurfaceResult` |
 | `packages/gateway/src/perf/surfaces/bench-query-latency.test.ts` | Create | Unit tests: deterministic measurement, result shape, error path |
-| `packages/gateway/src/perf/bench-cli.ts` | Create | Orchestrator — parses `--all` / `--surface <id>` / `--corpus` / `--runs N` / `--reference|--gha`; routes to surfaces; appends `HistoryLine`; pretty-prints to stdout |
+| `packages/gateway/src/perf/bench-cli.ts` | Create | Orchestrator — parses `--all` / `--surface <id>` / `--corpus` / `--runs N` / `--reference|--gha`; routes to surfaces; appends `HistoryLine`; pretty-prints to stdout. Accepts `runId` as input (caller-generated) so an interrupted run shares its UUID with the signal-handler entry |
 | `packages/gateway/src/perf/bench-cli.test.ts` | Create | Unit tests for arg parsing, surface routing, JSON output shape |
+| `packages/gateway/src/perf/bench-runner.ts` | Create | Gateway-side **standalone entry script** — generates the run UUID, installs the signal handler, calls `runBenchCli`, sets `process.exitCode`. This is the file the CLI `Bun.spawn`s (preserves the project's IPC-only CLI contract — see Task 8b rationale) |
 | `packages/gateway/src/perf/index.ts` | Create | Public re-exports for future PR-B-2 drivers + tests |
-| `packages/cli/src/commands/bench.ts` | Create | CLI entry — dispatches to `bench-cli.ts`; thin wrapper |
-| `packages/cli/src/commands/bench.test.ts` | Create | CLI smoke tests |
-| `packages/cli/src/index.ts` | Modify | Register `case "bench"` in dispatcher; import `runBench` |
+| `packages/cli/src/commands/bench.ts` | Create | CLI entry — **thin `Bun.spawn` wrapper** around `packages/gateway/src/perf/bench-runner.ts`. Forwards argv, pipes stdio, returns subprocess exit code. Imports nothing from `gateway/src/` per the project's IPC-only CLI rule (`packages/cli/src/commands/index.ts` JSDoc) |
+| `packages/cli/src/commands/bench.test.ts` | Create | Smoke tests for the spawn wrapper (mocks `Bun.spawn`) |
+| `packages/cli/src/commands/index.ts` | Modify | Add `export { runBench } from "./bench.ts";` alphabetically near the other re-exports |
+| `packages/cli/src/index.ts` | Modify | Register `case "bench"` in dispatcher; import `runBench` from `./commands/index.ts` (not directly from `bench.ts`); use `process.exitCode = await runBench(args)` instead of `process.exit(...)` so the existing `outro("Done.")` at line 175 still runs |
 | `docs/perf/history.jsonl` | Create | Schema-version header line only (`{"schema_version":1,"_comment":"..."}`) |
 | `package.json` | Modify | Add `"test:coverage:perf"` script |
 | `scripts/lib/ci-tests.ts` | Modify | Append `{ script: "test:coverage:perf" }` to coverage list |
@@ -45,9 +47,9 @@
 
 ## Execution order
 
-Tasks 1 → 12 sequentially; each task is independently committable. Tasks 1–6 build the harness primitives; Task 7 wires the proof driver; Tasks 8–9 wire the CLI; Tasks 10–11 wire docs + CI; Task 12 is final verification + PR.
+Tasks 1 → 8 → 8b → 9 → 12 sequentially; each task is independently committable. Tasks 1–6 build the harness primitives; Task 7 wires the proof driver; Task 8 builds the orchestrator (in-process, gateway-side); Task 8b adds the gateway-side `bench-runner.ts` script entry that the CLI spawns; Task 9 wires the CLI as a thin `Bun.spawn` wrapper preserving the IPC-only CLI rule; Tasks 10–11 wire docs + CI; Task 12 is final verification + PR.
 
-No parallel tasks — Tasks 4 (`bench-harness.ts`) depends on Task 3 (`percentiles.ts`); Task 7 depends on Tasks 4 + 5; Task 8 depends on Tasks 2 + 4 + 6 + 7.
+Dependency graph: Task 4 depends on Task 2 (`percentiles.ts`); Task 7 depends on Tasks 4 + 5; Task 8 depends on Tasks 3 + 4 + 7; Task 8b depends on Tasks 6 + 8; Task 9 depends on Task 8b (resolves to it via `Bun.spawn`); Task 11 depends on Task 9 (covers both the gateway-side runner and the CLI wrapper). No parallel tasks.
 
 ---
 
@@ -469,6 +471,20 @@ describe("runBench", () => {
     ).rejects.toThrow(/S1.*synthetic failure/);
   });
 
+  test("emits per-run failure context to stderr before throwing", async () => {
+    const fn = async (): Promise<number[]> => {
+      throw new Error("inner failure detail");
+    };
+    const stderrLines: string[] = [];
+    await expect(
+      runBench("S2-a", fn, { runs: 3, runner: "local-dev" }, {
+        stderr: (s) => stderrLines.push(s),
+      }),
+    ).rejects.toThrow();
+    expect(stderrLines.length).toBeGreaterThanOrEqual(1);
+    expect(stderrLines[0]).toMatch(/\[bench:S2-a\] run 1\/3 failed: inner failure detail/);
+  });
+
   test("rejects runs < 1 with a clear error", async () => {
     const fn = async (): Promise<number[]> => [1];
     await expect(runBench("S1", fn, { runs: 0, runner: "local-dev" })).rejects.toThrow(/runs must be >= 1/);
@@ -512,14 +528,21 @@ function median(values: number[]): number | undefined {
   return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
 }
 
+export interface RunBenchDeps {
+  /** Caller-injectable stderr writer (defaults to process.stderr). Tests inject a stub. */
+  stderr?: (s: string) => void;
+}
+
 export async function runBench(
   surfaceId: BenchSurfaceId,
   fn: SurfaceFn,
   opts: BenchRunOptions,
+  deps: RunBenchDeps = {},
 ): Promise<BenchSurfaceResult> {
   if (opts.runs < 1) {
     throw new Error(`runs must be >= 1 (got ${opts.runs})`);
   }
+  const stderr = deps.stderr ?? ((s: string) => process.stderr.write(`${s}\n`));
   const perRunP95: number[] = [];
   const perRunP50: number[] = [];
   const perRunP99: number[] = [];
@@ -532,6 +555,10 @@ export async function runBench(
       samples = await fn(opts);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error && err.stack ? err.stack : "";
+      // Emit per-run failure context to stderr immediately so multi-run debugging
+      // does not have to wait for the final throw to surface details.
+      stderr(`[bench:${surfaceId}] run ${i + 1}/${opts.runs} failed: ${msg}${stack ? `\n${stack}` : ""}`);
       throw new Error(`bench surface ${surfaceId} failed on run ${i + 1}/${opts.runs}: ${msg}`);
     }
     totalSamples += samples.length;
@@ -1038,13 +1065,14 @@ describe("runBenchCli", () => {
     try {
       const exitCode = await runBenchCli(
         ["--surface", "S2-a", "--runs", "1", "--corpus", "small", "--gha"],
-        { historyPath, fixtureCacheDir: dir, stdout: () => {} },
+        { runId: "test-run-1", historyPath, fixtureCacheDir: dir, stdout: () => {} },
       );
       expect(exitCode).toBe(0);
       const line = JSON.parse(readFileSync(historyPath, "utf8").trim());
       expect(line.surfaces["S2-a"]).toBeDefined();
       expect(line.surfaces["S2-a"].samples_count).toBe(100);
       expect(line.runner).toBe("gha-ubuntu");
+      expect(line.run_id).toBe("test-run-1");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1058,6 +1086,7 @@ describe("runBenchCli", () => {
       const exitCode = await runBenchCli(
         ["--surface", "S2-a", "--runs", "1", "--corpus", "small", "--reference"],
         {
+          runId: "test-run-2",
           historyPath,
           fixtureCacheDir: dir,
           stdout: () => {},
@@ -1093,7 +1122,6 @@ Expected: FAIL with `Cannot find module './bench-cli.ts'`.
  * table), §4.1 (reference protocol), §4.5 (aggregation).
  */
 
-import { randomUUID } from "node:crypto";
 import { hostname, platform, release } from "node:os";
 
 import { runBench } from "./bench-harness.ts";
@@ -1102,6 +1130,14 @@ import { runQueryLatencyOnce } from "./surfaces/bench-query-latency.ts";
 import type { BenchRunOptions, BenchSurfaceId, BenchSurfaceResult, RunnerKind } from "./types.ts";
 
 export interface BenchCliDeps {
+  /**
+   * Caller-supplied UUID for the run. Threaded through to the HistoryLine
+   * AND to the signal-handler context factory so an interrupted run records
+   * the SAME run_id it would have recorded on success — not a generic
+   * "interrupted" sentinel. Generated by `bench-runner.ts` (Task 8b),
+   * never by the orchestrator itself.
+   */
+  runId: string;
   historyPath: string;
   fixtureCacheDir?: string;
   stdout: (s: string) => void;
@@ -1208,7 +1244,7 @@ export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<n
   const resolveGitSha = deps.resolveGitSha ?? defaultResolveGitSha;
   const line: HistoryLine = {
     schema_version: 1,
-    run_id: randomUUID(),
+    run_id: deps.runId,
     timestamp: new Date().toISOString(),
     runner,
     os_version: `${platform()} ${release()} (${hostname()})`,
@@ -1266,12 +1302,13 @@ git commit -m "feat(perf): add bench-cli orchestrator + package barrel"
 
 ---
 
-## Task 9 — `nimbus bench` CLI command
+## Task 8b — Gateway-side `bench-runner.ts` entry script
+
+**Why this exists:** the project's IPC-only CLI rule (declared in the JSDoc at `packages/cli/src/commands/index.ts` line 1: *"CLI command handlers — IPC to Gateway only (no gateway source imports)"*) forbids `packages/cli/src/` from importing `packages/gateway/src/`. Bench measurement, however, must run in-process to eliminate IPC noise. Resolution: the gateway ships a **standalone entry script** at `packages/gateway/src/perf/bench-runner.ts`; the CLI `commands/bench.ts` (Task 9) is a thin `Bun.spawn` wrapper that invokes the entry script. The CLI imports nothing from `gateway/src/`. Subprocess startup is a one-time invocation cost (~50 ms) — negligible against per-surface measurements that aggregate across 5 runs × 100 samples.
 
 **Files:**
-- Create: `packages/cli/src/commands/bench.ts`
-- Create: `packages/cli/src/commands/bench.test.ts`
-- Modify: `packages/cli/src/index.ts`
+- Create: `packages/gateway/src/perf/bench-runner.ts`
+- Create: `packages/gateway/src/perf/bench-runner.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1280,42 +1317,41 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runBench as runBenchCommand } from "./bench.ts";
+import { runBenchRunnerMain } from "./bench-runner.ts";
 
 function freshDir(): string {
-  return mkdtempSync(join(tmpdir(), "cli-bench-test-"));
+  return mkdtempSync(join(tmpdir(), "bench-runner-test-"));
 }
 
-describe("runBench (CLI command)", () => {
-  test("happy path runs S2-a and writes a history line", async () => {
+describe("runBenchRunnerMain", () => {
+  test("generates a UUID, calls runBenchCli, and writes one history line", async () => {
     const dir = freshDir();
+    const historyPath = join(dir, "history.jsonl");
     try {
-      const exit = await runBenchCommand([
-        "--surface",
-        "S2-a",
-        "--runs",
-        "1",
-        "--corpus",
-        "small",
-        "--gha",
-        "--history",
-        join(dir, "history.jsonl"),
-        "--fixture-cache",
-        dir,
+      const exitCode = await runBenchRunnerMain([
+        "--surface", "S2-a", "--runs", "1", "--corpus", "small", "--gha",
+        "--history", historyPath, "--fixture-cache", dir,
       ]);
-      expect(exit).toBe(0);
-      const txt = readFileSync(join(dir, "history.jsonl"), "utf8");
-      expect(txt).toContain('"S2-a"');
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(readFileSync(historyPath, "utf8").trim());
+      // run_id must be a UUID-shaped string (8-4-4-4-12 hex), not a placeholder.
+      expect(parsed.run_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("--help prints usage and exits 0 without writing any history", async () => {
+  test("--help prints usage and exits 0 without writing history", async () => {
     const dir = freshDir();
+    const historyPath = join(dir, "history.jsonl");
     try {
-      const exit = await runBenchCommand(["--help", "--history", join(dir, "history.jsonl")]);
+      const lines: string[] = [];
+      const exit = await runBenchRunnerMain(["--help"], {
+        stdout: (s) => lines.push(s),
+        historyPath,
+      });
       expect(exit).toBe(0);
+      expect(lines.join("\n")).toMatch(/Usage:/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1326,36 +1362,35 @@ describe("runBench (CLI command)", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-bun test packages/cli/src/commands/bench.test.ts
+bun test packages/gateway/src/perf/bench-runner.test.ts
 ```
 
-Expected: FAIL with `Cannot find module './bench.ts'`.
+Expected: FAIL with `Cannot find module './bench-runner.ts'`.
 
-- [ ] **Step 3: Implement the CLI command**
+- [ ] **Step 3: Implement bench-runner**
 
 ```typescript
+#!/usr/bin/env bun
 /**
- * `nimbus bench` — runs the bench harness in-process.
+ * `nimbus bench` standalone entry script.
  *
- * Invocation forms (both produce identical output, per spec §6 criterion 1):
- *   bun packages/cli/src/index.ts bench --surface <id> --runs N --reference
- *   nimbus bench --surface <id> --runs N --gha
+ * Invoked by `packages/cli/src/commands/bench.ts` via `Bun.spawn` so the
+ * CLI package does not have to import gateway source (IPC-only rule —
+ * see packages/cli/src/commands/index.ts JSDoc line 1). Subprocess
+ * startup is a one-time invocation cost; per-surface aggregation
+ * (5 runs × 100 samples) dominates.
  *
- * Flags:
- *   --surface <id>      surface id from §3.2 (e.g. S2-a)
- *   --all               run every registered surface
- *   --corpus <tier>     small | medium | large
- *   --runs <N>          per-surface invocations (default 5)
- *   --reference         tag run as reference-m1air; requires interactive protocol confirm
- *   --gha               tag run as gha-<os>; auto-derived from process.platform
- *   --history <path>    history.jsonl override (default: docs/perf/history.jsonl)
- *   --fixture-cache <p> fixture cache dir override (test-only)
- *   --help              print usage and exit 0
+ * Generates the run UUID at the top, threads it through both the
+ * orchestrator and the signal-handler context factory, so an interrupted
+ * run records the same run_id it would have on success.
  */
 
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
-import { installIncompleteSignalHandler, runBenchCli } from "../../../gateway/src/perf/index.ts";
+import { runBenchCli } from "./bench-cli.ts";
+import { installIncompleteSignalHandler, type IncompleteContext } from "./signal-handler.ts";
+import type { RunnerKind } from "./types.ts";
 
 function takeFlag(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -1387,24 +1422,41 @@ Flags:
 See docs/superpowers/specs/2026-04-26-perf-audit-design.md for the surface table.
 `;
 
-export async function runBench(args: string[]): Promise<number> {
+function detectRunner(args: string[]): RunnerKind {
+  if (hasFlag(args, "--reference")) return "reference-m1air";
+  if (hasFlag(args, "--gha")) {
+    if (process.platform === "darwin") return "gha-macos";
+    if (process.platform === "win32") return "gha-windows";
+    return "gha-ubuntu";
+  }
+  return "local-dev";
+}
+
+export interface BenchRunnerDeps {
+  stdout?: (s: string) => void;
+  /** Override default `<cwd>/docs/perf/history.jsonl`. Tests inject a tmp dir. */
+  historyPath?: string;
+}
+
+export async function runBenchRunnerMain(
+  args: string[],
+  deps: BenchRunnerDeps = {},
+): Promise<number> {
+  const stdout = deps.stdout ?? ((s: string) => process.stdout.write(`${s}\n`));
   if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
-    process.stdout.write(HELP);
+    stdout(HELP);
     return 0;
   }
-  const historyPath = takeFlag(args, "--history") ?? join(process.cwd(), "docs/perf/history.jsonl");
+
+  const historyPath = deps.historyPath ?? takeFlag(args, "--history") ?? join(process.cwd(), "docs/perf/history.jsonl");
   const fixtureCacheDir = takeFlag(args, "--fixture-cache");
 
-  const ctxFactory = (): {
-    runId: string;
-    runner: "local-dev";
-    reason: string;
-    nimbusGitSha: string;
-    bunVersion: string;
-    osVersion: string;
-  } => ({
-    runId: "interrupted",
-    runner: "local-dev",
+  const runId = randomUUID();
+  const runner = detectRunner(args);
+
+  const ctxFactory = (): IncompleteContext => ({
+    runId,
+    runner,
     reason: "interrupted",
     nimbusGitSha: process.env.GITHUB_SHA ?? "unknown",
     bunVersion: typeof Bun !== "undefined" ? Bun.version : "unknown",
@@ -1414,52 +1466,269 @@ export async function runBench(args: string[]): Promise<number> {
 
   try {
     return await runBenchCli(args, {
+      runId,
       historyPath,
       fixtureCacheDir,
-      stdout: (s) => process.stdout.write(`${s}\n`),
+      stdout,
       stderr: (s) => process.stderr.write(`${s}\n`),
     });
   } finally {
     uninstall();
   }
 }
+
+// `bun packages/gateway/src/perf/bench-runner.ts ...` enters here.
+if (import.meta.main) {
+  process.exitCode = await runBenchRunnerMain(process.argv.slice(2));
+}
 ```
 
-- [ ] **Step 4: Wire into the CLI dispatcher**
+- [ ] **Step 4: Run tests to verify pass**
 
-In `packages/cli/src/index.ts`, find the dispatcher switch (around line 60) and add a `bench` case alphabetically near the other commands.
+```bash
+bun test packages/gateway/src/perf/bench-runner.test.ts
+```
+
+Expected: 2 pass, 0 fail.
+
+- [ ] **Step 5: Smoke-test the runner directly (proves the script entry works)**
+
+```bash
+bun packages/gateway/src/perf/bench-runner.ts --surface S2-a --runs 1 --corpus small --gha --history /tmp/nimbus-bench-runner-smoke.jsonl
+```
+
+Expected: stdout `S2-a p95=...ms p99=...ms samples=100`; the JSONL file contains one valid line with a UUID `run_id`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/gateway/src/perf/bench-runner.ts packages/gateway/src/perf/bench-runner.test.ts
+git commit -m "feat(perf): add bench-runner.ts standalone entry script for CLI Bun.spawn"
+```
+
+---
+
+## Task 9 — `nimbus bench` CLI command (thin spawn wrapper)
+
+**Files:**
+- Create: `packages/cli/src/commands/bench.ts`
+- Create: `packages/cli/src/commands/bench.test.ts`
+- Modify: `packages/cli/src/commands/index.ts`
+- Modify: `packages/cli/src/index.ts`
+
+**Constraint:** the CLI package is forbidden by project rule from importing `gateway/src` — see the JSDoc at `packages/cli/src/commands/index.ts` line 1: *"CLI command handlers — IPC to Gateway only (no gateway source imports)"*. This task implements the `nimbus bench` command as a thin `Bun.spawn` wrapper around the gateway-side `bench-runner.ts` from Task 8b. No `gateway/src` imports.
+
+- [ ] **Step 1: Write the failing test**
 
 ```typescript
-// Add this import near the other command imports at the top of the file:
-import { runBench } from "./commands/bench.ts";
+import { describe, expect, mock, test } from "bun:test";
+import { runBench } from "./bench.ts";
 
-// Add this case in the switch statement (after `case "ask":` is fine):
-        case "bench":
-          process.exit(await runBench(args));
-          break;
+describe("runBench (CLI command)", () => {
+  test("--help is handled in-process and does not spawn a subprocess", async () => {
+    const stdoutChunks: string[] = [];
+    const spawnMock = mock(() => {
+      throw new Error("Bun.spawn should not be called for --help");
+    });
+    const exit = await runBench(["--help"], {
+      spawn: spawnMock as unknown as typeof Bun.spawn,
+      stdout: (s) => stdoutChunks.push(s),
+    });
+    expect(exit).toBe(0);
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(stdoutChunks.join("")).toMatch(/Usage:/);
+  });
+
+  test("non-help args spawn the bench-runner subprocess and forward exit code", async () => {
+    const calls: Array<{ cmd: string[]; opts?: unknown }> = [];
+    const spawnMock = mock((cmd: string[], opts?: unknown) => {
+      calls.push({ cmd, opts });
+      return {
+        exited: Promise.resolve(0),
+        kill: () => {},
+      } as unknown as ReturnType<typeof Bun.spawn>;
+    });
+    const exit = await runBench(
+      ["--surface", "S2-a", "--runs", "1", "--corpus", "small", "--gha"],
+      { spawn: spawnMock as unknown as typeof Bun.spawn },
+    );
+    expect(exit).toBe(0);
+    expect(calls.length).toBe(1);
+    const cmd = calls[0]?.cmd ?? [];
+    // First arg is the bun executable; second arg is the resolved bench-runner.ts path.
+    expect(cmd[0]).toMatch(/bun(?:\.exe)?$/);
+    expect(cmd[1]).toMatch(/bench-runner\.ts$/);
+    // Forwards the full caller argv after the script path.
+    expect(cmd.slice(2)).toEqual(["--surface", "S2-a", "--runs", "1", "--corpus", "small", "--gha"]);
+  });
+
+  test("non-zero subprocess exit propagates as the command exit code", async () => {
+    const spawnMock = mock(() => {
+      return {
+        exited: Promise.resolve(2),
+        kill: () => {},
+      } as unknown as ReturnType<typeof Bun.spawn>;
+    });
+    const exit = await runBench(["--surface", "S2-a", "--reference"], {
+      spawn: spawnMock as unknown as typeof Bun.spawn,
+    });
+    expect(exit).toBe(2);
+  });
+});
 ```
 
-- [ ] **Step 5: Run tests to verify pass**
+- [ ] **Step 2: Run test to verify it fails**
 
 ```bash
 bun test packages/cli/src/commands/bench.test.ts
 ```
 
-Expected: 2 pass, 0 fail.
+Expected: FAIL with `Cannot find module './bench.ts'`.
 
-- [ ] **Step 6: Smoke-test the CLI from a built shell**
+- [ ] **Step 3: Implement the CLI command (spawn wrapper, no gateway imports)**
+
+```typescript
+/**
+ * `nimbus bench` — thin spawn wrapper.
+ *
+ * Spawns the gateway-side standalone entry script
+ * `packages/gateway/src/perf/bench-runner.ts` so that all bench measurement
+ * runs in a separate process. The CLI package is forbidden from importing
+ * `gateway/src` — see ./index.ts JSDoc line 1.
+ *
+ * Subprocess startup is a one-time invocation cost (~50 ms); per-surface
+ * aggregation (5 runs × 100 samples) dominates measurement time.
+ *
+ * Invocation forms (both produce identical output, per spec §6 criterion 1):
+ *   bun packages/cli/src/index.ts bench --surface <id> --runs N --reference
+ *   nimbus bench --surface <id> --runs N --gha
+ */
+
+import { resolve } from "node:path";
+
+function hasFlag(args: string[], flag: string): boolean {
+  return args.indexOf(flag) >= 0;
+}
+
+const HELP = `nimbus bench — perf bench harness (Phase 1A)
+
+Usage:
+  nimbus bench --surface <id> [--corpus small|medium|large] [--runs N] (--reference|--gha)
+  nimbus bench --all [--corpus ...] [--runs N] (--reference|--gha)
+
+Flags:
+  --surface <id>      surface id (S2-a is the only registered driver in PR-B-1)
+  --all               run every registered surface
+  --corpus <tier>     small | medium | large
+  --runs <N>          per-surface invocations (default 5)
+  --reference         tag as reference-m1air (requires interactive protocol confirm)
+  --gha               tag as gha-<os> (auto-derived from process.platform)
+  --history <path>    history.jsonl override
+  --fixture-cache <p> fixture cache dir override
+  --help              this message
+
+See docs/superpowers/specs/2026-04-26-perf-audit-design.md for the surface table.
+`;
+
+/**
+ * Resolve the path to bench-runner.ts. In dev / source-tree invocation we
+ * walk relative to this file's directory; in a built/bundled CLI a future
+ * task can substitute a build-time-resolved constant.
+ */
+function resolveBenchRunnerPath(): string {
+  // packages/cli/src/commands/bench.ts → packages/gateway/src/perf/bench-runner.ts
+  return resolve(import.meta.dir, "..", "..", "..", "gateway", "src", "perf", "bench-runner.ts");
+}
+
+export interface RunBenchDeps {
+  /** Test-injectable spawn (defaults to Bun.spawn). */
+  spawn?: typeof Bun.spawn;
+  /** Test-injectable stdout writer for the in-process --help branch. */
+  stdout?: (s: string) => void;
+}
+
+export async function runBench(args: string[], deps: RunBenchDeps = {}): Promise<number> {
+  const stdout = deps.stdout ?? ((s: string) => process.stdout.write(s));
+  if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
+    stdout(HELP);
+    return 0;
+  }
+
+  const spawn = deps.spawn ?? Bun.spawn;
+  const runner = resolveBenchRunnerPath();
+
+  // Use the same `bun` executable that's running this CLI. When invoked as
+  // `bun packages/cli/src/index.ts bench …`, `process.execPath` already
+  // resolves to bun.
+  const proc = spawn([process.execPath, runner, ...args], {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const exitCode = await proc.exited;
+  return typeof exitCode === "number" ? exitCode : 1;
+}
+```
+
+- [ ] **Step 4: Add to the central command barrel**
+
+In `packages/cli/src/commands/index.ts`, add the new export alphabetically (between `runAudit` and `runConfig`):
+
+```typescript
+export { runBench } from "./bench.ts";
+```
+
+- [ ] **Step 5: Wire into the CLI dispatcher**
+
+In `packages/cli/src/index.ts`:
+
+(a) Import `runBench` from the central barrel (NOT directly from `./commands/bench.ts`):
+
+```typescript
+// Add to the existing import block from "./commands/index.ts":
+import { runBench, /* …existing imports… */ } from "./commands/index.ts";
+```
+
+If the file imports each command individually rather than from a barrel, follow whichever pattern already exists in the file — verify by reading the import block at the top of `packages/cli/src/index.ts` first.
+
+(b) Add a `bench` case in the dispatcher switch alphabetically (after `case "audit":` is fine), using `process.exitCode` not `process.exit` so the `outro("Done.")` at line 175 still runs:
+
+```typescript
+        case "bench":
+          process.exitCode = await runBench(args);
+          break;
+```
+
+- [ ] **Step 6: Run tests to verify pass**
+
+```bash
+bun test packages/cli/src/commands/bench.test.ts
+```
+
+Expected: 3 pass, 0 fail.
+
+- [ ] **Step 7: Smoke-test the CLI end-to-end**
 
 ```bash
 bun packages/cli/src/index.ts bench --surface S2-a --runs 1 --corpus small --gha --history /tmp/nimbus-bench-smoke.jsonl
 ```
 
-Expected output: `S2-a  p95=...ms  p99=...ms  samples=100` and exit 0; `/tmp/nimbus-bench-smoke.jsonl` contains one JSON line.
+Expected output: `Nimbus` intro line; then `S2-a  p95=...ms  p99=...ms  samples=100`; then `Done.` outro; exit 0; `/tmp/nimbus-bench-smoke.jsonl` contains one JSON line with a UUID `run_id`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Verify the IPC-only CLI rule is preserved**
 
 ```bash
-git add packages/cli/src/commands/bench.ts packages/cli/src/commands/bench.test.ts packages/cli/src/index.ts
-git commit -m "feat(cli): add nimbus bench command"
+grep -nE "from .*gateway/src|from .*packages/gateway" packages/cli/src/commands/bench.ts
+```
+
+Expected: no output (zero matches). If any match appears, the spawn wrapper accidentally imported from gateway source — fix before commit.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add packages/cli/src/commands/bench.ts packages/cli/src/commands/bench.test.ts packages/cli/src/commands/index.ts packages/cli/src/index.ts
+git commit -m "feat(cli): add nimbus bench command (thin Bun.spawn wrapper)"
 ```
 
 ---
@@ -1645,8 +1914,11 @@ Return the PR URL.
 
 ## Self-review notes
 
-- **Spec coverage check.** PR-B-1 deliverables in spec §10 (post-revision): harness scaffolding ✅ (Tasks 1–6, 8); S2-a driver ✅ (Task 7); `nimbus bench` CLI ✅ (Task 9); empty `history.jsonl` ✅ (Task 10); `test:coverage:perf` gate ✅ (Task 11); SIGTERM/incomplete handling ✅ (Task 6, wired in Task 9). **Streaming output is intentionally deferred** to PR-B implementation review per spec §10. **Reference-protocol checklist** is enforced at runtime by Task 8's `confirmReferenceProtocol` callback (default refuses if no callback supplied — the prompt UI is implementation detail for the CLI to wire up later, not Phase 1A scope).
-- **Type-consistency check.** `BenchSurfaceId` (Task 1), `BenchRunOptions` (Task 1), `BenchSurfaceResult` (Task 1, used by Task 4), `HistoryLine` / `HistoryLineSurface` (Task 3, used by Task 8), `RunnerKind` (Task 1, used by Tasks 6, 8), `CorpusTier` (Task 1, used by Task 5) — all named identically across all tasks. `runBench` is the harness function (Task 4); `runBenchCli` is the orchestrator (Task 8); `runBench` (the CLI command export) lives in `packages/cli/src/commands/bench.ts` (Task 9) — the name shadowing across packages is intentional but could confuse a reader; kept because both names match the natural use-site idiom and the import path disambiguates.
+- **Spec coverage check.** PR-B-1 deliverables in spec §10 (post-revision): harness scaffolding ✅ (Tasks 1–6, 8); S2-a driver ✅ (Task 7); gateway-side bench-runner entry ✅ (Task 8b); `nimbus bench` CLI ✅ (Task 9); empty `history.jsonl` ✅ (Task 10); `test:coverage:perf` gate ✅ (Task 11); SIGTERM/incomplete handling ✅ (Task 6, installed in Task 8b). **Streaming output is intentionally deferred** to PR-B implementation review per spec §10. **Reference-protocol checklist** is enforced at runtime by Task 8's `confirmReferenceProtocol` callback (default refuses if no callback supplied — the prompt UI is implementation detail for the CLI to wire up later, not Phase 1A scope).
+- **Architectural rule preservation.** The CLI/gateway dependency boundary (`packages/cli/src/commands/index.ts` JSDoc line 1: *"CLI command handlers — IPC to Gateway only (no gateway source imports)"*) is preserved by the spawn-wrapper architecture. Task 8b creates a standalone gateway-side entry script at `packages/gateway/src/perf/bench-runner.ts`; Task 9's CLI command spawns it via `Bun.spawn` rather than importing from `gateway/src/`. Task 9 step 8 grep-asserts the boundary is intact before commit. Subprocess startup is one-time per CLI invocation and does not affect per-surface measurement.
+- **Run-id continuity.** The run UUID is generated once at the top of `bench-runner.ts` (Task 8b step 3) and threaded through both `runBenchCli` (Task 8) and the signal-handler `ctxFactory` (Task 8b step 3). An interrupted run records the same `run_id` it would have on success — no `"interrupted"` placeholder string.
+- **Type-consistency check.** `BenchSurfaceId` (Task 1), `BenchRunOptions` (Task 1), `BenchSurfaceResult` (Task 1, used by Task 4), `HistoryLine` / `HistoryLineSurface` (Task 3, used by Task 8), `RunnerKind` (Task 1, used by Tasks 6, 8, 8b), `CorpusTier` (Task 1, used by Task 5) — all named identically across all tasks. Function names: `runBench` is the harness (Task 4); `runBenchCli` is the orchestrator (Task 8); `runBenchRunnerMain` is the gateway-side script entry (Task 8b); `runBench` (the CLI command export) lives in `packages/cli/src/commands/bench.ts` (Task 9). The `runBench` name overlap between Task 4 (harness) and Task 9 (CLI command) is intentional — both match the natural use-site idiom; the import path disambiguates.
+- **Process exit semantics.** Task 9 step 5(b) uses `process.exitCode = await runBench(args)` rather than `process.exit(...)` so the existing `outro("Done.")` at `packages/cli/src/index.ts:175` still runs. Task 8b's top-level `if (import.meta.main)` block does the same with the runner script.
 - **Migration safety.** `scripts/capture-benchmarks.ts` is **not deleted in this PR** — Phase 2 (PR-C) does that after S2-a's first three nightly runs land in `history.jsonl`. PR-B-1 ships the new driver alongside the old script; both can coexist without conflict.
 - **Pre-existing Windows flake.** Task 12 step 1 acknowledges the `platform.test.ts` `EBUSY` flake (passes in isolation, fails under suite parallelism). Per the prior session-turn agreement, this is treated as known and unrelated to this PR.
 - **No PR-B-2 leakage.** This plan does **not** touch SLO docs, the 15 remaining drivers, or the `_perf.yml` GHA workflow — those are PR-B-2 / PR-C scope.
