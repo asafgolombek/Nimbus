@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777178784241,
+  "lastUpdate": 1777181029414,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1681,6 +1681,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5122827999999982,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "49889f354665f408a844b0466ab2b0c04b0e7a08",
+          "message": "feat: add plan-design-reviewer skill and initial design review documentation",
+          "timestamp": "2026-04-26T08:23:12+03:00",
+          "tree_id": "81c4686f93eb91d09a67a9cb74eae5fa3b801aa2",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/49889f354665f408a844b0466ab2b0c04b0e7a08"
+        },
+        "date": 1777181028517,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4995295600000025,
             "unit": "ms"
           }
         ]
