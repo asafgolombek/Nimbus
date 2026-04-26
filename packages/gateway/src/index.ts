@@ -19,7 +19,14 @@ const GATEWAY_VERSION = "0.1.0";
 async function main(): Promise<void> {
   const platform = await createPlatformServices();
   const mcp = platform.connectorMesh;
-  const dispatcher = createConnectorDispatcher(mcp as unknown as McpToolListingClient);
+  // S8-F3 / chain C4 — the planner-side dispatcher consumes the BARE tool map
+  // (structured results) so ToolExecutor / HITL gate see normal objects.
+  // The Mastra-visible mesh.listTools() returns envelope-wrapped strings.
+  const dispatcherClient: McpToolListingClient = {
+    listTools: () => mcp.listToolsForDispatcher(),
+    getToolsEpoch: () => mcp.getToolsEpoch(),
+  };
+  const dispatcher = createConnectorDispatcher(dispatcherClient);
   const engine = createNimbusEngineAgent({
     localIndex: platform.localIndex,
     ...(platform.sessionMemoryStore === undefined

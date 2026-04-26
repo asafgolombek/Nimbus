@@ -13,6 +13,7 @@ import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts"
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { readMicrosoftOAuthScopesForOutlookEnv } from "../auth/oauth-vault-tokens.ts";
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
+import { wrapToolOutput } from "../engine/tool-output-envelope.ts";
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
@@ -1186,7 +1187,12 @@ export class LazyConnectorMesh {
     await this.ensurePhase3BundleRunning();
   }
 
-  async listTools(): Promise<
+  /**
+   * Bare tool map — for the planner path (`ConnectorDispatcher` →
+   * `ToolExecutor`). Returns refcount-wrapped but otherwise structured tool
+   * results so `ToolExecutor` consumers see the same shape as upstream MCPs.
+   */
+  async listToolsForDispatcher(): Promise<
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
     await this.ensureCredentialConnectorsRunning();
@@ -1276,6 +1282,31 @@ export class LazyConnectorMesh {
           } finally {
             drain.drop();
           }
+        },
+      };
+    }
+    return merged;
+  }
+
+  /**
+   * Envelope-wrapped tool map — for the LLM-visible surface via Mastra. Each
+   * tool's execute returns a `<tool_output>`-tagged string. Use this for the
+   * agent / Mastra path; use `listToolsForDispatcher` for the planner path.
+   */
+  async listTools(): Promise<
+    Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
+  > {
+    const merged = await this.listToolsForDispatcher();
+    for (const key of Object.keys(merged)) {
+      const value = merged[key];
+      if (value === undefined) continue;
+      const inner = value.execute;
+      if (inner === undefined) continue;
+      const service = key.split("_")[0] ?? "mcp";
+      merged[key] = {
+        execute: async (input: unknown, ctx?: unknown): Promise<string> => {
+          const raw = await inner(input, ctx);
+          return wrapToolOutput({ service, tool: key }, raw);
         },
       };
     }
