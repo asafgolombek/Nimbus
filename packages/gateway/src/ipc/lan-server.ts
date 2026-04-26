@@ -1,6 +1,7 @@
 import type { Socket, TCPSocketListener } from "bun";
 import type { BoxKeypair } from "./lan-crypto.ts";
 import { openBoxFrame, sealBoxFrame } from "./lan-crypto.ts";
+import { checkLanMethodAllowed, LanError } from "./lan-rpc.ts";
 
 export interface PairingService {
   isOpen(): boolean;
@@ -212,10 +213,15 @@ export class LanServer {
     let result: unknown;
     let error: { code: string; message: string } | undefined;
     try {
+      checkLanMethodAllowed(msg.method, socket.data.peerMatch);
       result = await this.opts.onMessage(msg.method, msg.params, socket.data.peerMatch);
     } catch (err) {
-      const e = err as { code?: string; message?: string };
-      error = { code: e.code ?? "ERR_INTERNAL", message: e.message ?? String(err) };
+      if (err instanceof LanError) {
+        error = { code: `ERR_${String(err.rpcCode)}`, message: err.message };
+      } else {
+        const e = err as { code?: string; message?: string };
+        error = { code: e.code ?? "ERR_INTERNAL", message: e.message ?? String(err) };
+      }
     }
     const response = error ? { id: msg.id, error } : { id: msg.id, result };
     const replyFrame = sealBoxFrame(

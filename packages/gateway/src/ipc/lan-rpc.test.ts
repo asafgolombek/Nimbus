@@ -32,4 +32,42 @@ describe("checkLanMethodAllowed", () => {
       checkLanMethodAllowed("engine.ask", { peerId: "p", writeAllowed: true }),
     ).not.toThrow();
   });
+
+  test("rejects audit namespace regardless of grant-write", () => {
+    expect(() =>
+      checkLanMethodAllowed("audit.export", { peerId: "p", writeAllowed: true }),
+    ).toThrow(LanError);
+    expect(() => checkLanMethodAllowed("audit.list", { peerId: "p", writeAllowed: true })).toThrow(
+      LanError,
+    );
+  });
+
+  test("rejects data namespace regardless of grant-write", () => {
+    expect(() => checkLanMethodAllowed("data.delete", { peerId: "p", writeAllowed: true })).toThrow(
+      LanError,
+    );
+    expect(() => checkLanMethodAllowed("data.export", { peerId: "p", writeAllowed: true })).toThrow(
+      LanError,
+    );
+  });
+
+  test("rejects connector.addMcp regardless of grant-write", () => {
+    expect(() =>
+      checkLanMethodAllowed("connector.addMcp", { peerId: "p", writeAllowed: true }),
+    ).toThrow(LanError);
+  });
+
+  test("rejects connector.addMcp even with writeAllowed false (also forbidden, not just write-gated)", () => {
+    expect(() =>
+      checkLanMethodAllowed("connector.addMcp", { peerId: "p", writeAllowed: false }),
+    ).toThrow(LanError);
+    // Verify the error is ERR_METHOD_NOT_ALLOWED, not ERR_LAN_WRITE_FORBIDDEN
+    let thrown: LanError | undefined;
+    try {
+      checkLanMethodAllowed("connector.addMcp", { peerId: "p", writeAllowed: false });
+    } catch (e) {
+      thrown = e as LanError;
+    }
+    expect(thrown?.message).toMatch(/ERR_METHOD_NOT_ALLOWED/);
+  });
 });

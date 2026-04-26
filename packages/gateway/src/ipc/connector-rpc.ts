@@ -1,4 +1,5 @@
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import type { ToolExecutor } from "../engine/executor.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
@@ -15,7 +16,7 @@ import {
   handleConnectorStatus,
   handleConnectorSync,
 } from "./connector-rpc-handlers.ts";
-import { asRecord } from "./connector-rpc-shared.ts";
+import { asRecord, ConnectorRpcError } from "./connector-rpc-shared.ts";
 
 export { ConnectorRpcError } from "./connector-rpc-shared.ts";
 
@@ -28,9 +29,19 @@ export async function dispatchConnectorRpc(options: {
   syncScheduler: SyncScheduler | undefined;
   connectorMesh?: LazyConnectorMesh;
   notify?: (method: string, params: Record<string, unknown>) => void;
+  toolExecutor?: ToolExecutor;
 }): Promise<{ kind: "hit"; value: unknown } | { kind: "miss" }> {
-  const { method, params, vault, localIndex, openUrl, syncScheduler, connectorMesh, notify } =
-    options;
+  const {
+    method,
+    params,
+    vault,
+    localIndex,
+    openUrl,
+    syncScheduler,
+    connectorMesh,
+    notify,
+    toolExecutor,
+  } = options;
   const rec = asRecord(params);
   const ctx = {
     rec,
@@ -43,8 +54,21 @@ export async function dispatchConnectorRpc(options: {
   };
 
   switch (method) {
-    case "connector.addMcp":
+    case "connector.addMcp": {
+      if (toolExecutor === undefined) {
+        throw new ConnectorRpcError(-32603, "connector.addMcp requires a toolExecutor");
+      }
+      const addMcpRec = asRecord(params) ?? {};
+      const gateResult = await toolExecutor.gate({
+        type: "connector.addMcp",
+        payload: {
+          command: addMcpRec["command"],
+          args: addMcpRec["args"],
+        },
+      });
+      if (gateResult !== "proceed") return { kind: "hit", value: gateResult };
       return handleConnectorAddMcp(ctx);
+    }
     case "connector.listStatus":
       return handleConnectorListStatus(ctx);
     case "connector.pause":
@@ -59,8 +83,17 @@ export async function dispatchConnectorRpc(options: {
       return handleConnectorStatus(ctx);
     case "connector.healthHistory":
       return handleConnectorHealthHistory(ctx);
-    case "connector.remove":
+    case "connector.remove": {
+      if (toolExecutor === undefined) {
+        throw new ConnectorRpcError(-32603, "connector.remove requires a toolExecutor");
+      }
+      const gateResult = await toolExecutor.gate({
+        type: "connector.remove",
+        payload: { service: asRecord(params)?.["service"] },
+      });
+      if (gateResult !== "proceed") return { kind: "hit", value: gateResult };
       return handleConnectorRemove(ctx);
+    }
     case "connector.sync":
       return handleConnectorSync(ctx);
     case "connector.auth":

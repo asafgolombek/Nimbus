@@ -8,7 +8,9 @@ import { Config } from "../config.ts";
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
 import { type AgentRequestContext, agentRequestContext } from "../engine/agent-request-context.ts";
+import { bindConsentChannel, ToolExecutor } from "../engine/executor.ts";
 import { GatewayAgentUnavailableError } from "../engine/gateway-agent-error.ts";
+import type { ConnectorDispatcher } from "../engine/types.ts";
 import { driftHintsFromIndex } from "../index/drift-hints.ts";
 import type { IndexSearchQuery, LocalIndex } from "../index/local-index.ts";
 import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
@@ -440,19 +442,38 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return phase4RpcSkipped;
   }
 
-  async function tryDispatchDataRpc(method: string, params: unknown): Promise<unknown> {
+  async function tryDispatchDataRpc(
+    method: string,
+    params: unknown,
+    clientId: string,
+  ): Promise<unknown> {
     if (!method.startsWith("data.")) return phase4RpcSkipped;
     try {
       let rpcPlatform: "win32" | "darwin" | "linux";
       if (process.platform === "win32") rpcPlatform = "win32";
       else if (process.platform === "darwin") rpcPlatform = "darwin";
       else rpcPlatform = "linux";
+      // A stub dispatcher is intentional — gate() for IPC-native ops never calls dispatch().
+      const stubDispatcher: ConnectorDispatcher = {
+        dispatch(): Promise<unknown> {
+          return Promise.reject(new Error("IPC-native gate does not dispatch to MCP"));
+        },
+      };
+      const toolExecutor =
+        options.localIndex === undefined
+          ? undefined
+          : new ToolExecutor(
+              bindConsentChannel(consentImpl, clientId),
+              options.localIndex,
+              stubDispatcher,
+            );
       const out = await dispatchDataRpc(method, params, {
         index: options.localIndex,
         vault: options.vault,
         platform: rpcPlatform,
         nimbusVersion: options.version ?? "0.1.0",
         schemaVersion: CURRENT_SCHEMA_VERSION,
+        ...(toolExecutor === undefined ? {} : { toolExecutor }),
       });
       if (out.kind === "hit") return out.value;
     } catch (e) {
@@ -530,7 +551,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return handleLanLocalRpc(method, params);
   }
 
-  async function tryDispatchPhase4Rpc(method: string, params: unknown): Promise<unknown> {
+  async function tryDispatchPhase4Rpc(
+    method: string,
+    params: unknown,
+    clientId: string,
+  ): Promise<unknown> {
     const llmOutcome = await tryDispatchLlmRpc(method, params);
     if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
     const voiceOutcome = await tryDispatchVoiceRpc(method, params);
@@ -539,7 +564,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (updaterOutcome !== phase4RpcSkipped) return updaterOutcome;
     const auditOutcome = await tryDispatchAuditRpc(method, params);
     if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
-    const dataOutcome = await tryDispatchDataRpc(method, params);
+    const dataOutcome = await tryDispatchDataRpc(method, params, clientId);
     if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
     const lanOutcome = await tryDispatchLanRpc(method, params);
     if (lanOutcome !== phase4RpcSkipped) return lanOutcome;
@@ -716,7 +741,11 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return peopleRpcSkipped;
   }
 
-  async function tryDispatchConnectorRpc(method: string, params: unknown): Promise<unknown> {
+  async function tryDispatchConnectorRpc(
+    method: string,
+    params: unknown,
+    clientId: string,
+  ): Promise<unknown> {
     if (!method.startsWith("connector.") || options.localIndex === undefined) {
       return connectorRpcSkipped;
     }
@@ -725,6 +754,17 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       throw new RpcMethodError(-32603, "Gateway is not configured for OAuth (missing openUrl)");
     }
     try {
+      // A stub dispatcher is intentional — gate() for IPC-native ops never calls dispatch().
+      const stubDispatcher: ConnectorDispatcher = {
+        dispatch(): Promise<unknown> {
+          return Promise.reject(new Error("IPC-native gate does not dispatch to MCP"));
+        },
+      };
+      const toolExecutor = new ToolExecutor(
+        bindConsentChannel(consentImpl, clientId),
+        options.localIndex,
+        stubDispatcher,
+      );
       const out = await dispatchConnectorRpc({
         method,
         params,
@@ -734,6 +774,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         syncScheduler: options.syncScheduler,
         ...(options.connectorMesh === undefined ? {} : { connectorMesh: options.connectorMesh }),
         notify: broadcastNotification,
+        toolExecutor,
       });
       if (out.kind === "hit") {
         return out.value;
@@ -892,7 +933,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return automationOutcome;
     }
 
-    const connectorOutcome = await tryDispatchConnectorRpc(method, params);
+    const connectorOutcome = await tryDispatchConnectorRpc(method, params, clientId);
     if (connectorOutcome !== connectorRpcSkipped) {
       return connectorOutcome;
     }
@@ -907,7 +948,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       return peopleOutcome;
     }
 
-    const phase4Outcome = await tryDispatchPhase4Rpc(method, params);
+    const phase4Outcome = await tryDispatchPhase4Rpc(method, params, clientId);
     if (phase4Outcome !== phase4RpcSkipped) {
       return phase4Outcome;
     }

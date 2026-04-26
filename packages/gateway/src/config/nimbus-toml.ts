@@ -504,7 +504,7 @@ export type NimbusLanToml = {
 export const DEFAULT_NIMBUS_LAN_TOML: NimbusLanToml = {
   enabled: false,
   port: 7475,
-  bind: "0.0.0.0",
+  bind: "127.0.0.1",
   pairingWindowSeconds: 300,
   maxFailedAttempts: 3,
   lockoutSeconds: 60,

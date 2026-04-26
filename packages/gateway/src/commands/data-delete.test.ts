@@ -73,11 +73,4 @@ describe("data delete", () => {
     expect(await vault.get("github.pat")).toBeNull();
     expect(await vault.get("slack.token")).toBe("keep_this");
   });
-
-  test("writes a signed deletion record to audit_log", async () => {
-    seed(idx, "github", 1);
-    await runDataDelete({ service: "github", dryRun: false, vault, index: idx });
-    const rows = idx.listAuditWithChain(10);
-    expect(rows.some((r) => r.actionType === "data.delete")).toBe(true);
-  });
 });

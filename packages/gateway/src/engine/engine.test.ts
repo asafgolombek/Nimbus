@@ -1009,3 +1009,50 @@ describe("formatConsentPrompt", () => {
     expect(withPayload).toContain("/p");
   });
 });
+
+describe("ToolExecutor.gate()", () => {
+  test("gate() returns 'proceed' for non-gated action without calling consent", async () => {
+    const m = createMocks(true);
+    const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+    const result = await exec.gate({ type: "filesystem.search" });
+    expect(result).toBe("proceed");
+    expect(m.consentCalls.length).toBe(0);
+    expect(m.auditCalls[0]?.hitlStatus).toBe("not_required");
+  });
+
+  test("gate() returns 'proceed' for gated action when approved", async () => {
+    const m = createMocks(true);
+    const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+    const result = await exec.gate({ type: "data.delete", payload: { service: "github" } });
+    expect(result).toBe("proceed");
+    expect(m.consentCalls.length).toBe(1);
+    expect(m.auditCalls[0]?.hitlStatus).toBe("approved");
+    expect(m.dispatchCalls.length).toBe(0); // gate() does not dispatch
+  });
+
+  test("gate() returns rejected ActionResult when user declines", async () => {
+    const m = createMocks(false);
+    const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+    const result = await exec.gate({ type: "connector.remove", payload: { serviceId: "github" } });
+    expect(result).not.toBe("proceed");
+    expect((result as { status: string }).status).toBe("rejected");
+    expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
+    expect(m.dispatchCalls.length).toBe(0);
+  });
+
+  test("execute() does not dispatch when gate rejects", async () => {
+    const m = createMocks(false);
+    const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+    const result = await exec.execute({ type: "data.delete", payload: { service: "github" } });
+    expect(result.status).toBe("rejected");
+    expect(m.dispatchCalls.length).toBe(0);
+  });
+});
+
+describe("HITL_REQUIRED new entries (G2/G3)", () => {
+  for (const t of ["data.delete", "connector.remove", "extension.install", "connector.addMcp"]) {
+    test(`HITL_REQUIRED includes ${t}`, () => {
+      expect(HITL_REQUIRED.has(t)).toBe(true);
+    });
+  }
+});

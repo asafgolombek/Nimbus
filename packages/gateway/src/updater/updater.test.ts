@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import type { Server } from "bun";
+import { loadUpdaterPublicKey } from "./public-key.ts";
 import type { UpdaterEmit, UpdaterOptions } from "./updater.ts";
 import { Updater } from "./updater.ts";
 import { buildSignedManifest, jsonResponse, makeKeypair } from "./updater-test-fixtures.ts";
@@ -170,5 +171,97 @@ describe("Updater state machine", () => {
     expect(typeof progressEvents[0]?.total).toBe("number");
     const last = progressEvents.at(-1)!;
     expect(last.bytes).toBe(512);
+  });
+});
+
+describe("G5 — production key guard + semver re-check", () => {
+  afterEach(() => {
+    server?.stop(true);
+    downloadServer?.stop(true);
+  });
+
+  test("loadUpdaterPublicKey throws in production when NIMBUS_DEV_UPDATER_PUBLIC_KEY is set", () => {
+    const prevEnv = process.env["NODE_ENV"];
+    const prevKey = process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"];
+    process.env["NODE_ENV"] = "production";
+    process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"] = "aHCEta3sioGdbjyRtS0TdSowop//jqaBr3MqDVb7nSc=";
+    try {
+      expect(() => loadUpdaterPublicKey()).toThrow(/not permitted in production/);
+    } finally {
+      if (prevEnv === undefined) delete process.env["NODE_ENV"];
+      else process.env["NODE_ENV"] = prevEnv;
+      if (prevKey === undefined) delete process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"];
+      else process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"] = prevKey;
+    }
+  });
+
+  test("loadUpdaterPublicKey works in development when NIMBUS_DEV_UPDATER_PUBLIC_KEY is set", () => {
+    const prevEnv = process.env["NODE_ENV"];
+    const prevKey = process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"];
+    process.env["NODE_ENV"] = "development";
+    process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"] = "aHCEta3sioGdbjyRtS0TdSowop//jqaBr3MqDVb7nSc=";
+    try {
+      const key = loadUpdaterPublicKey();
+      expect(key.length).toBe(32);
+    } finally {
+      if (prevEnv === undefined) delete process.env["NODE_ENV"];
+      else process.env["NODE_ENV"] = prevEnv;
+      if (prevKey === undefined) delete process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"];
+      else process.env["NIMBUS_DEV_UPDATER_PUBLIC_KEY"] = prevKey;
+    }
+  });
+
+  test("applyUpdate throws before download when manifest version equals current", async () => {
+    const binary = new Uint8Array(randomBytes(512));
+    downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(binary),
+    });
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        jsonResponse(
+          buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`, "0.1.0"),
+        ),
+    });
+    const fetched: string[] = [];
+    const updater = makeUpdater({
+      currentVersion: "0.1.0",
+      invokeInstaller: async () => {
+        fetched.push("install");
+      },
+    });
+    await updater.checkNow();
+    await expect(updater.applyUpdate()).rejects.toThrow(/not newer than/);
+    expect(fetched.length).toBe(0);
+  });
+
+  test("applyUpdate throws before download when manifest version is older than current", async () => {
+    const binary = new Uint8Array(randomBytes(512));
+    downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(binary),
+    });
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        jsonResponse(
+          buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`, "0.1.0"),
+        ),
+    });
+    const installerCalls: string[] = [];
+    const updater2 = makeUpdater({
+      currentVersion: "0.2.0",
+      invokeInstaller: async () => {
+        installerCalls.push("install");
+      },
+    });
+    await updater2.checkNow();
+    await expect(updater2.applyUpdate()).rejects.toThrow(/not newer than/);
+    expect(installerCalls.length).toBe(0);
   });
 });

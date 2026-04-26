@@ -74,6 +74,12 @@ export class Updater {
     if (!this.lastManifest) {
       throw new Error("no manifest loaded — call checkNow() first");
     }
+    if (!semverGreater(this.lastManifest.version, this.opts.currentVersion)) {
+      throw new Error(
+        `Manifest version ${this.lastManifest.version} is not newer than ` +
+          `current version ${this.opts.currentVersion}; aborting download`,
+      );
+    }
     const asset = this.lastManifest.platforms[this.opts.target];
     if (!asset) {
       throw new Error(`no asset for target ${this.opts.target}`);

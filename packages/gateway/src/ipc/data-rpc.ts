@@ -5,6 +5,7 @@ import { normalizeConnectorServiceId } from "../connectors/connector-catalog.ts"
 import { CONNECTOR_VAULT_SECRET_KEYS } from "../connectors/connector-secrets-manifest.ts";
 import type { KdfParams } from "../db/data-vault-crypto.ts";
 import { collectIndexMetrics } from "../db/metrics.ts";
+import type { ToolExecutor } from "../engine/executor.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
@@ -19,6 +20,8 @@ export type DataRpcContext = {
   kdfParams?: KdfParams;
   /** Optional — emit JSON-RPC notifications back to the caller. */
   notify?: (method: string, params: Record<string, unknown>) => void;
+  /** Required for data.delete — runs HITL gate before deletion. */
+  toolExecutor?: ToolExecutor;
 };
 
 type RpcResult = { kind: "hit"; value: unknown } | { kind: "miss" };
@@ -122,6 +125,19 @@ async function handleDataDelete(
   const dryRun = rec["dryRun"] === true;
   if (typeof service !== "string" || service === "")
     throw new DataRpcError(-32602, "Missing param: service");
+  if (!dryRun) {
+    const executor = ctx.toolExecutor;
+    if (executor === undefined) {
+      throw new DataRpcError(-32603, "data.delete requires a toolExecutor in context");
+    }
+    const gateResult = await executor.gate({
+      type: "data.delete",
+      payload: { service },
+    });
+    if (gateResult !== "proceed") {
+      return gateResult;
+    }
+  }
   return runDataDelete({ service, dryRun, vault, index });
 }
 

@@ -13,6 +13,7 @@ import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts"
 import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { readMicrosoftOAuthScopesForOutlookEnv } from "../auth/oauth-vault-tokens.ts";
 import { getValidSlackAccessToken } from "../auth/slack-access-token.ts";
+import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
@@ -55,20 +56,6 @@ function userMcpMeshKey(serviceId: string): string {
   return `${USER_MESH_PREFIX}${serviceId}`;
 }
 
-/** MCP stdio `env` must be `Record<string, string>` (no undefined values). */
-function compactProcessEnv(extra: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined) {
-      out[k] = v;
-    }
-  }
-  for (const [k, v] of Object.entries(extra)) {
-    out[k] = v;
-  }
-  return out;
-}
-
 type LazyMeshToolMap = Record<
   string,
   { execute?: (input: unknown, context?: unknown) => Promise<unknown> }
@@ -107,6 +94,7 @@ export class LazyConnectorMesh {
         filesystem: {
           command: "bunx",
           args: ["@modelcontextprotocol/server-filesystem", paths.dataDir],
+          env: extensionProcessEnv({}),
         },
       },
     });
@@ -207,7 +195,7 @@ export class LazyConnectorMesh {
         [key]: {
           command: row.command,
           args,
-          env: { ...process.env } as Record<string, string>,
+          env: extensionProcessEnv({}),
         },
       },
     });
@@ -271,7 +259,7 @@ export class LazyConnectorMesh {
     servers["aws"] = {
       command: "bun",
       args: [mcpConnectorServerScript("aws")],
-      env: compactProcessEnv(extra),
+      env: extensionProcessEnv(extra),
     };
   }
 
@@ -287,7 +275,7 @@ export class LazyConnectorMesh {
     servers["azure"] = {
       command: "bun",
       args: [mcpConnectorServerScript("azure")],
-      env: compactProcessEnv({
+      env: extensionProcessEnv({
         AZURE_TENANT_ID: azT,
         AZURE_CLIENT_ID: azC,
         AZURE_CLIENT_SECRET: azS,
@@ -305,7 +293,7 @@ export class LazyConnectorMesh {
     servers["gcp"] = {
       command: "bun",
       args: [mcpConnectorServerScript("gcp")],
-      env: compactProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: gcpPath }),
+      env: extensionProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: gcpPath }),
     };
   }
 
@@ -319,7 +307,7 @@ export class LazyConnectorMesh {
     servers["iac"] = {
       command: "bun",
       args: [mcpConnectorServerScript("iac")],
-      env: compactProcessEnv({}),
+      env: extensionProcessEnv({}),
     };
   }
 
@@ -334,7 +322,7 @@ export class LazyConnectorMesh {
     servers["grafana"] = {
       command: "bun",
       args: [mcpConnectorServerScript("grafana")],
-      env: compactProcessEnv({ GRAFANA_URL: gfu, GRAFANA_API_TOKEN: gtk }),
+      env: extensionProcessEnv({ GRAFANA_URL: gfu, GRAFANA_API_TOKEN: gtk }),
     };
   }
 
@@ -357,7 +345,7 @@ export class LazyConnectorMesh {
     servers["sentry"] = {
       command: "bun",
       args: [mcpConnectorServerScript("sentry")],
-      env: compactProcessEnv(extra),
+      env: extensionProcessEnv(extra),
     };
   }
 
@@ -371,7 +359,7 @@ export class LazyConnectorMesh {
     servers["newrelic"] = {
       command: "bun",
       args: [mcpConnectorServerScript("newrelic")],
-      env: compactProcessEnv({ NEW_RELIC_API_KEY: nrKey }),
+      env: extensionProcessEnv({ NEW_RELIC_API_KEY: nrKey }),
     };
   }
 
@@ -394,7 +382,7 @@ export class LazyConnectorMesh {
     servers["datadog"] = {
       command: "bun",
       args: [mcpConnectorServerScript("datadog")],
-      env: compactProcessEnv(extra),
+      env: extensionProcessEnv(extra),
     };
   }
 
@@ -467,19 +455,19 @@ export class LazyConnectorMesh {
         googleServers["google_drive"] = {
           command: "bun",
           args: [mcpConnectorServerScript("google-drive")],
-          env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
+          env: extensionProcessEnv({ GOOGLE_OAUTH_ACCESS_TOKEN: token }),
         };
       } else if (id === "gmail") {
         googleServers["gmail"] = {
           command: "bun",
           args: [mcpConnectorServerScript("gmail")],
-          env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
+          env: extensionProcessEnv({ GOOGLE_OAUTH_ACCESS_TOKEN: token }),
         };
       } else {
         googleServers["google_photos"] = {
           command: "bun",
           args: [mcpConnectorServerScript("google-photos")],
-          env: { ...process.env, GOOGLE_OAUTH_ACCESS_TOKEN: token },
+          env: extensionProcessEnv({ GOOGLE_OAUTH_ACCESS_TOKEN: token }),
         };
       }
     }
@@ -509,13 +497,10 @@ export class LazyConnectorMesh {
     }
     const token = await getValidMicrosoftAccessToken(this.vault);
     const outlookScopes = await readMicrosoftOAuthScopesForOutlookEnv(this.vault);
-    const outlookEnv = {
-      ...process.env,
+    const outlookEnv = extensionProcessEnv({
       MICROSOFT_OAUTH_ACCESS_TOKEN: token,
-    } as Record<string, string>;
-    if (outlookScopes !== undefined) {
-      outlookEnv["MICROSOFT_OAUTH_SCOPES"] = outlookScopes;
-    }
+      ...(outlookScopes === undefined ? {} : { MICROSOFT_OAUTH_SCOPES: outlookScopes }),
+    });
     this.setLazyClient(
       slotKey,
       new MCPClient({
@@ -524,7 +509,7 @@ export class LazyConnectorMesh {
           onedrive: {
             command: "bun",
             args: [mcpConnectorServerScript("onedrive")],
-            env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+            env: extensionProcessEnv({ MICROSOFT_OAUTH_ACCESS_TOKEN: token }),
           },
           outlook: {
             command: "bun",
@@ -534,7 +519,7 @@ export class LazyConnectorMesh {
           teams: {
             command: "bun",
             args: [mcpConnectorServerScript("teams")],
-            env: { ...process.env, MICROSOFT_OAUTH_ACCESS_TOKEN: token },
+            env: extensionProcessEnv({ MICROSOFT_OAUTH_ACCESS_TOKEN: token }),
           },
         },
       }),
@@ -565,12 +550,12 @@ export class LazyConnectorMesh {
           github: {
             command: "bun",
             args: [mcpConnectorServerScript("github")],
-            env: { ...process.env, GITHUB_PAT: pat },
+            env: extensionProcessEnv({ GITHUB_PAT: pat }),
           },
           github_actions: {
             command: "bun",
             args: [mcpConnectorServerScript("github-actions")],
-            env: { ...process.env, GITHUB_PAT: pat },
+            env: extensionProcessEnv({ GITHUB_PAT: pat }),
           },
         },
       }),
@@ -596,10 +581,11 @@ export class LazyConnectorMesh {
     const apiBase = await this.vault.get("gitlab.api_base");
     const trimmedBase =
       apiBase !== null && apiBase.trim() !== "" ? stripTrailingSlashes(apiBase) : null;
-    const gitlabServerEnv =
+    const gitlabServerEnv = extensionProcessEnv(
       trimmedBase === null
-        ? { ...process.env, GITLAB_PAT: pat }
-        : { ...process.env, GITLAB_PAT: pat, GITLAB_API_BASE_URL: trimmedBase };
+        ? { GITLAB_PAT: pat }
+        : { GITLAB_PAT: pat, GITLAB_API_BASE_URL: trimmedBase },
+    );
     this.setLazyClient(
       slotKey,
       new MCPClient({
@@ -640,11 +626,10 @@ export class LazyConnectorMesh {
           bitbucket: {
             command: "bun",
             args: [mcpConnectorServerScript("bitbucket")],
-            env: {
-              ...process.env,
+            env: extensionProcessEnv({
               BITBUCKET_USERNAME: user,
               BITBUCKET_APP_PASSWORD: pass,
-            },
+            }),
           },
         },
       }),
@@ -680,7 +665,7 @@ export class LazyConnectorMesh {
           slack: {
             command: "bun",
             args: [mcpConnectorServerScript("slack")],
-            env: { ...process.env, SLACK_USER_ACCESS_TOKEN: token },
+            env: extensionProcessEnv({ SLACK_USER_ACCESS_TOKEN: token }),
           },
         },
       }),
@@ -711,7 +696,7 @@ export class LazyConnectorMesh {
           linear: {
             command: "bun",
             args: [mcpConnectorServerScript("linear")],
-            env: { ...process.env, LINEAR_API_KEY: apiKey },
+            env: extensionProcessEnv({ LINEAR_API_KEY: apiKey }),
           },
         },
       }),
@@ -751,12 +736,11 @@ export class LazyConnectorMesh {
           jira: {
             command: "bun",
             args: [mcpConnectorServerScript("jira")],
-            env: {
-              ...process.env,
+            env: extensionProcessEnv({
               JIRA_API_TOKEN: token,
               JIRA_EMAIL: email,
               JIRA_BASE_URL: baseUrl,
-            },
+            }),
           },
         },
       }),
@@ -796,7 +780,7 @@ export class LazyConnectorMesh {
           notion: {
             command: "bun",
             args: [mcpConnectorServerScript("notion")],
-            env: { ...process.env, NOTION_ACCESS_TOKEN: accessToken },
+            env: extensionProcessEnv({ NOTION_ACCESS_TOKEN: accessToken }),
           },
         },
       }),
@@ -836,12 +820,11 @@ export class LazyConnectorMesh {
           confluence: {
             command: "bun",
             args: [mcpConnectorServerScript("confluence")],
-            env: {
-              ...process.env,
+            env: extensionProcessEnv({
               CONFLUENCE_API_TOKEN: token,
               CONFLUENCE_EMAIL: em,
               CONFLUENCE_BASE_URL: baseUrl,
-            },
+            }),
           },
         },
       }),
@@ -873,7 +856,7 @@ export class LazyConnectorMesh {
           discord: {
             command: "bun",
             args: [mcpConnectorServerScript("discord")],
-            env: { ...process.env, DISCORD_BOT_TOKEN: token },
+            env: extensionProcessEnv({ DISCORD_BOT_TOKEN: token }),
           },
         },
       }),
@@ -914,12 +897,11 @@ export class LazyConnectorMesh {
           jenkins: {
             command: "bun",
             args: [mcpConnectorServerScript("jenkins")],
-            env: {
-              ...process.env,
+            env: extensionProcessEnv({
               JENKINS_BASE_URL: base,
               JENKINS_USERNAME: user.trim(),
               JENKINS_API_TOKEN: token.trim(),
-            },
+            }),
           },
         },
       }),
@@ -950,7 +932,7 @@ export class LazyConnectorMesh {
           circleci: {
             command: "bun",
             args: [mcpConnectorServerScript("circleci")],
-            env: { ...process.env, CIRCLECI_API_TOKEN: tok.trim() },
+            env: extensionProcessEnv({ CIRCLECI_API_TOKEN: tok.trim() }),
           },
         },
       }),
@@ -981,7 +963,7 @@ export class LazyConnectorMesh {
           pagerduty: {
             command: "bun",
             args: [mcpConnectorServerScript("pagerduty")],
-            env: { ...process.env, PAGERDUTY_API_TOKEN: tok.trim() },
+            env: extensionProcessEnv({ PAGERDUTY_API_TOKEN: tok.trim() }),
           },
         },
       }),
@@ -1017,7 +999,7 @@ export class LazyConnectorMesh {
           kubernetes: {
             command: "bun",
             args: [mcpConnectorServerScript("kubernetes")],
-            env: compactProcessEnv(kubeExtra),
+            env: extensionProcessEnv(kubeExtra),
           },
         },
       }),
