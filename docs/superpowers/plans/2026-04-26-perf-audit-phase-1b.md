@@ -15,6 +15,13 @@
 - Real Tauri renderer instrumentation that turns the S3 / S5 stubs into measurements. Separate follow-up PR scoped to `packages/ui/`.
 - CI workflow (`.github/workflows/_perf.yml`), workload thresholds in `slo.md`, `baseline.md`, `missed.md`. Phase 2 / PR-C work.
 
+**Review notes folded in** (see [`2026-04-26-perf-audit-phase-1b-review-notes.md`](./2026-04-26-perf-audit-phase-1b-review-notes.md)):
+- Note 1 (early exit detection in `spawnAndTimeToMarker` marker mode) — folded into Task 1 implementation + new test.
+- Note 2 (S11 purity — `diag --json` does I/O) — switched S11 cmd to `nimbus help` (Tasks 6 + 7); side-benefit: smoke Pass A no longer needs a non-zero exit-code workaround.
+- Note 3 (buffer growth cap in `readUntilMatch`) — **deferred**. YAGNI for early-firing markers (the marker text is matched within the first ~50 bytes); revisit if a cluster C verbose-output surface needs it.
+- Note 4 (driver failure → `incomplete: true`) — folded into Task 9 with the corrected semantic: per-surface `stub_reason: "driver-failed: ..."` (line-level `incomplete: true` would have invalidated *other* successful surface entries on the same line, breaking delta comparisons).
+- Note 5 (Ink first-frame async timing) — folded into Task 5: marker emitted from `useEffect` inside `App.tsx` (fires after first commit, env-gated by `NIMBUS_BENCH=1`); S4 driver sets that env when spawning. Replaces the original `tui.tsx` post-`inkRender` write.
+
 ---
 
 ## File map
@@ -46,7 +53,7 @@
 | `packages/gateway/src/perf/bench-cli.test.ts` | Modify | Add tests for stub-surface recording, reference-only skipping |
 | `packages/gateway/src/perf/bench-runner.ts` | Modify | Update help text to list the new surface IDs |
 | `packages/gateway/src/perf/index.ts` | Modify | Re-export the new drivers + stub-reason types |
-| `packages/cli/src/commands/tui.tsx` | Modify | Add `[tui] first-frame` stderr marker once Ink mounts (one line) |
+| `packages/cli/src/tui/App.tsx` | Modify | Env-gated `useEffect` emits `[tui] first-frame` to stderr after first commit (S4 marker) |
 
 **Total:** 19 files created, 6 modified.
 
@@ -188,6 +195,19 @@ describe("spawnAndTimeToMarker", () => {
       }),
     ).rejects.toThrow(/exit/i);
   });
+
+  test("marker mode: throws if child exits before the marker is matched", async () => {
+    await expect(
+      spawnAndTimeToMarker({
+        cmd: "fake",
+        args: [],
+        mode: "marker",
+        marker: /never-matches/,
+        timeoutMs: 30_000,
+        spawn: fakeSpawn({ stdout: ["something else\n"], exitCode: 1 }),
+      }),
+    ).rejects.toThrow(/exited.*before marker/i);
+  });
 });
 ```
 
@@ -317,6 +337,10 @@ export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<n
     }
   };
 
+  // Race: stdout match, stderr match, timeout, OR child exits before marker.
+  // The exit racer guards against the case where the child crashes pre-marker
+  // (missing dep, port collision, invalid config) — without it the helper
+  // would hang until timeoutMs.
   const racers: Promise<unknown>[] = [
     readUntilMatch(proc.stdout, marker, onMatch, ac.signal),
     readUntilMatch(proc.stderr, marker, onMatch, ac.signal),
@@ -325,6 +349,11 @@ export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<n
         if (!matched) reject(new Error(`spawn-and-time timeout after ${timeoutMs}ms`));
       }, timeoutMs),
     ),
+    proc.exited.then((code) => {
+      if (!matched) {
+        throw new Error(`child exited with code ${code} before marker matched`);
+      }
+    }),
   ];
 
   try {
@@ -692,49 +721,52 @@ git commit -m "feat(perf): add S2-c query-latency wrapper (1M tier, reference-on
 ## Task 5 — TUI first-frame marker + S4 driver
 
 **Files:**
-- Modify: `packages/cli/src/commands/tui.tsx` (one-line stderr write after Ink mounts)
+- Modify: `packages/cli/src/tui/App.tsx` (env-gated `useEffect` emits the marker after first commit)
 - Create: `packages/gateway/src/perf/surfaces/bench-tui-first-paint.ts`
 - Create: `packages/gateway/src/perf/surfaces/bench-tui-first-paint.test.ts`
 
-S4 measures `nimbus tui` first-paint. Ink's `render()` returns once the initial frame has been drawn to the terminal, so writing the marker line immediately after `inkRender(...)` returns is a faithful first-paint signal. Use stderr (not stdout) so the marker doesn't interleave with Ink's TTY output. Test injects fake spawn yielding a synthetic marker line.
+S4 measures `nimbus tui` first-paint. Ink's `render()` returns synchronously *before* React's first commit completes, so writing the marker right after `inkRender(...)` would fire optimistically (before the first frame is actually flushed to the TTY). Instead, emit the marker from a `useEffect(() => {...}, [])` inside the `App` component — that callback fires after the first commit, which guarantees the first frame has been written to stdout.
 
-- [ ] **Step 1: Add the first-frame marker to the TUI command**
+The marker is gated on `NIMBUS_BENCH === "1"` so production users (running `nimbus tui` normally) never see the stderr line. The S4 driver sets that env when spawning.
 
-Modify `packages/cli/src/commands/tui.tsx`. After the existing `const ink = inkRender(...)` block (around line 72-84), add a stderr write before `await ink.waitUntilExit()`:
+- [ ] **Step 1: Add the env-gated first-frame marker to `App.tsx`**
+
+Modify `packages/cli/src/tui/App.tsx`. Inside the `App` component (after the existing notification-handler `useEffect`), add a one-shot effect that emits the marker on first commit:
 
 ```diff
-       const ink = inkRender(
-         <IpcContext.Provider value={{ client, logger }}>
-           <App
-             historyPath={historyPath}
-             onExit={() => {
-               ink.unmount();
-               void cleanup().then(() => {
-                 process.exit(0);
-               });
-             }}
-           />
-         </IpcContext.Provider>,
-       );
-+      // Bench marker for S4 first-paint (docs/perf/slo-ux.md §S4). Stderr
-+      // avoids interleaving with Ink's stdout-based rendering.
+   // Install notification handlers once.
+   React.useEffect(() => {
+     client.onNotification("engine.streamToken", (p) => {
+       ...
+     });
+   }, [client]);
+
++  // Bench marker for S4 first-paint (docs/perf/slo-ux.md §S4). Fires after
++  // the first commit (i.e., after Ink has flushed the first frame to TTY).
++  // Env-gated so production users never see the stderr line.
++  React.useEffect(() => {
++    if (process.env["NIMBUS_BENCH"] === "1") {
 +      process.stderr.write("[tui] first-frame\n");
-       await ink.waitUntilExit();
++    }
++  }, []);
++
+   // Flush live buffer into <Static> when stream ends.
+   const prevModeRef = React.useRef(state.mode);
 ```
 
 - [ ] **Step 2: Verify the TUI tests still pass**
 
 ```bash
-bun test packages/cli/src/commands/tui.test.ts packages/cli/src/tui/
+bun test packages/cli/src/tui/
 ```
 
-Expected: same number of tests passing as before; no regressions.
+Expected: same number of tests passing as before; no regressions. The marker is env-gated and `NIMBUS_BENCH` is unset during normal test runs, so `App.test.tsx` is unaffected.
 
 - [ ] **Step 3: Commit the marker**
 
 ```bash
-git add packages/cli/src/commands/tui.tsx
-git commit -m "feat(cli): emit [tui] first-frame stderr marker for S4 bench"
+git add packages/cli/src/tui/App.tsx
+git commit -m "feat(cli): emit env-gated [tui] first-frame marker after first commit (S4)"
 ```
 
 - [ ] **Step 4: Write the failing S4 driver test**
@@ -789,13 +821,17 @@ Expected: FAIL with module-not-found.
 /**
  * S4 — TUI first-paint (`nimbus tui` → first frame).
  *
- * Spawns `bun packages/cli/src/index.ts tui` per sample and times to the
- * `[tui] first-frame` stderr marker emitted right after Ink's render()
- * returns (first frame painted). Sends SIGTERM after the marker.
+ * Spawns `bun packages/cli/src/index.ts tui` per sample with NIMBUS_BENCH=1
+ * set, and times to the `[tui] first-frame` stderr marker emitted from a
+ * useEffect inside App.tsx — that effect fires after React's first commit,
+ * which is *after* Ink has flushed the first frame to the TTY. Sends
+ * SIGTERM after the marker.
  *
  * Note: a running gateway is a precondition — the TUI command exits early
  * if the gateway state is unreadable. The bench operator is responsible
- * for running `nimbus start` before invoking this surface.
+ * for running `nimbus start` before invoking this surface; if the gateway
+ * isn't running, the spawn-and-time helper's pre-marker exit guard will
+ * throw and the bench-cli will record a per-surface stub_reason.
  */
 
 import { resolve } from "node:path";
@@ -831,6 +867,7 @@ export async function runTuiFirstPaintOnce(
       mode: "marker",
       marker: FIRST_FRAME_MARKER,
       timeoutMs: TUI_TIMEOUT_MS,
+      env: { NIMBUS_BENCH: "1" },
       ...(runOpts.spawn !== undefined && { spawn: runOpts.spawn }),
     });
     samples.push(ms);
@@ -911,9 +948,12 @@ Expected: FAIL.
 /**
  * S11-a — CLI invocation overhead (cold).
  *
- * Spawns a fresh `bun packages/cli/src/index.ts diag --json` per sample and
- * times to clean exit. `diag --json` is used because it produces output
- * (some bytes flushed before exit) without requiring a running gateway.
+ * Spawns a fresh `bun packages/cli/src/index.ts help` per sample and times
+ * to clean exit. `help` is chosen because it dispatches synchronously to
+ * `printHelp()` and exits 0 — no gateway connection, no async I/O beyond
+ * the unavoidable file-logger setup. That isolates the measurement to
+ * Bun runtime warm-up + module loading + argv dispatch (the actual
+ * "invocation overhead" we're trying to characterise).
  *
  * 10 samples per run — CLI invocation is fast enough that a larger sample
  * size is cheap and tightens the p95 estimate.
@@ -945,7 +985,7 @@ export async function runCliOverheadColdOnce(
   for (let i = 0; i < CLI_COLD_SAMPLES_PER_RUN; i += 1) {
     const ms = await spawnAndTimeToMarker({
       cmd: process.execPath,
-      args: [entry, "diag", "--json"],
+      args: [entry, "help"],
       mode: "exit",
       timeoutMs: CLI_TIMEOUT_MS,
       ...(runOpts.spawn !== undefined && { spawn: runOpts.spawn }),
@@ -1028,12 +1068,16 @@ Expected: FAIL.
 /**
  * S11-b — CLI invocation overhead (warm).
  *
- * Approximates "second invocation in the same shell" by running each sample
- * as a discarded warm-up + a measured invocation pair. This warms the OS
- * file cache for the CLI entry; Bun runtime caches are inherently per-process
- * so the warm/cold distinction here is dominated by file-system caching.
+ * Approximates "second invocation in the same shell" by running one
+ * discarded warm-up invocation before the measurement loop. This warms
+ * the OS file cache for the CLI entry; Bun runtime caches are inherently
+ * per-process so the warm/cold distinction here is dominated by
+ * file-system caching.
  *
- * 20 samples per run — each sample is two cheap invocations.
+ * Uses `nimbus help` (same as S11-a) so cold-vs-warm differs only in
+ * file-cache state, not in the work the CLI does post-startup.
+ *
+ * 20 samples per run — each sample is one cheap invocation.
  */
 
 import { resolve } from "node:path";
@@ -1059,7 +1103,7 @@ export async function runCliOverheadWarmOnce(
 ): Promise<number[]> {
   const samples: number[] = [];
   const entry = runOpts.cliEntry ?? defaultCliEntry();
-  const args = [entry, "diag", "--json"];
+  const args = [entry, "help"];
 
   // One discarded invocation outside the loop primes the file cache.
   await spawnAndTimeToMarker({
@@ -1400,6 +1444,34 @@ describe("runBenchCli — PR-B-2a registrations", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("a driver failure records stub_reason and continues (does not abort the run)", async () => {
+    const dir = freshDir();
+    const historyPath = join(dir, "history.jsonl");
+    try {
+      const exitCode = await runBenchCli(
+        ["--surface", "S2-a", "--runs", "1", "--corpus", "small", "--gha"],
+        {
+          runId: "drv-fail-test",
+          historyPath,
+          fixtureCacheDir: dir,
+          stdout: () => {},
+          stderr: () => {},
+          // Inject a S2-a driver that throws — exercises the bench-cli
+          // try/catch wrapper without depending on a real spawn.
+          surfaceDriverOverrides: {
+            "S2-a": () => Promise.reject(new Error("synthetic driver failure")),
+          },
+        },
+      );
+      expect(exitCode).toBe(0);
+      const line = JSON.parse(readFileSync(historyPath, "utf8").trim());
+      expect(line.surfaces["S2-a"].samples_count).toBe(0);
+      expect(line.surfaces["S2-a"].stub_reason).toMatch(/driver-failed.*synthetic/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 ```
 
@@ -1462,6 +1534,12 @@ export interface BenchCliDeps {
   confirmReferenceProtocol?: () => boolean | Promise<boolean>;
   /** Defaults to env-aware lookup; tests inject a stub. */
   resolveGitSha?: () => string;
+  /**
+   * Test-only: replace the SURFACE_REGISTRY entry for specific ids. Used by
+   * unit tests to verify orchestration behaviour (driver failure, success
+   * paths) without depending on real spawn / fixture state.
+   */
+  surfaceDriverOverrides?: Partial<Record<BenchSurfaceId, DriverFn>>;
 }
 
 type DriverFn = (
@@ -1595,13 +1673,29 @@ export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<n
       continue;
     }
 
-    const driver = SURFACE_REGISTRY[id as BenchSurfaceId];
+    const driver =
+      deps.surfaceDriverOverrides?.[id as BenchSurfaceId] ?? SURFACE_REGISTRY[id as BenchSurfaceId];
     if (driver === undefined) {
       stderr(`Surface ${id} has no driver registered yet (PR-B-2b work).`);
       return 2;
     }
     const runOpts = deps.fixtureCacheDir !== undefined ? { cacheDir: deps.fixtureCacheDir } : {};
-    const result = await runBench(id, (o) => driver(o, runOpts), opts);
+
+    // A driver failure (e.g., S4 invoked with no gateway running, or any
+    // spawn-based driver hitting a missing dependency) must not abort the
+    // entire run. Record a per-surface stub_reason and continue — successful
+    // surface entries on the same line stay valid for delta comparisons.
+    let result;
+    try {
+      result = await runBench(id, (o) => driver(o, runOpts), opts);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      surfaceResults[id] = { samples_count: 0, stub_reason: `driver-failed: ${msg}` };
+      stderr(`${id} driver failed: ${msg}`);
+      deps.stdout(`${id}  failed: ${msg}`);
+      continue;
+    }
+
     surfaceResults[id] = resultToHistorySurface(result);
     deps.stdout(
       `${id}  p95=${result.p95Ms?.toFixed(2) ?? "-"}ms  p99=${result.p99Ms?.toFixed(2) ?? "-"}ms  samples=${result.samplesCount}`,
@@ -1770,7 +1864,7 @@ A bench fails when either:
 | S8 | Embedding generation throughput (MiniLM) | Workload | synthetic text fixtures (50/500/5 000 chars; batch sizes 1/8/32/64) | items/sec by `(length, batch)`; matrix output | TBD Phase 2 | per-OS TBD Phase 2 | 25 %, 5 items/sec | (workload surface — set after measurement) |
 | S9 | Local LLM round-trip (Ollama, `llama3.2:3b-instruct-q4_K_M`, warm-model) | Workload | canonical 3-prompt set; **reference only on Apple Silicon GPU**; GHA-skipped | first-token-ms p50 + tokens/sec median across 5 runs per prompt | TBD Phase 2 | n/a (skipped) | 30 %, 50 ms / 2 tps | (workload surface — set after measurement) |
 | S10 | SQLite write throughput under contention | Workload | scripted concurrent writers (sync + watcher fire + audit append) against fresh DB | writes/sec p50 across 5 runs | TBD Phase 2 | per-OS TBD Phase 2 | 25 %, 100 writes/sec | (workload surface — set after measurement) |
-| S11-a | CLI invocation overhead — **cold** (`nimbus query`, `nimbus diag`) | UX | fresh process, no warm cache | p95 ms across 5 invocations | **≤300 ms** | ≤1 500 ms | 25 %, 50 ms | Nielsen 1 s flow threshold¹ |
+| S11-a | CLI invocation overhead — **cold** (`nimbus help`) | UX | fresh process, no warm cache | p95 ms across 5 invocations | **≤300 ms** | ≤1 500 ms | 25 %, 50 ms | Nielsen 1 s flow threshold¹ |
 | S11-b | CLI invocation overhead — **warm** | UX | second invocation within same shell | p95 ms across 5 invocations | **≤50 ms** | ≤250 ms | 25 %, 10 ms | RAIL Response budget³ |
 
 ## Surfaces shipped as stubs in PR-B-2a
@@ -1844,7 +1938,7 @@ for surface in S1 S2-a S2-b S2-c S3 S5 S11-a S11-b; do
 done
 ```
 
-Expected: 8 successful invocations, each appending one JSON line to `$HIST`. `S2-c` carries `stub_reason: "reference-only — skipped on gha-..."`; `S3` and `S5` carry the `renderer instrumentation pending` stub reason; the others have non-zero `samples_count`.
+Expected: 8 successful invocations, each appending one JSON line to `$HIST`. `S2-c` carries `stub_reason: "reference-only — skipped on gha-..."`; `S3` and `S5` carry the `renderer instrumentation pending` stub reason; the others have non-zero `samples_count`. S11-a/b spawn `nimbus help` (Note 2 fix) — does not require a gateway.
 
 **Pass B — gateway running** (covers S4 only). In a separate shell:
 
