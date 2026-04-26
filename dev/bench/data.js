@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777191059434,
+  "lastUpdate": 1777191403985,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1739,6 +1739,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4974411999999955,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "4289b0177ea51500d2fbaaab220b67c921ab473c",
+          "message": "feat: add CodeQL static analysis workflow for Rust and JS/TS",
+          "timestamp": "2026-04-26T11:16:06+03:00",
+          "tree_id": "b44f819b73466bbbe4ad27b4d78d77067561a03f",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/4289b0177ea51500d2fbaaab220b67c921ab473c"
+        },
+        "date": 1777191402792,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.2945210600000001,
             "unit": "ms"
           }
         ]
