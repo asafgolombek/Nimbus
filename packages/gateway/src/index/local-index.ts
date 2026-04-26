@@ -266,6 +266,17 @@ export interface LanPeerRow {
 /** Current indexed DB schema version — also accessible as `LocalIndex.SCHEMA_VERSION`. */
 export const CURRENT_SCHEMA_VERSION = 23;
 
+/**
+ * S4-F1 — explicit allowlist for `LocalIndex.getMeta` / `setMeta`. The `_meta`
+ * table is reused for these UI-facing keys; entries outside this set are
+ * rejected so the IPC handlers cannot become a back-door config surface.
+ */
+const ALLOWED_META_KEYS = new Set<string>(["onboarding_completed"]);
+
+export function isAllowedMetaKey(key: string): boolean {
+  return ALLOWED_META_KEYS.has(key);
+}
+
 export class LocalIndex {
   static readonly SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
@@ -808,6 +819,36 @@ export class LocalIndex {
       `INSERT INTO _meta (key, value) VALUES ('audit_verified_through_id', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [String(v)],
+    );
+  }
+
+  /**
+   * S4-F1 — generic key/value reader for the `_meta` table, scoped to an
+   * explicit allowlist. Returns null when the key is unknown or absent.
+   */
+  getMeta(key: string): string | null {
+    if (!ALLOWED_META_KEYS.has(key)) {
+      throw new Error(`db.getMeta: key '${key}' is not in the whitelist`);
+    }
+    const row = this.db.query("SELECT value FROM _meta WHERE key = ?").get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  /**
+   * S4-F1 — generic key/value writer for the `_meta` table, scoped to an
+   * explicit allowlist. Defends against future callers using db.setMeta as
+   * a back-door config.set surrogate.
+   */
+  setMeta(key: string, value: string): void {
+    if (!ALLOWED_META_KEYS.has(key)) {
+      throw new Error(`db.setMeta: key '${key}' is not in the whitelist`);
+    }
+    this.db.run(
+      `INSERT INTO _meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [key, value],
     );
   }
 

@@ -255,6 +255,34 @@ function rpcIndexMetrics(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
   return { kind: "hit", value: serializeMetrics(requireDb(ctx)) };
 }
 
+function rpcDbGetMeta(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
+  const rec = asRecord(params);
+  const key = typeof rec?.["key"] === "string" ? rec["key"] : "";
+  if (key === "") {
+    throw new DiagnosticsRpcError(-32602, "Missing key");
+  }
+  try {
+    return { kind: "hit", value: { value: requireLocalIndex(ctx).getMeta(key) } };
+  } catch (e) {
+    throw new DiagnosticsRpcError(-32602, e instanceof Error ? e.message : String(e));
+  }
+}
+
+function rpcDbSetMeta(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
+  const rec = asRecord(params);
+  const key = typeof rec?.["key"] === "string" ? rec["key"] : "";
+  const value = typeof rec?.["value"] === "string" ? rec["value"] : undefined;
+  if (key === "" || value === undefined) {
+    throw new DiagnosticsRpcError(-32602, "Missing key or value");
+  }
+  try {
+    requireLocalIndex(ctx).setMeta(key, value);
+    return { kind: "hit", value: { ok: true } };
+  } catch (e) {
+    throw new DiagnosticsRpcError(-32602, e instanceof Error ? e.message : String(e));
+  }
+}
+
 function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
   const rec = asRecord(params);
   const rawSinceMs = rec?.["sinceMs"];
@@ -411,6 +439,10 @@ export function dispatchDiagnosticsRpc(
       return rpcDbSnapshotsPrune(params, ctx);
     case "db.restore.preview":
       return rpcDbRestorePreview(params, ctx);
+    case "db.getMeta":
+      return rpcDbGetMeta(params, ctx);
+    case "db.setMeta":
+      return rpcDbSetMeta(params, ctx);
     case "index.metrics":
       return rpcIndexMetrics(ctx);
     case "index.queryItems":

@@ -45,8 +45,9 @@ export function assertReadOnlySelectSql(sql: string): void {
     throw new SqlGuardError("Statement contains a forbidden keyword");
   }
   PRAGMA_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = PRAGMA_RE.exec(trimmed)) !== null) {
+  while (true) {
+    const match = PRAGMA_RE.exec(trimmed);
+    if (match === null) break;
     const name = (match[1] ?? "").toLowerCase();
     if (!ALLOWED_PRAGMA.has(name)) {
       throw new SqlGuardError(`Disallowed PRAGMA in statement: ${name}`);
