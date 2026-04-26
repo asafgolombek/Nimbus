@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777193596201,
+  "lastUpdate": 1777195792806,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1826,6 +1826,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.6133165199999997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "806453a7419f290ea4d26f2cb1d84cb3bec730bb",
+          "message": "feat: implement security fixes for low-tier audit findings across gateway, vault, and application subsystems",
+          "timestamp": "2026-04-26T12:29:18+03:00",
+          "tree_id": "1ad46431ee3f301c8608e7495c572b79e1d26cba",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/806453a7419f290ea4d26f2cb1d84cb3bec730bb"
+        },
+        "date": 1777195792196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.503556179999996,
             "unit": "ms"
           }
         ]
