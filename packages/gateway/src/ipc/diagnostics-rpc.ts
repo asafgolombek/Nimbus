@@ -290,12 +290,15 @@ function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): Diagno
   return { kind: "hit", value: { items: rows, meta: { limit, total: rows.length } } };
 }
 
-function rpcIndexQuerySql(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
+async function rpcIndexQuerySql(
+  params: unknown,
+  ctx: DiagnosticsRpcContext,
+): Promise<DiagnosticsRpcOutcome> {
   const rec = asRecord(params);
   const sql = typeof rec?.["sql"] === "string" ? rec["sql"] : "";
   try {
     const dbPath = join(ctx.dataDir, "nimbus.db");
-    const rows = runReadOnlySelect(dbPath, sql);
+    const rows = await runReadOnlySelect(dbPath, sql);
     return { kind: "hit", value: { rows, meta: { count: rows.length } } };
   } catch (e) {
     if (e instanceof SqlGuardError) {
@@ -388,7 +391,7 @@ export function dispatchDiagnosticsRpc(
   method: string,
   params: unknown,
   ctx: DiagnosticsRpcContext,
-): DiagnosticsRpcOutcome {
+): DiagnosticsRpcOutcome | Promise<DiagnosticsRpcOutcome> {
   switch (method) {
     case "config.validate":
       return rpcConfigValidate(ctx);
