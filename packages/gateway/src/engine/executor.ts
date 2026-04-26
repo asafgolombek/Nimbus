@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { formatAuditPayload } from "../audit/format-audit-payload.ts";
+import { redactAuditPayload } from "../audit/format-audit-payload.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
 import { ConsentDisconnectedError } from "../ipc/consent.ts";
 import type {
@@ -168,7 +168,7 @@ function auditPayload(
   action: PlannedAction,
   extras: { hitlRejectReason?: string } | undefined,
 ): string {
-  return formatAuditPayload(extras === undefined ? { action } : { action, ...extras });
+  return redactAuditPayload(extras === undefined ? { action } : { action, ...extras });
 }
 
 export class ToolExecutor {

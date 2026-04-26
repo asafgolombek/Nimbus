@@ -2,6 +2,7 @@ import { Mastra } from "@mastra/core";
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 
+import { redactAuditPayload } from "../audit/format-audit-payload.ts";
 import { Config } from "../config.ts";
 import { CONNECTOR_SERVICE_IDS } from "../connectors/connector-catalog.ts";
 import { getConnectorHealth } from "../connectors/health.ts";
@@ -248,7 +249,20 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
         typeof q["limit"] === "number" && Number.isFinite(q["limit"])
           ? Math.min(1000, Math.max(1, Math.floor(q["limit"])))
           : 20;
-      return { entries: deps.localIndex.listAudit(limit) };
+      const raw = deps.localIndex.listAudit(limit);
+      // S1-F6 — re-redact persisted action_json before exposing to LLM context.
+      // Write-side redaction (S2-F2) covers new rows; legacy rows pre-dating
+      // that fix are scrubbed here as defense-in-depth.
+      const entries = raw.map((row) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(row.actionJson) as unknown;
+        } catch {
+          parsed = row.actionJson;
+        }
+        return { ...row, actionJson: redactAuditPayload(parsed) };
+      });
+      return { entries };
     },
   });
 

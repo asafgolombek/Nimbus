@@ -535,6 +535,28 @@ describe("ToolExecutor — HITL whitelist", () => {
     expect(m.auditCalls[0]?.hitlStatus).toBe("rejected");
     expect(m.auditCalls[0]?.actionType).toBe("file.delete");
   });
+
+  test("audit row body redacts credential-shaped keys (S2-F2)", async () => {
+    const m = createMocks(true);
+    const exec = new ToolExecutor(m.consent, m.audit, m.connectors);
+    await exec.execute({
+      type: "slack.message.post",
+      payload: {
+        mcpToolId: "slack_slack_message_post",
+        input: {
+          channel: "C0123",
+          text: "hi",
+          headers: { Authorization: "Bearer SHOULD_NOT_LEAK" },
+          apiToken: "SHOULD_NOT_LEAK_2",
+        },
+      },
+    });
+    expect(m.auditCalls.length).toBe(1);
+    const json = m.auditCalls[0]?.actionJson ?? "";
+    expect(json.includes("SHOULD_NOT_LEAK")).toBe(false);
+    expect(json.includes("SHOULD_NOT_LEAK_2")).toBe(false);
+    expect(json.includes("[REDACTED]")).toBe(true);
+  });
 });
 
 describe("ToolExecutor — rejected consent (email)", () => {
