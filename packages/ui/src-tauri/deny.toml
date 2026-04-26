@@ -48,6 +48,21 @@ ignore = [
   "RUSTSEC-2025-0081", # unic-char-property (new advisory, DB updated 2026-04)
   "RUSTSEC-2025-0098", # unic-char-property (original advisory)
   "RUSTSEC-2025-0100", # unic-ucd-ident
+  # --- Concrete-bug advisories (not "unmaintained") — kept separate so a
+  #     future maintainer can audit blast radius rather than reflexively
+  #     re-ignore.
+  # glib 0.18.5 unsoundness in VariantStrIter Iterator/DoubleEndedIterator
+  # impls. Fixed in glib 0.20. Transitive via tray-icon → tauri 2.10.3
+  # (Linux GTK stack). Nimbus does not use VariantStrIter directly; trigger
+  # path is GVariant iteration inside Tauri's GTK code on malformed input.
+  # Revisit when Tauri bumps gtk-rs to 0.20+.
+  "RUSTSEC-2024-0429",
+  # rand 0.7.3 unsoundness when combined with a custom logger using
+  # rand::rng(). Fixed in rand 0.8.6. Build-time only: pulled in via
+  # phf_codegen → selectors → kuchikiki → tauri-utils (HTML perfect-hash
+  # codegen). Runtime code uses rand 0.8.6 (also in lockfile). No runtime
+  # exposure; revisit when tauri-utils drops the kuchikiki dep tree.
+  "RUSTSEC-2026-0097",
 ]
 
 [licenses]
