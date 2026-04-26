@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777181029414,
+  "lastUpdate": 1777191059434,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1710,6 +1710,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4995295600000025,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cf8a4284aff0420efa13a1f95a09d3139e3cacbc",
+          "message": "Merge pull request #113 from asafgolombek/dev/asafgolombek/security-fixes-medium\n\nfix(security): Medium-tier security findings (PR 2 of 3)",
+          "timestamp": "2026-04-26T11:10:28+03:00",
+          "tree_id": "f5d25596aba3e8721595931f27f2a5ae2d5fcc88",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/cf8a4284aff0420efa13a1f95a09d3139e3cacbc"
+        },
+        "date": 1777191058813,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4974411999999955,
             "unit": "ms"
           }
         ]
