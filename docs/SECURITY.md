@@ -119,6 +119,10 @@ The Gateway listens only on a local domain socket (Unix) or named pipe (Windows)
 
 > **⚠️ Auto-updater (Phase 4 WS4) — pre-flight security audit in progress:** The auto-update pipeline (`nimbus update`) is implemented but not yet wired into the production gateway entrypoint. A security audit has identified that the `NIMBUS_DEV_UPDATER_PUBLIC_KEY` environment override is honoured in production builds (no build-time gate), and that the download does not re-verify the version order before proceeding. These gaps must be fixed before the updater is enabled. Tracked in branch `dev/asafgolombek/security-audit`.
 
+#### Updater temp directory cleanup
+
+`Updater.applyUpdate` writes the verified installer to a fresh temp directory created by `mkdtempSync(join(tmpdir(), "nimbus-update-"))`. The directory and its contents are deleted in a `finally` block after the platform installer returns (success or failure). The installer binary is written with mode `0o600` and is never readable by other users on a shared machine. The `lastError` field exposed via `updater.getStatus` is scrubbed of URL userinfo (`user:pass@`) before storage so a misconfigured `manifestUrl` cannot leak credentials through the diagnostic surface.
+
 ---
 
 ### Prompt Injection

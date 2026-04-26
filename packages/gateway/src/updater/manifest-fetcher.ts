@@ -1,11 +1,29 @@
 import type { PlatformTarget, UpdateManifest } from "./types.ts";
 
+/**
+ * S6-F9 — strip URL userinfo before it lands in any error message. Mirror
+ * of `redactUrlUserinfo` in updater.ts; kept here too to avoid a circular
+ * import.
+ */
+function redactUrlUserinfoInMessage(message: string): string {
+  return message.replace(/[a-zA-Z0-9+\-.]+:\/\/[^\s/]+@[^\s/]+/g, (urlMatch) => {
+    try {
+      const u = new URL(urlMatch);
+      u.username = "";
+      u.password = "";
+      return u.toString();
+    } catch {
+      return "[REDACTED-URL]";
+    }
+  });
+}
+
 export class ManifestFetchError extends Error {
   constructor(
     message: string,
     public override readonly cause?: unknown,
   ) {
-    super(message);
+    super(redactUrlUserinfoInMessage(message));
     this.name = "ManifestFetchError";
   }
 }
@@ -34,6 +52,11 @@ export function isPermittedSchemeForUpdater(url: string): boolean {
 }
 
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+/**
+ * S6-F11 — accept either a bare ISO date (`2026-04-26`) or a full ISO-8601
+ * datetime with timezone (`2026-04-26T12:34:56Z` or `+02:00` offset).
+ */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/;
 
 const PLATFORM_TARGETS = new Set<string>([
   "darwin-x86_64",
@@ -73,6 +96,12 @@ function validateManifest(raw: unknown): UpdateManifest {
   const pub_date = m["pub_date"];
   if (typeof pub_date !== "string") {
     throw new ManifestFetchError("manifest.pub_date must be a string");
+  }
+  // S6-F11 — pub_date must be a well-formed ISO-8601 date so any future
+  // consumer (sort, freshness check, audit row) can parse it without ad-hoc
+  // string checks downstream.
+  if (!ISO_DATE_RE.test(pub_date)) {
+    throw new ManifestFetchError(`manifest.pub_date is not well-formed ISO-8601: ${pub_date}`);
   }
   if (typeof m["platforms"] !== "object" || m["platforms"] === null) {
     throw new ManifestFetchError("manifest.platforms must be an object");

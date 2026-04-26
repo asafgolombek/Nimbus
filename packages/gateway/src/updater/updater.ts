@@ -1,6 +1,27 @@
+import { sha256HexEqualConstantTime } from "../util/hex-compare.ts";
 import { fetchUpdateManifest, isPermittedSchemeForUpdater } from "./manifest-fetcher.ts";
 import { sha256Hex, verifyBinarySignature, verifyManifestEnvelope } from "./signature-verifier.ts";
 import type { PlatformTarget, UpdateManifest, UpdaterStatus } from "./types.ts";
+
+/**
+ * S6-F9 — strip URL userinfo (user:pass@) from a message string before it
+ * lands in `lastError` or in any externally-visible field. The scheme pattern
+ * permits compound schemes (`git+https://`, `chrome-extension://`) and the
+ * authority pattern stops at the first `/` so paths containing `@` (mailto-
+ * like, query strings) are bounded.
+ */
+export function redactUrlUserinfo(message: string): string {
+  return message.replace(/[a-zA-Z0-9+\-.]+:\/\/[^\s/]+@[^\s/]+/g, (urlMatch) => {
+    try {
+      const u = new URL(urlMatch);
+      u.username = "";
+      u.password = "";
+      return u.toString();
+    } catch {
+      return "[REDACTED-URL]";
+    }
+  });
+}
 
 /** S6-F3 — manifest-controlled OOM defence. 500 MiB is well above any realistic Nimbus binary. */
 export const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024;
@@ -78,7 +99,10 @@ export class Updater {
       return result;
     } catch (err) {
       this.state = "failed";
-      this.lastError = err instanceof Error ? err.message : String(err);
+      // S6-F9 — never echo URL userinfo into `lastError`. The fetch error chain
+      // sometimes embeds the request URL verbatim, which can include
+      // user:pass@ if a misconfigured manifestUrl carries credentials.
+      this.lastError = redactUrlUserinfo(err instanceof Error ? err.message : String(err));
       throw err;
     }
   }
@@ -124,7 +148,10 @@ export class Updater {
 
     this.state = "verifying";
     const computedSha = sha256Hex(bytes);
-    if (computedSha !== asset.sha256) {
+    // S6-F10 — constant-time compare. Prevents partial-prefix timing
+    // information leaking across many upload attempts during an active
+    // attack on the manifest endpoint.
+    if (!sha256HexEqualConstantTime(computedSha, asset.sha256)) {
       this.state = "rolled_back";
       this.opts.emit("updater.verifyFailed", { reason: "hash_mismatch" });
       this.opts.emit("updater.rolledBack", { reason: "hash_mismatch" });
@@ -169,7 +196,12 @@ export class Updater {
     }
 
     this.state = "applying";
-    const binaryPath = await writeToTempFile(bytes);
+    // S6-F8 — write the installer to a fresh temp dir, run the installer,
+    // and ALWAYS clean up the temp dir in finally — success and failure
+    // alike. Without the cleanup the verified binary lingers on disk
+    // between updates, accumulating one mode-0o600 file per update under
+    // /tmp until the OS sweeps it.
+    const { dir, path: binaryPath } = await writeToTempFile(bytes);
     try {
       if (this.opts.invokeInstaller) {
         await this.opts.invokeInstaller(binaryPath);
@@ -185,13 +217,20 @@ export class Updater {
       this.state = "idle";
     } catch (err) {
       this.state = "failed";
-      this.lastError = err instanceof Error ? err.message : String(err);
+      this.lastError = redactUrlUserinfo(err instanceof Error ? err.message : String(err));
       this.opts.emit("updater.rolledBack", { reason: "installer_failed" });
       this.opts.recordUpdateEvent?.("system.update.failed", {
         toVersion: this.lastManifest.version,
         reason: "installer_failed",
       });
       throw err;
+    } finally {
+      try {
+        const { rmSync } = await import("node:fs");
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort cleanup */
+      }
     }
   }
 
@@ -266,15 +305,22 @@ function semverGreater(a: string, b: string): boolean {
   return false;
 }
 
-async function writeToTempFile(bytes: Uint8Array): Promise<string> {
-  const { mkdtempSync, writeFileSync } = await import("node:fs");
+async function writeToTempFile(bytes: Uint8Array): Promise<{ dir: string; path: string }> {
+  const { chmodSync, mkdtempSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const dir = mkdtempSync(join(tmpdir(), "nimbus-update-"));
   const path = join(dir, "installer.bin");
-  // Bytes are SHA-256 and Ed25519 verified by the caller before reaching here. // lgtm[js/path-injection,js/unsafe-deserialization]
-  writeFileSync(path, bytes); // lgtm[js/network-data-written-to-file]
-  return path;
+  // S6-F8 — explicit 0o600 so the installer binary is never readable by
+  // other users on a shared machine. Bytes are SHA-256 and Ed25519 verified
+  // by the caller before reaching here. // lgtm[js/path-injection,js/unsafe-deserialization]
+  writeFileSync(path, bytes, { mode: 0o600 }); // lgtm[js/network-data-written-to-file]
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    /* belt-and-suspenders for filesystems that ignore the create-mode */
+  }
+  return { dir, path };
 }
 
 export { ManifestFetchError } from "./manifest-fetcher.ts";
