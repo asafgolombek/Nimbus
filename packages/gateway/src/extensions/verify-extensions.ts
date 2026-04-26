@@ -11,13 +11,30 @@ import {
   touchExtensionVerifiedAt,
 } from "../automation/extension-store.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+import { sha256HexEqualConstantTime } from "../util/hex-compare.ts";
 import { parseExtensionManifestJson, resolveExtensionManifestPath } from "./manifest.ts";
 
 function sha256HexOfBytes(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now: number): void {
+/**
+ * Optional mesh handle so the verifier can terminate a running extension
+ * child process when its on-disk hash no longer matches the registry row
+ * (S7-F10). Without this, a tampered extension would continue executing
+ * until the next idle-disconnect.
+ */
+export interface ExtensionMeshHandle {
+  stopExtensionClient(extensionId: string): Promise<void>;
+}
+
+async function verifyOneExtension(
+  db: Database,
+  logger: Logger,
+  row: ExtensionRow,
+  now: number,
+  mesh?: ExtensionMeshHandle,
+): Promise<void> {
   const manifestPath = resolveExtensionManifestPath(row.install_path);
   try {
     if (manifestPath === undefined) {
@@ -30,12 +47,18 @@ function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now
     }
     const manifestBytes = readFileSync(manifestPath);
     const manifestHex = sha256HexOfBytes(manifestBytes);
-    if (manifestHex !== row.manifest_hash) {
+    // S7-F8 — constant-time compare for stored hash vs computed hash.
+    if (!sha256HexEqualConstantTime(manifestHex, row.manifest_hash)) {
       logger.error(
         { extensionId: row.id, expected: row.manifest_hash, actual: manifestHex },
         "extensions: manifest hash mismatch — extension disabled",
       );
       setExtensionEnabled(db, row.id, false);
+      // S7-F10 — kill the running child so a tampered extension stops
+      // executing immediately, not at the next idle-disconnect.
+      if (mesh !== undefined) {
+        await mesh.stopExtensionClient(row.id);
+      }
       touchExtensionVerifiedAt(db, row.id, now);
       return;
     }
@@ -56,12 +79,15 @@ function verifyOneExtension(db: Database, logger: Logger, row: ExtensionRow, now
     }
     const entryBytes = readFileSync(entryPath);
     const entryHex = sha256HexOfBytes(entryBytes);
-    if (entryHex !== row.entry_hash) {
+    if (!sha256HexEqualConstantTime(entryHex, row.entry_hash)) {
       logger.error(
         { extensionId: row.id, expected: row.entry_hash, actual: entryHex },
         "extensions: entry hash mismatch — extension disabled",
       );
       setExtensionEnabled(db, row.id, false);
+      if (mesh !== undefined) {
+        await mesh.stopExtensionClient(row.id);
+      }
       touchExtensionVerifiedAt(db, row.id, now);
       return;
     }
@@ -87,7 +113,7 @@ export function verifyOneExtensionStrict(row: ExtensionRow): boolean {
   } catch {
     return false;
   }
-  if (sha256HexOfBytes(manifestBytes) !== row.manifest_hash) return false;
+  if (!sha256HexEqualConstantTime(sha256HexOfBytes(manifestBytes), row.manifest_hash)) return false;
   const manifest = parseExtensionManifestJson(manifestBytes.toString("utf8"));
   const entryRel =
     manifest.entry !== undefined && manifest.entry !== "" ? manifest.entry : "dist/index.js";
@@ -99,15 +125,22 @@ export function verifyOneExtensionStrict(row: ExtensionRow): boolean {
   } catch {
     return false;
   }
-  return sha256HexOfBytes(entryBytes) === row.entry_hash;
+  return sha256HexEqualConstantTime(sha256HexOfBytes(entryBytes), row.entry_hash);
 }
 
 /**
  * Verifies enabled extensions: manifest + entry file SHA-256 vs registry columns.
- * Logs warnings on most issues; manifest or entry hash mismatch logs ERROR and disables the extension.
+ * Logs warnings on most issues; manifest or entry hash mismatch logs ERROR
+ * and disables the extension. When `mesh` is supplied (S7-F10), a hash
+ * mismatch additionally calls `mesh.stopExtensionClient(extensionId)` so a
+ * tampered extension's running child process is terminated immediately.
  * Updates `last_verified_at` when checks complete.
  */
-export function verifyExtensionsBestEffort(db: Database, logger: Logger): void {
+export async function verifyExtensionsBestEffort(
+  db: Database,
+  logger: Logger,
+  mesh?: ExtensionMeshHandle,
+): Promise<void> {
   if (readIndexedUserVersion(db) < 10) {
     return;
   }
@@ -117,6 +150,6 @@ export function verifyExtensionsBestEffort(db: Database, logger: Logger): void {
   }
   const now = Date.now();
   for (const row of rows) {
-    verifyOneExtension(db, logger, row, now);
+    await verifyOneExtension(db, logger, row, now, mesh);
   }
 }

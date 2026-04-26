@@ -155,7 +155,14 @@ export class LanServer {
 
     const ip = socket.data.peerIp;
     if (!this.opts.rateLimit.checkAllowed(ip)) {
-      this.writeFrame(socket, JSON.stringify({ kind: "pair_err" }));
+      // S3-F6 — kind-aware lockout reply: replying `pair_err` to a `hello`
+      // probe leaks the fact that the IP is locked-out from the pair flow,
+      // a small cross-kind side-channel. Match the request kind so a hello
+      // gets `hello_err` and a pair gets `pair_err`.
+      this.writeFrame(
+        socket,
+        JSON.stringify({ kind: msg.kind === "hello" ? "hello_err" : "pair_err" }),
+      );
       socket.end();
       return;
     }
@@ -192,6 +199,11 @@ export class LanServer {
     // kind === "hello"
     const match = this.opts.isKnownPeer(clientPubkey);
     if (!match) {
+      // S3-F4 — record the failure so an attacker cannot churn through
+      // unknown pubkeys without consuming the per-IP failure budget. Silent
+      // socket.end() previously left the rate limiter blind to scanning.
+      this.opts.rateLimit.recordFailure(ip);
+      this.writeFrame(socket, JSON.stringify({ kind: "hello_err" }));
       socket.end();
       return;
     }

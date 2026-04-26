@@ -108,6 +108,12 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "extension.install",
   "connector.addMcp",
   "data.export",
+  "connector.reindex",
+  // Vault writes — any IPC client planting / overwriting / deleting a
+  // secret requires a consent prompt. Internal callers holding a typed
+  // NimbusVault reference bypass the gate by design (S2-F8).
+  "vault.set",
+  "vault.delete",
 ]);
 
 /** Runtime value is an immutable facade; typed as `ReadonlySet` for call sites (`.has`, iteration). */
@@ -138,7 +144,16 @@ export const HITL_REQUIRED = Object.freeze({
       callbackfn.call(thisArg, v, v, HITL_REQUIRED);
     }
   },
-}) as ReadonlySet<string>;
+  // S1-F8 — surface accidental mutation attempts at runtime with a
+  // meaningful TypeError instead of "is not a function". The cast goes
+  // through `unknown` because `ReadonlySet` does not declare an `add`
+  // member, but the runtime guard is the whole point of this method.
+  add(_value: string): never {
+    throw new TypeError(
+      "HITL_REQUIRED is immutable; edit HITL_REQUIRED_BACKING in executor.ts instead",
+    );
+  },
+}) as unknown as ReadonlySet<string>;
 
 const SENSITIVE_PAYLOAD_KEY = /(token|key|secret|password|credential|bearer|auth)/i;
 

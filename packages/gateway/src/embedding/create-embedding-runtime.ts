@@ -45,7 +45,18 @@ async function tryCreateOpenAIEmbeddingRuntime(
     const embedder = await createOpenAIEmbedder({ apiKey, model: openaiModel, dimensions: 384 });
     return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice, embedder);
   } catch (err) {
-    logger.warn({ err }, "OpenAI embedder init failed");
+    // S2-F9 — never pass the raw err object to pino. The OpenAI SDK's
+    // verbose error format may embed apiKey hints in nested fields the
+    // pino redact paths do not enumerate. Wrap in { errName, errMessage }
+    // so the redacted-pino value scrubber is the only path credentials can
+    // reach the log line.
+    logger.warn(
+      {
+        errName: err instanceof Error ? err.name : "Error",
+        errMessage: err instanceof Error ? err.message : String(err),
+      },
+      "OpenAI embedder init failed",
+    );
     return null;
   }
 }

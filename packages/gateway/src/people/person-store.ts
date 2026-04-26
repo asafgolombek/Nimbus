@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
 import type { PersonRecord } from "./person-types.ts";
 
 export function normalizeEmail(raw: string): string {
@@ -234,61 +235,53 @@ export function updatePersonHandles(
     linked?: boolean;
   },
 ): void {
-  const sets: string[] = [];
-  const params: Array<string | number | null> = [];
-  if (patch.displayName !== undefined) {
-    sets.push("display_name = ?");
-    params.push(patch.displayName);
-  }
-  if (patch.canonicalEmail !== undefined) {
-    sets.push("canonical_email = ?");
-    params.push(patch.canonicalEmail);
-  }
-  if (patch.githubLogin !== undefined) {
-    sets.push("github_login = ?");
-    params.push(patch.githubLogin);
-  }
-  if (patch.gitlabLogin !== undefined) {
-    sets.push("gitlab_login = ?");
-    params.push(patch.gitlabLogin);
-  }
-  if (patch.slackHandle !== undefined) {
-    sets.push("slack_handle = ?");
-    params.push(patch.slackHandle);
-  }
-  if (patch.linearMemberId !== undefined) {
-    sets.push("linear_member_id = ?");
-    params.push(patch.linearMemberId);
-  }
-  if (patch.jiraAccountId !== undefined) {
-    sets.push("jira_account_id = ?");
-    params.push(patch.jiraAccountId);
-  }
-  if (patch.notionUserId !== undefined) {
-    sets.push("notion_user_id = ?");
-    params.push(patch.notionUserId);
-  }
-  if (patch.bitbucketUuid !== undefined) {
-    sets.push("bitbucket_uuid = ?");
-    params.push(patch.bitbucketUuid);
-  }
-  if (patch.microsoftUserId !== undefined) {
-    sets.push("microsoft_user_id = ?");
-    params.push(patch.microsoftUserId);
-  }
-  if (patch.discordUserId !== undefined) {
-    sets.push("discord_user_id = ?");
-    params.push(patch.discordUserId);
-  }
-  if (patch.linked !== undefined) {
-    sets.push("linked = ?");
-    params.push(patch.linked ? 1 : 0);
-  }
-  if (sets.length === 0) {
-    return;
-  }
-  params.push(id);
-  db.run(`UPDATE person SET ${sets.join(", ")} WHERE id = ?`, params);
+  // S5-F5 — replace the prior `sets.join(", ")` template-literal SQL with
+  // discrete dbRun() calls per field. The discrete calls run inside a single
+  // transaction so multi-field patches stay atomic, and each UPDATE routes
+  // through dbRun's SQLITE_FULL → DiskFullError translation. The UPDATE
+  // skeleton is no longer constructed from a runtime list, eliminating the
+  // template-literal-SQL pattern entirely.
+  db.transaction(() => {
+    if (patch.displayName !== undefined) {
+      dbRun(db, "UPDATE person SET display_name = ? WHERE id = ?", [patch.displayName, id]);
+    }
+    if (patch.canonicalEmail !== undefined) {
+      dbRun(db, "UPDATE person SET canonical_email = ? WHERE id = ?", [patch.canonicalEmail, id]);
+    }
+    if (patch.githubLogin !== undefined) {
+      dbRun(db, "UPDATE person SET github_login = ? WHERE id = ?", [patch.githubLogin, id]);
+    }
+    if (patch.gitlabLogin !== undefined) {
+      dbRun(db, "UPDATE person SET gitlab_login = ? WHERE id = ?", [patch.gitlabLogin, id]);
+    }
+    if (patch.slackHandle !== undefined) {
+      dbRun(db, "UPDATE person SET slack_handle = ? WHERE id = ?", [patch.slackHandle, id]);
+    }
+    if (patch.linearMemberId !== undefined) {
+      dbRun(db, "UPDATE person SET linear_member_id = ? WHERE id = ?", [patch.linearMemberId, id]);
+    }
+    if (patch.jiraAccountId !== undefined) {
+      dbRun(db, "UPDATE person SET jira_account_id = ? WHERE id = ?", [patch.jiraAccountId, id]);
+    }
+    if (patch.notionUserId !== undefined) {
+      dbRun(db, "UPDATE person SET notion_user_id = ? WHERE id = ?", [patch.notionUserId, id]);
+    }
+    if (patch.bitbucketUuid !== undefined) {
+      dbRun(db, "UPDATE person SET bitbucket_uuid = ? WHERE id = ?", [patch.bitbucketUuid, id]);
+    }
+    if (patch.microsoftUserId !== undefined) {
+      dbRun(db, "UPDATE person SET microsoft_user_id = ? WHERE id = ?", [
+        patch.microsoftUserId,
+        id,
+      ]);
+    }
+    if (patch.discordUserId !== undefined) {
+      dbRun(db, "UPDATE person SET discord_user_id = ? WHERE id = ?", [patch.discordUserId, id]);
+    }
+    if (patch.linked !== undefined) {
+      dbRun(db, "UPDATE person SET linked = ? WHERE id = ?", [patch.linked ? 1 : 0, id]);
+    }
+  })();
 }
 
 export function listPersons(

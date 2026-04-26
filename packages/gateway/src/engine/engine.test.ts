@@ -39,6 +39,17 @@ describe("HITL_REQUIRED", () => {
     expect(HITL_REQUIRED.has("evil.action")).toBe(false);
   });
 
+  test("S1-F8 — facade add() throws TypeError with a clear message", () => {
+    const mutable = HITL_REQUIRED as unknown as Set<string>;
+    expect(() => mutable.add("attacker.action")).toThrow(TypeError);
+    expect(() => mutable.add("attacker.action")).toThrow(/immutable/i);
+    expect(HITL_REQUIRED.has("attacker.action")).toBe(false);
+  });
+
+  test("S1-F7 — connector.reindex is gated for full-depth reindex consent", () => {
+    expect(HITL_REQUIRED.has("connector.reindex")).toBe(true);
+  });
+
   test("includes core destructive / outbound action types", () => {
     for (const t of [
       "file.delete",

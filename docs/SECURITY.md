@@ -109,6 +109,10 @@ Third-party extensions run as child processes. They:
 
 **Extension isolation.** Extensions run as child processes spawned by the gateway. They share the gateway's user UID and have full filesystem and network access at that UID's permissions — there is no `seccomp` / `bwrap` / `sandbox-exec` / AppContainer sandbox in this release. The only structural barriers are: (a) `extensionProcessEnv()` filters parent-process environment variables, blocking propagation of OAuth client secrets and LLM provider API keys; (b) startup SHA-256 verification detects post-install drift and disables affected rows; (c) the same SHA-256 is re-checked immediately before each spawn (S7-F3 fix). OS-level sandboxing is on the Phase 7 roadmap. Until then, extensions must be considered code that runs at full user-UID equivalence — do not install extensions from untrusted sources.
 
+#### Extension disable does not orphan-kill subprocesses
+
+When an extension's hash check fails (`verifyExtensionsBestEffort` at startup) or the user invokes `extension.disable`, the gateway terminates the extension's immediate MCP child process via `LazyConnectorMesh.stopExtensionClient`. Any further subprocesses that the extension itself spawned (helper daemons, background watchers) are NOT killed — they continue running until they exit on their own. This is a known limitation of `child_process.spawn` (no process-group kill on POSIX, no Job Object wrapping on Windows) and aligns with the broader same-uid sandbox model documented above. Phase 7 sandbox work (`bwrap` / `sandbox-exec` / `AppContainer`) will close this gap by binding the extension's full descendant tree to a sandbox lifetime.
+
 ---
 
 ### IPC Surface
@@ -118,6 +122,10 @@ The Gateway listens only on a local domain socket (Unix) or named pipe (Windows)
 > **⚠️ LAN Server (Phase 4 WS5) — pre-flight security audit in progress:** The LAN TCP server (`nimbus lan enable`) is implemented but not yet wired into the production gateway entrypoint. A security audit has identified several gaps — including the method-allowlist gate not being called in the production path — that must be resolved before the feature is enabled. Do **not** force-enable the LAN server via config or environment hacks; it is not secure until the audit findings are addressed. Tracked in branch `dev/asafgolombek/security-audit`.
 
 > **⚠️ Auto-updater (Phase 4 WS4) — pre-flight security audit in progress:** The auto-update pipeline (`nimbus update`) is implemented but not yet wired into the production gateway entrypoint. A security audit has identified that the `NIMBUS_DEV_UPDATER_PUBLIC_KEY` environment override is honoured in production builds (no build-time gate), and that the download does not re-verify the version order before proceeding. These gaps must be fixed before the updater is enabled. Tracked in branch `dev/asafgolombek/security-audit`.
+
+#### Updater temp directory cleanup
+
+`Updater.applyUpdate` writes the verified installer to a fresh temp directory created by `mkdtempSync(join(tmpdir(), "nimbus-update-"))`. The directory and its contents are deleted in a `finally` block after the platform installer returns (success or failure). The installer binary is written with mode `0o600` and is never readable by other users on a shared machine. The `lastError` field exposed via `updater.getStatus` is scrubbed of URL userinfo (`user:pass@`) before storage so a misconfigured `manifestUrl` cannot leak credentials through the diagnostic surface.
 
 ---
 

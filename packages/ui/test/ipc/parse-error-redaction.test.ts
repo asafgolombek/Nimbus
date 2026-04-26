@@ -59,3 +59,31 @@ describe("parseError — credential redaction", () => {
     });
   }
 });
+
+describe("parseError — S2-F6 connector-secret coverage (sensitive-key pattern)", () => {
+  const cases: ReadonlyArray<[string, string]> = [
+    ["apiToken", "ghp_xyz_secret_one"],
+    ["clientSecret", "csec_super_long_secret"],
+    ["pat", "ghp_pat_value"],
+    ["accessToken", "at_access_secret"],
+    ["refreshToken", "rt_refresh_secret"],
+    ["bot_token", "xoxb_bot_secret"],
+    ["api_key", "sk_api_key_secret"],
+    ["app_password", "abc_app_password_secret"],
+    ["Authorization", "Bearer top_secret_bearer_token"],
+  ];
+  for (const [key, value] of cases) {
+    it(`redacts JSON form for ${key}`, async () => {
+      const leaking = JSON.stringify({ [key]: value });
+      invokeMock.mockRejectedValueOnce(leaking);
+      let thrown: Error | null = null;
+      try {
+        await createIpcClient().call("connector.auth", {});
+      } catch (e) {
+        thrown = e as Error;
+      }
+      expect(thrown).not.toBeNull();
+      expect(thrown?.message).not.toContain(value);
+    });
+  }
+});

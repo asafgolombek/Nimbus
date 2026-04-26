@@ -128,3 +128,62 @@ describe("persistPartialize — Data slice (Plan 5)", () => {
     expect(WHITELISTED_PERSIST_KEYS).toHaveLength(5);
   });
 });
+
+describe("persistPartialize — S2-F6 connector-secret deep scrub", () => {
+  const cases: ReadonlyArray<[string, string]> = [
+    ["apiToken", "ghp_xyz"],
+    ["clientSecret", "csec_secret"],
+    ["pat", "ghp_pat_value"],
+    ["accessToken", "at_secret"],
+    ["refreshToken", "rt_secret"],
+    ["bot_token", "xoxb_secret"],
+    ["api_key", "sk_secret"],
+    ["app_password", "app_secret"],
+    ["Authorization", "Bearer secret"],
+  ];
+  for (const [key, value] of cases) {
+    it(`strips ${key} nested inside a whitelisted slice value`, () => {
+      const state = {
+        connectorsList: [
+          {
+            service: "github",
+            credentials: { [key]: value },
+          },
+        ],
+        installedModels: [],
+        activePullId: null,
+        active: null,
+        profiles: [],
+      } as unknown as Record<string, unknown>;
+      const out = persistPartialize(state);
+      const flat = JSON.stringify(out);
+      expect(flat).not.toContain(value);
+      // Whitelisted neighbours must survive.
+      expect(flat).toContain("github");
+    });
+  }
+
+  it("strips multiple sensitive keys in the same connector entry", () => {
+    const state = {
+      connectorsList: [
+        {
+          service: "slack",
+          apiToken: "tok-1",
+          accessToken: "tok-2",
+          refresh_token: "tok-3",
+          bot_token: "tok-4",
+          headers: { Authorization: "Bearer tok-5" },
+        },
+      ],
+      installedModels: [],
+      activePullId: null,
+      active: null,
+      profiles: [],
+    } as unknown as Record<string, unknown>;
+    const out = persistPartialize(state);
+    const flat = JSON.stringify(out);
+    for (const v of ["tok-1", "tok-2", "tok-3", "tok-4", "tok-5"]) {
+      expect(flat).not.toContain(v);
+    }
+  });
+});

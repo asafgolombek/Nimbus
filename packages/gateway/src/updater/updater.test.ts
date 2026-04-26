@@ -28,6 +28,32 @@ function makeUpdater(overrides?: Partial<UpdaterOptions>): Updater {
   });
 }
 
+type ManifestBuilder = (
+  binary: Uint8Array,
+  downloadUrl: string,
+) => ReturnType<typeof buildSignedManifest>;
+
+/**
+ * Spin up a download server + manifest server pair. Returns the binary so
+ * tests can derive expectations from it.
+ */
+function startManifestAndDownloadServers(
+  binary: Uint8Array,
+  build: ManifestBuilder = (b, url) => buildSignedManifest(b, kp, url, "0.2.0"),
+): void {
+  downloadServer = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response(binary),
+  });
+  const downloadUrl = `http://127.0.0.1:${downloadServer.port}/bin`;
+  server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => jsonResponse(build(binary, downloadUrl)),
+  });
+}
+
 describe("Updater state machine", () => {
   afterEach(() => {
     server?.stop(true);
@@ -277,32 +303,6 @@ describe("G6 — updater hardening", () => {
     downloadServer?.stop(true);
   });
 
-  type ManifestBuilder = (
-    binary: Uint8Array,
-    downloadUrl: string,
-  ) => ReturnType<typeof buildSignedManifest>;
-
-  /**
-   * Spin up a download server + manifest server pair. Returns the binary so
-   * tests can derive expectations from it.
-   */
-  function startManifestAndDownloadServers(
-    binary: Uint8Array,
-    build: ManifestBuilder = (b, url) => buildSignedManifest(b, kp, url, "0.2.0"),
-  ): void {
-    downloadServer = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(binary),
-    });
-    const downloadUrl = `http://127.0.0.1:${downloadServer.port}/bin`;
-    server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => jsonResponse(build(binary, downloadUrl)),
-    });
-  }
-
   test("downloadAsset rejects body that exceeds the configured cap (S6-F3)", async () => {
     // Use a small cap (1 KiB) and stream more than that; runtime accumulator
     // fires before MAX_DOWNLOAD_BYTES is even relevant. This validates the
@@ -425,5 +425,128 @@ describe("G6 — updater hardening", () => {
     await expect(u.applyUpdate()).rejects.toThrow(/simulated/);
     expect(events).toContain("system.update.start");
     expect(events).toContain("system.update.failed");
+  });
+});
+
+describe("G6 — updater polish (S6-F8 / S6-F9 / S6-F10 / S6-F11)", () => {
+  afterEach(() => {
+    server?.stop(true);
+    downloadServer?.stop(true);
+  });
+
+  // S6-F8 — temp dir is removed regardless of installer success or failure.
+  for (const variant of ["success", "failure"] as const) {
+    test(`S6-F8 — temp directory is removed after applyUpdate ${variant}`, async () => {
+      const binary = new Uint8Array(randomBytes(256));
+      startManifestAndDownloadServers(binary);
+      let installerPath = "";
+      const u = makeUpdater({
+        invokeInstaller: async (p: string) => {
+          installerPath = p;
+          if (variant === "failure") throw new Error("simulated install failure");
+        },
+      });
+      await u.checkNow();
+      if (variant === "failure") {
+        await expect(u.applyUpdate()).rejects.toThrow(/simulated/);
+      } else {
+        await u.applyUpdate();
+      }
+      const { existsSync } = await import("node:fs");
+      const { dirname } = await import("node:path");
+      expect(installerPath).not.toBe("");
+      expect(existsSync(dirname(installerPath))).toBe(false);
+    });
+  }
+
+  test("S6-F9 — getStatus.lastError strips URL userinfo from a fetch error", async () => {
+    // Use a non-loopback URL with userinfo so isPermittedSchemeForUpdater
+    // rejects it before fetch — the rejection message would otherwise
+    // echo the bare URL with credentials.
+    const u = new Updater({
+      currentVersion: "0.1.0",
+      manifestUrl: "https://user:supersecret@cdn.example.com/latest.json",
+      publicKey: kp.publicKey,
+      target: "linux-x86_64",
+      emit: () => {},
+      timeoutMs: 2000,
+    });
+    await expect(u.checkNow()).rejects.toBeDefined();
+    const status = u.getStatus();
+    expect(status.lastError).toBeDefined();
+    expect(status.lastError ?? "").not.toContain("supersecret");
+    expect(status.lastError ?? "").not.toContain("user:supersecret@");
+  });
+
+  test("S6-F10 — sha256HexEqualConstantTime is used (mismatch still rejected)", async () => {
+    const binary = new Uint8Array(randomBytes(512));
+    const tampered = new Uint8Array(randomBytes(512));
+    downloadServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(tampered),
+    });
+    const manifest = buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`);
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => jsonResponse(manifest),
+    });
+    const u = makeUpdater();
+    await u.checkNow();
+    await expect(u.applyUpdate()).rejects.toThrow(/hash|signature/i);
+  });
+});
+
+describe("G6 — manifest-fetcher (S6-F11)", () => {
+  afterEach(() => {
+    server?.stop(true);
+  });
+
+  test("rejects malformed pub_date", async () => {
+    const binary = new Uint8Array(randomBytes(512));
+    const goodManifest = buildSignedManifest(binary, kp, "https://cdn.example.com/bin");
+    const tampered: Record<string, unknown> = {
+      ...(goodManifest as unknown as Record<string, unknown>),
+      pub_date: "yesterday",
+    };
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => jsonResponse(tampered) });
+    const u = makeUpdater();
+    await expect(u.checkNow()).rejects.toThrow(/pub_date.*ISO-8601/i);
+  });
+
+  test("accepts ISO-date-only pub_date (no time component)", async () => {
+    const binary = new Uint8Array(randomBytes(512));
+    const goodManifest = buildSignedManifest(binary, kp, "https://cdn.example.com/bin");
+    const variant: Record<string, unknown> = {
+      ...(goodManifest as unknown as Record<string, unknown>),
+      pub_date: "2026-04-26",
+    };
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => jsonResponse(variant) });
+    const u = makeUpdater();
+    const out = await u.checkNow();
+    expect(out.latestVersion).toBeDefined();
+  });
+
+  test("accepts full ISO-8601 datetime with TZ offset", async () => {
+    const binary = new Uint8Array(randomBytes(512));
+    const goodManifest = buildSignedManifest(binary, kp, "https://cdn.example.com/bin");
+    const variant: Record<string, unknown> = {
+      ...(goodManifest as unknown as Record<string, unknown>),
+      pub_date: "2026-04-26T14:30:00+02:00",
+    };
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => jsonResponse(variant) });
+    const u = makeUpdater();
+    const out = await u.checkNow();
+    expect(out.latestVersion).toBeDefined();
+  });
+
+  test("ManifestFetchError redacts URL userinfo from constructed messages", async () => {
+    const { ManifestFetchError } = await import("./manifest-fetcher.ts");
+    const e = new ManifestFetchError(
+      "fetch failed at https://user:topsecret@cdn.example.com/latest.json",
+    );
+    expect(e.message).not.toContain("topsecret");
+    expect(e.message).not.toContain("user:topsecret@");
   });
 });
