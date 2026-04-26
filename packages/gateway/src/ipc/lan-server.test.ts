@@ -175,6 +175,60 @@ describe("LanServer gate (G4)", () => {
   });
 });
 
+/** Connect, send a single length header, wait, return whether the server closed the socket. */
+async function probeClosedAfterHeader(port: number, declaredLength: number): Promise<boolean> {
+  let closed = false;
+  const conn = await Bun.connect({
+    hostname: "127.0.0.1",
+    port,
+    socket: {
+      open(socket) {
+        const buf = new Uint8Array(4);
+        new DataView(buf.buffer).setUint32(0, declaredLength, false);
+        socket.write(buf);
+      },
+      data() {},
+      close() {
+        closed = true;
+      },
+      error() {
+        closed = true;
+      },
+    },
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  const result = closed;
+  conn.end();
+  return result;
+}
+
+/** Build a LanServer with no-op pairing/peer hooks; caller injects an optional rateLimit recorder. */
+async function buildBareLanServer(
+  rateLimit?: Partial<{ recordFailure: (ip: string) => void }>,
+): Promise<LanServer> {
+  const { LanServer: Cls } = await import("./lan-server.ts");
+  return new Cls({
+    bind: "127.0.0.1",
+    port: 0,
+    hostKeypair: generateBoxKeypair(),
+    onMessage: async () => ({}),
+    isKnownPeer: () => null,
+    rateLimit: {
+      checkAllowed: () => true,
+      recordFailure: rateLimit?.recordFailure ?? (() => {}),
+      recordSuccess: () => {},
+    },
+    pairing: {
+      isOpen: () => false,
+      consume: () => false,
+      open: () => {},
+      close: () => {},
+      getExpiresAt: () => undefined,
+    },
+    registerPeer: () => "p",
+  });
+}
+
 describe("LanServer frame-size caps (S3-F3)", () => {
   let svr: LanServer | undefined;
 
@@ -183,62 +237,13 @@ describe("LanServer frame-size caps (S3-F3)", () => {
     svr = undefined;
   });
 
-  /** Spin up a LanServer with no-op pairing/peer hooks; tests inject a custom rateLimit. */
+  /** Wraps `buildBareLanServer` to track the instance for `afterEach` teardown. */
   async function startBareServer(
-    rateLimit?: Partial<{
-      recordFailure: (ip: string) => void;
-    }>,
+    rateLimit?: Partial<{ recordFailure: (ip: string) => void }>,
   ): Promise<{ port: number }> {
-    const { LanServer: Cls } = await import("./lan-server.ts");
-    svr = new Cls({
-      bind: "127.0.0.1",
-      port: 0,
-      hostKeypair: generateBoxKeypair(),
-      onMessage: async () => ({}),
-      isKnownPeer: () => null,
-      rateLimit: {
-        checkAllowed: () => true,
-        recordFailure: rateLimit?.recordFailure ?? (() => {}),
-        recordSuccess: () => {},
-      },
-      pairing: {
-        isOpen: () => false,
-        consume: () => false,
-        open: () => {},
-        close: () => {},
-        getExpiresAt: () => undefined,
-      },
-      registerPeer: () => "p",
-    });
+    svr = await buildBareLanServer(rateLimit);
     await svr.start();
     return { port: svr.listenAddr()!.port };
-  }
-
-  /** Connect, send a single length header, wait, return whether the server closed the socket. */
-  async function probeClosedAfterHeader(port: number, declaredLength: number): Promise<boolean> {
-    let closed = false;
-    const conn = await Bun.connect({
-      hostname: "127.0.0.1",
-      port,
-      socket: {
-        open(socket) {
-          const buf = new Uint8Array(4);
-          new DataView(buf.buffer).setUint32(0, declaredLength, false);
-          socket.write(buf);
-        },
-        data() {},
-        close() {
-          closed = true;
-        },
-        error() {
-          closed = true;
-        },
-      },
-    });
-    await new Promise((r) => setTimeout(r, 200));
-    const result = closed;
-    conn.end();
-    return result;
   }
 
   test("rejects pre-handshake frame whose declared length exceeds MAX_HANDSHAKE_FRAME", async () => {
