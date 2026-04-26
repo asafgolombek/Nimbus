@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777195792806,
+  "lastUpdate": 1777207209339,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1855,6 +1855,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.503556179999996,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14f52bed8cab6e63a0cf84ac5af80914e476a02f",
+          "message": "Merge pull request #114 from asafgolombek/dev/asafgolombek/security-fixes-low\n\nfix(security): Low-tier security findings (PR 3 of 3)",
+          "timestamp": "2026-04-26T15:39:43+03:00",
+          "tree_id": "c16d5b5c1b006273dee96dfcdb452d18ec3f22c2",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/14f52bed8cab6e63a0cf84ac5af80914e476a02f"
+        },
+        "date": 1777207208706,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4850863599999997,
             "unit": "ms"
           }
         ]
