@@ -149,6 +149,13 @@ function repairForeignKeys(db: Database): RepairOutcome {
     let totalDeleted = 0;
     db.transaction(() => {
       for (const [table, rowids] of byTable) {
+        // S5-F6 — defense-in-depth: SQLite never produces empty-string or
+        // null-byte-bearing identifiers from PRAGMA foreign_key_check, but
+        // skip them anyway so a future code path that injects synthetic
+        // violations cannot smuggle a malformed identifier past escapeIdentifier.
+        if (table.length === 0 || /\x00/.test(table)) {
+          continue;
+        }
         const BATCH = 999;
         for (let i = 0; i < rowids.length; i += BATCH) {
           const slice = rowids.slice(i, i + BATCH);
