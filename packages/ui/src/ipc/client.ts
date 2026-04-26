@@ -177,12 +177,12 @@ function redactSensitiveSubstrings(input: string): string {
   // sensitive-key pattern. Catches connector secret names: apiToken,
   // clientSecret, accessToken, refreshToken, bot_token, api_key,
   // app_password, Authorization header values, etc.
-  out = out.replace(
+  out = out.replaceAll(
     /"(\w*(?:token|key|secret|password|credential|bearer|auth)\w*)"\s*:\s*"[^"]*"/gi,
     (_match, k: string) => `"${k}":"[REDACTED]"`,
   );
   // Bare `key=value` form for the same key shapes.
-  out = out.replace(
+  out = out.replaceAll(
     /(\b\w*(?:token|key|secret|password|credential|bearer|auth)\w*)\s*[=:]\s*"?([^\s",}]+)"?/gi,
     (_match, k: string) => `${k}=[REDACTED]`,
   );

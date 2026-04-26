@@ -42,11 +42,12 @@ export const FORBIDDEN_PERSIST_KEYS = [
  */
 const SENSITIVE_KEY_PATTERN = /(token|key|secret|password|credential|bearer|auth)/i;
 // `pat` is short and would not match the generic pattern; treat it as exact.
-const EXTRA_EXACT_KEYS: readonly string[] = ["pat"];
+const EXTRA_EXACT_KEYS = new Set<string>(["pat"]);
+const FORBIDDEN_KEYS_SET = new Set<string>(FORBIDDEN_PERSIST_KEYS);
 
 function isForbiddenKeyName(name: string): boolean {
-  if ((FORBIDDEN_PERSIST_KEYS as readonly string[]).includes(name)) return true;
-  if (EXTRA_EXACT_KEYS.includes(name)) return true;
+  if (FORBIDDEN_KEYS_SET.has(name)) return true;
+  if (EXTRA_EXACT_KEYS.has(name)) return true;
   return SENSITIVE_KEY_PATTERN.test(name);
 }
 

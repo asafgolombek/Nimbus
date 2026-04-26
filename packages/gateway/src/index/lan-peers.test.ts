@@ -16,11 +16,11 @@ describe("LocalIndex.addLanPeer (S3-F5)", () => {
       peerId: "peer-1",
       peerPubkey: pub,
       direction: "inbound",
-      hostIp: "10.0.0.1",
+      hostIp: "192.0.2.1",
     });
     const fetched = idx.getLanPeerByPubkey(pub);
     expect(fetched?.peer_id).toBe("peer-1");
-    expect(fetched?.host_ip).toBe("10.0.0.1");
+    expect(fetched?.host_ip).toBe("192.0.2.1");
   });
 
   test("re-pair from same pubkey is idempotent (no UNIQUE constraint throw)", () => {
@@ -30,18 +30,18 @@ describe("LocalIndex.addLanPeer (S3-F5)", () => {
       peerId: "peer-1",
       peerPubkey: pub,
       direction: "inbound",
-      hostIp: "10.0.0.1",
+      hostIp: "192.0.2.1",
     });
     expect(() =>
       idx.addLanPeer({
         peerId: "peer-1",
         peerPubkey: pub,
         direction: "inbound",
-        hostIp: "10.0.0.2",
+        hostIp: "192.0.2.2",
       }),
     ).not.toThrow();
     const fetched = idx.getLanPeerByPubkey(pub);
-    expect(fetched?.host_ip).toBe("10.0.0.2");
+    expect(fetched?.host_ip).toBe("192.0.2.2");
   });
 
   test("re-pair refreshes host_ip / host_port / display_name / paired_at", async () => {
@@ -51,7 +51,7 @@ describe("LocalIndex.addLanPeer (S3-F5)", () => {
       peerId: "peer-1",
       peerPubkey: pub,
       direction: "inbound",
-      hostIp: "10.0.0.1",
+      hostIp: "192.0.2.1",
       hostPort: 7475,
       displayName: "macbook",
     });
@@ -62,12 +62,12 @@ describe("LocalIndex.addLanPeer (S3-F5)", () => {
       peerId: "peer-1",
       peerPubkey: pub,
       direction: "outbound",
-      hostIp: "10.0.0.99",
+      hostIp: "192.0.2.99",
       hostPort: 9999,
       displayName: "phone",
     });
     const after = idx.getLanPeerByPubkey(pub);
-    expect(after?.host_ip).toBe("10.0.0.99");
+    expect(after?.host_ip).toBe("192.0.2.99");
     expect(after?.host_port).toBe(9999);
     expect(after?.display_name).toBe("phone");
     expect(after?.direction).toBe("outbound");
@@ -88,7 +88,7 @@ describe("LocalIndex.addLanPeer (S3-F5)", () => {
       peerId: "peer-grant",
       peerPubkey: pub,
       direction: "inbound",
-      hostIp: "10.0.0.5",
+      hostIp: "192.0.2.5",
     });
     // Re-pair must not reset write_allowed.
     expect(idx.getLanPeerByPubkey(pub)?.write_allowed).toBe(1);

@@ -53,33 +53,21 @@ describe("dispatchReindexRpc", () => {
     ).rejects.toBeInstanceOf(ReindexRpcError);
   });
 
-  // S1-F7
-  test("metadata_only depth skips the HITL gate (administrative)", async () => {
-    let gateCalls = 0;
-    const idx = makeIdx();
-    const executor = makeFakeExecutor({ onGate: () => gateCalls++ });
-    const out = await dispatchReindexRpc(
-      "connector.reindex",
-      { service: "github", depth: "metadata_only" },
-      { index: idx, toolExecutor: executor },
-    );
-    expect(gateCalls).toBe(0);
-    expect(out.kind).toBe("hit");
-  });
-
-  // S1-F7
-  test("summary depth skips the HITL gate (administrative)", async () => {
-    let gateCalls = 0;
-    const idx = makeIdx();
-    const executor = makeFakeExecutor({ onGate: () => gateCalls++ });
-    const out = await dispatchReindexRpc(
-      "connector.reindex",
-      { service: "github", depth: "summary" },
-      { index: idx, toolExecutor: executor },
-    );
-    expect(gateCalls).toBe(0);
-    expect(out.kind).toBe("hit");
-  });
+  // S1-F7 — administrative depths skip the HITL gate.
+  for (const depth of ["metadata_only", "summary"] as const) {
+    test(`${depth} depth skips the HITL gate (administrative)`, async () => {
+      let gateCalls = 0;
+      const idx = makeIdx();
+      const executor = makeFakeExecutor({ onGate: () => gateCalls++ });
+      const out = await dispatchReindexRpc(
+        "connector.reindex",
+        { service: "github", depth },
+        { index: idx, toolExecutor: executor },
+      );
+      expect(gateCalls).toBe(0);
+      expect(out.kind).toBe("hit");
+    });
+  }
 
   // S1-F7
   test("full depth runs the HITL gate before reindex", async () => {
@@ -89,7 +77,7 @@ describe("dispatchReindexRpc", () => {
       onGate: (action) => {
         order.push("gate");
         expect(action.type).toBe("connector.reindex");
-        const payload = action.payload as Record<string, unknown> | undefined;
+        const payload = action.payload;
         expect(payload?.["service"]).toBe("github");
         expect(payload?.["depth"]).toBe("full");
       },

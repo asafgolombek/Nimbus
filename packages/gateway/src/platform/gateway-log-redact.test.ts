@@ -38,6 +38,7 @@ describe("scrubRedactedValuePatterns (S2-F9)", () => {
   });
 
   test("strips Slack xoxb tokens", () => {
+    // gitleaks:allow — synthetic fixture for redaction unit test
     expect(scrubRedactedValuePatterns("token=xoxb-1234-5678-AbCdEf")).toBe("token=[REDACTED]");
   });
 
@@ -46,6 +47,7 @@ describe("scrubRedactedValuePatterns (S2-F9)", () => {
   });
 
   test("strips JWT tokens", () => {
+    // gitleaks:allow — synthetic fixture for redaction unit test
     const jwt = "eyJhbGciOiJIUzI1NiIs.eyJzdWIiOiIxMjM0NX0.SflKxwRJSMeKKF2QT4fwpMeJ";
     expect(scrubRedactedValuePatterns(`bearer ${jwt}`)).toBe("bearer [REDACTED]");
   });

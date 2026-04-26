@@ -5,13 +5,18 @@ import type { PlatformTarget, UpdateManifest, UpdaterStatus } from "./types.ts";
 
 /**
  * S6-F9 — strip URL userinfo (user:pass@) from a message string before it
- * lands in `lastError` or in any externally-visible field. The scheme pattern
- * permits compound schemes (`git+https://`, `chrome-extension://`) and the
- * authority pattern stops at the first `/` so paths containing `@` (mailto-
- * like, query strings) are bounded.
+ * lands in `lastError` or in any externally-visible field.
+ *
+ * Bounded repetition prevents catastrophic backtracking on adversarial
+ * inputs: scheme ≤32 chars, userinfo ≤256 chars, host ≤256 chars. The
+ * scheme pattern permits compound schemes (`git+https://`, `chrome-extension://`)
+ * and the authority pattern stops at the first `/` so paths containing `@`
+ * (mailto-like, query strings) are bounded.
  */
+const URL_USERINFO_RE = /[a-zA-Z0-9+\-.]{1,32}:\/\/[^\s/@]{1,256}@[^\s/]{1,256}/g;
+
 export function redactUrlUserinfo(message: string): string {
-  return message.replace(/[a-zA-Z0-9+\-.]+:\/\/[^\s/]+@[^\s/]+/g, (urlMatch) => {
+  return message.replaceAll(URL_USERINFO_RE, (urlMatch) => {
     try {
       const u = new URL(urlMatch);
       u.username = "";
@@ -108,6 +113,23 @@ export class Updater {
   }
 
   async applyUpdate(): Promise<void> {
+    const { manifest, asset } = this.requireApplyPreconditions();
+    this.opts.recordUpdateEvent?.("system.update.start", {
+      fromVersion: this.opts.currentVersion,
+      toVersion: manifest.version,
+      manifestUrl: this.opts.manifestUrl,
+      sha256: asset.sha256,
+      target: this.opts.target,
+    });
+    const bytes = await this.downloadOrFail(asset.url, manifest.version);
+    this.verifyOrFail(bytes, asset, manifest.version);
+    await this.installOrFail(bytes, manifest.version);
+  }
+
+  private requireApplyPreconditions(): {
+    manifest: UpdateManifest;
+    asset: { url: string; sha256: string; signature: string };
+  } {
     if (!this.lastManifest) {
       throw new Error("no manifest loaded — call checkNow() first");
     }
@@ -121,86 +143,69 @@ export class Updater {
     if (!asset) {
       throw new Error(`no asset for target ${this.opts.target}`);
     }
+    return { manifest: this.lastManifest, asset };
+  }
 
-    // S6-F7 — pre-flight audit row.
-    this.opts.recordUpdateEvent?.("system.update.start", {
-      fromVersion: this.opts.currentVersion,
-      toVersion: this.lastManifest.version,
-      manifestUrl: this.opts.manifestUrl,
-      sha256: asset.sha256,
-      target: this.opts.target,
-    });
-
+  private async downloadOrFail(url: string, toVersion: string): Promise<Uint8Array> {
     this.state = "downloading";
-    let bytes: Uint8Array;
     try {
-      bytes = await this.downloadAsset(asset.url);
+      return await this.downloadAsset(url);
     } catch (err) {
       this.state = "failed";
       this.lastError = err instanceof Error ? err.message : String(err);
       this.opts.emit("updater.rolledBack", { reason: "download_failed" });
       this.opts.recordUpdateEvent?.("system.update.failed", {
-        toVersion: this.lastManifest.version,
+        toVersion,
         reason: "download_failed",
       });
       throw err;
     }
+  }
 
+  private verifyOrFail(
+    bytes: Uint8Array,
+    asset: { sha256: string; signature: string },
+    toVersion: string,
+  ): void {
     this.state = "verifying";
     const computedSha = sha256Hex(bytes);
-    // S6-F10 — constant-time compare. Prevents partial-prefix timing
-    // information leaking across many upload attempts during an active
-    // attack on the manifest endpoint.
+    // S6-F10 — constant-time compare prevents partial-prefix timing leakage.
     if (!sha256HexEqualConstantTime(computedSha, asset.sha256)) {
-      this.state = "rolled_back";
-      this.opts.emit("updater.verifyFailed", { reason: "hash_mismatch" });
-      this.opts.emit("updater.rolledBack", { reason: "hash_mismatch" });
-      this.opts.recordUpdateEvent?.("system.update.failed", {
-        toVersion: this.lastManifest.version,
-        reason: "hash_mismatch",
-      });
+      this.failVerification(toVersion, "hash_mismatch");
       throw new Error(`binary hash mismatch: expected ${asset.sha256}, got ${computedSha}`);
     }
     const sigBytes = new Uint8Array(Buffer.from(asset.signature, "base64"));
-    // S6-F6 — primary defence is the envelope. Fall back to bare-SHA verification
-    // only during the migration window of one release; the verifier still
-    // emits an audit event noting which mode succeeded.
+    // S6-F6 — envelope-signed first, then fall back to bare-binary signature
+    // for one-release migration window. Either path emits a verified audit row.
     const envelopeOk = verifyManifestEnvelope({
-      version: this.lastManifest.version,
+      version: toVersion,
       target: this.opts.target,
       sha256: asset.sha256,
       signature: sigBytes,
       publicKey: this.opts.publicKey,
     });
     if (envelopeOk) {
-      this.opts.recordUpdateEvent?.("system.update.verified", {
-        toVersion: this.lastManifest.version,
-        envelope: true,
-      });
-    } else {
-      const bareOk = verifyBinarySignature(bytes, sigBytes, this.opts.publicKey);
-      if (!bareOk) {
-        this.state = "rolled_back";
-        this.opts.emit("updater.verifyFailed", { reason: "signature_invalid" });
-        this.opts.emit("updater.rolledBack", { reason: "signature_invalid" });
-        this.opts.recordUpdateEvent?.("system.update.failed", {
-          toVersion: this.lastManifest.version,
-          reason: "signature_invalid",
-        });
-        throw new Error("Ed25519 signature verification failed");
-      }
-      this.opts.recordUpdateEvent?.("system.update.verified", {
-        toVersion: this.lastManifest.version,
-        envelope: false,
-      });
+      this.opts.recordUpdateEvent?.("system.update.verified", { toVersion, envelope: true });
+      return;
     }
+    if (!verifyBinarySignature(bytes, sigBytes, this.opts.publicKey)) {
+      this.failVerification(toVersion, "signature_invalid");
+      throw new Error("Ed25519 signature verification failed");
+    }
+    this.opts.recordUpdateEvent?.("system.update.verified", { toVersion, envelope: false });
+  }
 
+  private failVerification(toVersion: string, reason: "hash_mismatch" | "signature_invalid"): void {
+    this.state = "rolled_back";
+    this.opts.emit("updater.verifyFailed", { reason });
+    this.opts.emit("updater.rolledBack", { reason });
+    this.opts.recordUpdateEvent?.("system.update.failed", { toVersion, reason });
+  }
+
+  private async installOrFail(bytes: Uint8Array, toVersion: string): Promise<void> {
     this.state = "applying";
-    // S6-F8 — write the installer to a fresh temp dir, run the installer,
-    // and ALWAYS clean up the temp dir in finally — success and failure
-    // alike. Without the cleanup the verified binary lingers on disk
-    // between updates, accumulating one mode-0o600 file per update under
-    // /tmp until the OS sweeps it.
+    // S6-F8 — write to a fresh temp dir, ALWAYS clean up in finally so the
+    // verified binary doesn't linger on disk between updates.
     const { dir, path: binaryPath } = await writeToTempFile(bytes);
     try {
       if (this.opts.invokeInstaller) {
@@ -208,11 +213,11 @@ export class Updater {
       }
       this.opts.recordUpdateEvent?.("system.update.installed", {
         fromVersion: this.opts.currentVersion,
-        toVersion: this.lastManifest.version,
+        toVersion,
       });
       this.opts.emit("updater.restarting", {
         fromVersion: this.opts.currentVersion,
-        toVersion: this.lastManifest.version,
+        toVersion,
       });
       this.state = "idle";
     } catch (err) {
@@ -220,7 +225,7 @@ export class Updater {
       this.lastError = redactUrlUserinfo(err instanceof Error ? err.message : String(err));
       this.opts.emit("updater.rolledBack", { reason: "installer_failed" });
       this.opts.recordUpdateEvent?.("system.update.failed", {
-        toVersion: this.lastManifest.version,
+        toVersion,
         reason: "installer_failed",
       });
       throw err;

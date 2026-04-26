@@ -28,6 +28,32 @@ function makeUpdater(overrides?: Partial<UpdaterOptions>): Updater {
   });
 }
 
+type ManifestBuilder = (
+  binary: Uint8Array,
+  downloadUrl: string,
+) => ReturnType<typeof buildSignedManifest>;
+
+/**
+ * Spin up a download server + manifest server pair. Returns the binary so
+ * tests can derive expectations from it.
+ */
+function startManifestAndDownloadServers(
+  binary: Uint8Array,
+  build: ManifestBuilder = (b, url) => buildSignedManifest(b, kp, url, "0.2.0"),
+): void {
+  downloadServer = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response(binary),
+  });
+  const downloadUrl = `http://127.0.0.1:${downloadServer.port}/bin`;
+  server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => jsonResponse(build(binary, downloadUrl)),
+  });
+}
+
 describe("Updater state machine", () => {
   afterEach(() => {
     server?.stop(true);
@@ -277,32 +303,6 @@ describe("G6 — updater hardening", () => {
     downloadServer?.stop(true);
   });
 
-  type ManifestBuilder = (
-    binary: Uint8Array,
-    downloadUrl: string,
-  ) => ReturnType<typeof buildSignedManifest>;
-
-  /**
-   * Spin up a download server + manifest server pair. Returns the binary so
-   * tests can derive expectations from it.
-   */
-  function startManifestAndDownloadServers(
-    binary: Uint8Array,
-    build: ManifestBuilder = (b, url) => buildSignedManifest(b, kp, url, "0.2.0"),
-  ): void {
-    downloadServer = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(binary),
-    });
-    const downloadUrl = `http://127.0.0.1:${downloadServer.port}/bin`;
-    server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => jsonResponse(build(binary, downloadUrl)),
-    });
-  }
-
   test("downloadAsset rejects body that exceeds the configured cap (S6-F3)", async () => {
     // Use a small cap (1 KiB) and stream more than that; runtime accumulator
     // fires before MAX_DOWNLOAD_BYTES is even relevant. This validates the
@@ -434,56 +434,30 @@ describe("G6 — updater polish (S6-F8 / S6-F9 / S6-F10 / S6-F11)", () => {
     downloadServer?.stop(true);
   });
 
-  function startManifestAndDownloadServers(binary: Uint8Array) {
-    downloadServer = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(binary),
-    });
-    server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () =>
-        jsonResponse(
-          buildSignedManifest(binary, kp, `http://127.0.0.1:${downloadServer.port}/bin`),
-        ),
+  // S6-F8 — temp dir is removed regardless of installer success or failure.
+  for (const variant of ["success", "failure"] as const) {
+    test(`S6-F8 — temp directory is removed after applyUpdate ${variant}`, async () => {
+      const binary = new Uint8Array(randomBytes(256));
+      startManifestAndDownloadServers(binary);
+      let installerPath = "";
+      const u = makeUpdater({
+        invokeInstaller: async (p: string) => {
+          installerPath = p;
+          if (variant === "failure") throw new Error("simulated install failure");
+        },
+      });
+      await u.checkNow();
+      if (variant === "failure") {
+        await expect(u.applyUpdate()).rejects.toThrow(/simulated/);
+      } else {
+        await u.applyUpdate();
+      }
+      const { existsSync } = await import("node:fs");
+      const { dirname } = await import("node:path");
+      expect(installerPath).not.toBe("");
+      expect(existsSync(dirname(installerPath))).toBe(false);
     });
   }
-
-  test("S6-F8 — temp directory is removed after successful applyUpdate", async () => {
-    const binary = new Uint8Array(randomBytes(256));
-    startManifestAndDownloadServers(binary);
-    let installerPath = "";
-    const u = makeUpdater({
-      invokeInstaller: async (p: string) => {
-        installerPath = p;
-      },
-    });
-    await u.checkNow();
-    await u.applyUpdate();
-    const { existsSync } = await import("node:fs");
-    const { dirname } = await import("node:path");
-    expect(installerPath).not.toBe("");
-    expect(existsSync(dirname(installerPath))).toBe(false);
-  });
-
-  test("S6-F8 — temp directory is removed when invokeInstaller throws", async () => {
-    const binary = new Uint8Array(randomBytes(256));
-    startManifestAndDownloadServers(binary);
-    let installerPath = "";
-    const u = makeUpdater({
-      invokeInstaller: async (p: string) => {
-        installerPath = p;
-        throw new Error("simulated install failure");
-      },
-    });
-    await u.checkNow();
-    await expect(u.applyUpdate()).rejects.toThrow(/simulated/);
-    const { existsSync } = await import("node:fs");
-    const { dirname } = await import("node:path");
-    expect(installerPath).not.toBe("");
-    expect(existsSync(dirname(installerPath))).toBe(false);
-  });
 
   test("S6-F9 — getStatus.lastError strips URL userinfo from a fetch error", async () => {
     // Use a non-loopback URL with userinfo so isPermittedSchemeForUpdater

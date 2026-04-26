@@ -37,69 +37,49 @@ const stubVault: NimbusVault = {
   },
 };
 
+type LoggedWarn = { bindings: Record<string, unknown>; msg: string | undefined };
+
+function makeArgsJsonFixture(serviceId: string, argsJson: string) {
+  const db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  const warns: LoggedWarn[] = [];
+  const logger: MeshLogger = {
+    warn: (b, m) => warns.push({ bindings: b, msg: m }),
+  };
+  const mesh = new LazyConnectorMesh(makePaths(), stubVault, {
+    listUserMcpConnectors: () => [
+      {
+        service_id: serviceId,
+        command: "/bin/echo",
+        args_json: argsJson,
+        created_at: 0,
+      },
+    ],
+    healthDb: db,
+    logger,
+  });
+  return { db, warns, mesh };
+}
+
+async function expectArgsJsonHealthFailure(serviceId: string, argsJson: string): Promise<void> {
+  const { db, warns, mesh } = makeArgsJsonFixture(serviceId, argsJson);
+  await mesh.ensureUserMcpRunning(serviceId);
+  await mesh.disconnect();
+
+  expect(warns.length).toBeGreaterThan(0);
+  expect(warns[0]?.bindings["serviceId"]).toBe(serviceId);
+  const snap = getConnectorHealth(db, serviceId);
+  expect(snap.state).toBe("error");
+  expect(snap.lastError ?? "").toMatch(/args_json/);
+}
+
 describe("LazyConnectorMesh — args_json failure (S8-F9)", () => {
   test("malformed args_json (parse error) logs warn and transitions health to persistent_error", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-
-    const warns: Array<{ bindings: Record<string, unknown>; msg: string | undefined }> = [];
-    const logger: MeshLogger = {
-      warn: (b, m) => warns.push({ bindings: b, msg: m }),
-    };
-
-    const mesh = new LazyConnectorMesh(makePaths(), stubVault, {
-      listUserMcpConnectors: () => [
-        {
-          service_id: "broken-svc",
-          command: "/bin/echo",
-          args_json: "not-json",
-          created_at: 0,
-        },
-      ],
-      healthDb: db,
-      logger,
-    });
-
-    await mesh.ensureUserMcpRunning("broken-svc");
-    await mesh.disconnect();
-
-    expect(warns.length).toBeGreaterThan(0);
-    expect(warns[0]?.bindings["serviceId"]).toBe("broken-svc");
-
-    const snap = getConnectorHealth(db, "broken-svc");
-    expect(snap.state).toBe("error");
-    expect(snap.lastError ?? "").toMatch(/args_json/);
+    await expectArgsJsonHealthFailure("broken-svc", "not-json");
   });
 
   test("malformed args_json (non-string-array) logs warn and transitions health", async () => {
-    const db = new Database(":memory:");
-    LocalIndex.ensureSchema(db);
-
-    const warns: Array<{ bindings: Record<string, unknown>; msg: string | undefined }> = [];
-    const logger: MeshLogger = {
-      warn: (b, m) => warns.push({ bindings: b, msg: m }),
-    };
-
-    const mesh = new LazyConnectorMesh(makePaths(), stubVault, {
-      listUserMcpConnectors: () => [
-        {
-          service_id: "non-array-svc",
-          command: "/bin/echo",
-          args_json: '{"not":"an array"}',
-          created_at: 0,
-        },
-      ],
-      healthDb: db,
-      logger,
-    });
-
-    await mesh.ensureUserMcpRunning("non-array-svc");
-    await mesh.disconnect();
-
-    expect(warns.length).toBeGreaterThan(0);
-    const snap = getConnectorHealth(db, "non-array-svc");
-    expect(snap.state).toBe("error");
-    expect(snap.lastError ?? "").toMatch(/args_json/);
+    await expectArgsJsonHealthFailure("non-array-svc", '{"not":"an array"}');
   });
 
   test("S8-F9 — silent path when no logger / healthDb is wired (legacy callers)", async () => {

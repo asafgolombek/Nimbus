@@ -108,11 +108,13 @@ function pinoLogFormatter(o: Record<string, unknown>): Record<string, unknown> {
   const e = out["err"];
   if (e !== null && typeof e === "object") {
     const eObj = { ...(e as Record<string, unknown>) };
-    if (typeof eObj["message"] === "string") {
-      eObj["message"] = scrubRedactedValuePatterns(eObj["message"] as string);
+    const msg = eObj["message"];
+    if (typeof msg === "string") {
+      eObj["message"] = scrubRedactedValuePatterns(msg);
     }
-    if (typeof eObj["stack"] === "string") {
-      eObj["stack"] = scrubRedactedValuePatterns(eObj["stack"] as string);
+    const stack = eObj["stack"];
+    if (typeof stack === "string") {
+      eObj["stack"] = scrubRedactedValuePatterns(stack);
     }
     out["err"] = eObj;
   }

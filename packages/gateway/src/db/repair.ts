@@ -121,6 +121,15 @@ function repairOrphanedSyncTokens(db: Database): RepairOutcome {
   }
 }
 
+// S5-F6 — defense-in-depth helper. SQLite never produces empty-string or
+// null-byte-bearing identifiers from PRAGMA foreign_key_check, but skip them
+// anyway so a future code path that injects synthetic violations cannot
+// smuggle a malformed identifier past escapeIdentifier.
+const NUL_CHAR = String.fromCharCode(0);
+function isUnsafeSqlIdentifier(id: string): boolean {
+  return id.length === 0 || id.includes(NUL_CHAR);
+}
+
 function repairForeignKeys(db: Database): RepairOutcome {
   const action: RepairAction = "foreign_key_cascade_delete";
   try {
@@ -149,11 +158,7 @@ function repairForeignKeys(db: Database): RepairOutcome {
     let totalDeleted = 0;
     db.transaction(() => {
       for (const [table, rowids] of byTable) {
-        // S5-F6 — defense-in-depth: SQLite never produces empty-string or
-        // null-byte-bearing identifiers from PRAGMA foreign_key_check, but
-        // skip them anyway so a future code path that injects synthetic
-        // violations cannot smuggle a malformed identifier past escapeIdentifier.
-        if (table.length === 0 || table.indexOf("\u0000") !== -1) {
+        if (isUnsafeSqlIdentifier(table)) {
           continue;
         }
         const BATCH = 999;

@@ -49,7 +49,7 @@ function makeFakeVault(): { vault: NimbusVault; counters: VaultCounters } {
     },
     async listKeys(): Promise<string[]> {
       counters.listKeysCalls++;
-      return Object.keys(state).sort();
+      return Object.keys(state).sort((a, b) => a.localeCompare(b));
     },
   };
   return { vault, counters };
@@ -95,7 +95,7 @@ describe("dispatchVaultGated (S2-F8)", () => {
       value: "ghp_super_secret",
     });
     expect(captured?.type).toBe("vault.set");
-    const payload = captured?.payload as Record<string, unknown> | undefined;
+    const payload = captured?.payload;
     expect(payload?.["key"]).toBe("github.pat");
     expect(payload?.["value"]).toBeUndefined();
   });
