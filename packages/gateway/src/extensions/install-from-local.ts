@@ -187,7 +187,10 @@ function extractTarGzToDirectory(archivePath: string, destDir: string): void {
   // inbox) ignores unknown options. The post-extract sweep is the structural
   // backstop regardless.
   const args = ["-xzf", archivePath, "-C", destDir];
-  if (process.platform !== "win32") {
+  if (process.platform === "linux") {
+    // GNU-tar-only safety flags. bsdtar (macOS, Windows inbox) rejects
+    // --no-overwrite-dir with a non-zero exit; the assertNoEntryEscapes sweep
+    // below is the structural backstop on all platforms.
     args.push("--no-overwrite-dir", "--no-same-owner", "--no-same-permissions");
   }
   const r = spawnSync(cmd, args, {
