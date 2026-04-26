@@ -412,10 +412,33 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return phase4RpcSkipped;
   }
 
-  async function tryDispatchReindexRpc(method: string, params: unknown): Promise<unknown> {
+  async function tryDispatchReindexRpc(
+    method: string,
+    params: unknown,
+    clientId: string,
+  ): Promise<unknown> {
     if (method !== "connector.reindex") return phase4RpcSkipped;
     try {
-      const out = await dispatchReindexRpc(method, params, { index: options.localIndex });
+      // S1-F7 — bind a per-client `ToolExecutor` so `full`-depth reindex
+      // routes through the HITL consent gate. The dispatcher used here is
+      // a stub: gate() never calls dispatch().
+      const stubDispatcher: ConnectorDispatcher = {
+        dispatch(): Promise<unknown> {
+          return Promise.reject(new Error("IPC-native gate does not dispatch to MCP"));
+        },
+      };
+      const toolExecutor =
+        options.localIndex === undefined
+          ? undefined
+          : new ToolExecutor(
+              bindConsentChannel(consentImpl, clientId),
+              options.localIndex,
+              stubDispatcher,
+            );
+      const out = await dispatchReindexRpc(method, params, {
+        index: options.localIndex,
+        ...(toolExecutor === undefined ? {} : { toolExecutor }),
+      });
       if (out.kind === "hit") return out.value;
     } catch (e) {
       if (e instanceof ReindexRpcError) throw new RpcMethodError(e.rpcCode, e.message);
@@ -570,7 +593,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     if (lanOutcome !== phase4RpcSkipped) return lanOutcome;
     const profileOutcome = await tryDispatchProfileRpc(method, params);
     if (profileOutcome !== phase4RpcSkipped) return profileOutcome;
-    return tryDispatchReindexRpc(method, params);
+    return tryDispatchReindexRpc(method, params, clientId);
   }
 
   async function tryDispatchSessionRpc(method: string, params: unknown): Promise<unknown> {
