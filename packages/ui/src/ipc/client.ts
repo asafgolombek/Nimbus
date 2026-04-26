@@ -140,7 +140,28 @@ const FORBIDDEN_VALUE_KEYS: readonly string[] = [
   "mnemonic",
   "privateKey",
   "encryptedVaultManifest",
+  // S2-F6 — `pat` is a common shorthand for personal-access-token in the
+  // GitHub / GitLab / Bitbucket connector vocabulary. The generic
+  // SENSITIVE_KEY_PATTERN below would not catch the bare 3-letter form,
+  // so add it explicitly.
+  "pat",
 ];
+
+/**
+ * S2-F6 — mirror gateway-side `executor.ts:SENSITIVE_PAYLOAD_KEY` so the
+ * renderer-side redactor catches the same connector-secret names that the
+ * gateway audit redactor catches: `apiToken`, `clientSecret`, `accessToken`,
+ * `refreshToken`, `bot_token`, `api_key`, `app_password`, etc.
+ *
+ * Keep this exact pattern in sync with packages/gateway/src/engine/executor.ts.
+ */
+const SENSITIVE_KEY_PATTERN = /(token|key|secret|password|credential|bearer|auth)/i;
+
+function isSensitiveKeyName(name: string): boolean {
+  return SENSITIVE_KEY_PATTERN.test(name);
+}
+
+export { isSensitiveKeyName };
 
 function redactSensitiveSubstrings(input: string): string {
   let out = input;
@@ -152,8 +173,23 @@ function redactSensitiveSubstrings(input: string): string {
     const jsonRe = new RegExp(String.raw`"${key}"\s*:\s*"[^"]*"`, "gi");
     out = out.replace(jsonRe, `"${key}":"[REDACTED]"`);
   }
+  // S2-F6 — generic redaction of any JSON key whose name matches the
+  // sensitive-key pattern. Catches connector secret names: apiToken,
+  // clientSecret, accessToken, refreshToken, bot_token, api_key,
+  // app_password, Authorization header values, etc.
+  out = out.replaceAll(
+    /"(\w*(?:token|key|secret|password|credential|bearer|auth)\w*)"\s*:\s*"[^"]*"/gi,
+    (_match, k: string) => `"${k}":"[REDACTED]"`,
+  );
+  // Bare `key=value` form for the same key shapes.
+  out = out.replaceAll(
+    /(\b\w*(?:token|key|secret|password|credential|bearer|auth)\w*)\s*[=:]\s*"?([^\s",}]+)"?/gi,
+    (_match, k: string) => `${k}=[REDACTED]`,
+  );
   return out;
 }
+
+export { redactSensitiveSubstrings };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);

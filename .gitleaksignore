@@ -1,0 +1,11 @@
+# Gitleaks suppressions for synthetic secret-redaction unit-test fixtures.
+# These are NOT real secrets — they are deliberately constructed strings used
+# to verify that scrubRedactedValuePatterns() in gateway-log-file.ts correctly
+# strips Slack xoxb tokens and JWT fixtures from log output. The values match
+# the shape of the corresponding redaction regexes by design.
+#
+# Adding the inline `// gitleaks:allow` comment in HEAD does not retroactively
+# clear the historical commit, so we pin the fingerprints here.
+
+b37e8d4b0abf44f8cd60b187499acea7f21914a7:packages/gateway/src/platform/gateway-log-redact.test.ts:generic-api-key:41
+b37e8d4b0abf44f8cd60b187499acea7f21914a7:packages/gateway/src/platform/gateway-log-redact.test.ts:jwt:49

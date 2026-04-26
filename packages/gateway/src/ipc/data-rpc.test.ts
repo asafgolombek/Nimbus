@@ -1,12 +1,22 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
+import { _addTestKdfProfile } from "../db/data-vault-crypto.ts";
 import type { ToolExecutor } from "../engine/executor.ts";
 import { DataRpcError, dispatchDataRpc } from "./data-rpc.ts";
 
 const testKdf = { t: 1, m: 1024, p: 1 } as const;
+
+// S2-F10 — register the test KDF profile so import-path tests succeed.
+let _restoreTestKdf: () => void;
+beforeAll(() => {
+  _restoreTestKdf = _addTestKdfProfile({ ...testKdf });
+});
+afterAll(() => {
+  _restoreTestKdf();
+});
 
 function emptyCtx(): Parameters<typeof dispatchDataRpc>[2] {
   return { index: undefined, vault: undefined, platform: "linux", nimbusVersion: "0.0.0-test" };

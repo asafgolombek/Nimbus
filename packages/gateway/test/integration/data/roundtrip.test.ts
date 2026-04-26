@@ -1,13 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDataExport } from "../../../src/commands/data-export.ts";
 import { runDataImport } from "../../../src/commands/data-import.ts";
 import { verifyAuditChain } from "../../../src/db/audit-verify.ts";
+import { _addTestKdfProfile } from "../../../src/db/data-vault-crypto.ts";
 import type { LocalIndex } from "../../../src/index/local-index.ts";
 import { CURRENT_SCHEMA_VERSION } from "../../../src/index/local-index.ts";
 import { memVault, newIndex } from "../../fixtures/data-test-helpers.ts";
+
+// S2-F10 — register the FAST_KDF profile used by the round-trip integration
+// test so decryptVaultManifest accepts the bundle on import.
+let _restoreTestKdf: () => void;
+beforeAll(() => {
+  _restoreTestKdf = _addTestKdfProfile({ t: 1, m: 1024, p: 1 });
+});
+afterAll(() => {
+  _restoreTestKdf();
+});
 
 function seed(idx: LocalIndex, service: string, count: number): void {
   for (let i = 0; i < count; i++) {

@@ -61,6 +61,16 @@ function tableExists(db: Database, name: string): boolean {
   return row !== null;
 }
 
+/**
+ * FTS5 integrity check (S5-F1).
+ *
+ * The `INSERT INTO item_fts(item_fts) VALUES('integrity-check')` form is the
+ * SQLite-FTS5 magic command that runs an integrity check against the FTS
+ * shadow tables; it is structurally a write but operates as a read on the
+ * content table. Therefore this function REQUIRES a read-write `db` handle.
+ * Callers passing a `readonly: true` Database will receive
+ * `SQLiteError: attempt to write a readonly database` here.
+ */
 function checkFts5Consistency(db: Database): VerifyFinding {
   const label = "fts5_consistency";
   if (!tableExists(db, "item_fts")) {
@@ -68,7 +78,7 @@ function checkFts5Consistency(db: Database): VerifyFinding {
     return { label, status: "ok", detail: "item_fts not present, skipped" };
   }
   try {
-    // This throws if the FTS5 shadow tables are inconsistent with the content table.
+    // S5-F1 — magic SQL: structurally a write, semantically a read on item_fts.
     db.run("INSERT INTO item_fts(item_fts) VALUES('integrity-check')");
     return { label, status: "ok" };
   } catch (err) {

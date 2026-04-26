@@ -205,6 +205,10 @@ async function createSchedulerWithMesh(
   }
   const connectorMesh = await createLazyConnectorMesh(paths, vault, {
     listUserMcpConnectors: () => listUserMcpConnectors(db),
+    // S8-F9 — pass db + logger so args_json failures surface as
+    // persistent_error in connector health and a warn log line.
+    healthDb: db,
+    logger: syncLogger,
   });
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
   registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);
@@ -269,8 +273,6 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
 
   const sessionMemoryStore = maybeAttachSessionMemoryStore(db, rt, sessionToml, sidecarStops);
 
-  verifyExtensionsBestEffort(db, syncLogger);
-
   const { syncScheduler, connectorMesh } = await createSchedulerWithMesh(
     paths,
     vault,
@@ -280,6 +282,12 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     notifications,
     syncLogger,
   );
+
+  // S7-F10 — pass the mesh so a hash mismatch can terminate the running
+  // child. Must run AFTER mesh creation; the mesh handle did not exist
+  // pre-G7 so this call was placed before mesh creation in the original
+  // wiring.
+  await verifyExtensionsBestEffort(db, syncLogger, connectorMesh);
   rt?.startBackgroundJobs();
   const ipcOpts: Parameters<typeof createIpcServer>[0] = {
     listenPath: paths.socketPath,

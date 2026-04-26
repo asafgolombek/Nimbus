@@ -86,10 +86,55 @@ export async function encryptVaultManifest(input: {
   };
 }
 
+/**
+ * KDF parameter allowlist (S2-F10).
+ *
+ * Bundles whose `kdf` field deviates from this list are rejected on import,
+ * defending against attacker-substituted weak Argon2id parameters during
+ * forensic-image attacks.
+ *
+ * Migration ordering rule: when raising Argon2id costs in a future release,
+ * the NEW profile MUST be added to this list at least one release cycle
+ * BEFORE any client begins emitting bundles with the new params. Otherwise
+ * older Nimbus installs cannot import bundles produced by newer ones — and
+ * passphrase-based recovery from a current export becomes impossible without
+ * manually downgrading the user's install. Order:
+ *   (1) ship a release that *accepts* the new profile;
+ *   (2) wait for the install base to converge;
+ *   (3) ship a release that *emits* the new profile.
+ */
+const ACCEPTED_KDF_PROFILES_BACKING: KdfParams[] = [{ t: 3, m: 64 * 1024, p: 1 }];
+
+function isAcceptedKdf(p: KdfParams): boolean {
+  return ACCEPTED_KDF_PROFILES_BACKING.some(
+    (profile) => profile.t === p.t && profile.m === p.m && profile.p === p.p,
+  );
+}
+
+/**
+ * Test-only — temporarily add a KDF profile to the allowlist so existing
+ * round-trip tests can keep using fast Argon2id parameters. Returns a
+ * restore function. Production code must never call this.
+ */
+export function _addTestKdfProfile(profile: KdfParams): () => void {
+  ACCEPTED_KDF_PROFILES_BACKING.push(profile);
+  return () => {
+    const idx = ACCEPTED_KDF_PROFILES_BACKING.findIndex(
+      (p) => p.t === profile.t && p.m === profile.m && p.p === profile.p,
+    );
+    if (idx > 0) ACCEPTED_KDF_PROFILES_BACKING.splice(idx, 1);
+  };
+}
+
 export async function decryptVaultManifest(
   blob: VaultManifestBlob,
   key: { passphrase?: string; seed?: string },
 ): Promise<string> {
+  if (!isAcceptedKdf(blob.kdf)) {
+    throw new Error(
+      `decryptVaultManifest: kdf params not in allowlist (got t=${String(blob.kdf.t)} m=${String(blob.kdf.m)} p=${String(blob.kdf.p)})`,
+    );
+  }
   const { passphrase, seed } = key;
   let dek: Uint8Array;
   if (passphrase !== undefined) {

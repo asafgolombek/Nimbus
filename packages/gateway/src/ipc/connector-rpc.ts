@@ -20,6 +20,10 @@ import { asRecord, ConnectorRpcError } from "./connector-rpc-shared.ts";
 
 export { ConnectorRpcError } from "./connector-rpc-shared.ts";
 
+// S4-F2 — module-level once-flag so the deprecation warning logs at most
+// once per gateway boot. Mutated by dispatchConnectorRpc on first hit.
+let warnedConnectorStartAuth = false;
+
 export async function dispatchConnectorRpc(options: {
   method: string;
   params: unknown;
@@ -96,9 +100,31 @@ export async function dispatchConnectorRpc(options: {
     }
     case "connector.sync":
       return handleConnectorSync(ctx);
-    case "connector.auth":
+    /**
+     * @deprecated S4-F2 — `connector.startAuth` is a compatibility alias
+     * retained for the WS5 onboarding flow (`Connect.tsx`) that still emits
+     * the older method name. Use `connector.auth` directly. Once the
+     * frontend migrates, this alias can be removed.
+     */
+    case "connector.startAuth":
+    case "connector.auth": {
+      if (method === "connector.startAuth" && !warnedConnectorStartAuth) {
+        warnedConnectorStartAuth = true;
+        // No structured logger threaded through here yet; write to stderr
+        // directly so pino's mirror (when wired) and the daily log file
+        // both capture the deprecation notice exactly once.
+        process.stderr.write(
+          "connector.startAuth is deprecated; use connector.auth (S4-F2 alias)\n",
+        );
+      }
       return handleConnectorAuth(ctx);
+    }
     default:
       return { kind: "miss" };
   }
+}
+
+/** Test-only — reset the deprecation once-flag so suites can isolate. */
+export function _resetStartAuthWarnFlagForTest(): void {
+  warnedConnectorStartAuth = false;
 }

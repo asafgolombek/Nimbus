@@ -864,9 +864,21 @@ export class LocalIndex {
     hostPort?: number;
     displayName?: string;
   }): void {
+    // S3-F5 — idempotent on duplicate `peer_pubkey`. Re-pairing from a known
+    // peer used to throw `UNIQUE constraint failed: lan_peers.peer_pubkey`,
+    // silently dropping the pair_ok reply. ON CONFLICT(peer_pubkey) refreshes
+    // host_ip / host_port / display_name / paired_at while preserving the
+    // existing `write_allowed` grant — re-pairing must not re-elevate
+    // permission grants the user previously revoked.
     this.db.run(
       `INSERT INTO lan_peers (peer_id, peer_pubkey, direction, host_ip, host_port, display_name, write_allowed, paired_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+       ON CONFLICT(peer_pubkey) DO UPDATE SET
+         host_ip = excluded.host_ip,
+         host_port = excluded.host_port,
+         display_name = excluded.display_name,
+         direction = excluded.direction,
+         paired_at = excluded.paired_at`,
       [
         params.peerId,
         Buffer.from(params.peerPubkey),

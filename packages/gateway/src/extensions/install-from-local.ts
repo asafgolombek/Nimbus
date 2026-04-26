@@ -39,10 +39,23 @@ function sha256HexOfBytes(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
+/**
+ * S7-F9 — extension IDs are reflected into filesystem paths under the
+ * platform-specific extensions dir. Windows MAX_PATH is 260 chars; this cap
+ * leaves enough headroom for the install dir prefix (`<configDir>/extensions/`)
+ * and the longest entry filename without overflowing.
+ */
+const MAX_EXTENSION_ID_LENGTH = 128;
+
 /** Reject ids that could escape the extensions directory when joined. */
 export function assertSafeExtensionId(extensionId: string): void {
   if (extensionId.trim() === "" || extensionId.includes("\0")) {
     throw new Error("invalid extension id");
+  }
+  if (extensionId.length > MAX_EXTENSION_ID_LENGTH) {
+    throw new Error(
+      `extension id too long (max ${String(MAX_EXTENSION_ID_LENGTH)} chars, got ${String(extensionId.length)})`,
+    );
   }
   const normalized = extensionId.replaceAll("\\", "/");
   const parts = normalized.split("/").filter((p) => p !== "" && p !== ".");
