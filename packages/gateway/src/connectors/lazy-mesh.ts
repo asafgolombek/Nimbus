@@ -238,6 +238,25 @@ export class LazyConnectorMesh {
     await this.stopLazyClient(userMcpMeshKey(serviceId));
   }
 
+  /**
+   * S7-F10 — terminate the running MCP child process for an extension.
+   * Called by `extension.disable` IPC and by `verifyExtensionsBestEffort`
+   * when a hash mismatch is detected. Extension MCPs are stored under the
+   * same `mesh:user:<id>` slot pattern as user MCPs, so we route through
+   * the existing user-mesh teardown. We also attempt the bare extension-id
+   * slot in case a future code path registers extensions there directly.
+   *
+   * Limitation: this only kills the immediate MCP child. Subprocesses
+   * spawned BY the extension (helper daemons, background watchers) keep
+   * running until they exit on their own. Closing that gap requires
+   * platform-specific machinery (POSIX process groups, Windows Job
+   * Objects) and is tracked under Phase 7 sandbox work.
+   */
+  public async stopExtensionClient(extensionId: string): Promise<void> {
+    await this.stopUserMcpClient(extensionId);
+    await this.stopLazyClient(extensionId);
+  }
+
   private mcpServerKeyForUserConnector(serviceId: string): string {
     return serviceId.replaceAll(/[^a-zA-Z0-9_-]/g, "_");
   }

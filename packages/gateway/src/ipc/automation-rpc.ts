@@ -74,12 +74,18 @@ function handleValidateCondition(rec: Record<string, unknown> | undefined, db: D
   };
 }
 
+export interface AutomationRpcExtensionMeshHandle {
+  stopExtensionClient(extensionId: string): Promise<void>;
+}
+
 export function dispatchAutomationRpc(options: {
   method: string;
   params: unknown;
   db: Database;
   /** Required for `extension.install`. */
   extensionsDir?: string;
+  /** S7-F10 — `extension.disable` calls `stopExtensionClient` to terminate the running child. */
+  mesh?: AutomationRpcExtensionMeshHandle;
 }): Hit | { kind: "miss" } {
   const { method, db } = options;
   const rec = asRecord(options.params);
@@ -187,6 +193,13 @@ export function dispatchAutomationRpc(options: {
     case "extension.disable": {
       const id = requireString(rec, "id");
       const ok = setExtensionEnabled(db, id, false);
+      // S7-F10 — fire-and-forget: the IPC response shape is just { ok };
+      // callers don't wait for the child teardown. The disabled-flag is
+      // already flipped, so even if the stop is in flight, no new tool
+      // calls will reach the child.
+      if (ok && options.mesh !== undefined) {
+        void options.mesh.stopExtensionClient(id);
+      }
       return { kind: "hit", value: { ok } };
     }
 

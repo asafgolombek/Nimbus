@@ -40,14 +40,14 @@ function makeExtensionDir(
 }
 
 describe("verifyExtensionsBestEffort", () => {
-  test("no-op below schema v10", () => {
+  test("no-op below schema v10", async () => {
     const db = new Database(":memory:");
     const { logger, warns } = memoryLogger();
-    verifyExtensionsBestEffort(db, logger);
+    await verifyExtensionsBestEffort(db, logger);
     expect(warns.length).toBe(0);
   });
 
-  test("manifest hash mismatch logs error and disables extension", () => {
+  test("manifest hash mismatch logs error and disables extension", async () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
     const { dir } = makeExtensionDir("nimbus-ext-vfy-", "bad", "console.log(1)\n");
@@ -64,7 +64,7 @@ describe("verifyExtensionsBestEffort", () => {
     });
 
     const { logger, warns, errors } = memoryLogger();
-    verifyExtensionsBestEffort(db, logger);
+    await verifyExtensionsBestEffort(db, logger);
     expect(errors.some((w) => JSON.stringify(w).includes("manifest hash mismatch"))).toBe(true);
     expect(warns.length).toBe(0);
     const row = db.query("SELECT enabled FROM extension WHERE id = ?").get("bad") as {
@@ -73,7 +73,7 @@ describe("verifyExtensionsBestEffort", () => {
     expect(row.enabled).toBe(0);
   });
 
-  test("entry hash mismatch logs error and disables extension", () => {
+  test("entry hash mismatch logs error and disables extension", async () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
     const { dir, manifestHex } = makeExtensionDir("nimbus-ext-vfy-entry-", "ent", "export {}\n");
@@ -90,9 +90,39 @@ describe("verifyExtensionsBestEffort", () => {
     });
 
     const { logger, errors } = memoryLogger();
-    verifyExtensionsBestEffort(db, logger);
+    await verifyExtensionsBestEffort(db, logger);
     expect(errors.some((w) => JSON.stringify(w).includes("entry hash mismatch"))).toBe(true);
     const row = db.query("SELECT enabled FROM extension WHERE id = ?").get("ent") as {
+      enabled: number;
+    };
+    expect(row.enabled).toBe(0);
+  });
+
+  // S7-F10
+  test("manifest hash mismatch calls mesh.stopExtensionClient when mesh is supplied", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const { dir } = makeExtensionDir("nimbus-ext-mesh-stop-", "tampered", "console.log(1)\n");
+    const t = Date.now();
+    insertExtensionRow(db, {
+      id: "tampered",
+      version: "1.0.0",
+      install_path: dir,
+      manifest_hash: "0".repeat(64),
+      entry_hash: "0".repeat(64),
+      installed_at: t,
+      last_verified_at: t,
+    });
+    const stopped: string[] = [];
+    const mesh = {
+      stopExtensionClient: async (id: string) => {
+        stopped.push(id);
+      },
+    };
+    const { logger } = memoryLogger();
+    await verifyExtensionsBestEffort(db, logger, mesh);
+    expect(stopped).toEqual(["tampered"]);
+    const row = db.query("SELECT enabled FROM extension WHERE id = ?").get("tampered") as {
       enabled: number;
     };
     expect(row.enabled).toBe(0);

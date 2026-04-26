@@ -761,6 +761,9 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
           params,
           db: options.localIndex.getDatabase(),
           ...(options.extensionsDir === undefined ? {} : { extensionsDir: options.extensionsDir }),
+          // S7-F10 — pass the mesh so extension.disable can terminate the
+          // running child immediately (fire-and-forget inside the dispatcher).
+          ...(options.connectorMesh === undefined ? {} : { mesh: options.connectorMesh }),
         });
         if (out.kind === "hit") {
           return out.value;

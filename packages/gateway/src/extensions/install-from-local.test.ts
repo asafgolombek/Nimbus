@@ -38,6 +38,13 @@ describe("install-from-local", () => {
     expect(() => assertSafeExtensionId("@scope/pkg")).not.toThrow();
   });
 
+  // S7-F9
+  test("assertSafeExtensionId rejects ids longer than 128 characters", () => {
+    expect(() => assertSafeExtensionId("a".repeat(128))).not.toThrow();
+    expect(() => assertSafeExtensionId("a".repeat(129))).toThrow(/too long/i);
+    expect(() => assertSafeExtensionId("@scope/" + "a".repeat(200))).toThrow(/too long/i);
+  });
+
   test("extensionInstallDirectory joins scoped id safely", () => {
     const root = join(tmpdir(), "nimbus-ext-test");
     expect(extensionInstallDirectory(root, "@acme/demo")).toBe(join(root, "@acme", "demo"));

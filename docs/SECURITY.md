@@ -109,6 +109,10 @@ Third-party extensions run as child processes. They:
 
 **Extension isolation.** Extensions run as child processes spawned by the gateway. They share the gateway's user UID and have full filesystem and network access at that UID's permissions — there is no `seccomp` / `bwrap` / `sandbox-exec` / AppContainer sandbox in this release. The only structural barriers are: (a) `extensionProcessEnv()` filters parent-process environment variables, blocking propagation of OAuth client secrets and LLM provider API keys; (b) startup SHA-256 verification detects post-install drift and disables affected rows; (c) the same SHA-256 is re-checked immediately before each spawn (S7-F3 fix). OS-level sandboxing is on the Phase 7 roadmap. Until then, extensions must be considered code that runs at full user-UID equivalence — do not install extensions from untrusted sources.
 
+#### Extension disable does not orphan-kill subprocesses
+
+When an extension's hash check fails (`verifyExtensionsBestEffort` at startup) or the user invokes `extension.disable`, the gateway terminates the extension's immediate MCP child process via `LazyConnectorMesh.stopExtensionClient`. Any further subprocesses that the extension itself spawned (helper daemons, background watchers) are NOT killed — they continue running until they exit on their own. This is a known limitation of `child_process.spawn` (no process-group kill on POSIX, no Job Object wrapping on Windows) and aligns with the broader same-uid sandbox model documented above. Phase 7 sandbox work (`bwrap` / `sandbox-exec` / `AppContainer`) will close this gap by binding the extension's full descendant tree to a sandbox lifetime.
+
 ---
 
 ### IPC Surface
