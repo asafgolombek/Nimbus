@@ -1,6 +1,9 @@
-import { fetchUpdateManifest } from "./manifest-fetcher.ts";
-import { sha256Hex, verifyBinarySignature } from "./signature-verifier.ts";
+import { fetchUpdateManifest, isPermittedSchemeForUpdater } from "./manifest-fetcher.ts";
+import { sha256Hex, verifyBinarySignature, verifyManifestEnvelope } from "./signature-verifier.ts";
 import type { PlatformTarget, UpdateManifest, UpdaterStatus } from "./types.ts";
+
+/** S6-F3 — manifest-controlled OOM defence. 500 MiB is well above any realistic Nimbus binary. */
+export const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024;
 
 export type UpdaterEmit = (
   name:
@@ -12,6 +15,12 @@ export type UpdaterEmit = (
   payload?: Record<string, unknown>,
 ) => void;
 
+export type UpdateEventPhase =
+  | "system.update.start"
+  | "system.update.verified"
+  | "system.update.installed"
+  | "system.update.failed";
+
 export interface UpdaterOptions {
   currentVersion: string;
   manifestUrl: string;
@@ -20,6 +29,10 @@ export interface UpdaterOptions {
   emit: UpdaterEmit;
   timeoutMs: number;
   invokeInstaller?: (binaryPath: string) => Promise<void>;
+  /** S6-F7 — opt-in callback for audit_log row recording. */
+  recordUpdateEvent?: (phase: UpdateEventPhase, payload: Record<string, unknown>) => void;
+  /** S6-F3 — override download size cap (defaults to MAX_DOWNLOAD_BYTES). Tests use a small value. */
+  maxDownloadBytes?: number;
 }
 
 export interface CheckNowResult {
@@ -85,6 +98,15 @@ export class Updater {
       throw new Error(`no asset for target ${this.opts.target}`);
     }
 
+    // S6-F7 — pre-flight audit row.
+    this.opts.recordUpdateEvent?.("system.update.start", {
+      fromVersion: this.opts.currentVersion,
+      toVersion: this.lastManifest.version,
+      manifestUrl: this.opts.manifestUrl,
+      sha256: asset.sha256,
+      target: this.opts.target,
+    });
+
     this.state = "downloading";
     let bytes: Uint8Array;
     try {
@@ -93,6 +115,10 @@ export class Updater {
       this.state = "failed";
       this.lastError = err instanceof Error ? err.message : String(err);
       this.opts.emit("updater.rolledBack", { reason: "download_failed" });
+      this.opts.recordUpdateEvent?.("system.update.failed", {
+        toVersion: this.lastManifest.version,
+        reason: "download_failed",
+      });
       throw err;
     }
 
@@ -102,14 +128,44 @@ export class Updater {
       this.state = "rolled_back";
       this.opts.emit("updater.verifyFailed", { reason: "hash_mismatch" });
       this.opts.emit("updater.rolledBack", { reason: "hash_mismatch" });
+      this.opts.recordUpdateEvent?.("system.update.failed", {
+        toVersion: this.lastManifest.version,
+        reason: "hash_mismatch",
+      });
       throw new Error(`binary hash mismatch: expected ${asset.sha256}, got ${computedSha}`);
     }
     const sigBytes = new Uint8Array(Buffer.from(asset.signature, "base64"));
-    if (!verifyBinarySignature(bytes, sigBytes, this.opts.publicKey)) {
-      this.state = "rolled_back";
-      this.opts.emit("updater.verifyFailed", { reason: "signature_invalid" });
-      this.opts.emit("updater.rolledBack", { reason: "signature_invalid" });
-      throw new Error("Ed25519 signature verification failed");
+    // S6-F6 — primary defence is the envelope. Fall back to bare-SHA verification
+    // only during the migration window of one release; the verifier still
+    // emits an audit event noting which mode succeeded.
+    const envelopeOk = verifyManifestEnvelope({
+      version: this.lastManifest.version,
+      target: this.opts.target,
+      sha256: asset.sha256,
+      signature: sigBytes,
+      publicKey: this.opts.publicKey,
+    });
+    if (!envelopeOk) {
+      const bareOk = verifyBinarySignature(bytes, sigBytes, this.opts.publicKey);
+      if (!bareOk) {
+        this.state = "rolled_back";
+        this.opts.emit("updater.verifyFailed", { reason: "signature_invalid" });
+        this.opts.emit("updater.rolledBack", { reason: "signature_invalid" });
+        this.opts.recordUpdateEvent?.("system.update.failed", {
+          toVersion: this.lastManifest.version,
+          reason: "signature_invalid",
+        });
+        throw new Error("Ed25519 signature verification failed");
+      }
+      this.opts.recordUpdateEvent?.("system.update.verified", {
+        toVersion: this.lastManifest.version,
+        envelope: false,
+      });
+    } else {
+      this.opts.recordUpdateEvent?.("system.update.verified", {
+        toVersion: this.lastManifest.version,
+        envelope: true,
+      });
     }
 
     this.state = "applying";
@@ -118,6 +174,10 @@ export class Updater {
       if (this.opts.invokeInstaller) {
         await this.opts.invokeInstaller(binaryPath);
       }
+      this.opts.recordUpdateEvent?.("system.update.installed", {
+        fromVersion: this.opts.currentVersion,
+        toVersion: this.lastManifest.version,
+      });
       this.opts.emit("updater.restarting", {
         fromVersion: this.opts.currentVersion,
         toVersion: this.lastManifest.version,
@@ -127,14 +187,31 @@ export class Updater {
       this.state = "failed";
       this.lastError = err instanceof Error ? err.message : String(err);
       this.opts.emit("updater.rolledBack", { reason: "installer_failed" });
+      this.opts.recordUpdateEvent?.("system.update.failed", {
+        toVersion: this.lastManifest.version,
+        reason: "installer_failed",
+      });
       throw err;
     }
   }
 
   private async downloadAsset(url: string): Promise<Uint8Array> {
+    if (!isPermittedSchemeForUpdater(url)) {
+      let scheme: string;
+      try {
+        scheme = new URL(url).protocol;
+      } catch {
+        scheme = url;
+      }
+      throw new Error(`asset URL must be https:// (got ${scheme})`);
+    }
+    const cap = this.opts.maxDownloadBytes ?? MAX_DOWNLOAD_BYTES;
     const resp = await fetch(url, { redirect: "follow" });
     if (!resp.ok) throw new Error(`download HTTP ${resp.status}`);
-    const total = Number(resp.headers.get("content-length") ?? 0);
+    const declaredTotal = Number(resp.headers.get("content-length") ?? 0);
+    if (declaredTotal > cap) {
+      throw new Error(`Content-Length ${declaredTotal} exceeds download size cap of ${cap} bytes`);
+    }
     const reader = resp.body?.getReader();
     if (reader === undefined) throw new Error("No response body from download");
     const chunks: Uint8Array[] = [];
@@ -143,9 +220,13 @@ export class Updater {
       const { done, value } = await reader.read();
       if (done) break;
       if (value !== undefined) {
-        chunks.push(value);
         downloaded += value.byteLength;
-        this.opts.emit("updater.downloadProgress", { bytes: downloaded, total });
+        if (downloaded > cap) {
+          await reader.cancel();
+          throw new Error(`Download body exceeds size cap of ${cap} bytes (read ${downloaded})`);
+        }
+        chunks.push(value);
+        this.opts.emit("updater.downloadProgress", { bytes: downloaded, total: declaredTotal });
       }
     }
     const bytes = new Uint8Array(downloaded);

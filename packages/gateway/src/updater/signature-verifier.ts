@@ -27,3 +27,31 @@ export function verifyBinarySignature(
 export function sha256Hex(binary: Uint8Array): string {
   return createHash("sha256").update(binary).digest("hex");
 }
+
+/**
+ * S6-F6 — verifies an Ed25519 signature over the canonical envelope
+ * `JSON.stringify({ version, target, sha256 })`. The signed envelope binds
+ * the binary identity to its manifest claim, defeating manifest-substitution
+ * attacks where an attacker pairs a legacy signed binary with a fresh manifest.
+ * Returns false on ANY failure — never throws.
+ */
+export function verifyManifestEnvelope(input: {
+  version: string;
+  target: string;
+  sha256: string;
+  signature: Uint8Array;
+  publicKey: Uint8Array;
+}): boolean {
+  if (input.signature.length !== 64 || input.publicKey.length !== 32) return false;
+  const envelope = JSON.stringify({
+    version: input.version,
+    target: input.target,
+    sha256: input.sha256,
+  });
+  try {
+    const bytes = new TextEncoder().encode(envelope);
+    return nacl.sign.detached.verify(bytes, input.signature, input.publicKey);
+  } catch {
+    return false;
+  }
+}
