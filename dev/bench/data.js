@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777191403985,
+  "lastUpdate": 1777192606948,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1768,6 +1768,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.2945210600000001,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "00a1be718f1d311765163c30f0b4b6f12ef31a6f",
+          "message": "feat: implement data export/import/delete CLI commands, configure AI automation hooks, and add cargo-deny rules",
+          "timestamp": "2026-04-26T11:36:08+03:00",
+          "tree_id": "706e01b081d64ed71593321e7679f9c6057c0237",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/00a1be718f1d311765163c30f0b4b6f12ef31a6f"
+        },
+        "date": 1777192605962,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4956842600000022,
             "unit": "ms"
           }
         ]
