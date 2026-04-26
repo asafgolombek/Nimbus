@@ -557,12 +557,18 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     const rec = asRecord(params);
     switch (method) {
       case "lan.openPairingWindow": {
+        // S3-F9 — derive expiresAt from the same PairingWindow instance whose
+        // timer enforces consume(). Previously expiresAt was computed from a
+        // separate `lanPairingWindowMs` option that could diverge from the
+        // PairingWindow's configured windowMs (e.g. caller passes the option
+        // here but constructs PairingWindow elsewhere with the default 300_000),
+        // leaving the UI counting down to a moment when the gate has already
+        // closed. The single source of truth is now PairingWindow.getExpiresAt().
         const pw = requireLanPairingWindow();
         const pairingCode = generatePairingCode();
-        const windowMs = (options as Record<string, unknown>)["lanPairingWindowMs"];
-        const ms = typeof windowMs === "number" ? windowMs : 300_000;
         pw.open(pairingCode);
-        return { pairingCode, expiresAt: Date.now() + ms };
+        const expiresAt = pw.getExpiresAt() ?? Date.now();
+        return { pairingCode, expiresAt };
       }
       case "lan.closePairingWindow": {
         requireLanPairingWindow().close();
