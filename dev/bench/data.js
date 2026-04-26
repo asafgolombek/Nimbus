@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777178133009,
+  "lastUpdate": 1777178784241,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1652,6 +1652,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4988830600000016,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "e93092efa8015f1849c2e58bda0be52b6b858548",
+          "message": "docs: formalize phase 4 implementation plan and roadmap while updating test coverage gates and build documentation",
+          "timestamp": "2026-04-26T07:45:50+03:00",
+          "tree_id": "ce801655bf10f5fc83dac27e6206f03dbae44c9d",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/e93092efa8015f1849c2e58bda0be52b6b858548"
+        },
+        "date": 1777178783547,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5122827999999982,
             "unit": "ms"
           }
         ]
