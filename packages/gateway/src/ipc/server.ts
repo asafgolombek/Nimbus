@@ -93,6 +93,35 @@ type VaultDispatchHit = { readonly kind: "hit"; readonly value: unknown };
 type VaultDispatchMiss = { readonly kind: "miss" };
 type VaultDispatchOutcome = VaultDispatchHit | VaultDispatchMiss;
 
+/**
+ * S2-F8 — wrap `dispatchVaultIfPresent` with a HITL gate for writes
+ * (`vault.set`, `vault.delete`). Reads (`vault.get`, `vault.listKeys`) stay
+ * ungated — connector auth flows must read tokens without a prompt.
+ *
+ * Internal callers (auth/OAuth flows holding a typed `NimbusVault` reference
+ * directly) bypass this gate by design; they never traverse the IPC surface.
+ *
+ * The gate payload includes only the key, never the value — the consent UI
+ * must not echo a credential even though the renderer-side redactor would
+ * catch it.
+ */
+export async function dispatchVaultGated(
+  vault: NimbusVault,
+  toolExecutor: ToolExecutor | undefined,
+  method: string,
+  params: unknown,
+): Promise<VaultDispatchOutcome> {
+  if ((method === "vault.set" || method === "vault.delete") && toolExecutor !== undefined) {
+    const rec = asRecord(params);
+    const key = rec !== undefined && typeof rec["key"] === "string" ? rec["key"] : "";
+    const gateResult = await toolExecutor.gate({ type: method, payload: { key } });
+    if (gateResult !== "proceed" && gateResult.status === "rejected") {
+      throw new RpcMethodError(-32000, gateResult.reason);
+    }
+  }
+  return dispatchVaultIfPresent(vault, method, params);
+}
+
 async function dispatchVaultIfPresent(
   vault: NimbusVault,
   method: string,
@@ -930,8 +959,28 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return options.localIndex.listAudit(limit);
   }
 
-  async function rpcVaultOrMethodNotFound(method: string, params: unknown): Promise<unknown> {
-    const vaultOutcome = await dispatchVaultIfPresent(options.vault, method, params);
+  async function rpcVaultOrMethodNotFound(
+    method: string,
+    params: unknown,
+    clientId: string,
+  ): Promise<unknown> {
+    // S2-F8 — bind a per-client `ToolExecutor` so vault writes route through
+    // the HITL consent gate. The dispatcher used here is a stub: the gate
+    // never calls dispatch().
+    const stubDispatcher: ConnectorDispatcher = {
+      dispatch(): Promise<unknown> {
+        return Promise.reject(new Error("IPC-native gate does not dispatch to MCP"));
+      },
+    };
+    const toolExecutor =
+      options.localIndex === undefined
+        ? undefined
+        : new ToolExecutor(
+            bindConsentChannel(consentImpl, clientId),
+            options.localIndex,
+            stubDispatcher,
+          );
+    const vaultOutcome = await dispatchVaultGated(options.vault, toolExecutor, method, params);
     if (vaultOutcome.kind === "hit") {
       return vaultOutcome.value;
     }
@@ -1051,7 +1100,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
       }
 
       default:
-        return await rpcVaultOrMethodNotFound(method, params);
+        return await rpcVaultOrMethodNotFound(method, params, clientId);
     }
   }
 

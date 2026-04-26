@@ -109,6 +109,11 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "connector.addMcp",
   "data.export",
   "connector.reindex",
+  // Vault writes — any IPC client planting / overwriting / deleting a
+  // secret requires a consent prompt. Internal callers holding a typed
+  // NimbusVault reference bypass the gate by design (S2-F8).
+  "vault.set",
+  "vault.delete",
 ]);
 
 /** Runtime value is an immutable facade; typed as `ReadonlySet` for call sites (`.has`, iteration). */
