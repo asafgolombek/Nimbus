@@ -1,12 +1,23 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memVault, newIndex } from "../../test/fixtures/data-test-helpers.ts";
+import { _addTestKdfProfile } from "../db/data-vault-crypto.ts";
 import { packBundle, unpackBundle } from "../db/tar-bundle.ts";
 import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runDataExport } from "./data-export.ts";
 import { DataImportVersionError, runDataImport } from "./data-import.ts";
+
+// S2-F10 — register the FAST_KDF profile used by these round-trip tests so
+// decryptVaultManifest accepts the bundles produced with kdfParams: { t:1, m:1024, p:1 }.
+let _restoreTestKdf: () => void;
+beforeAll(() => {
+  _restoreTestKdf = _addTestKdfProfile({ t: 1, m: 1024, p: 1 });
+});
+afterAll(() => {
+  _restoreTestKdf();
+});
 
 describe("data import", () => {
   const kdfParams = { t: 1, m: 1024, p: 1 } as const;
