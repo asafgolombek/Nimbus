@@ -3,7 +3,9 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cpSync,
+  type Dirent,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -115,9 +117,75 @@ function completeExtensionInstallAfterCopy(options: {
   };
 }
 
+/**
+ * S7-F5 — recursively reject symlinks. Used both for source-directory installs
+ * (pre-copy) and post-extract sweeps for tar archives.
+ */
+function scanForSymlinks(root: string): void {
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    if (dir === undefined) continue;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      const full = join(dir, ent.name);
+      const st = lstatSync(full);
+      if (st.isSymbolicLink()) {
+        throw new Error(`extension source contains a symlink: ${full}`);
+      }
+      if (st.isDirectory()) {
+        stack.push(full);
+      }
+    }
+  }
+}
+
+/**
+ * S7-F4 — post-extract path-traversal sweep. Even if `tar` ignored an entry's
+ * `..` prefix, a final-path resolve must stay inside destDir.
+ */
+function assertNoEntryEscapes(destDir: string): void {
+  const absRoot = resolve(destDir);
+  const stack: string[] = [absRoot];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    if (dir === undefined) continue;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      const full = join(dir, ent.name);
+      const rel = relative(absRoot, resolve(full));
+      if (rel.startsWith("..") || rel === "..") {
+        throw new Error(`archive entry escapes install root: ${full}`);
+      }
+      const st = lstatSync(full);
+      if (st.isSymbolicLink()) {
+        throw new Error(`archive contains symlink: ${full}`);
+      }
+      if (st.isDirectory()) stack.push(full);
+    }
+  }
+}
+
 function extractTarGzToDirectory(archivePath: string, destDir: string): void {
   const cmd = resolveSystemTarCommand();
-  const r = spawnSync(cmd, ["-xzf", archivePath, "-C", destDir], {
+  // S7-F4 — explicit safety flags. GNU tar honours these; BSD tar (Windows
+  // inbox) ignores unknown options. The post-extract sweep is the structural
+  // backstop regardless.
+  const args = ["-xzf", archivePath, "-C", destDir];
+  if (process.platform !== "win32") {
+    args.push("--no-overwrite-dir", "--no-same-owner", "--no-same-permissions");
+  }
+  const r = spawnSync(cmd, args, {
     encoding: "utf8",
     windowsHide: true,
   });
@@ -126,6 +194,7 @@ function extractTarGzToDirectory(archivePath: string, destDir: string): void {
     const detail = output || `exit ${String(r.status)}`;
     throw new Error(`failed to extract archive: ${detail}`);
   }
+  assertNoEntryEscapes(destDir);
 }
 
 function installExtensionFromArchive(options: {
@@ -230,10 +299,15 @@ export function installExtensionFromLocalDirectory(options: {
     throw new Error(`extension already installed at ${dest}`);
   }
 
+  // S7-F5 — recursively reject symlinks inside the source tree before copy.
+  // Even with { dereference: true } there is an in-flight TOCTOU between lstat
+  // and cpSync; rejecting outright is the simpler and stronger guarantee.
+  scanForSymlinks(sourceResolved);
+
   mkdirSync(options.extensionsDir, { recursive: true });
 
   try {
-    cpSync(sourceResolved, dest, { recursive: true });
+    cpSync(sourceResolved, dest, { recursive: true, dereference: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`extension copy failed: ${msg}`);

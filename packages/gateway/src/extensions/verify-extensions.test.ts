@@ -8,7 +8,7 @@ import type { Logger } from "pino";
 
 import { insertExtensionRow } from "../automation/extension-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
-import { verifyExtensionsBestEffort } from "./verify-extensions.ts";
+import { verifyExtensionsBestEffort, verifyOneExtensionStrict } from "./verify-extensions.ts";
 
 function memoryLogger(): { logger: Logger; warns: unknown[]; errors: unknown[] } {
   const warns: unknown[] = [];
@@ -96,5 +96,56 @@ describe("verifyExtensionsBestEffort", () => {
       enabled: number;
     };
     expect(row.enabled).toBe(0);
+  });
+});
+
+describe("verifyOneExtensionStrict (S7-F3)", () => {
+  test("returns true when files match, false after entry mutation", () => {
+    const initialEntry = "/* original */";
+    const { dir, manifestHex, entryPath } = makeExtensionDir(
+      "nimbus-strict-",
+      "ext.strict",
+      initialEntry,
+    );
+    const entryHex = createHash("sha256").update(readFileSync(entryPath)).digest("hex");
+    const row = {
+      id: "ext.strict",
+      version: "1.0.0",
+      install_path: dir,
+      manifest_hash: manifestHex,
+      entry_hash: entryHex,
+      enabled: 1 as const,
+      installed_at: 0,
+      last_verified_at: 0,
+    };
+    expect(verifyOneExtensionStrict(row)).toBe(true);
+    writeFileSync(entryPath, "/* TAMPERED */", "utf8");
+    expect(verifyOneExtensionStrict(row)).toBe(false);
+  });
+
+  test("returns false when manifest is mutated", () => {
+    const { dir, manifestHex, entryPath } = makeExtensionDir(
+      "nimbus-strict-2-",
+      "ext.strict.m",
+      "x",
+    );
+    const entryHex = createHash("sha256").update(readFileSync(entryPath)).digest("hex");
+    const row = {
+      id: "ext.strict.m",
+      version: "1.0.0",
+      install_path: dir,
+      manifest_hash: manifestHex,
+      entry_hash: entryHex,
+      enabled: 1 as const,
+      installed_at: 0,
+      last_verified_at: 0,
+    };
+    expect(verifyOneExtensionStrict(row)).toBe(true);
+    writeFileSync(
+      join(dir, "nimbus.extension.json"),
+      JSON.stringify({ id: "ext.strict.m", version: "1.0.0", name: "tampered" }),
+      "utf8",
+    );
+    expect(verifyOneExtensionStrict(row)).toBe(false);
   });
 });
