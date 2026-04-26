@@ -314,18 +314,29 @@ PR sequence:
 
 This design spec + the review doc (`2026-04-26-perf-audit-design-review.md` and any subsequent revision passes) + Phase 1 implementation plan. PR description summarises the methodology and links to this spec.
 
-### PR-B (Phase 1) — harness, fixtures, UX SLO sheet
+### PR-B-1 + PR-B-2 (Phase 1) — split into two PRs
 
-Deliverables:
+Phase 1 splits into **PR-B-1 (harness scaffolding + one proof driver)** and **PR-B-2 (remaining 15 surface drivers + UX SLO sheet)** — the harness contract is the load-bearing risk and is frozen before driver work fans out. Each PR produces working, testable software independently.
 
-- Harness scaffolding under `packages/gateway/src/perf/` — `bench-harness.ts`, `perf-fixture.ts`, `bench-cli.ts`, `surfaces/bench-<name>.ts` per surface row (matches § 3.2 table).
-- Per-surface fixture files under `packages/gateway/src/perf/fixtures/` (recorded HTTP traces, prompt sets, synthetic-text generator).
+**PR-B-1 deliverables (harness + S2-a proof driver):**
+
+- Harness scaffolding under `packages/gateway/src/perf/` — `bench-harness.ts`, `perf-fixture.ts`, `bench-cli.ts`, `history-line.ts` (schema + JSONL writer), `signal-handler.ts` (SIGTERM/SIGINT → `incomplete: true` line).
+- One representative surface driver: `surfaces/bench-query-latency.ts` (S2-a — 10 K corpus, structured query latency). Subsumes `scripts/capture-benchmarks.ts` semantically; the script itself is deleted in PR-C per § 4.7 once S2-a's first three nightly runs land in `history.jsonl`.
 - `nimbus bench` CLI registered in `packages/cli/src/commands/bench.ts`. Invocation forms pinned in § 6 criterion 1.
-- `docs/perf/slo-ux.md` — published SLO sheet for all UX surfaces, **including the "measured on M1 Air; non-M1 hardware not threshold-gated for v0.1.0" caveat row** (§ 4.1).
 - Empty `docs/perf/history.jsonl` (only the schema-version header line).
-- **`test:coverage:perf` script** in `package.json` with ≥80 % threshold for `packages/gateway/src/perf/`; **wired into `test:ci`** so the standing pre-PR-push rule (`bun run test:ci`) covers the new package.
+- **`test:coverage:perf` script** in `package.json` with ≥80 % threshold for `packages/gateway/src/perf/`; wired into `test:ci`.
+
+**PR-B-2 deliverables (remaining drivers + SLO docs):**
+
+- Remaining 15 surface-driver rows from § 3.2 implemented against the frozen harness API, one file each under `packages/gateway/src/perf/surfaces/`.
+- Per-surface fixture files under `packages/gateway/src/perf/fixtures/` (recorded HTTP traces, prompt sets, synthetic-text generator).
+- `docs/perf/slo-ux.md` — published SLO sheet for all UX surfaces, **including the "measured on M1 Air; non-M1 hardware not threshold-gated for v0.1.0" caveat row** (§ 4.1).
+
+**Cross-cutting requirements (PR-B-1 owns — PR-B-2 inherits the contract):**
+
 - **SIGTERM / Ctrl-C behaviour** of the bench CLI: any interrupted run writes a single `incomplete: true` line to `history.jsonl` with `incomplete_reason: "interrupted"` and exits non-zero. CI delta comparison ignores incomplete entries.
-- **Deferred to PR-B implementation review**: streaming progress output of `nimbus bench --all` (per-surface progress rather than buffered final dump). Implementation detail; not spec-load-bearing.
+- **Deferred to PR-B-1 implementation review** (not blocking): streaming progress output of `nimbus bench --all` (per-surface progress rather than buffered final dump). Implementation detail; not spec-load-bearing.
+- Both PRs must keep the `test:coverage:perf` gate green (≥80 % lines).
 
 ### PR-C (Phase 2) — measurement, workload thresholds, CI workflow, migration
 
