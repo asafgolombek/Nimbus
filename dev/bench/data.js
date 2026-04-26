@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777192606948,
+  "lastUpdate": 1777193596201,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1797,6 +1797,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4956842600000022,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "443c634d3fbf24c181e490d319f72fc1acd595e1",
+          "message": "feat: add utility to install extensions from local directories and archives with security validation",
+          "timestamp": "2026-04-26T11:52:38+03:00",
+          "tree_id": "f5de5672533f17b36cfa90c1faf936b853658faf",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/443c634d3fbf24c181e490d319f72fc1acd595e1"
+        },
+        "date": 1777193595270,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.6133165199999997,
             "unit": "ms"
           }
         ]
