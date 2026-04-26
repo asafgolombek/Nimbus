@@ -22,7 +22,8 @@ function dpapiVaultTestPaths(root: string, socketPath: string): PlatformPaths {
 describe("vault key validation", () => {
   test("accepts documented service.type shape", () => {
     expect(isWellFormedVaultKey("gmail.oauth")).toBe(true);
-    expect(isWellFormedVaultKey("OneDrive.Refresh")).toBe(true);
+    expect(isWellFormedVaultKey("onedrive.refresh")).toBe(true);
+    expect(isWellFormedVaultKey("google_drive.oauth")).toBe(true);
   });
 
   test("rejects empty and oversize keys", () => {
@@ -37,6 +38,17 @@ describe("vault key validation", () => {
     expect(isWellFormedVaultKey("gmail.oauth.extra")).toBe(false);
     expect(isWellFormedVaultKey("9mail.oauth")).toBe(false);
     expect(isWellFormedVaultKey("gmail.o auth")).toBe(false);
+  });
+
+  // S2-F7 — mixed-case keys would silently collide on case-insensitive
+  // filesystems (NTFS by default, HFS+ optionally). Reject them at the
+  // validation boundary to keep backend storage deterministic.
+  test("rejects uppercase to prevent NTFS / HFS+ case-fold collisions", () => {
+    expect(isWellFormedVaultKey("Github.pat")).toBe(false);
+    expect(isWellFormedVaultKey("github.PAT")).toBe(false);
+    expect(isWellFormedVaultKey("GITHUB.pat")).toBe(false);
+    expect(isWellFormedVaultKey("OneDrive.Refresh")).toBe(false);
+    expect(isWellFormedVaultKey("Onedrive.refresh")).toBe(false);
   });
 });
 
