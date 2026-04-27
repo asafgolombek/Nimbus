@@ -15,7 +15,7 @@ import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { PlatformPaths } from "../platform/paths.ts";

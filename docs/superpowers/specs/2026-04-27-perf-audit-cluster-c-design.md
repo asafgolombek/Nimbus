@@ -56,7 +56,7 @@ Twenty new surface IDs (registry total: 9 → 29):
 
 **Why split S6 and S8 into multiple IDs:** parent spec § 3.2 defines one threshold per row in `slo.md`. Per-connector and per-(length, batch) thresholds are meaningfully different metrics — collapsing them into a single matrix-shaped value would force PR-C to invent a new "matrix-aware" comparator. Splitting them honours the existing thresholding machinery and the bidirectional driver↔row mapping (parent spec § 6 criterion 7) literally.
 
-S8 ships as **one driver file** (`bench-embedding-throughput.ts`) exporting a parameterised core (`runEmbeddingThroughputOnce({ length, batch })`) plus 12 thin wrapper functions, one per cell — matches PR-B-2a's `bench-query-latency-100k.ts` / `-1m.ts` precedent.
+S8 ships as **one driver file** (`bench-embedding-throughput.ts`) exporting a parameterised core (`runEmbeddingThroughputOnce({ length, batch })`); the 12 surface IDs are registered via a cross-product loop in `bench-cli.ts` rather than 12 named wrapper exports — see § 6.3.
 
 ---
 
@@ -139,9 +139,10 @@ export interface WorkerBenchOptions {
   timeoutMs?: number;                   // default durationMs + 5_000
 }
 export interface WorkerBenchResult {
-  perWorker: { name: string; writes: number; throughputPerSec: number }[];
+  perWorker: { name: string; writes: number; throughputPerSec: number; busyRetries: number }[];
   totalThroughputPerSec: number;
-  errors: { name: string; message: string }[];
+  totalBusyRetries: number;
+  errors: { name: string; message: string; stack?: string }[];
 }
 export async function runWorkerBench(opts: WorkerBenchOptions): Promise<WorkerBenchResult>;
 ```
@@ -150,22 +151,11 @@ export async function runWorkerBench(opts: WorkerBenchOptions): Promise<WorkerBe
 - Parent → Worker: `{ kind: "init", config, dbPath }` → `{ kind: "start", durationMs }` → `{ kind: "stop" }`.
 - Worker → Parent: `{ kind: "ready" }` → `{ kind: "done", writes, busyRetries }` *or* `{ kind: "error", message, stack? }`.
 
-`busyRetries` counts every `BEGIN IMMEDIATE` retry triggered by `SQLITE_BUSY` — a richer signal than throughput alone (mild contention with retries vs. high throughput at no cost). The coordinator sums `busyRetries` across Workers and surfaces it on `WorkerBenchResult` (see below).
+`busyRetries` counts every `BEGIN IMMEDIATE` retry triggered by `SQLITE_BUSY` — a richer signal than throughput alone (mild contention with retries vs. high throughput at no cost). The coordinator sums `busyRetries` across Workers and reports it as `totalBusyRetries` on `WorkerBenchResult`.
 
 `stack` (optional) carries the Worker's error stack when one is available — `Database is locked` / `SQLITE_FULL` failures are otherwise hard to attribute to a specific query under load.
 
 A Worker that fails to ack `stop` within 2 s of receiving it is `terminate()`d; its `errors[]` entry is recorded but the run still reports a `totalThroughputPerSec` from the surviving Workers.
-
-`WorkerBenchResult` extended:
-
-```typescript
-export interface WorkerBenchResult {
-  perWorker: { name: string; writes: number; throughputPerSec: number; busyRetries: number }[];
-  totalThroughputPerSec: number;
-  totalBusyRetries: number;
-  errors: { name: string; message: string; stack?: string }[];
-}
-```
 
 ---
 
@@ -374,7 +364,7 @@ Three sets in `bench-cli.ts`:
 - **PR-B-2b-3** (separate, not part of this design): real Ollama-driven S9 driver replacing the stub; real Tauri-renderer perf-mark instrumentation replacing the S3 / S5 stubs. Lands the same way PR-B-2b-1/2 do — small, targeted, incremental.
 - **PR-C** (Phase 2): measurement on reference hardware; populated `slo.md` / `baseline.md` / `missed.md`; `_perf.yml` CI workflow; migration of existing `benchmark.yml` + `scripts/capture-benchmarks.ts`; docs-site integration decision.
 - **PR-D-1 … PR-D-N** (Phase 3): top-5 fix plans.
-- **Schema bumps** to `HistoryLineSurface`: not needed — every metric in this PR (throughput, RSS p95, stub reason) fits the PR-B-2a schema.
+- **Further schema bumps** to `HistoryLineSurface` beyond `busy_retries?: number`: not in scope. Every other metric in this PR (throughput, RSS p95, stub reason) fits the PR-B-2a schema.
 
 ---
 
@@ -382,7 +372,7 @@ Three sets in `bench-cli.ts`:
 
 - No `any` types — TypeScript strict already enforced.
 - No `0.0.0.0` defaults — bench code does not touch IPC network bind.
-- No new vault / IPC surface — only existing `connector.sync` and `query` methods are called.
+- No new vault / IPC surface — only existing `connector.sync` and `index.querySql` methods are called.
 - No new HITL action types — bench drives only read paths and the existing connector-sync IPC method.
 - All security invariants (I1–I12) untouched — perf code lives outside connector mesh, vault, IPC server, and updater modules.
 - AGPL-3.0 — `pidusage` is MIT, `msw` is MIT; both compatible.
