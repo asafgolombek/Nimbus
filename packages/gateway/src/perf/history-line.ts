@@ -20,6 +20,12 @@ export interface HistoryLineSurface {
   first_token_ms?: number;
   rss_bytes_p95?: number;
   raw_samples?: number[];
+  /**
+   * If set, this surface was not actually measured. Examples: stub drivers
+   * (S3, S5 — renderer instrumentation pending); reference-only surfaces
+   * (S2-c, S7-c, S9) skipped on a non-reference run.
+   */
+  stub_reason?: string;
 }
 
 export interface HistoryLine {

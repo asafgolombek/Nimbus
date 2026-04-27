@@ -1,0 +1,135 @@
+import { describe, expect, test } from "bun:test";
+import { spawnAndTimeToMarker } from "./process-spawn-bench.ts";
+
+interface FakeSubprocess {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  kill: (signal?: number | NodeJS.Signals) => void;
+}
+
+function streamFrom(chunks: string[], delayMs = 0): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const c of chunks) {
+        if (delayMs > 0) {
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+        controller.enqueue(new TextEncoder().encode(c));
+      }
+      controller.close();
+    },
+  });
+}
+
+function fakeSpawn(opts: {
+  stdout?: string[];
+  stderr?: string[];
+  exitCode?: number;
+  delayMs?: number;
+}): typeof Bun.spawn {
+  return ((..._args: unknown[]) => {
+    const proc: FakeSubprocess = {
+      stdout: streamFrom(opts.stdout ?? [], opts.delayMs ?? 0),
+      stderr: streamFrom(opts.stderr ?? [], opts.delayMs ?? 0),
+      exited: Promise.resolve(opts.exitCode ?? 0),
+      kill: () => undefined,
+    };
+    return proc as unknown as ReturnType<typeof Bun.spawn>;
+  }) as unknown as typeof Bun.spawn;
+}
+
+describe("spawnAndTimeToMarker", () => {
+  test("marker mode: returns elapsed ms when stdout matches the regex", async () => {
+    const elapsed = await spawnAndTimeToMarker({
+      cmd: "fake",
+      args: [],
+      mode: "marker",
+      marker: /\[gateway\] ready/,
+      spawn: fakeSpawn({ stdout: ["[gateway] ready (0.1.0) IPC /tmp/sock\n"] }),
+    });
+    expect(Number.isFinite(elapsed)).toBe(true);
+    expect(elapsed).toBeGreaterThanOrEqual(0);
+  });
+
+  test("marker mode: matches across stderr too", async () => {
+    const elapsed = await spawnAndTimeToMarker({
+      cmd: "fake",
+      args: [],
+      mode: "marker",
+      marker: /\[tui\] first-frame/,
+      spawn: fakeSpawn({ stderr: ["[tui] first-frame\n"] }),
+    });
+    expect(Number.isFinite(elapsed)).toBe(true);
+  });
+
+  test("exit mode: returns elapsed ms when the process exits", async () => {
+    const elapsed = await spawnAndTimeToMarker({
+      cmd: "fake",
+      args: [],
+      mode: "exit",
+      spawn: fakeSpawn({ stdout: ["hello\n"], exitCode: 0 }),
+    });
+    expect(Number.isFinite(elapsed)).toBe(true);
+  });
+
+  test("marker mode: throws on timeout", async () => {
+    await expect(
+      spawnAndTimeToMarker({
+        cmd: "fake",
+        args: [],
+        mode: "marker",
+        marker: /never-matches/,
+        timeoutMs: 50,
+        spawn: fakeSpawn({ stdout: ["unrelated output\n"] }),
+      }),
+    ).rejects.toThrow(/timeout/i);
+  });
+
+  test("exit mode: throws when child exits non-zero", async () => {
+    await expect(
+      spawnAndTimeToMarker({
+        cmd: "fake",
+        args: [],
+        mode: "exit",
+        spawn: fakeSpawn({ exitCode: 1 }),
+      }),
+    ).rejects.toThrow(/exit/i);
+  });
+
+  test("marker mode: throws if child exits before the marker is matched", async () => {
+    await expect(
+      spawnAndTimeToMarker({
+        cmd: "fake",
+        args: [],
+        mode: "marker",
+        marker: /never-matches/,
+        timeoutMs: 30_000,
+        spawn: fakeSpawn({ stdout: ["something else\n"], exitCode: 1 }),
+      }),
+    ).rejects.toThrow(/exited.*before marker/i);
+  });
+
+  test("marker mode: throws if marker is missing", async () => {
+    await expect(
+      spawnAndTimeToMarker({
+        cmd: "fake",
+        args: [],
+        mode: "marker",
+        spawn: fakeSpawn({ stdout: ["anything\n"] }),
+      }),
+    ).rejects.toThrow(/requires a marker/i);
+  });
+
+  test("marker mode: throws if marker has the global flag", async () => {
+    await expect(
+      spawnAndTimeToMarker({
+        cmd: "fake",
+        args: [],
+        mode: "marker",
+        marker: /ready/g,
+        spawn: fakeSpawn({ stdout: ["ready\n"] }),
+      }),
+    ).rejects.toThrow(/g or y flag/i);
+  });
+});

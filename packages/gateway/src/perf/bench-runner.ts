@@ -37,7 +37,8 @@ Usage:
   nimbus bench --all [--corpus ...] [--runs N] (--reference|--gha)
 
 Flags:
-  --surface <id>      surface id (S2-a is the only registered driver in PR-B-1)
+  --surface <id>      one of: S1, S2-a, S2-b, S2-c, S3, S4, S5, S11-a, S11-b
+                      (cluster C — S6/S7/S8/S9/S10 — lands in PR-B-2b)
   --all               run every registered surface
   --corpus <tier>     small | medium | large
   --runs <N>          per-surface invocations (default 5)
