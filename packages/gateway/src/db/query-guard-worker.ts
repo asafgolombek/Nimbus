@@ -4,9 +4,14 @@
 
 import { Database } from "bun:sqlite";
 
+import { isAcceptableWorkerOrigin } from "../platform/worker-security.ts";
+
 declare const self: Worker;
 
 self.onmessage = (e: MessageEvent<{ dbPath: string; sql: string }>): void => {
+  if (!isAcceptableWorkerOrigin(e)) {
+    return;
+  }
   try {
     const { dbPath, sql } = e.data;
     const ro = new Database(dbPath, { readonly: true, create: false });

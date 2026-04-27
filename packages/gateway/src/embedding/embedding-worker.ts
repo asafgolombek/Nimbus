@@ -5,6 +5,7 @@
 import { Database } from "bun:sqlite";
 import { dirname, join } from "node:path";
 
+import { isAcceptableWorkerOrigin } from "../platform/worker-security.ts";
 import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { readIndexedUserVersion, runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
@@ -24,23 +25,6 @@ type EmbedTextsMsg = { type: "embed_texts"; id: string; texts: string[] };
 type EmbedItemMsg = { type: "embed_item"; itemId: string };
 
 type InMsg = InitMsg | EmbedTextsMsg | EmbedItemMsg;
-
-function workerGlobalOrigin(): string {
-  const g = globalThis as typeof globalThis & { origin?: unknown };
-  return typeof g.origin === "string" ? g.origin : "";
-}
-
-function isAcceptableDedicatedWorkerOrigin(ev: MessageEvent): boolean {
-  const o = ev.origin;
-  if (o === "" || o === "null") {
-    return true;
-  }
-  const selfO = workerGlobalOrigin();
-  if (selfO === "") {
-    return true;
-  }
-  return o === selfO;
-}
 
 function sendToMain(data: unknown): void {
   const w = globalThis as unknown as { postMessage?: (d: unknown) => void };
@@ -68,7 +52,7 @@ function setupDb(dbPath: string): void {
 (globalThis as unknown as { onmessage: ((ev: MessageEvent<InMsg>) => void) | null }).onmessage = (
   ev: MessageEvent<InMsg>,
 ) => {
-  if (!isAcceptableDedicatedWorkerOrigin(ev)) {
+  if (!isAcceptableWorkerOrigin(ev)) {
     return;
   }
   const msg = ev.data;

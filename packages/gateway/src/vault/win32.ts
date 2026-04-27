@@ -14,7 +14,7 @@
 import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -102,19 +102,24 @@ function bufferFromPointer(addr: bigint, byteLength: number): Buffer {
  */
 function loadOrCreateEntropy(vaultDir: string): Buffer {
   const path = join(vaultDir, ENTROPY_FILENAME);
-  if (existsSync(path)) {
+  try {
     const buf = readFileSync(path);
     if (buf.length === ENTROPY_LEN) return buf;
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as NodeJS.ErrnoException).code !== "ENOENT"
+    ) {
+      throw err;
+    }
   }
+
   mkdirSync(vaultDir, { recursive: true });
   const generated = randomBytes(ENTROPY_LEN);
   try {
     writeFileSync(path, generated, { mode: 0o600, flag: "wx" });
-    try {
-      chmodSync(path, 0o600);
-    } catch {
-      /* Windows ignores chmod for non-FAT volumes */
-    }
     // Hidden + System so a casual file-explorer browse does not surface the
     // entropy file. Defense against accidental deletion — losing .entropy
     // makes every vault entry unrecoverable until rotation.
@@ -293,7 +298,6 @@ export class DpapiVault implements NimbusVault {
       if (!entry.startsWith(prefix)) continue;
       const full = join(this.vaultDir, entry);
       try {
-        await stat(full);
         await unlink(full);
       } catch {
         /* ignore */
