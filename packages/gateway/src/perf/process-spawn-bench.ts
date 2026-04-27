@@ -32,6 +32,13 @@ export interface SpawnAndTimeOptions {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+interface ProcSubset {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  kill: (signal?: number | NodeJS.Signals) => void;
+}
+
 async function readUntilMatch(
   stream: ReadableStream<Uint8Array>,
   marker: RegExp,
@@ -60,61 +67,55 @@ async function readUntilMatch(
   }
 }
 
-/**
- * Spawn a child and return the elapsed ms in the requested mode.
- * Throws on timeout or non-zero exit (in "exit" mode).
- */
-export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<number> {
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const spawn = opts.spawn ?? Bun.spawn;
-
-  if (opts.mode === "marker" && opts.marker === undefined) {
+function validateMarkerOpts(opts: SpawnAndTimeOptions): void {
+  if (opts.mode !== "marker") return;
+  if (opts.marker === undefined) {
     throw new Error("spawnAndTimeToMarker: mode='marker' requires a marker RegExp");
   }
-
-  if (opts.mode === "marker" && opts.marker !== undefined) {
-    if (opts.marker.global || opts.marker.sticky) {
-      throw new Error("spawnAndTimeToMarker: marker must not have the g or y flag");
-    }
+  if (opts.marker.global || opts.marker.sticky) {
+    throw new Error("spawnAndTimeToMarker: marker must not have the g or y flag");
   }
+}
 
-  const start = performance.now();
-  const proc = spawn([opts.cmd, ...opts.args], {
+function spawnChild(opts: SpawnAndTimeOptions): ProcSubset {
+  const spawn = opts.spawn ?? Bun.spawn;
+  const stdio = opts.mode === "exit" ? "ignore" : "pipe";
+  return spawn([opts.cmd, ...opts.args], {
     stdin: "ignore",
-    stdout: opts.mode === "exit" ? "ignore" : "pipe",
-    stderr: opts.mode === "exit" ? "ignore" : "pipe",
+    stdout: stdio,
+    stderr: stdio,
     ...(opts.env !== undefined && { env: { ...process.env, ...opts.env } }),
-  }) as unknown as {
-    stdout: ReadableStream<Uint8Array>;
-    stderr: ReadableStream<Uint8Array>;
-    exited: Promise<number>;
-    kill: (signal?: number | NodeJS.Signals) => void;
-  };
+  }) as unknown as ProcSubset;
+}
 
-  if (opts.mode === "exit") {
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const exitCode = await Promise.race([
-        proc.exited,
-        new Promise<number>((_, reject) => {
-          timeoutHandle = setTimeout(
-            () => reject(new Error(`spawn-and-time timeout after ${timeoutMs}ms`)),
-            timeoutMs,
-          );
-        }),
-      ]);
-      const elapsed = performance.now() - start;
-      if (exitCode !== 0) {
-        throw new Error(`child exited with code ${exitCode}`);
-      }
-      return elapsed;
-    } finally {
-      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+async function runExitMode(proc: ProcSubset, start: number, timeoutMs: number): Promise<number> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const exitCode = await Promise.race([
+      proc.exited,
+      new Promise<number>((_, reject) => {
+        timeoutHandle = setTimeout(
+          () => reject(new Error(`spawn-and-time timeout after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+    const elapsed = performance.now() - start;
+    if (exitCode !== 0) {
+      throw new Error(`child exited with code ${exitCode}`);
     }
+    return elapsed;
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
   }
+}
 
-  // marker mode
-  const marker = opts.marker as RegExp;
+async function runMarkerMode(
+  proc: ProcSubset,
+  marker: RegExp,
+  start: number,
+  timeoutMs: number,
+): Promise<number> {
   let matched = false;
   let elapsed = 0;
   const ac = new AbortController();
@@ -127,12 +128,11 @@ export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<n
   });
 
   const onMatch = (): void => {
-    if (!matched) {
-      matched = true;
-      elapsed = performance.now() - start;
-      ac.abort();
-      resolveMatched();
-    }
+    if (matched) return;
+    matched = true;
+    elapsed = performance.now() - start;
+    ac.abort();
+    resolveMatched();
   };
 
   // Kick off both stream readers; they call onMatch if the marker appears.
@@ -140,15 +140,15 @@ export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<n
   void readUntilMatch(proc.stdout, marker, onMatch, ac.signal);
   void readUntilMatch(proc.stderr, marker, onMatch, ac.signal);
 
-  // Race: marker matched, timeout, OR child exits before marker.
-  // The exit racer guards against the case where the child crashes pre-marker
+  // Race: marker matched, timeout, OR child exits before marker. The exit
+  // racer guards against the case where the child crashes pre-marker
   // (missing dep, port collision, invalid config) — without it the helper
   // would hang until timeoutMs.
-  let markerTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const racers: Promise<unknown>[] = [
     matchedPromise,
     new Promise((_, reject) => {
-      markerTimeoutHandle = setTimeout(() => {
+      timeoutHandle = setTimeout(() => {
         if (!matched) reject(new Error(`spawn-and-time timeout after ${timeoutMs}ms`));
       }, timeoutMs);
     }),
@@ -162,7 +162,7 @@ export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<n
   try {
     await Promise.race(racers);
   } finally {
-    if (markerTimeoutHandle !== undefined) clearTimeout(markerTimeoutHandle);
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     try {
       proc.kill("SIGTERM");
     } catch {
@@ -179,4 +179,19 @@ export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<n
     throw new Error(`marker not found before timeout (${timeoutMs}ms)`);
   }
   return elapsed;
+}
+
+/**
+ * Spawn a child and return the elapsed ms in the requested mode.
+ * Throws on timeout or non-zero exit (in "exit" mode).
+ */
+export async function spawnAndTimeToMarker(opts: SpawnAndTimeOptions): Promise<number> {
+  validateMarkerOpts(opts);
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const start = performance.now();
+  const proc = spawnChild(opts);
+  if (opts.mode === "exit") {
+    return runExitMode(proc, start, timeoutMs);
+  }
+  return runMarkerMode(proc, opts.marker as RegExp, start, timeoutMs);
 }

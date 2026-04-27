@@ -123,91 +123,88 @@ function resolveSurfaces(args: string[], surfaceArg: string | undefined): BenchS
   return [];
 }
 
-export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<number> {
-  const stderr = deps.stderr ?? ((s: string) => process.stderr.write(`${s}\n`));
-  const surfaceArg = takeFlag(args, "--surface");
+function parseCorpus(arg: string | undefined): "small" | "medium" | "large" | undefined {
+  return arg === "small" || arg === "medium" || arg === "large" ? arg : undefined;
+}
+
+function buildBenchOpts(args: string[], runner: RunnerKind): BenchRunOptions {
   const runsArg = takeFlag(args, "--runs");
-  const corpusArg = takeFlag(args, "--corpus");
   const runs = runsArg === undefined ? 5 : Number.parseInt(runsArg, 10);
-  const runner = detectRunner(args);
-  const corpus =
-    corpusArg === "small" || corpusArg === "medium" || corpusArg === "large"
-      ? corpusArg
-      : undefined;
-  const opts: BenchRunOptions = {
+  const corpus = parseCorpus(takeFlag(args, "--corpus"));
+  return {
     runs: Number.isFinite(runs) && runs > 0 ? runs : 5,
     runner,
     ...(corpus !== undefined && { corpus }),
   };
+}
 
-  if (runner === "reference-m1air") {
-    const confirm = deps.confirmReferenceProtocol ?? defaultConfirm;
-    const ok = await confirm();
-    if (!ok) {
-      stderr("Reference-run protocol checklist not confirmed. Refusing to record. See spec §4.2.");
-      return 2;
-    }
+type SurfaceOutcome =
+  | { kind: "result"; entry: HistoryLineSurface; stdoutLine: string; stderrLine?: string }
+  | { kind: "abort"; reason: string };
+
+async function processSurface(
+  id: BenchSurfaceId,
+  opts: BenchRunOptions,
+  runner: RunnerKind,
+  deps: BenchCliDeps,
+): Promise<SurfaceOutcome> {
+  // Stub branch — driver exists but returns no samples; record stub_reason.
+  const stubReason = STUB_SURFACES[id];
+  if (stubReason !== undefined) {
+    return {
+      kind: "result",
+      entry: { samples_count: 0, stub_reason: stubReason },
+      stdoutLine: `${id}  stub: ${stubReason}`,
+    };
   }
 
-  const surfaces = resolveSurfaces(args, surfaceArg);
-
-  if (surfaces.length === 0) {
-    stderr(
-      "Pass --surface <id> or --all. Available surfaces: " +
-        Object.keys(SURFACE_REGISTRY).join(", "),
-    );
-    return 2;
+  // Reference-only skip branch — record a per-surface stub entry.
+  if (REFERENCE_ONLY.has(id) && runner !== "reference-m1air") {
+    const reason = `reference-only — skipped on ${runner}`;
+    return {
+      kind: "result",
+      entry: { samples_count: 0, stub_reason: reason },
+      stdoutLine: `${id}  skipped: ${reason}`,
+    };
   }
 
-  const surfaceResults: Record<string, HistoryLineSurface> = {};
-  for (const id of surfaces) {
-    // Stub branch — driver exists but returns no samples; record stub_reason.
-    const stubReason = STUB_SURFACES[id as BenchSurfaceId];
-    if (stubReason !== undefined) {
-      surfaceResults[id] = { samples_count: 0, stub_reason: stubReason };
-      deps.stdout(`${id}  stub: ${stubReason}`);
-      continue;
-    }
+  const driver = deps.surfaceDriverOverrides?.[id] ?? SURFACE_REGISTRY[id];
+  if (driver === undefined) {
+    return { kind: "abort", reason: `Surface ${id} has no driver registered yet (PR-B-2b work).` };
+  }
+  const runOpts = deps.fixtureCacheDir === undefined ? {} : { cacheDir: deps.fixtureCacheDir };
 
-    // Reference-only skip branch — record a per-surface stub entry.
-    if (REFERENCE_ONLY.has(id as BenchSurfaceId) && runner !== "reference-m1air") {
-      const reason = `reference-only — skipped on ${runner}`;
-      surfaceResults[id] = { samples_count: 0, stub_reason: reason };
-      deps.stdout(`${id}  skipped: ${reason}`);
-      continue;
-    }
-
-    const driver =
-      deps.surfaceDriverOverrides?.[id as BenchSurfaceId] ?? SURFACE_REGISTRY[id as BenchSurfaceId];
-    if (driver === undefined) {
-      stderr(`Surface ${id} has no driver registered yet (PR-B-2b work).`);
-      return 2;
-    }
-    const runOpts = deps.fixtureCacheDir !== undefined ? { cacheDir: deps.fixtureCacheDir } : {};
-
-    // A driver failure (e.g., S4 invoked with no gateway running, or any
-    // spawn-based driver hitting a missing dependency) must not abort the
-    // entire run. Record a per-surface stub_reason and continue — successful
-    // surface entries on the same line stay valid for delta comparisons.
-    let result: BenchSurfaceResult;
-    try {
-      result = await runBench(id, (o) => driver(o, runOpts), opts);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      surfaceResults[id] = { samples_count: 0, stub_reason: `driver-failed: ${msg}` };
-      stderr(`${id} driver failed: ${msg}`);
-      deps.stdout(`${id}  failed: ${msg}`);
-      continue;
-    }
-
-    surfaceResults[id] = resultToHistorySurface(result);
-    deps.stdout(
-      `${id}  p95=${result.p95Ms?.toFixed(2) ?? "-"}ms  p99=${result.p99Ms?.toFixed(2) ?? "-"}ms  samples=${result.samplesCount}`,
-    );
+  // A driver failure (e.g., S4 invoked with no gateway running, or any
+  // spawn-based driver hitting a missing dependency) must not abort the
+  // entire run. Record a per-surface stub_reason and continue — successful
+  // surface entries on the same line stay valid for delta comparisons.
+  let result: BenchSurfaceResult;
+  try {
+    result = await runBench(id, (o) => driver(o, runOpts), opts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      kind: "result",
+      entry: { samples_count: 0, stub_reason: `driver-failed: ${msg}` },
+      stdoutLine: `${id}  failed: ${msg}`,
+      stderrLine: `${id} driver failed: ${msg}`,
+    };
   }
 
+  return {
+    kind: "result",
+    entry: resultToHistorySurface(result),
+    stdoutLine: `${id}  p95=${result.p95Ms?.toFixed(2) ?? "-"}ms  p99=${result.p99Ms?.toFixed(2) ?? "-"}ms  samples=${result.samplesCount}`,
+  };
+}
+
+function buildHistoryLine(
+  deps: BenchCliDeps,
+  runner: RunnerKind,
+  surfaceResults: Record<string, HistoryLineSurface>,
+): HistoryLine {
   const resolveGitSha = deps.resolveGitSha ?? defaultResolveGitSha;
-  const line: HistoryLine = {
+  return {
     schema_version: 1,
     run_id: deps.runId,
     timestamp: new Date().toISOString(),
@@ -218,6 +215,41 @@ export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<n
     surfaces: surfaceResults as Partial<Record<BenchSurfaceId, HistoryLineSurface>>,
     ...(runner === "reference-m1air" && { reference_protocol_compliant: true }),
   };
-  appendHistoryLine(deps.historyPath, line);
+}
+
+export async function runBenchCli(args: string[], deps: BenchCliDeps): Promise<number> {
+  const stderr = deps.stderr ?? ((s: string) => process.stderr.write(`${s}\n`));
+  const runner = detectRunner(args);
+  const opts = buildBenchOpts(args, runner);
+
+  if (runner === "reference-m1air") {
+    const confirm = deps.confirmReferenceProtocol ?? defaultConfirm;
+    if (!(await confirm())) {
+      stderr("Reference-run protocol checklist not confirmed. Refusing to record. See spec §4.2.");
+      return 2;
+    }
+  }
+
+  const surfaces = resolveSurfaces(args, takeFlag(args, "--surface"));
+  if (surfaces.length === 0) {
+    stderr(
+      `Pass --surface <id> or --all. Available surfaces: ${Object.keys(SURFACE_REGISTRY).join(", ")}`,
+    );
+    return 2;
+  }
+
+  const surfaceResults: Record<string, HistoryLineSurface> = {};
+  for (const id of surfaces) {
+    const outcome = await processSurface(id, opts, runner, deps);
+    if (outcome.kind === "abort") {
+      stderr(outcome.reason);
+      return 2;
+    }
+    surfaceResults[id] = outcome.entry;
+    deps.stdout(outcome.stdoutLine);
+    if (outcome.stderrLine !== undefined) stderr(outcome.stderrLine);
+  }
+
+  appendHistoryLine(deps.historyPath, buildHistoryLine(deps, runner, surfaceResults));
   return 0;
 }
