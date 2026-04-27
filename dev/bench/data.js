@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777229390990,
+  "lastUpdate": 1777302274071,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -1971,6 +1971,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.4791695400000002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "e9c4f414785a5c831db91810bf3f54ac5f7b7e15",
+          "message": "docs(plans): apply Phase 1B review notes 1, 2, 4, 5; defer 3\n\n- Note 1: spawnAndTimeToMarker now races proc.exited so a child crash\n  pre-marker fails fast instead of hanging until timeout.\n- Note 2: S11-a/b switched from 'nimbus diag --json' to 'nimbus help' —\n  no gateway dependency, no health-check I/O jitter, smoke Pass A runs\n  cleanly without a started gateway.\n- Note 3: buffer cap in readUntilMatch deferred — YAGNI for early-firing\n  markers; revisit if a cluster C verbose-output surface needs it.\n- Note 4: driver failure records per-surface 'driver-failed: ...' via\n  the existing stub_reason field rather than line-level incomplete: true,\n  so other successful surfaces on the same line stay valid for delta\n  comparisons. Adds surfaceDriverOverrides deps hook + test.\n- Note 5: TUI first-frame marker moved from tui.tsx (fires before first\n  commit) to a useEffect inside App.tsx (fires after first commit),\n  env-gated on NIMBUS_BENCH=1; S4 driver sets that env when spawning.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-26T22:18:22+03:00",
+          "tree_id": "26fbd1b82b606b3ca35d2eeb4200fd0872adb317",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/e9c4f414785a5c831db91810bf3f54ac5f7b7e15"
+        },
+        "date": 1777302273523,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.503895059999998,
             "unit": "ms"
           }
         ]
