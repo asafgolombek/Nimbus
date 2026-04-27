@@ -66,9 +66,9 @@ describe("runBenchCli — PR-B-2a registrations", () => {
     });
     expect(exitCode).toBe(0);
     const line = readHistoryLine();
-    expect(line.surfaces.S3?.samples_count).toBe(0);
-    expect(typeof line.surfaces.S3?.stub_reason).toBe("string");
-    expect((line.surfaces.S3?.stub_reason ?? "").length).toBeGreaterThan(0);
+    expect(line.surfaces["S3"]?.samples_count).toBe(0);
+    expect(typeof line.surfaces["S3"]?.stub_reason).toBe("string");
+    expect((line.surfaces["S3"]?.stub_reason ?? "").length).toBeGreaterThan(0);
   });
 
   test("--surface S2-c on --gha records a reference-only stub entry", async () => {
