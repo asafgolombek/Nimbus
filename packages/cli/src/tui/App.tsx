@@ -130,6 +130,15 @@ export function App({ historyPath, onExit }: Props): React.JSX.Element {
     });
   }, [client]);
 
+  // Bench marker for S4 first-paint (docs/perf/slo-ux.md §S4). Fires after
+  // the first commit (i.e., after Ink has flushed the first frame to TTY).
+  // Env-gated so production users never see the stderr line.
+  React.useEffect(() => {
+    if (process.env["NIMBUS_BENCH"] === "1") {
+      process.stderr.write("[tui] first-frame\n");
+    }
+  }, []);
+
   // Flush live buffer into <Static> when stream ends.
   const prevModeRef = React.useRef(state.mode);
   React.useEffect(() => {
