@@ -103,12 +103,34 @@ jobs:
         env:
           CI: "true"
 
+      - name: UI unit coverage (WS5 Sub-project A)
+        # Run BEFORE the Sonar scan so packages/ui/coverage/lcov.info is on
+        # disk when Sonar reads sonar.javascript.lcov.reportPaths. Without
+        # this ordering every file under packages/ui/src/ shows as 0%
+        # covered in Sonar.
+        working-directory: packages/ui
+        run: bunx vitest run --coverage --coverage.thresholds.lines=80 --coverage.thresholds.branches=75
+        env:
+          CI: "true"
+
+      - name: Rewrite UI LCOV SF paths to repo-root-relative
+        # Vitest writes SF: paths relative to packages/ui/ (its own project
+        # root). Sonar resolves SF paths from the repo root, so without this
+        # rewrite every file under packages/ui/src/ fails to match and shows
+        # 0% covered. Linux-only because the Sonar scan only runs on Linux.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ -f packages/ui/coverage/lcov.info ]; then
+            sed -i 's|^SF:src/|SF:packages/ui/src/|' packages/ui/coverage/lcov.info
+          fi
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           use_oidc: true
-          files: coverage/lcov.info
+          files: coverage/lcov.info,packages/ui/coverage/lcov.info
 
       - name: SonarQube Cloud analysis
         # SonarCloud rebranded to SonarQube Cloud; sonarcloud-github-action is
@@ -133,12 +155,6 @@ jobs:
 
       - name: E2E CLI tests
         run: bun test packages/cli/test/e2e/ --reporter=junit --reporter-outfile=junit-reports/junit-e2e-cli.xml
-        env:
-          CI: "true"
-
-      - name: UI unit coverage (WS5 Sub-project A)
-        working-directory: packages/ui
-        run: bunx vitest run --coverage --coverage.thresholds.lines=80 --coverage.thresholds.branches=75
         env:
           CI: "true"
 
