@@ -85,3 +85,29 @@ describe("appendHistoryLine", () => {
     }
   });
 });
+
+describe("appendHistoryLine — stub_reason field", () => {
+  test("round-trips the stub_reason field on a per-surface entry", () => {
+    const dir = mkdtempSync(join(tmpdir(), "history-stub-test-"));
+    const path = join(dir, "history.jsonl");
+    try {
+      const line: HistoryLine = {
+        schema_version: 1,
+        run_id: "abc",
+        timestamp: "2026-04-26T00:00:00Z",
+        runner: "local-dev",
+        os_version: "test",
+        nimbus_git_sha: "deadbeef",
+        bun_version: "1.2.0",
+        surfaces: {
+          S3: { samples_count: 0, stub_reason: "renderer instrumentation pending" },
+        },
+      };
+      appendHistoryLine(path, line);
+      const parsed = JSON.parse(readFileSync(path, "utf8").trim()) as HistoryLine;
+      expect(parsed.surfaces.S3?.stub_reason).toBe("renderer instrumentation pending");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
