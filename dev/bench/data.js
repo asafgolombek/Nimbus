@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777302274071,
+  "lastUpdate": 1777311290493,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2000,6 +2000,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.503895059999998,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f3d9bfee43205bdd9cb1f44d1b266d3259bf70c",
+          "message": "Merge pull request #116 from asafgolombek/dev/asafgolombek/perf-audit-phase-1b\n\nperf(B2): Phase 1B — 8 surface drivers + UX SLO sheet (PR-B-2a)",
+          "timestamp": "2026-04-27T20:34:16+03:00",
+          "tree_id": "c5cf9295a78f89030341c8e56a98ab411cee27c4",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/7f3d9bfee43205bdd9cb1f44d1b266d3259bf70c"
+        },
+        "date": 1777311289752,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5534812400000062,
             "unit": "ms"
           }
         ]
