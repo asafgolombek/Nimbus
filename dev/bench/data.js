@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777314599860,
+  "lastUpdate": 1777316767581,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2058,6 +2058,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5214447000000006,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "e14610b020997e31014e4445e7568cbbd37231fc",
+          "message": "feat: implement cluster C performance drivers and supporting benchmarking infrastructure for sync throughput and RSS monitoring",
+          "timestamp": "2026-04-27T22:05:29+03:00",
+          "tree_id": "3c125001d003710b0f9f3bb9e5271069a87985a8",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/e14610b020997e31014e4445e7568cbbd37231fc"
+        },
+        "date": 1777316766891,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5251615599999997,
             "unit": "ms"
           }
         ]
