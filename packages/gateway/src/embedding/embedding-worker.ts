@@ -4,12 +4,11 @@
  */
 import { Database } from "bun:sqlite";
 import { dirname, join } from "node:path";
-
-import { isAcceptableWorkerOrigin } from "../platform/worker-security.ts";
 import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { readIndexedUserVersion, runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { ensureSqliteVecForConnection } from "../index/sqlite-vec-load.ts";
+import { isAcceptableWorkerOrigin } from "../platform/worker-security.ts";
 import { createLocalEmbedder } from "./model.ts";
 import { SqliteEmbeddingPipeline } from "./pipeline.ts";
 import type { IndexedItem } from "./types.ts";
