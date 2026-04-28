@@ -184,17 +184,17 @@ describe("Watchers page — list", () => {
 // ---------------------------------------------------------------------------
 // Condition builder — graph type
 // ---------------------------------------------------------------------------
-describe("Watchers page — graph condition builder", () => {
-  async function openDialog() {
-    stubWatcherList([]);
-    renderPage();
-    await waitFor(() => expect(callMock).toHaveBeenCalled());
-    await userEvent.click(screen.getByRole("button", { name: /new watcher/i }));
-    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
-    // Wait for candidate relations to load
-    await waitFor(() => expect(screen.getByLabelText("Graph relation")).toBeInTheDocument());
-  }
+async function openDialog() {
+  stubWatcherList([]);
+  renderPage();
+  await waitFor(() => expect(callMock).toHaveBeenCalled());
+  await userEvent.click(screen.getByRole("button", { name: /new watcher/i }));
+  await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  // Wait for candidate relations to load
+  await waitFor(() => expect(screen.getByLabelText("Graph relation")).toBeInTheDocument());
+}
 
+describe("Watchers page — graph condition builder", () => {
   it("graph condition type shows relation dropdown with candidate relations", async () => {
     await openDialog();
     const select = screen.getByLabelText("Graph relation");

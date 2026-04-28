@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       /* ignore */
     }
     try {
-      platform.syncScheduler.stop();
+      await platform.syncScheduler.stop();
     } catch {
       /* ignore */
     }

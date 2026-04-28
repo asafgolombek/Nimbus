@@ -388,98 +388,127 @@ export function createGmailSyncable(options: GmailSyncableOptions): Syncable {
         return await finishListPage(decoded.q, decoded.pageToken ?? undefined);
       }
 
-      const u = new URL("https://gmail.googleapis.com/gmail/v1/users/me/history");
-      u.searchParams.set("startHistoryId", decoded.startHistoryId);
-      u.searchParams.set("maxResults", "100");
-      if (decoded.pageToken !== null && decoded.pageToken !== "") {
-        u.searchParams.set("pageToken", decoded.pageToken);
+      const fetched = await fetchGmailHistoryOrReset(ctx, accessToken, decoded);
+      if (fetched.kind === "reset") {
+        const q = listQueryForInitial(initialSyncDepthDays);
+        return await finishListPage(q, undefined);
       }
-      for (const ht of ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"] as const) {
-        u.searchParams.append("historyTypes", ht);
-      }
+      bytesTransferred += fetched.bytes;
 
-      let historyJson: unknown;
-      try {
-        const res = await gmailFetchJson(ctx, accessToken, u.toString());
-        historyJson = res.json;
-        bytesTransferred += res.bytes;
-      } catch (e) {
-        let msg: string;
-        if (e instanceof Error) {
-          msg = e.message;
-        } else if (typeof e === "string") {
-          msg = e;
-        } else {
-          msg = "Request failed";
-        }
-        if (msg.includes("404")) {
-          ctx.logger.warn(
-            { service: SERVICE_ID },
-            "Gmail history expired or invalid; resetting list sync",
-          );
-          const q = listQueryForInitial(initialSyncDepthDays);
-          return await finishListPage(q, undefined);
-        }
-        throw e;
-      }
-
-      const applied = await applyGmailHistoryRecords(ctx, accessToken, now, historyJson);
+      const applied = await applyGmailHistoryRecords(ctx, accessToken, now, fetched.json);
       itemsUpserted += applied.itemsUpserted;
       itemsDeleted += applied.itemsDeleted;
-      const hist = applied.hist;
 
-      const nextPage = hist.nextPageToken;
-      if (nextPage !== undefined && nextPage !== "") {
-        return {
-          cursor: encodeGmailSyncCursor({
-            v: 1,
-            phase: "delta",
-            startHistoryId: decoded.startHistoryId,
-            pageToken: nextPage,
-          }),
-          itemsUpserted,
-          itemsDeleted,
-          hasMore: true,
-          durationMs: Date.now() - startedAt,
-          bytesTransferred,
-        };
-      }
-
-      const nextHid = hist.historyId;
-      if (typeof nextHid !== "string" || nextHid === "") {
-        const profile = await fetchProfile(ctx, accessToken);
-        const fallback = profile.historyId;
-        if (typeof fallback !== "string" || fallback === "") {
-          throw new Error("Gmail sync failed: history response missing historyId");
-        }
-        return {
-          cursor: encodeGmailSyncCursor({
-            v: 1,
-            phase: "delta",
-            startHistoryId: fallback,
-            pageToken: null,
-          }),
-          itemsUpserted,
-          itemsDeleted,
-          hasMore: false,
-          durationMs: Date.now() - startedAt,
-          bytesTransferred,
-        };
-      }
-
-      return {
-        cursor: encodeGmailSyncCursor({
-          v: 1,
-          phase: "delta",
-          startHistoryId: nextHid,
-          pageToken: null,
-        }),
+      return resolveGmailDeltaResult({
+        ctx,
+        accessToken,
+        decoded,
+        hist: applied.hist,
         itemsUpserted,
         itemsDeleted,
-        hasMore: false,
-        durationMs: Date.now() - startedAt,
         bytesTransferred,
-      };
+        startedAt,
+      });
     },
   };
+}
+
+function extractErrorMessage(e: unknown): string {
+  if (e instanceof Error) {
+    return e.message;
+  }
+  if (typeof e === "string") {
+    return e;
+  }
+  return "Request failed";
+}
+
+async function fetchGmailHistoryOrReset(
+  ctx: SyncContext,
+  accessToken: string,
+  decoded: { startHistoryId: string; pageToken: string | null },
+): Promise<{ kind: "ok"; json: unknown; bytes: number } | { kind: "reset" }> {
+  const u = new URL("https://gmail.googleapis.com/gmail/v1/users/me/history");
+  u.searchParams.set("startHistoryId", decoded.startHistoryId);
+  u.searchParams.set("maxResults", "100");
+  if (decoded.pageToken !== null && decoded.pageToken !== "") {
+    u.searchParams.set("pageToken", decoded.pageToken);
+  }
+  for (const ht of ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"] as const) {
+    u.searchParams.append("historyTypes", ht);
+  }
+  try {
+    const res = await gmailFetchJson(ctx, accessToken, u.toString());
+    return { kind: "ok", json: res.json, bytes: res.bytes };
+  } catch (e) {
+    if (extractErrorMessage(e).includes("404")) {
+      ctx.logger.warn(
+        { service: SERVICE_ID },
+        "Gmail history expired or invalid; resetting list sync",
+      );
+      return { kind: "reset" };
+    }
+    throw e;
+  }
+}
+
+interface GmailDeltaResultArgs {
+  ctx: SyncContext;
+  accessToken: string;
+  decoded: { startHistoryId: string };
+  hist: { nextPageToken?: string; historyId?: string };
+  itemsUpserted: number;
+  itemsDeleted: number;
+  bytesTransferred: number;
+  startedAt: number;
+}
+
+async function resolveGmailDeltaResult(args: GmailDeltaResultArgs): Promise<SyncResult> {
+  const { hist, itemsUpserted, itemsDeleted, bytesTransferred, startedAt, decoded } = args;
+  const nextPage = hist.nextPageToken;
+  if (nextPage !== undefined && nextPage !== "") {
+    return {
+      cursor: encodeGmailSyncCursor({
+        v: 1,
+        phase: "delta",
+        startHistoryId: decoded.startHistoryId,
+        pageToken: nextPage,
+      }),
+      itemsUpserted,
+      itemsDeleted,
+      hasMore: true,
+      durationMs: Date.now() - startedAt,
+      bytesTransferred,
+    };
+  }
+  const finalHid = await resolveDeltaHistoryId(args.ctx, args.accessToken, hist.historyId);
+  return {
+    cursor: encodeGmailSyncCursor({
+      v: 1,
+      phase: "delta",
+      startHistoryId: finalHid,
+      pageToken: null,
+    }),
+    itemsUpserted,
+    itemsDeleted,
+    hasMore: false,
+    durationMs: Date.now() - startedAt,
+    bytesTransferred,
+  };
+}
+
+async function resolveDeltaHistoryId(
+  ctx: SyncContext,
+  accessToken: string,
+  candidate: string | undefined,
+): Promise<string> {
+  if (typeof candidate === "string" && candidate !== "") {
+    return candidate;
+  }
+  const profile = await fetchProfile(ctx, accessToken);
+  const fallback = profile.historyId;
+  if (typeof fallback !== "string" || fallback === "") {
+    throw new Error("Gmail sync failed: history response missing historyId");
+  }
+  return fallback;
 }

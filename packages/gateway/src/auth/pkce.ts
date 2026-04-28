@@ -640,28 +640,30 @@ async function runSlackOAuthOnLocalPort(
   }
 }
 
-async function exchangePkceAuthorizationCode(
-  fetchFn: PKCEFetch,
-  provider: "google" | "microsoft",
-  clientId: string,
-  redirectUri: string,
-  codeVerifier: string,
-  authCode: string,
-  requestedScopes: string[],
-  clientSecret?: string,
-): Promise<PKCEResult> {
-  const tokenUrl = provider === "google" ? GOOGLE_TOKEN : MS_TOKEN;
+interface ExchangePkceParams {
+  fetchFn: PKCEFetch;
+  provider: "google" | "microsoft";
+  clientId: string;
+  redirectUri: string;
+  codeVerifier: string;
+  authCode: string;
+  requestedScopes: string[];
+  clientSecret?: string;
+}
+
+async function exchangePkceAuthorizationCode(params: ExchangePkceParams): Promise<PKCEResult> {
+  const tokenUrl = params.provider === "google" ? GOOGLE_TOKEN : MS_TOKEN;
   const tokenBody: Record<string, string> = {
-    client_id: clientId,
+    client_id: params.clientId,
     grant_type: "authorization_code",
-    code: authCode,
-    redirect_uri: redirectUri,
-    code_verifier: codeVerifier,
+    code: params.authCode,
+    redirect_uri: params.redirectUri,
+    code_verifier: params.codeVerifier,
   };
-  if (clientSecret !== undefined && clientSecret !== "") {
-    tokenBody["client_secret"] = clientSecret;
+  if (params.clientSecret !== undefined && params.clientSecret !== "") {
+    tokenBody["client_secret"] = params.clientSecret;
   }
-  const json = await postForm(fetchFn, tokenUrl, tokenBody);
+  const json = await postForm(params.fetchFn, tokenUrl, tokenBody);
   const parsed = parseTokenJson(json);
   const refreshTok = parsed.refresh_token;
   if (refreshTok === undefined || refreshTok === "") {
@@ -671,7 +673,7 @@ async function exchangePkceAuthorizationCode(
     accessToken: parsed.access_token,
     refreshToken: refreshTok,
     expiresAt: Date.now() + Math.floor(parsed.expires_in * 1000),
-    scopes: scopesFromTokenResponse(parsed.scope, requestedScopes),
+    scopes: scopesFromTokenResponse(parsed.scope, params.requestedScopes),
   };
 }
 
@@ -732,16 +734,16 @@ async function runOnLocalPort(
       provider === "google" || provider === "microsoft"
         ? (options.oauthClientSecret?.trim() ?? "")
         : "";
-    const result = await exchangePkceAuthorizationCode(
+    const result = await exchangePkceAuthorizationCode({
       fetchFn,
       provider,
       clientId,
       redirectUri,
       codeVerifier,
-      done.code,
-      scopes,
-      secret === "" ? undefined : secret,
-    );
+      authCode: done.code,
+      requestedScopes: scopes,
+      ...(secret !== "" && { clientSecret: secret }),
+    });
 
     await persistTokens(vault, provider, result);
     return result;
