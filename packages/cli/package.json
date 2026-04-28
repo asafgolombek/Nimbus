@@ -19,16 +19,16 @@
     "@clack/prompts": "^1.2.0",
     "@nimbus-dev/client": "workspace:*",
     "@nimbus-dev/sdk": "workspace:*",
-    "ink": "^5.2.1",
+    "ink": "^7.0.1",
     "ink-text-input": "^6.0.0",
     "pino": "^10.3.1",
-    "react": "^18.3.1",
+    "react": "^19.2.5",
     "yaml": "^2.8.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/react": "^18.3.12",
+    "@types/react": "^19.2.14",
     "ink-testing-library": "^4.0.0",
-    "react-devtools-core": "^6.1.5"
+    "react-devtools-core": "^7.0.1"
   }
 }
