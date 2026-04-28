@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777316767581,
+  "lastUpdate": 1777384169169,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2087,6 +2087,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5251615599999997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bb2d4b845fb2faefb0b18220e609d3afb34105d7",
+          "message": "Merge pull request #117 from asafgolombek/dev/asafgolombek/perf-audit-cluster-c-1\n\nfeat(perf): cluster-C drivers — S6 sync throughput + S7 RSS (PR-B-2b-1)",
+          "timestamp": "2026-04-28T16:48:49+03:00",
+          "tree_id": "ba6ef2f12ab3b32f63120398f67ef96fff125296",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/bb2d4b845fb2faefb0b18220e609d3afb34105d7"
+        },
+        "date": 1777384168061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5028390199999933,
             "unit": "ms"
           }
         ]
