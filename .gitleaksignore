@@ -9,3 +9,8 @@
 
 b37e8d4b0abf44f8cd60b187499acea7f21914a7:packages/gateway/src/platform/gateway-log-redact.test.ts:generic-api-key:41
 b37e8d4b0abf44f8cd60b187499acea7f21914a7:packages/gateway/src/platform/gateway-log-redact.test.ts:jwt:49
+
+# Same situation in a planning doc that quotes a redactor unit-test —
+# the JWT here is the canonical jwt.io sample (HS256 over "your-256-bit-secret"),
+# embedded in the spec to show what the redactor must catch. Not a real token.
+49889f354665f408a844b0466ab2b0c04b0e7a08:docs/superpowers/plans/2026-04-26-security-fixes-medium-tier.md:jwt:205
