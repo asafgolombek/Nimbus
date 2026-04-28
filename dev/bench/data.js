@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777404452354,
+  "lastUpdate": 1777406331904,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2232,6 +2232,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.508386960000002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c876d21f1eb33a32163a8bf4cdd510707c64447",
+          "message": "Merge pull request #127 from asafgolombek/dev/asafgolombek/clean-deep-workspaces\n\nchore(scripts): drive clean-deep from root workspaces array",
+          "timestamp": "2026-04-28T22:58:21+03:00",
+          "tree_id": "943e6bb9e93c19d600b125dbaf859b0cedd497cb",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/4c876d21f1eb33a32163a8bf4cdd510707c64447"
+        },
+        "date": 1777406331167,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.4370708799999994,
             "unit": "ms"
           }
         ]
