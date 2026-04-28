@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777395055187,
+  "lastUpdate": 1777401393703,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2174,6 +2174,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5080780400000027,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2645218e05e1cb6a51879c499d1ba93ef29a69b2",
+          "message": "Merge pull request #125 from asafgolombek/dev/asafgolombek/autid_c2\n\nperf: PR-B-2b-2 — S8/S9/S10 drivers + worker-bench",
+          "timestamp": "2026-04-28T21:36:05+03:00",
+          "tree_id": "bf6dda7ff875889cdbf0192579bffde2eafc5ed6",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/2645218e05e1cb6a51879c499d1ba93ef29a69b2"
+        },
+        "date": 1777401393055,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5099333800000005,
             "unit": "ms"
           }
         ]
