@@ -7,16 +7,20 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { REPO_ROOT, run } from "./lib/root.ts";
+import { REPO_ROOT } from "./lib/root.ts";
 
-const isWin = process.platform === "win32";
-const isMac = process.platform === "darwin";
 const isLinux = process.platform === "linux";
 
 type Status = "OK" | "WARN" | "ERROR";
 
+const STATUS_COLORS: Record<Status, string> = {
+  OK: "\x1b[32m",
+  WARN: "\x1b[33m",
+  ERROR: "\x1b[31m",
+};
+
 function log(status: Status, message: string): void {
-  const color = status === "OK" ? "\x1b[32m" : status === "WARN" ? "\x1b[33m" : "\x1b[31m";
+  const color = STATUS_COLORS[status];
   const reset = "\x1b[0m";
   process.stdout.write(`[${color}${status}${reset}] ${message}\n`);
 }

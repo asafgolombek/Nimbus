@@ -24,11 +24,8 @@ describe("runSqliteContentionOnce", () => {
           }, 5);
         }
       }
-      terminate(): void {}
-      addEventListener(): void {}
-      removeEventListener(): void {}
-      dispatchEvent(): boolean {
-        return true;
+      terminate(): void {
+        /* test stub: never inspects state, so no-op */
       }
     };
 
@@ -69,11 +66,8 @@ describe("runSqliteContentionOnce", () => {
           }, 5);
         }
       }
-      terminate(): void {}
-      addEventListener(): void {}
-      removeEventListener(): void {}
-      dispatchEvent(): boolean {
-        return true;
+      terminate(): void {
+        /* test stub: never inspects state, so no-op */
       }
     };
     S10_BUSY_RETRIES.value = 0;

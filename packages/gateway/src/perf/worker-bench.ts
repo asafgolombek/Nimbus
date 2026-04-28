@@ -115,32 +115,27 @@ function setupWorker(
   return state;
 }
 
-export async function runWorkerBench(opts: WorkerBenchOptions): Promise<WorkerBenchResult> {
-  const Ctor = opts.WorkerCtor ?? Worker;
-  const timeoutMs = opts.timeoutMs ?? opts.durationMs + 5_000;
-  const states: PerWorkerState[] = opts.workers.map((spec) =>
-    setupWorker(spec, Ctor, opts.sharedDbPath),
-  );
-
-  // Wait for ready (or error) from each Worker.
-  await Promise.all(states.map((s) => s.readyPromise));
-
-  // Drive the run from any worker that hit ready.
-  const startMsg: ParentMsg = { kind: "start", durationMs: opts.durationMs };
+function dispatchStart(states: PerWorkerState[], durationMs: number): void {
+  const startMsg: ParentMsg = { kind: "start", durationMs };
   for (const s of states) {
     if (s.ready && s.error === undefined) {
       s.worker.postMessage(startMsg);
     }
   }
+}
 
-  // Race done-promises against the hard deadline.
+async function awaitDoneOrTimeout(
+  states: PerWorkerState[],
+  timeoutMs: number,
+): Promise<"done" | "timeout"> {
   const deadlineHit = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), timeoutMs),
   );
   const allDone = Promise.all(states.map((s) => s.donePromise)).then(() => "done" as const);
-  const winner = await Promise.race([allDone, deadlineHit]);
+  return Promise.race([allDone, deadlineHit]);
+}
 
-  // After done OR timeout, send stop and terminate any laggards.
+function broadcastStop(states: PerWorkerState[]): void {
   const stopMsg: ParentMsg = { kind: "stop" };
   for (const s of states) {
     try {
@@ -149,30 +144,34 @@ export async function runWorkerBench(opts: WorkerBenchOptions): Promise<WorkerBe
       /* worker already gone */
     }
   }
-  if (winner === "timeout") {
-    for (const s of states) {
-      try {
-        s.worker.terminate();
-      } catch {
-        /* ignore */
-      }
-    }
-  } else {
-    // Give workers up to 2 s to drain after stop, then terminate.
-    await Promise.race([
-      Promise.all(states.map((s) => s.donePromise)),
-      new Promise<void>((r) => setTimeout(r, 2_000)),
-    ]);
-    for (const s of states) {
-      try {
-        s.worker.terminate();
-      } catch {
-        /* ignore */
-      }
+}
+
+function terminateAll(states: PerWorkerState[]): void {
+  for (const s of states) {
+    try {
+      s.worker.terminate();
+    } catch {
+      /* ignore */
     }
   }
+}
 
-  // Collect results.
+async function drainAndTerminate(states: PerWorkerState[]): Promise<void> {
+  // Give workers up to 2 s to drain after stop, then terminate.
+  await Promise.race([
+    Promise.all(states.map((s) => s.donePromise)),
+    new Promise<void>((r) => setTimeout(r, 2_000)),
+  ]);
+  terminateAll(states);
+}
+
+async function collectResults(
+  states: PerWorkerState[],
+  durationMs: number,
+): Promise<{
+  perWorker: WorkerBenchResult["perWorker"];
+  errors: WorkerBenchResult["errors"];
+}> {
   const perWorker: WorkerBenchResult["perWorker"] = [];
   const errors: WorkerBenchResult["errors"] = [];
   for (const s of states) {
@@ -185,9 +184,35 @@ export async function runWorkerBench(opts: WorkerBenchOptions): Promise<WorkerBe
       name: s.name,
       writes: r.writes,
       busyRetries: r.busyRetries,
-      throughputPerSec: opts.durationMs > 0 ? r.writes / (opts.durationMs / 1000) : 0,
+      throughputPerSec: durationMs > 0 ? r.writes / (durationMs / 1000) : 0,
     });
   }
+  return { perWorker, errors };
+}
+
+export async function runWorkerBench(opts: WorkerBenchOptions): Promise<WorkerBenchResult> {
+  const Ctor = opts.WorkerCtor ?? Worker;
+  const timeoutMs = opts.timeoutMs ?? opts.durationMs + 5_000;
+  const states: PerWorkerState[] = opts.workers.map((spec) =>
+    setupWorker(spec, Ctor, opts.sharedDbPath),
+  );
+
+  // Wait for ready (or error) from each Worker.
+  await Promise.all(states.map((s) => s.readyPromise));
+
+  // Drive the run from any worker that hit ready, then race done-promises against the deadline.
+  dispatchStart(states, opts.durationMs);
+  const winner = await awaitDoneOrTimeout(states, timeoutMs);
+
+  // After done OR timeout, broadcast stop, then terminate (with grace period on done).
+  broadcastStop(states);
+  if (winner === "timeout") {
+    terminateAll(states);
+  } else {
+    await drainAndTerminate(states);
+  }
+
+  const { perWorker, errors } = await collectResults(states, opts.durationMs);
   const totalThroughputPerSec = perWorker.reduce((acc, w) => acc + w.throughputPerSec, 0);
   const totalBusyRetries = perWorker.reduce((acc, w) => acc + w.busyRetries, 0);
 

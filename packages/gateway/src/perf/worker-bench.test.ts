@@ -47,12 +47,7 @@ function makeFakeWorker(opts: FakeWorkerOpts): typeof Worker {
       }
     }
     terminate(): void {
-      // no-op
-    }
-    addEventListener(): void {}
-    removeEventListener(): void {}
-    dispatchEvent(): boolean {
-      return true;
+      /* test stub: never inspects state, so no-op */
     }
   } as unknown as typeof Worker;
 }
