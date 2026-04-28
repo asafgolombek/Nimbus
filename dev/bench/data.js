@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777384169169,
+  "lastUpdate": 1777387551033,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2116,6 +2116,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5028390199999933,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d3b96aff1bff195368cd47acb70a7cc1fb4b7be",
+          "message": "Merge pull request #124 from asafgolombek/dev/asafgolombek/sonar-cleanup\n\nrefactor: clear all 30 SonarCloud findings on main",
+          "timestamp": "2026-04-28T17:45:12+03:00",
+          "tree_id": "00bd8c1060f70d6d6544ec5df681c0eeaad3e801",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/0d3b96aff1bff195368cd47acb70a7cc1fb4b7be"
+        },
+        "date": 1777387550322,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5055828999999954,
             "unit": "ms"
           }
         ]
