@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777401393703,
+  "lastUpdate": 1777404452354,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2203,6 +2203,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5099333800000005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dc36cd66424e27e3cefc4e04a1890abcc1185f7",
+          "message": "Merge pull request #126 from asafgolombek/dev/asafgolombek/deps-and-actions\n\ndeps + ci: dep sweep + drop deprecated gitleaks JS action",
+          "timestamp": "2026-04-28T22:26:59+03:00",
+          "tree_id": "8985cb1523cb47315dfca4dec072c8d4279abb92",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/6dc36cd66424e27e3cefc4e04a1890abcc1185f7"
+        },
+        "date": 1777404451289,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.508386960000002,
             "unit": "ms"
           }
         ]
