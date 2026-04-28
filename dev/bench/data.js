@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777387551033,
+  "lastUpdate": 1777395055187,
   "repoUrl": "https://github.com/asafgolombek/Nimbus",
   "entries": {
     "Nimbus Engine Benchmarks": [
@@ -2145,6 +2145,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Structured Item Query Latency",
             "value": 1.5055828999999954,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "AsafGolombek",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "5ea0c7a049f8f3cf8f079608089c4ae03fdc16ff",
+          "message": "docs: create implementation and review plans for cluster C performance audit drivers",
+          "timestamp": "2026-04-28T19:50:08+03:00",
+          "tree_id": "776ac32bc4b36cd63b1ff3bcb102acfef0d6affe",
+          "url": "https://github.com/asafgolombek/Nimbus/commit/5ea0c7a049f8f3cf8f079608089c4ae03fdc16ff"
+        },
+        "date": 1777395054555,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Structured Item Query Latency",
+            "value": 1.5080780400000027,
             "unit": "ms"
           }
         ]
