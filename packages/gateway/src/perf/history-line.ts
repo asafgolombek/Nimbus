@@ -21,6 +21,11 @@ export interface HistoryLineSurface {
   rss_bytes_p95?: number;
   raw_samples?: number[];
   /**
+   * S10 only — sum of SQLITE_BUSY retries across the contention Workers.
+   * Optional; downstream consumers ignore unknown fields. Spec §6.6.
+   */
+  busy_retries?: number;
+  /**
    * If set, this surface was not actually measured. Examples: stub drivers
    * (S3, S5 — renderer instrumentation pending); reference-only surfaces
    * (S2-c, S7-c, S9) skipped on a non-reference run.

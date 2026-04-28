@@ -17,7 +17,9 @@ import {
   runDashboardFirstPaintOnce,
   S3_STUB_REASON,
 } from "./surfaces/bench-dashboard-first-paint.ts";
+import { runEmbeddingThroughputOnce } from "./surfaces/bench-embedding-throughput.ts";
 import { runHitlPopupOnce, S5_STUB_REASON } from "./surfaces/bench-hitl-popup.ts";
+import { runLlmRoundtripOnce, S9_STUB_REASON } from "./surfaces/bench-llm-roundtrip.ts";
 import { runQueryLatencyOnce } from "./surfaces/bench-query-latency.ts";
 import { runQueryLatency1mOnce } from "./surfaces/bench-query-latency-1m.ts";
 import { runQueryLatency100kOnce } from "./surfaces/bench-query-latency-100k.ts";
@@ -27,16 +29,19 @@ import {
   runRssMultiAgentOnce,
   S7C_REFERENCE_ONLY_REASON,
 } from "./surfaces/bench-rss-multi-agent.ts";
+import { runSqliteContentionOnce, S10_BUSY_RETRIES } from "./surfaces/bench-sqlite-contention.ts";
 import { runSyncThroughputDriveOnce } from "./surfaces/bench-sync-throughput-drive.ts";
 import { runSyncThroughputGithubOnce } from "./surfaces/bench-sync-throughput-github.ts";
 import { runSyncThroughputGmailOnce } from "./surfaces/bench-sync-throughput-gmail.ts";
 import { runTuiFirstPaintOnce } from "./surfaces/bench-tui-first-paint.ts";
-import type {
-  BenchResultKind,
-  BenchRunOptions,
-  BenchSurfaceId,
-  BenchSurfaceResult,
-  RunnerKind,
+import {
+  type BenchResultKind,
+  type BenchRunOptions,
+  type BenchSurfaceId,
+  type BenchSurfaceResult,
+  type RunnerKind,
+  S8_BATCHES,
+  S8_LENGTHS,
 } from "./types.ts";
 
 export interface BenchCliDeps {
@@ -84,9 +89,20 @@ const SURFACE_REGISTRY: Partial<Record<BenchSurfaceId, DriverFn>> = {
   "S7-a": (opts) => runRssIdleOnce(opts),
   "S7-b": (opts) => runRssHeavySyncOnce(opts),
   "S7-c": (opts) => runRssMultiAgentOnce(opts),
+  S9: (opts) => runLlmRoundtripOnce(opts),
+  S10: (opts) => runSqliteContentionOnce(opts),
   "S11-a": (opts) => runCliOverheadColdOnce(opts),
   "S11-b": (opts) => runCliOverheadWarmOnce(opts),
 };
+// S8 cross-product: 12 cells via (length × batch). Spec §6.3, plan D-4.
+// `for...of` with `const` captures `length`/`batch` per-iteration, so each
+// closure binds its own pair — no shared-state hazard.
+for (const length of S8_LENGTHS) {
+  for (const batch of S8_BATCHES) {
+    const id = `S8-l${length}-b${batch}` as BenchSurfaceId;
+    SURFACE_REGISTRY[id] = () => runEmbeddingThroughputOnce({ length, batch });
+  }
+}
 
 /** Per-surface result aggregation. Defaults to "latency" for unlisted surfaces. */
 const SURFACE_RESULT_KIND: Partial<Record<BenchSurfaceId, BenchResultKind>> = {
@@ -96,17 +112,25 @@ const SURFACE_RESULT_KIND: Partial<Record<BenchSurfaceId, BenchResultKind>> = {
   "S7-a": "rss",
   "S7-b": "rss",
   "S7-c": "rss",
+  S10: "throughput",
   // Latency surfaces (S1, S2-*, S4, S11-*) omit and default to "latency".
 };
+// S8 cells are throughput surfaces too.
+for (const length of S8_LENGTHS) {
+  for (const batch of S8_BATCHES) {
+    SURFACE_RESULT_KIND[`S8-l${length}-b${batch}` as BenchSurfaceId] = "throughput";
+  }
+}
 
 /** Surfaces that ship as stubs — driver returns []; orchestrator writes stub_reason. */
 const STUB_SURFACES: Partial<Record<BenchSurfaceId, string>> = {
   S3: S3_STUB_REASON,
   S5: S5_STUB_REASON,
+  S9: S9_STUB_REASON,
 };
 
 /** Surfaces that should only run when runner === reference-m1air. */
-const REFERENCE_ONLY: ReadonlySet<BenchSurfaceId> = new Set<BenchSurfaceId>(["S2-c", "S7-c"]);
+const REFERENCE_ONLY: ReadonlySet<BenchSurfaceId> = new Set<BenchSurfaceId>(["S2-c", "S7-c", "S9"]);
 
 /** Per-surface override for the reference-only stub message. Defaults to a generic "skipped on <runner>" message. */
 const REFERENCE_ONLY_REASONS: Partial<Record<BenchSurfaceId, string>> = {
@@ -162,6 +186,7 @@ function resultToHistorySurface(r: BenchSurfaceResult): HistoryLineSurface {
   if (r.tokensPerSec !== undefined) out.tokens_per_sec = r.tokensPerSec;
   if (r.firstTokenMs !== undefined) out.first_token_ms = r.firstTokenMs;
   if (r.rssBytesP95 !== undefined) out.rss_bytes_p95 = r.rssBytesP95;
+  if (r.busyRetries !== undefined) out.busy_retries = r.busyRetries;
   return out;
 }
 
@@ -229,7 +254,14 @@ async function processSurface(
   let result: BenchSurfaceResult;
   try {
     const resultKind = SURFACE_RESULT_KIND[id] ?? "latency";
+    if (id === "S10") {
+      // D-5: defensive reset in the orchestrator — driver only accumulates.
+      S10_BUSY_RETRIES.value = 0;
+    }
     result = await runBench(id, (o) => driver(o, runOpts), opts, {}, resultKind);
+    if (id === "S10") {
+      result = { ...result, busyRetries: S10_BUSY_RETRIES.value };
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {

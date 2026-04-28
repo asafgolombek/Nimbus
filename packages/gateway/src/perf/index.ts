@@ -3,6 +3,11 @@
 export { type BenchCliDeps, LINUX_ONLY_THRESHOLDS, runBenchCli } from "./bench-cli.ts";
 export { runBench, type SurfaceFn } from "./bench-harness.ts";
 export {
+  SYNTHETIC_TEXT_DEFAULT_SEED,
+  type SynthesizeTextOptions,
+  synthesizeText,
+} from "./fixtures/synthetic-text.ts";
+export {
   type SpawnGatewayForBenchOptions,
   type SpawnGatewayResult,
   spawnGatewayForBench,
@@ -46,9 +51,17 @@ export {
   S3_STUB_REASON,
 } from "./surfaces/bench-dashboard-first-paint.ts";
 export {
+  type EmbeddingThroughputOptions,
+  runEmbeddingThroughputOnce,
+} from "./surfaces/bench-embedding-throughput.ts";
+export {
   runHitlPopupOnce,
   S5_STUB_REASON,
 } from "./surfaces/bench-hitl-popup.ts";
+export {
+  runLlmRoundtripOnce,
+  S9_STUB_REASON,
+} from "./surfaces/bench-llm-roundtrip.ts";
 export { runQueryLatency1mOnce, S2C_TIER } from "./surfaces/bench-query-latency-1m.ts";
 export { runQueryLatency100kOnce, S2B_TIER } from "./surfaces/bench-query-latency-100k.ts";
 export {
@@ -64,6 +77,11 @@ export {
   runRssMultiAgentOnce,
   S7C_REFERENCE_ONLY_REASON,
 } from "./surfaces/bench-rss-multi-agent.ts";
+export {
+  runSqliteContentionOnce,
+  S10_BUSY_RETRIES,
+  type SqliteContentionRunOptions,
+} from "./surfaces/bench-sqlite-contention.ts";
 export {
   type IpcCallFn as SyncThroughputDriveIpcCallFn,
   runSyncThroughputDriveOnce,
@@ -83,11 +101,29 @@ export {
   runTuiFirstPaintOnce,
   TUI_FIRST_PAINT_SAMPLES_PER_RUN,
 } from "./surfaces/bench-tui-first-paint.ts";
-export type {
-  BenchResultKind,
-  BenchRunOptions,
-  BenchSurfaceId,
-  BenchSurfaceResult,
-  CorpusTier,
-  RunnerKind,
+export {
+  type ParentMsg as SqliteWorkerParentMsg,
+  runWorkerLoop,
+  type WorkerLoopDeps,
+  type WorkerLoopOptions,
+  type WorkerMsg as SqliteWorkerWorkerMsg,
+} from "./surfaces/sqlite-worker-shared.ts";
+export {
+  type BenchResultKind,
+  type BenchRunOptions,
+  type BenchSurfaceId,
+  type BenchSurfaceResult,
+  type CorpusTier,
+  type RunnerKind,
+  S8_BATCHES,
+  S8_LENGTHS,
+  type S8Batch,
+  type S8Length,
+  type S8SurfaceId,
 } from "./types.ts";
+export {
+  runWorkerBench,
+  type WorkerBenchOptions,
+  type WorkerBenchResult,
+  type WorkerSpec,
+} from "./worker-bench.ts";

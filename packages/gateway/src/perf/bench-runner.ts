@@ -38,8 +38,8 @@ Usage:
 
 Flags:
   --surface <id>      one of: S1, S2-a, S2-b, S2-c, S3, S4, S5, S6-drive, S6-gmail, S6-github,
-                      S7-a, S7-b, S7-c, S11-a, S11-b
-                      (S8/S9/S10 land in PR-B-2b-2)
+                      S7-a, S7-b, S7-c, S8-l{50|500|5000}-b{1|8|32|64} (12 cells),
+                      S9, S10, S11-a, S11-b
   --all               run every registered surface
   --corpus <tier>     small | medium | large
   --runs <N>          per-surface invocations (default 5)

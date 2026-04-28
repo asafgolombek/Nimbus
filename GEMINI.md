@@ -248,8 +248,8 @@ cd packages/ui && bunx vitest run --coverage  # with branch/line coverage report
 bun run build
 
 # Full validate-and-build (runs CI test suite first, then builds)
-bun run build:debug    # debug build with sourcemaps (also: scripts/linux/build-debug.sh, scripts/windows/build-debug.ps1)
-bun run build:release  # production build (also: scripts/linux/build-release.sh, scripts/windows/build-release.ps1)
+bun run build:debug    # debug build with sourcemaps (use --skip-tests for fast build)
+bun run build:release  # production build (use --skip-tests for fast build)
 
 # Docs site (Starlight — static output under packages/docs/dist)
 bun run docs:build
@@ -259,6 +259,10 @@ bun run docs:build
 
 # Clean all build outputs
 bun run clean
+bun run clean:deep     # wipe node_modules + lockfile
+
+# Dev health check
+bun run dev:doctor
 
 # Security audit
 bun audit --audit-level high
