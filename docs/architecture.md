@@ -1,8 +1,8 @@
 # Nimbus Architecture
 
-**Version:** 0.7
+**Version:** 0.8
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Active Design — reflects `main` as of Phase 3.5 (Observability) complete; **Phase 4 (Presence) active**
+**Status:** Active Design — reflects `main` as of Phase 3.5 (Observability) complete; **Phase 4 (Presence) active** (WS1–WS6 + S2 + B2-P1 complete)
 
 ---
 
