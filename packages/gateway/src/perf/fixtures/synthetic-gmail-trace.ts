@@ -49,7 +49,7 @@ function lcg(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
     s = (s * 1_103_515_245 + 12_345) >>> 0;
-    return s / 0x1_0000_0000;
+    return s / 0x100000000;
   };
 }
 
@@ -86,7 +86,7 @@ export function gmailListPages(tier: CorpusTier): GmailListPage[] {
 
 export function gmailMessage(id: string, tier: CorpusTier): GmailMessage | undefined {
   const total = GMAIL_TIER_COUNTS[tier];
-  const m = id.match(/^gmail-[a-z]+-([0-9a-z]+)$/);
+  const m = /^gmail-[a-z]+-([0-9a-z]+)$/.exec(id);
   if (m === null) return undefined;
   const idx = Number.parseInt(m[1] ?? "0", 36);
   if (idx < 0 || idx >= total) return undefined;

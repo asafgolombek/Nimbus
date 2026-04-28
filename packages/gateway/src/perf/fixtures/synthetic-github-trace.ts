@@ -30,7 +30,7 @@ function lcg(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
     s = (s * 1_103_515_245 + 12_345) >>> 0;
-    return s / 0x1_0000_0000;
+    return s / 0x100000000;
   };
 }
 
@@ -81,12 +81,10 @@ export function buildGithubLinkHeader(opts: BuildGithubLinkOpts): string {
   const link = (page: number, rel: string): string =>
     `<${url}?page=${page}&per_page=${opts.perPage}>; rel="${rel}"`;
   if (opts.page > 1) {
-    parts.push(link(opts.page - 1, "prev"));
-    parts.push(link(1, "first"));
+    parts.push(link(opts.page - 1, "prev"), link(1, "first"));
   }
   if (opts.page < opts.totalPages) {
-    parts.push(link(opts.page + 1, "next"));
-    parts.push(link(opts.totalPages, "last"));
+    parts.push(link(opts.page + 1, "next"), link(opts.totalPages, "last"));
   }
   return parts.join(", ");
 }

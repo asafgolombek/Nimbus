@@ -26,6 +26,6 @@ describe("runRssHeavySyncOnce", () => {
       },
     );
     expect(samples.length).toBeGreaterThan(0);
-    expect(synced.sort()).toEqual(["drive", "github", "gmail"]);
+    expect(synced.toSorted((a, b) => a.localeCompare(b))).toEqual(["drive", "github", "gmail"]);
   });
 });

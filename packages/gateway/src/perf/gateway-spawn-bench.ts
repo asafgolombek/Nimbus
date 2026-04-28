@@ -177,13 +177,13 @@ export async function spawnGatewayForBench<W, S = void>(
   let workloadResult: W;
   let samplerResult: S | undefined;
   try {
-    if (opts.sampler !== undefined) {
+    if (opts.sampler === undefined) {
+      workloadResult = await opts.workload({ pid: proc.pid, signal: ac.signal });
+    } else {
       const samplerPromise = opts.sampler({ pid: proc.pid, signal: ac.signal });
       workloadResult = await opts.workload({ pid: proc.pid, signal: ac.signal });
       ac.abort();
       samplerResult = await samplerPromise;
-    } else {
-      workloadResult = await opts.workload({ pid: proc.pid, signal: ac.signal });
     }
   } finally {
     ac.abort();

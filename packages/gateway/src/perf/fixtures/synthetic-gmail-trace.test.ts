@@ -13,7 +13,7 @@ describe("gmailListPages", () => {
     for (let i = 0; i < pages.length - 1; i += 1) {
       expect(pages[i]?.nextPageToken).toBeTruthy();
     }
-    expect(pages[pages.length - 1]?.nextPageToken).toBeUndefined();
+    expect(pages.at(-1)?.nextPageToken).toBeUndefined();
   });
 
   test("each list entry carries id + threadId", () => {

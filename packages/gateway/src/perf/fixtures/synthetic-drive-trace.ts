@@ -44,13 +44,13 @@ function lcg(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
     s = (s * 1_103_515_245 + 12_345) >>> 0;
-    return s / 0x1_0000_0000;
+    return s / 0x100000000;
   };
 }
 
 export function driveTracePages(tier: CorpusTier): DrivePage[] {
   const total = DRIVE_TIER_COUNTS[tier];
-  const rand = lcg(0xd17_e_aaaa);
+  const rand = lcg(0xd17e_aaaa);
   const baseDate = new Date("2026-01-01T00:00:00Z").getTime();
   const files: DriveFile[] = [];
   for (let i = 0; i < total; i += 1) {
