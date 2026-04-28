@@ -45,11 +45,18 @@ function doOneWrite(): void {
   const rowHash = computeAuditRowHash({
     prevHash,
     actionType: "bench.s10.audit",
-    hitlStatus: "n/a",
+    hitlStatus: "not_required",
     actionJson,
     timestamp,
   });
-  dbRun(db, AUDIT_INSERT_SQL, ["bench.s10.audit", "n/a", actionJson, timestamp, rowHash, prevHash]);
+  dbRun(db, AUDIT_INSERT_SQL, [
+    "bench.s10.audit",
+    "not_required",
+    actionJson,
+    timestamp,
+    rowHash,
+    prevHash,
+  ]);
 }
 
 self.onmessage = async (e: MessageEvent<unknown>): Promise<void> => {
