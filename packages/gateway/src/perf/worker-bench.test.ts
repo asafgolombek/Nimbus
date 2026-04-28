@@ -13,7 +13,6 @@ interface FakeWorkerOpts {
 
 function makeFakeWorker(opts: FakeWorkerOpts): typeof Worker {
   return class FakeWorker {
-    private listeners: Record<string, ((e: MessageEvent<unknown>) => void)[]> = {};
     onmessage: ((e: MessageEvent<unknown>) => void) | null = null;
     onerror: ((e: ErrorEvent) => void) | null = null;
     constructor(_url: URL) {
