@@ -16,7 +16,7 @@ describe("githubPullsPages", () => {
     const pr = githubPullsPages("small")[0]?.[0];
     expect(typeof pr?.number).toBe("number");
     expect(typeof pr?.title).toBe("string");
-    expect(["open", "closed"]).toContain(pr?.state);
+    expect(["open", "closed"]).toContain(pr?.state ?? "");
     expect(typeof pr?.updated_at).toBe("string");
   });
 
