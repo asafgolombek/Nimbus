@@ -3,11 +3,38 @@
  * Deep Clean: Runs the root `clean` script, then wipes all `node_modules`
  * and lockfiles across the monorepo for a truly fresh start.
  *
+ * The package list is read from root `package.json`'s `workspaces` field
+ * so adding a new MCP connector under `packages/mcp-connectors/*` doesn't
+ * silently leave its `node_modules` orphaned.
+ *
  * Usage: bun scripts/clean-deep.ts
  */
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT, run } from "./lib/root.ts";
+
+interface RootPackageJson {
+  workspaces?: string[];
+}
+
+function readWorkspaces(): readonly string[] {
+  const raw = readFileSync(join(REPO_ROOT, "package.json"), "utf8");
+  const pkg = JSON.parse(raw) as RootPackageJson;
+  if (!Array.isArray(pkg.workspaces) || pkg.workspaces.length === 0) {
+    throw new Error("Root package.json has no `workspaces` array — refusing to deep-clean.");
+  }
+  // This repo uses explicit per-package paths (no `*` globs); guard so a
+  // future glob entry doesn't get silently treated as a literal path.
+  for (const w of pkg.workspaces) {
+    if (w.includes("*")) {
+      throw new Error(
+        `Workspace entry "${w}" contains a glob; clean-deep does not expand globs. ` +
+          "Replace with explicit paths or extend this script to use bun's workspace resolver.",
+      );
+    }
+  }
+  return pkg.workspaces;
+}
 
 process.stdout.write("--- Nimbus Deep Clean ---\n");
 
@@ -20,18 +47,10 @@ process.stdout.write("Removing root node_modules and bun.lock...\n");
 rmSync(join(REPO_ROOT, "node_modules"), { recursive: true, force: true });
 rmSync(join(REPO_ROOT, "bun.lock"), { force: true });
 
-// 3. Find all package-level node_modules (optional but thorough)
-// Since bun uses a single root node_modules mostly, this might be overkill
-// but some packages might have their own.
-const packages = [
-  "packages/gateway",
-  "packages/cli",
-  "packages/ui",
-  "packages/sdk",
-  "packages/client",
-  "packages/docs",
-];
-
+// 3. Wipe per-package node_modules. Bun usually hoists everything to the
+// root, but some packages (notably under packages/mcp-connectors/*) end
+// up with their own when peer-dep resolution forks.
+const packages = readWorkspaces();
 for (const pkg of packages) {
   const pkgDir = join(REPO_ROOT, pkg, "node_modules");
   process.stdout.write(`Removing ${pkg}/node_modules...\n`);
