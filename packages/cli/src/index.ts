@@ -45,6 +45,61 @@ import { getCliPlatformPaths } from "./paths.ts";
 const rawArgv = process.argv.slice(2);
 const isInteractiveShell = process.stdin.isTTY === true && process.stdout.isTTY === true;
 
+type CommandHandler = (args: string[]) => Promise<void> | void;
+
+const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
+  start: runStart,
+  stop: runStop,
+  status: runStatus,
+  db: runDb,
+  diag: runDiag,
+  query: runQuery,
+  telemetry: runTelemetry,
+  tui: runTui,
+  update: runUpdate,
+  doctor: runDoctor,
+  config: runConfig,
+  profile: runProfile,
+  serve: runServe,
+  test: runTest,
+  ask: runAsk,
+  vault: runVault,
+  audit: runAudit,
+  connector: runConnector,
+  data: runData,
+  extension: runExtension,
+  people: runPeople,
+  search: runSearch,
+  session: runSession,
+  workflow: runWorkflowCli,
+  watch: runWatch,
+  repl: runRepl,
+  run: runWorkflowFromFile,
+  scaffold: runScaffold,
+  lan: runLan,
+};
+
+const HELP_ALIASES = new Set(["help", "--help", "-h"]);
+
+async function dispatchCommand(command: string, args: string[]): Promise<void> {
+  if (HELP_ALIASES.has(command)) {
+    printHelp();
+    return;
+  }
+  if (command === "bench") {
+    process.exitCode = await runBench(args);
+    return;
+  }
+  const handler = COMMAND_HANDLERS[command];
+  if (handler === undefined) {
+    console.error(`Unknown command: ${command}`);
+    printHelp();
+    process.exitCode = 1;
+    return;
+  }
+  await handler(args);
+}
+
 async function main(): Promise<void> {
   intro("Nimbus");
   const paths = getCliPlatformPaths();
@@ -56,107 +111,7 @@ async function main(): Promise<void> {
       await runRepl([]);
     } else {
       const [command = "help", ...args] = rawArgv;
-      switch (command) {
-        case "help":
-        case "--help":
-        case "-h":
-          printHelp();
-          break;
-        case "start":
-          await runStart(args);
-          break;
-        case "stop":
-          await runStop(args);
-          break;
-        case "status":
-          await runStatus(args);
-          break;
-        case "db":
-          await runDb(args);
-          break;
-        case "diag":
-          await runDiag(args);
-          break;
-        case "query":
-          await runQuery(args);
-          break;
-        case "telemetry":
-          await runTelemetry(args);
-          break;
-        case "tui":
-          await runTui(args);
-          break;
-        case "update":
-          await runUpdate(args);
-          break;
-        case "doctor":
-          await runDoctor(args);
-          break;
-        case "config":
-          await runConfig(args);
-          break;
-        case "profile":
-          runProfile(args);
-          break;
-        case "serve":
-          await runServe(args);
-          break;
-        case "test":
-          await runTest(args);
-          break;
-        case "ask":
-          await runAsk(args);
-          break;
-        case "vault":
-          await runVault(args);
-          break;
-        case "audit":
-          await runAudit(args);
-          break;
-        case "bench":
-          process.exitCode = await runBench(args);
-          break;
-        case "connector":
-          await runConnector(args);
-          break;
-        case "data":
-          await runData(args);
-          break;
-        case "extension":
-          await runExtension(args);
-          break;
-        case "people":
-          await runPeople(args);
-          break;
-        case "search":
-          await runSearch(args);
-          break;
-        case "session":
-          await runSession(args);
-          break;
-        case "workflow":
-          await runWorkflowCli(args);
-          break;
-        case "watch":
-          await runWatch(args);
-          break;
-        case "repl":
-          await runRepl(args);
-          break;
-        case "run":
-          await runWorkflowFromFile(args);
-          break;
-        case "scaffold":
-          await runScaffold(args);
-          break;
-        case "lan":
-          await runLan(args);
-          break;
-        default:
-          console.error(`Unknown command: ${command}`);
-          printHelp();
-          process.exitCode = 1;
-      }
+      await dispatchCommand(command, args);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

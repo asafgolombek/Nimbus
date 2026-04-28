@@ -1015,12 +1015,12 @@ async function connectorAuthOAuthPkce(
 
   // Mirror the token to the per-service vault key so each connector reads
   // only its own key (Phase 4 A.3 — scope isolation groundwork).
-  const sharedKey =
-    profile.provider === "google"
-      ? "google.oauth"
-      : profile.provider === "microsoft"
-        ? "microsoft.oauth"
-        : undefined;
+  let sharedKey: string | undefined;
+  if (profile.provider === "google") {
+    sharedKey = "google.oauth";
+  } else if (profile.provider === "microsoft") {
+    sharedKey = "microsoft.oauth";
+  }
   if (sharedKey !== undefined) {
     await writePerServiceOAuthKey(vault, id, sharedKey);
   }

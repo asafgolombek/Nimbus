@@ -101,6 +101,64 @@ function resolveBunPath(execPath: string, whichBun: () => string | undefined): s
 
 const FAILURE_HINT = `Options: install nimbus-gateway next to this executable, build the gateway (bun run build in packages/gateway), run from the monorepo with bun on PATH, or set NIMBUS_GATEWAY_EXECUTABLE to the gateway binary path.`;
 
+function resolveFromOverride(exists: (path: string) => boolean): GatewayLaunchPlan | undefined {
+  const override = envGet("NIMBUS_GATEWAY_EXECUTABLE")?.trim();
+  if (override === undefined || override.length === 0) {
+    return undefined;
+  }
+  if (!exists(override)) {
+    return {
+      ok: false,
+      message: `NIMBUS_GATEWAY_EXECUTABLE is set but file not found: ${override}`,
+    };
+  }
+  return { ok: true, cmd: [override] };
+}
+
+function resolveFromRepoRoot(
+  repoRoot: string,
+  binName: string,
+  execPath: string,
+  exists: (path: string) => boolean,
+  whichBun: () => string | undefined,
+): GatewayLaunchPlan | undefined {
+  const distJs = join(repoRoot, "dist", "nimbus-gateway.js");
+  const distExe = join(repoRoot, "dist", binName);
+  const jsThere = exists(distJs);
+  const exeThere = exists(distExe);
+  const bunPath = resolveBunPath(execPath, whichBun);
+
+  // `scripts/build-debug` emits `dist/nimbus-gateway.js` only. A leftover `dist/nimbus-gateway(.exe)`
+  // from `compile-gateway` must not shadow a newer debug bundle — otherwise `nimbus start` runs stale code.
+  if (
+    jsThere &&
+    bunPath !== undefined &&
+    (!exeThere || statSync(distJs).mtimeMs >= statSync(distExe).mtimeMs)
+  ) {
+    return { ok: true, cmd: [bunPath, distJs], cwd: repoRoot };
+  }
+
+  if (exeThere) {
+    return { ok: true, cmd: [distExe] };
+  }
+
+  const sourceEntry = join(repoRoot, GATEWAY_SOURCE_ENTRY);
+  if (!exists(sourceEntry)) {
+    return undefined;
+  }
+  if (bunPath !== undefined) {
+    return {
+      ok: true,
+      cmd: [bunPath, "run", GATEWAY_SOURCE_ENTRY],
+      cwd: repoRoot,
+    };
+  }
+  return {
+    ok: false,
+    message: `Found the Nimbus monorepo at ${repoRoot} but no compiled gateway at dist/${binName} (and no dist/nimbus-gateway.js), and Bun is not on PATH (required to run gateway from source). ${FAILURE_HINT}`,
+  };
+}
+
 export function resolveGatewayLaunch(
   execPath: string,
   importMetaUrl: string,
@@ -109,15 +167,9 @@ export function resolveGatewayLaunch(
 ): GatewayLaunchPlan {
   const { exists, whichBun } = { ...defaultDeps(), ...partialDeps };
 
-  const override = envGet("NIMBUS_GATEWAY_EXECUTABLE")?.trim();
-  if (override !== undefined && override.length > 0) {
-    if (!exists(override)) {
-      return {
-        ok: false,
-        message: `NIMBUS_GATEWAY_EXECUTABLE is set but file not found: ${override}`,
-      };
-    }
-    return { ok: true, cmd: [override] };
+  const override = resolveFromOverride(exists);
+  if (override !== undefined) {
+    return override;
   }
 
   const binName = gatewayBinaryName(platform);
@@ -129,37 +181,9 @@ export function resolveGatewayLaunch(
   const startDirs = getNimbusRepoSearchStartDirs(execPath, importMetaUrl);
   const repoRoot = findNimbusRepoRootFromDirs(startDirs, exists);
   if (repoRoot !== undefined) {
-    const distJs = join(repoRoot, "dist", "nimbus-gateway.js");
-    const distExe = join(repoRoot, "dist", binName);
-    const jsThere = exists(distJs);
-    const exeThere = exists(distExe);
-    const bunPath = resolveBunPath(execPath, whichBun);
-
-    // `scripts/build-debug` emits `dist/nimbus-gateway.js` only. A leftover `dist/nimbus-gateway(.exe)`
-    // from `compile-gateway` must not shadow a newer debug bundle — otherwise `nimbus start` runs stale code.
-    if (jsThere && bunPath !== undefined) {
-      if (!exeThere || statSync(distJs).mtimeMs >= statSync(distExe).mtimeMs) {
-        return { ok: true, cmd: [bunPath, distJs], cwd: repoRoot };
-      }
-    }
-
-    if (exeThere) {
-      return { ok: true, cmd: [distExe] };
-    }
-
-    const sourceEntry = join(repoRoot, GATEWAY_SOURCE_ENTRY);
-    if (exists(sourceEntry)) {
-      if (bunPath !== undefined) {
-        return {
-          ok: true,
-          cmd: [bunPath, "run", GATEWAY_SOURCE_ENTRY],
-          cwd: repoRoot,
-        };
-      }
-      return {
-        ok: false,
-        message: `Found the Nimbus monorepo at ${repoRoot} but no compiled gateway at dist/${binName} (and no dist/nimbus-gateway.js), and Bun is not on PATH (required to run gateway from source). ${FAILURE_HINT}`,
-      };
+    const fromRepo = resolveFromRepoRoot(repoRoot, binName, execPath, exists, whichBun);
+    if (fromRepo !== undefined) {
+      return fromRepo;
     }
   }
 

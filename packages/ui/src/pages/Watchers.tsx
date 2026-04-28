@@ -78,7 +78,7 @@ function GraphConditionBuilder({
   return (
     <div className="flex flex-col gap-3">
       <label className="flex flex-col gap-1 text-sm">
-        Relation
+        <span>Relation</span>
         <select
           aria-label="Graph relation"
           className="border rounded px-2 py-1"
@@ -99,7 +99,7 @@ function GraphConditionBuilder({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Target entity type
+        <span>Target entity type</span>
         <input
           aria-label="Target entity type"
           placeholder="e.g. person, repo"
@@ -110,7 +110,7 @@ function GraphConditionBuilder({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Target entity ID
+        <span>Target entity ID</span>
         <input
           aria-label="Target entity ID"
           placeholder="external ID of the target"
@@ -222,11 +222,10 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
     (graphFields.targetType.trim() === "" || graphFields.targetId.trim() === "");
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      open
       aria-label="Create watcher"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 m-0 max-w-none max-h-none w-full h-full p-0 border-0 flex items-center justify-center bg-black/50"
     >
       <form
         onSubmit={handleSubmit}
@@ -235,7 +234,7 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
         <h2 className="text-lg font-semibold">Create Watcher</h2>
 
         <label className="flex flex-col gap-1 text-sm">
-          Name
+          <span>Name</span>
           <input
             aria-label="Watcher name"
             className="border rounded px-2 py-1"
@@ -246,7 +245,7 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Condition type
+          <span>Condition type</span>
           <select
             aria-label="Condition type"
             className="border rounded px-2 py-1"
@@ -270,7 +269,7 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
           />
         ) : (
           <label className="flex flex-col gap-1 text-sm">
-            Condition JSON
+            <span>Condition JSON</span>
             <textarea
               aria-label="Condition JSON"
               className="border rounded px-2 py-1 font-mono text-xs"
@@ -282,7 +281,7 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
         )}
 
         <label className="flex flex-col gap-1 text-sm">
-          Action type
+          <span>Action type</span>
           <select
             aria-label="Action type"
             className="border rounded px-2 py-1"
@@ -298,7 +297,7 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Action JSON
+          <span>Action JSON</span>
           <textarea
             aria-label="Action JSON"
             className="border rounded px-2 py-1 font-mono text-xs"
@@ -323,7 +322,7 @@ function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
           </button>
         </div>
       </form>
-    </div>
+    </dialog>
   );
 }
 

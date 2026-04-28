@@ -102,7 +102,7 @@ function StepListEditor({ steps, onChange }: StepListEditorProps) {
           </div>
 
           <label className="flex flex-col gap-1 text-sm">
-            Tool
+            <span>Tool</span>
             <input
               aria-label={`Step ${index + 1} tool`}
               placeholder="e.g. github.searchPRs"
@@ -113,7 +113,7 @@ function StepListEditor({ steps, onChange }: StepListEditorProps) {
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
-            Params (JSON)
+            <span>Params (JSON)</span>
             <textarea
               aria-label={`Step ${index + 1} params`}
               className="border rounded px-2 py-1 font-mono text-xs"
@@ -169,11 +169,10 @@ function SaveWorkflowDialog({ initial, onClose, onSaved }: SaveDialogProps) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      open
       aria-label="Save workflow"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 m-0 max-w-none max-h-none w-full h-full p-0 border-0 flex items-center justify-center bg-black/50"
     >
       <form
         onSubmit={handleSubmit}
@@ -182,7 +181,7 @@ function SaveWorkflowDialog({ initial, onClose, onSaved }: SaveDialogProps) {
         <h2 className="text-lg font-semibold">{initial ? "Edit Workflow" : "New Workflow"}</h2>
 
         <label className="flex flex-col gap-1 text-sm">
-          Name
+          <span>Name</span>
           <input
             aria-label="Workflow name"
             className="border rounded px-2 py-1"
@@ -194,7 +193,7 @@ function SaveWorkflowDialog({ initial, onClose, onSaved }: SaveDialogProps) {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Description (optional)
+          <span>Description (optional)</span>
           <input
             aria-label="Workflow description"
             className="border rounded px-2 py-1"
@@ -223,7 +222,7 @@ function SaveWorkflowDialog({ initial, onClose, onSaved }: SaveDialogProps) {
           </button>
         </div>
       </form>
-    </div>
+    </dialog>
   );
 }
 
@@ -359,7 +358,7 @@ export function Workflows() {
               checked={dryRun}
               onChange={(e) => setDryRun(e.target.checked)}
             />
-            Dry run
+            <span>Dry run</span>
           </label>
           <button
             type="button"

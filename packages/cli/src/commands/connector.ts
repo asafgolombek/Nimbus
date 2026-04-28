@@ -138,247 +138,119 @@ function takeFlagValue(q: string[], flagLabel: string): string {
   return v;
 }
 
-function parseFlags(args: string[]): ConnectorFlags {
-  const rest: string[] = [];
-  let port: number | undefined;
-  let scopes: string[] | undefined;
-  let token: string | undefined;
-  let username: string | undefined;
-  let apiBase: string | undefined;
-  let kubeconfig: string | undefined;
-  let kubeContext: string | undefined;
-  let full: boolean | undefined;
-  let enable: boolean | undefined;
-  let help: boolean | undefined;
-  let awsAccessKey: string | undefined;
-  let awsSecretKey: string | undefined;
-  let awsRegion: string | undefined;
-  let awsProfile: string | undefined;
-  let azureTenantId: string | undefined;
-  let azureClientId: string | undefined;
-  let azureClientSecret: string | undefined;
-  let gcpCredentialsJson: string | undefined;
-  let gcpProjectId: string | undefined;
-  let sentryOrg: string | undefined;
-  let sentryUrl: string | undefined;
-  let newrelicAccountId: string | undefined;
-  let datadogApiKey: string | undefined;
-  let datadogAppKey: string | undefined;
-  let datadogSite: string | undefined;
-  const q = [...args];
+type FlagAction = (queue: string[], target: ConnectorFlags) => void;
 
+function takeTrimmed(q: string[], label: string): string {
+  return takeFlagValue(q, label).trim();
+}
+function takeNonEmptyTrimmed(q: string[], label: string): string {
+  const v = takeTrimmed(q, label);
+  if (v === "") {
+    throw new Error(`Invalid ${label} (empty)`);
+  }
+  return v;
+}
+function takePort(q: string[]): number {
+  const v = takeFlagValue(q, "--port");
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 65_535) {
+    throw new Error("Invalid --port");
+  }
+  return n;
+}
+function takeScopes(q: string[]): string[] {
+  return takeFlagValue(q, "--scopes")
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+}
+
+function makeTrimmedAssign(label: string, key: keyof ConnectorFlags): FlagAction {
+  return (q, target) => {
+    (target as Record<string, unknown>)[key] = takeTrimmed(q, label);
+  };
+}
+
+const FLAG_ACTIONS: Readonly<Record<string, FlagAction>> = {
+  "--help": (_q, t) => {
+    t.help = true;
+  },
+  "-h": (_q, t) => {
+    t.help = true;
+  },
+  "--port": (q, t) => {
+    t.port = takePort(q);
+  },
+  "-p": (q, t) => {
+    t.port = takePort(q);
+  },
+  "--scopes": (q, t) => {
+    t.scopes = takeScopes(q);
+  },
+  "-s": (q, t) => {
+    t.scopes = takeScopes(q);
+  },
+  "--token": (q, t) => {
+    t.token = takeNonEmptyTrimmed(q, "--token");
+  },
+  "-t": (q, t) => {
+    t.token = takeNonEmptyTrimmed(q, "--token");
+  },
+  "--username": (q, t) => {
+    t.username = takeNonEmptyTrimmed(q, "--username");
+  },
+  "-u": (q, t) => {
+    t.username = takeNonEmptyTrimmed(q, "--username");
+  },
+  "--full": (_q, t) => {
+    t.full = true;
+  },
+  "--force": (_q, t) => {
+    t.full = true;
+  },
+  "--enable": (_q, t) => {
+    t.enable = true;
+  },
+  "--api-base": (q, t) => {
+    t.apiBase = stripTrailingSlashes(takeNonEmptyTrimmed(q, "--api-base"));
+  },
+  "--kubeconfig": (q, t) => {
+    t.kubeconfig = takeNonEmptyTrimmed(q, "--kubeconfig");
+  },
+  "--context": (q, t) => {
+    t.kubeContext = takeNonEmptyTrimmed(q, "--context");
+  },
+  "--aws-access-key": makeTrimmedAssign("--aws-access-key", "awsAccessKey"),
+  "--aws-secret-key": makeTrimmedAssign("--aws-secret-key", "awsSecretKey"),
+  "--aws-region": makeTrimmedAssign("--aws-region", "awsRegion"),
+  "--aws-profile": makeTrimmedAssign("--aws-profile", "awsProfile"),
+  "--azure-tenant-id": makeTrimmedAssign("--azure-tenant-id", "azureTenantId"),
+  "--azure-client-id": makeTrimmedAssign("--azure-client-id", "azureClientId"),
+  "--azure-client-secret": makeTrimmedAssign("--azure-client-secret", "azureClientSecret"),
+  "--gcp-credentials-json": makeTrimmedAssign("--gcp-credentials-json", "gcpCredentialsJson"),
+  "--gcp-project-id": makeTrimmedAssign("--gcp-project-id", "gcpProjectId"),
+  "--sentry-org": makeTrimmedAssign("--sentry-org", "sentryOrg"),
+  "--sentry-url": makeTrimmedAssign("--sentry-url", "sentryUrl"),
+  "--newrelic-account-id": makeTrimmedAssign("--newrelic-account-id", "newrelicAccountId"),
+  "--datadog-api-key": makeTrimmedAssign("--datadog-api-key", "datadogApiKey"),
+  "--datadog-app-key": makeTrimmedAssign("--datadog-app-key", "datadogAppKey"),
+  "--datadog-site": makeTrimmedAssign("--datadog-site", "datadogSite"),
+};
+
+function parseFlags(args: string[]): ConnectorFlags {
+  const out: ConnectorFlags = { rest: [] };
+  const q = [...args];
   while (q.length > 0) {
     const a = q.shift();
     if (a === undefined) {
       break;
     }
-    if (a === "--help" || a === "-h") {
-      help = true;
-      continue;
+    const action = FLAG_ACTIONS[a];
+    if (action === undefined) {
+      out.rest.push(a);
+    } else {
+      action(q, out);
     }
-    if (a === "--port" || a === "-p") {
-      const v = takeFlagValue(q, "--port");
-      const n = Number(v);
-      if (!Number.isInteger(n) || n < 1 || n > 65_535) {
-        throw new Error("Invalid --port");
-      }
-      port = n;
-      continue;
-    }
-    if (a === "--scopes" || a === "-s") {
-      const v = takeFlagValue(q, "--scopes");
-      scopes = v
-        .split(",")
-        .map((x) => x.trim())
-        .filter((x) => x.length > 0);
-      continue;
-    }
-    if (a === "--token" || a === "-t") {
-      const v = takeFlagValue(q, "--token").trim();
-      if (v === "") {
-        throw new Error("Invalid --token (empty)");
-      }
-      token = v;
-      continue;
-    }
-    if (a === "--username" || a === "-u") {
-      const v = takeFlagValue(q, "--username").trim();
-      if (v === "") {
-        throw new Error("Invalid --username (empty)");
-      }
-      username = v;
-      continue;
-    }
-    if (a === "--full" || a === "--force") {
-      full = true;
-      continue;
-    }
-    if (a === "--enable") {
-      enable = true;
-      continue;
-    }
-    if (a === "--api-base") {
-      const v = takeFlagValue(q, "--api-base").trim();
-      if (v === "") {
-        throw new Error("Invalid --api-base (empty)");
-      }
-      apiBase = stripTrailingSlashes(v);
-      continue;
-    }
-    if (a === "--kubeconfig") {
-      const v = takeFlagValue(q, "--kubeconfig").trim();
-      if (v === "") {
-        throw new Error("Invalid --kubeconfig (empty)");
-      }
-      kubeconfig = v;
-      continue;
-    }
-    if (a === "--context") {
-      const v = takeFlagValue(q, "--context").trim();
-      if (v === "") {
-        throw new Error("Invalid --context (empty)");
-      }
-      kubeContext = v;
-      continue;
-    }
-    if (a === "--aws-access-key") {
-      awsAccessKey = takeFlagValue(q, "--aws-access-key").trim();
-      continue;
-    }
-    if (a === "--aws-secret-key") {
-      awsSecretKey = takeFlagValue(q, "--aws-secret-key").trim();
-      continue;
-    }
-    if (a === "--aws-region") {
-      awsRegion = takeFlagValue(q, "--aws-region").trim();
-      continue;
-    }
-    if (a === "--aws-profile") {
-      awsProfile = takeFlagValue(q, "--aws-profile").trim();
-      continue;
-    }
-    if (a === "--azure-tenant-id") {
-      azureTenantId = takeFlagValue(q, "--azure-tenant-id").trim();
-      continue;
-    }
-    if (a === "--azure-client-id") {
-      azureClientId = takeFlagValue(q, "--azure-client-id").trim();
-      continue;
-    }
-    if (a === "--azure-client-secret") {
-      azureClientSecret = takeFlagValue(q, "--azure-client-secret").trim();
-      continue;
-    }
-    if (a === "--gcp-credentials-json") {
-      gcpCredentialsJson = takeFlagValue(q, "--gcp-credentials-json").trim();
-      continue;
-    }
-    if (a === "--gcp-project-id") {
-      gcpProjectId = takeFlagValue(q, "--gcp-project-id").trim();
-      continue;
-    }
-    if (a === "--sentry-org") {
-      sentryOrg = takeFlagValue(q, "--sentry-org").trim();
-      continue;
-    }
-    if (a === "--sentry-url") {
-      sentryUrl = takeFlagValue(q, "--sentry-url").trim();
-      continue;
-    }
-    if (a === "--newrelic-account-id") {
-      newrelicAccountId = takeFlagValue(q, "--newrelic-account-id").trim();
-      continue;
-    }
-    if (a === "--datadog-api-key") {
-      datadogApiKey = takeFlagValue(q, "--datadog-api-key").trim();
-      continue;
-    }
-    if (a === "--datadog-app-key") {
-      datadogAppKey = takeFlagValue(q, "--datadog-app-key").trim();
-      continue;
-    }
-    if (a === "--datadog-site") {
-      datadogSite = takeFlagValue(q, "--datadog-site").trim();
-      continue;
-    }
-    rest.push(a);
-  }
-
-  const out: ConnectorFlags = { rest };
-  if (port !== undefined) {
-    out.port = port;
-  }
-  if (scopes !== undefined) {
-    out.scopes = scopes;
-  }
-  if (token !== undefined) {
-    out.token = token;
-  }
-  if (username !== undefined) {
-    out.username = username;
-  }
-  if (apiBase !== undefined) {
-    out.apiBase = apiBase;
-  }
-  if (kubeconfig !== undefined) {
-    out.kubeconfig = kubeconfig;
-  }
-  if (kubeContext !== undefined) {
-    out.kubeContext = kubeContext;
-  }
-  if (full !== undefined) {
-    out.full = full;
-  }
-  if (enable !== undefined) {
-    out.enable = enable;
-  }
-  if (help !== undefined) {
-    out.help = help;
-  }
-  if (awsAccessKey !== undefined) {
-    out.awsAccessKey = awsAccessKey;
-  }
-  if (awsSecretKey !== undefined) {
-    out.awsSecretKey = awsSecretKey;
-  }
-  if (awsRegion !== undefined) {
-    out.awsRegion = awsRegion;
-  }
-  if (awsProfile !== undefined) {
-    out.awsProfile = awsProfile;
-  }
-  if (azureTenantId !== undefined) {
-    out.azureTenantId = azureTenantId;
-  }
-  if (azureClientId !== undefined) {
-    out.azureClientId = azureClientId;
-  }
-  if (azureClientSecret !== undefined) {
-    out.azureClientSecret = azureClientSecret;
-  }
-  if (gcpCredentialsJson !== undefined) {
-    out.gcpCredentialsJson = gcpCredentialsJson;
-  }
-  if (gcpProjectId !== undefined) {
-    out.gcpProjectId = gcpProjectId;
-  }
-  if (sentryOrg !== undefined) {
-    out.sentryOrg = sentryOrg;
-  }
-  if (sentryUrl !== undefined) {
-    out.sentryUrl = sentryUrl;
-  }
-  if (newrelicAccountId !== undefined) {
-    out.newrelicAccountId = newrelicAccountId;
-  }
-  if (datadogApiKey !== undefined) {
-    out.datadogApiKey = datadogApiKey;
-  }
-  if (datadogAppKey !== undefined) {
-    out.datadogAppKey = datadogAppKey;
-  }
-  if (datadogSite !== undefined) {
-    out.datadogSite = datadogSite;
   }
   return out;
 }

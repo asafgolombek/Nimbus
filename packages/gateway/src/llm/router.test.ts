@@ -126,30 +126,30 @@ describe("LlmRouter capability floor", () => {
   });
 });
 
-describe("LlmRouter context window overflow", () => {
-  function makeCaptureProvider(
-    id: "ollama" | "llamacpp" | "remote",
-    available: boolean,
-    captured: { prompt: string },
-  ): LlmProvider {
-    return {
-      providerId: id,
-      isAvailable: async () => available,
-      listModels: async () => [],
-      generate: async (opts) => {
-        captured.prompt = opts.prompt;
-        return {
-          text: `response from ${id}`,
-          tokensIn: 1,
-          tokensOut: 1,
-          modelUsed: id,
-          isLocal: id !== "remote",
-          provider: id,
-        };
-      },
-    };
-  }
+function makeCaptureProvider(
+  id: "ollama" | "llamacpp" | "remote",
+  available: boolean,
+  captured: { prompt: string },
+): LlmProvider {
+  return {
+    providerId: id,
+    isAvailable: async () => available,
+    listModels: async () => [],
+    generate: async (opts) => {
+      captured.prompt = opts.prompt;
+      return {
+        text: `response from ${id}`,
+        tokensIn: 1,
+        tokensOut: 1,
+        modelUsed: id,
+        isLocal: id !== "remote",
+        provider: id,
+      };
+    },
+  };
+}
 
+describe("LlmRouter context window overflow", () => {
   test("mid-truncates prompt for summarisation when it exceeds context window", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
     const captured = { prompt: "" };

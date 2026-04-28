@@ -127,15 +127,15 @@ describe("Workflows page — list", () => {
 // ---------------------------------------------------------------------------
 // Step-list editor
 // ---------------------------------------------------------------------------
-describe("Workflows page — step-list editor", () => {
-  async function openNewDialog() {
-    stubWorkflowList([]);
-    renderPage();
-    await waitFor(() => expect(callMock).toHaveBeenCalled());
-    await userEvent.click(screen.getByRole("button", { name: /new workflow/i }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-  }
+async function openNewDialog() {
+  stubWorkflowList([]);
+  renderPage();
+  await waitFor(() => expect(callMock).toHaveBeenCalled());
+  await userEvent.click(screen.getByRole("button", { name: /new workflow/i }));
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+}
 
+describe("Workflows page — step-list editor", () => {
   it("new dialog starts with one empty step", async () => {
     await openNewDialog();
     expect(screen.getByLabelText("Step 1 tool")).toBeInTheDocument();

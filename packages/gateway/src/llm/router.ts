@@ -68,39 +68,64 @@ export class LlmRouter {
     if (provider === undefined) {
       throw new Error(`No LLM provider available for task: ${opts.task}`);
     }
-
-    const meta = this.providerMeta.get(provider.providerId);
-    if (meta?.contextWindow !== undefined) {
-      const estimatedTokens = Math.ceil(opts.prompt.length / TOKENS_PER_CHAR);
-      const tokenLimit = Math.floor(meta.contextWindow * CONTEXT_OVERFLOW_THRESHOLD);
-
-      if (estimatedTokens > tokenLimit) {
-        if (opts.task === "summarisation" || opts.task === "classification") {
-          opts = { ...opts, prompt: midTruncate(opts.prompt, tokenLimit * TOKENS_PER_CHAR) };
-        } else {
-          // reasoning / agent_step: try remote fallback
-          if (this.config.enforceAirGap) {
-            throw new Error(
-              `Prompt exceeds provider context window and air-gap mode prevents remote fallback`,
-            );
-          }
-          const remote = this.providers.get("remote");
-          if (remote !== undefined) {
-            try {
-              if (await remote.isAvailable()) {
-                return remote.generate(opts);
-              }
-            } catch {
-              /* treat as unavailable */
-            }
-          }
-          // No remote available: truncate as last resort
-          opts = { ...opts, prompt: midTruncate(opts.prompt, tokenLimit * TOKENS_PER_CHAR) };
-        }
-      }
+    const adjusted = await this.fitPromptOrFallback(opts, provider.providerId);
+    if (adjusted.kind === "remote-result") {
+      return adjusted.result;
     }
+    return provider.generate(adjusted.opts);
+  }
 
-    return provider.generate(opts);
+  private async fitPromptOrFallback(
+    opts: LlmGenerateOptions,
+    providerId: LlmProviderKind,
+  ): Promise<
+    | { kind: "opts"; opts: LlmGenerateOptions }
+    | { kind: "remote-result"; result: LlmGenerateResult }
+  > {
+    const meta = this.providerMeta.get(providerId);
+    if (meta?.contextWindow === undefined) {
+      return { kind: "opts", opts };
+    }
+    const estimatedTokens = Math.ceil(opts.prompt.length / TOKENS_PER_CHAR);
+    const tokenLimit = Math.floor(meta.contextWindow * CONTEXT_OVERFLOW_THRESHOLD);
+    if (estimatedTokens <= tokenLimit) {
+      return { kind: "opts", opts };
+    }
+    const truncated = {
+      ...opts,
+      prompt: midTruncate(opts.prompt, tokenLimit * TOKENS_PER_CHAR),
+    };
+    if (opts.task === "summarisation" || opts.task === "classification") {
+      return { kind: "opts", opts: truncated };
+    }
+    // reasoning / agent_step: try remote fallback before falling back to truncation.
+    if (this.config.enforceAirGap) {
+      throw new Error(
+        `Prompt exceeds provider context window and air-gap mode prevents remote fallback`,
+      );
+    }
+    const remoteResult = await this.tryRemoteFallback(opts);
+    if (remoteResult !== undefined) {
+      return { kind: "remote-result", result: remoteResult };
+    }
+    return { kind: "opts", opts: truncated };
+  }
+
+  private async tryRemoteFallback(
+    opts: LlmGenerateOptions,
+  ): Promise<LlmGenerateResult | undefined> {
+    const remote = this.providers.get("remote");
+    if (remote === undefined) {
+      return undefined;
+    }
+    try {
+      if (await remote.isAvailable()) {
+        return await remote.generate(opts);
+      }
+    } catch {
+      /* treat as unavailable */
+    }
+    return undefined;
   }
 
   private meetsCapabilityFloor(id: LlmProviderKind, task: LlmTaskType): boolean {

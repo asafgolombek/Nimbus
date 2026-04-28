@@ -78,6 +78,166 @@ export interface AutomationRpcExtensionMeshHandle {
   stopExtensionClient(extensionId: string): Promise<void>;
 }
 
+interface AutomationCtx {
+  db: Database;
+  extensionsDir?: string;
+  mesh?: AutomationRpcExtensionMeshHandle;
+}
+
+type AutomationHandler = (rec: Record<string, unknown> | undefined, ctx: AutomationCtx) => Hit;
+
+const AUTOMATION_HANDLERS: Readonly<Record<string, AutomationHandler>> = {
+  "watcher.list": (_rec, ctx) => ({
+    kind: "hit",
+    value: { watchers: listWatchers(ctx.db) },
+  }),
+
+  "watcher.create": (rec, ctx) => {
+    const graphPredicateJson =
+      rec !== undefined && typeof rec["graphPredicateJson"] === "string"
+        ? rec["graphPredicateJson"]
+        : null;
+    const id = insertWatcher(ctx.db, {
+      name: requireString(rec, "name"),
+      enabled: 1,
+      condition_type: requireString(rec, "conditionType"),
+      condition_json: requireString(rec, "conditionJson"),
+      action_type: requireString(rec, "actionType"),
+      action_json: requireString(rec, "actionJson"),
+      created_at: Date.now(),
+      graph_predicate_json: graphPredicateJson,
+    });
+    return { kind: "hit", value: { id } };
+  },
+
+  "watcher.delete": (rec, ctx) => {
+    deleteWatcher(ctx.db, requireString(rec, "id"));
+    return { kind: "hit", value: { ok: true } };
+  },
+
+  "watcher.pause": (rec, ctx) => ({
+    kind: "hit",
+    value: { ok: setWatcherEnabled(ctx.db, requireString(rec, "id"), false) },
+  }),
+
+  "watcher.resume": (rec, ctx) => ({
+    kind: "hit",
+    value: { ok: setWatcherEnabled(ctx.db, requireString(rec, "id"), true) },
+  }),
+
+  "watcher.listCandidateRelations": () => ({
+    kind: "hit",
+    value: { relations: listCandidateGraphRelations() },
+  }),
+
+  "watcher.validateCondition": (rec, ctx) => handleValidateCondition(rec, ctx.db),
+
+  "watcher.listHistory": (rec, ctx) => ({
+    kind: "hit",
+    value: listWatcherHistory(ctx.db, {
+      watcherId: requireString(rec, "watcherId"),
+      limit: requireNumber(rec, "limit"),
+    }),
+  }),
+
+  "extension.list": (_rec, ctx) => ({
+    kind: "hit",
+    value: { extensions: listExtensions(ctx.db) },
+  }),
+
+  "extension.install": (rec, ctx) => handleExtensionInstall(rec, ctx),
+
+  "extension.enable": (rec, ctx) => ({
+    kind: "hit",
+    value: { ok: setExtensionEnabled(ctx.db, requireString(rec, "id"), true) },
+  }),
+
+  "extension.disable": (rec, ctx) => {
+    const id = requireString(rec, "id");
+    const ok = setExtensionEnabled(ctx.db, id, false);
+    // S7-F10 — fire-and-forget: the IPC response shape is just { ok };
+    // callers don't wait for the child teardown. The disabled-flag is
+    // already flipped, so even if the stop is in flight, no new tool
+    // calls will reach the child.
+    if (ok && ctx.mesh !== undefined) {
+      void ctx.mesh.stopExtensionClient(id);
+    }
+    return { kind: "hit", value: { ok } };
+  },
+
+  "extension.remove": (rec, ctx) => {
+    const installPath = deleteExtensionById(ctx.db, requireString(rec, "id"));
+    if (installPath === null) {
+      throw new AutomationRpcError(-32602, "Extension not found");
+    }
+    try {
+      rmSync(installPath, { recursive: true, force: true });
+    } catch {
+      /* row already removed; best-effort filesystem cleanup */
+    }
+    return { kind: "hit", value: { ok: true } };
+  },
+
+  "workflow.list": (_rec, ctx) => ({
+    kind: "hit",
+    value: { workflows: listWorkflows(ctx.db) },
+  }),
+
+  "workflow.save": (rec, ctx) => {
+    const description =
+      rec !== undefined && typeof rec["description"] === "string" ? rec["description"] : null;
+    const id = upsertWorkflowByName(
+      ctx.db,
+      requireString(rec, "name"),
+      description,
+      requireString(rec, "stepsJson"),
+      Date.now(),
+    );
+    return { kind: "hit", value: { id } };
+  },
+
+  "workflow.delete": (rec, ctx) => ({
+    kind: "hit",
+    value: { ok: deleteWorkflowByName(ctx.db, requireString(rec, "name")) },
+  }),
+
+  "workflow.listRuns": (rec, ctx) => ({
+    kind: "hit",
+    value: listWorkflowRuns(ctx.db, {
+      workflowName: requireString(rec, "workflowName"),
+      limit: requireNumber(rec, "limit"),
+    }),
+  }),
+};
+
+function handleExtensionInstall(rec: Record<string, unknown> | undefined, ctx: AutomationCtx): Hit {
+  const sourcePath = requireString(rec, "sourcePath");
+  const dir = ctx.extensionsDir;
+  if (dir === undefined || dir.trim() === "") {
+    throw new AutomationRpcError(-32603, "Gateway is not configured with an extensions directory");
+  }
+  try {
+    const installed = installExtensionFromLocalDirectory({
+      db: ctx.db,
+      extensionsDir: dir,
+      sourcePath,
+    });
+    return {
+      kind: "hit",
+      value: {
+        id: installed.id,
+        version: installed.version,
+        installPath: installed.installPath,
+        manifestHash: installed.manifestHash,
+        entryHash: installed.entryHash,
+      },
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new AutomationRpcError(-32602, msg);
+  }
+}
+
 export function dispatchAutomationRpc(options: {
   method: string;
   params: unknown;
@@ -87,161 +247,14 @@ export function dispatchAutomationRpc(options: {
   /** S7-F10 — `extension.disable` calls `stopExtensionClient` to terminate the running child. */
   mesh?: AutomationRpcExtensionMeshHandle;
 }): Hit | { kind: "miss" } {
-  const { method, db } = options;
-  const rec = asRecord(options.params);
-
-  switch (method) {
-    case "watcher.list":
-      return { kind: "hit", value: { watchers: listWatchers(db) } };
-
-    case "watcher.create": {
-      const name = requireString(rec, "name");
-      const conditionType = requireString(rec, "conditionType");
-      const conditionJson = requireString(rec, "conditionJson");
-      const actionType = requireString(rec, "actionType");
-      const actionJson = requireString(rec, "actionJson");
-      const graphPredicateJson =
-        rec !== undefined && typeof rec["graphPredicateJson"] === "string"
-          ? rec["graphPredicateJson"]
-          : null;
-      const id = insertWatcher(db, {
-        name,
-        enabled: 1,
-        condition_type: conditionType,
-        condition_json: conditionJson,
-        action_type: actionType,
-        action_json: actionJson,
-        created_at: Date.now(),
-        graph_predicate_json: graphPredicateJson,
-      });
-      return { kind: "hit", value: { id } };
-    }
-
-    case "watcher.delete": {
-      const id = requireString(rec, "id");
-      deleteWatcher(db, id);
-      return { kind: "hit", value: { ok: true } };
-    }
-
-    case "watcher.pause": {
-      const id = requireString(rec, "id");
-      const ok = setWatcherEnabled(db, id, false);
-      return { kind: "hit", value: { ok } };
-    }
-
-    case "watcher.resume": {
-      const id = requireString(rec, "id");
-      const ok = setWatcherEnabled(db, id, true);
-      return { kind: "hit", value: { ok } };
-    }
-
-    case "watcher.listCandidateRelations":
-      return {
-        kind: "hit",
-        value: { relations: listCandidateGraphRelations() },
-      };
-
-    case "watcher.validateCondition":
-      return handleValidateCondition(rec, db);
-
-    case "watcher.listHistory": {
-      const watcherId = requireString(rec, "watcherId");
-      const limit = requireNumber(rec, "limit");
-      return { kind: "hit", value: listWatcherHistory(db, { watcherId, limit }) };
-    }
-
-    case "extension.list":
-      return { kind: "hit", value: { extensions: listExtensions(db) } };
-
-    case "extension.install": {
-      const sourcePath = requireString(rec, "sourcePath");
-      const dir = options.extensionsDir;
-      if (dir === undefined || dir.trim() === "") {
-        throw new AutomationRpcError(
-          -32603,
-          "Gateway is not configured with an extensions directory",
-        );
-      }
-      try {
-        const installed = installExtensionFromLocalDirectory({
-          db,
-          extensionsDir: dir,
-          sourcePath,
-        });
-        return {
-          kind: "hit",
-          value: {
-            id: installed.id,
-            version: installed.version,
-            installPath: installed.installPath,
-            manifestHash: installed.manifestHash,
-            entryHash: installed.entryHash,
-          },
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        throw new AutomationRpcError(-32602, msg);
-      }
-    }
-
-    case "extension.enable": {
-      const id = requireString(rec, "id");
-      const ok = setExtensionEnabled(db, id, true);
-      return { kind: "hit", value: { ok } };
-    }
-
-    case "extension.disable": {
-      const id = requireString(rec, "id");
-      const ok = setExtensionEnabled(db, id, false);
-      // S7-F10 — fire-and-forget: the IPC response shape is just { ok };
-      // callers don't wait for the child teardown. The disabled-flag is
-      // already flipped, so even if the stop is in flight, no new tool
-      // calls will reach the child.
-      if (ok && options.mesh !== undefined) {
-        void options.mesh.stopExtensionClient(id);
-      }
-      return { kind: "hit", value: { ok } };
-    }
-
-    case "extension.remove": {
-      const id = requireString(rec, "id");
-      const installPath = deleteExtensionById(db, id);
-      if (installPath === null) {
-        throw new AutomationRpcError(-32602, "Extension not found");
-      }
-      try {
-        rmSync(installPath, { recursive: true, force: true });
-      } catch {
-        /* row already removed; best-effort filesystem cleanup */
-      }
-      return { kind: "hit", value: { ok: true } };
-    }
-
-    case "workflow.list":
-      return { kind: "hit", value: { workflows: listWorkflows(db) } };
-
-    case "workflow.save": {
-      const name = requireString(rec, "name");
-      const stepsJson = requireString(rec, "stepsJson");
-      const description =
-        rec !== undefined && typeof rec["description"] === "string" ? rec["description"] : null;
-      const id = upsertWorkflowByName(db, name, description, stepsJson, Date.now());
-      return { kind: "hit", value: { id } };
-    }
-
-    case "workflow.delete": {
-      const name = requireString(rec, "name");
-      const ok = deleteWorkflowByName(db, name);
-      return { kind: "hit", value: { ok } };
-    }
-
-    case "workflow.listRuns": {
-      const workflowName = requireString(rec, "workflowName");
-      const limit = requireNumber(rec, "limit");
-      return { kind: "hit", value: listWorkflowRuns(db, { workflowName, limit }) };
-    }
-
-    default:
-      return { kind: "miss" };
+  const handler = AUTOMATION_HANDLERS[options.method];
+  if (handler === undefined) {
+    return { kind: "miss" };
   }
+  const ctx: AutomationCtx = {
+    db: options.db,
+    ...(options.extensionsDir !== undefined && { extensionsDir: options.extensionsDir }),
+    ...(options.mesh !== undefined && { mesh: options.mesh }),
+  };
+  return handler(asRecord(options.params), ctx);
 }
