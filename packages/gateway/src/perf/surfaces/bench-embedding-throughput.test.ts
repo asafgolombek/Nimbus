@@ -37,7 +37,7 @@ describe("runEmbeddingThroughputOnce", () => {
     const { embedder, calls } = makeFakeEmbedder(1);
     const samples = await runEmbeddingThroughputOnce({
       length: 50,
-      batch: 4,
+      batch: 8,
       embedder,
       totalItems: 16,
     });
@@ -51,7 +51,7 @@ describe("runEmbeddingThroughputOnce", () => {
     const { embedder } = makeFakeEmbedder(2);
     const samples = await runEmbeddingThroughputOnce({
       length: 50,
-      batch: 4,
+      batch: 8,
       embedder,
       totalItems: 16,
     });
