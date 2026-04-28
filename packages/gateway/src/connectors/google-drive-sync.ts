@@ -301,44 +301,60 @@ function countInitListFiles(files: DriveFile[]): number {
   return n;
 }
 
-async function runDrivePhaseDrain(
+const DELTA_PAGE_LIMIT = 10_000;
+
+async function runDriveChangePage(args: {
+  ctx: SyncContext;
+  accessToken: string;
+  pageToken: string;
+  startedAt: number;
+  now: number;
+  buildNextCursor: (next: string) => string;
+  missingNewTokenMessage: string;
+}): Promise<SyncResult> {
+  const { ctx, accessToken, pageToken, startedAt, now } = args;
+  const { data, bytes } = await listChangesPage(ctx, accessToken, pageToken);
+  const counts = countAppliedDriveChanges(ctx, data.changes ?? [], now);
+  const base = {
+    itemsUpserted: counts.itemsUpserted,
+    itemsDeleted: counts.itemsDeleted,
+    durationMs: Date.now() - startedAt,
+    bytesTransferred: bytes,
+  };
+  const next = data.nextPageToken;
+  if (next !== undefined && next !== "") {
+    return { ...base, cursor: args.buildNextCursor(next), hasMore: true };
+  }
+  const newTok = data.newStartPageToken;
+  if (typeof newTok !== "string" || newTok === "") {
+    throw new Error(args.missingNewTokenMessage);
+  }
+  return {
+    ...base,
+    cursor: encodeDriveSyncCursor({ v: 1, phase: "delta", pageToken: newTok }),
+    hasMore: false,
+  };
+}
+
+function runDrivePhaseDrain(
   ctx: SyncContext,
   accessToken: string,
   changePage: string,
   startedAt: number,
   now: number,
 ): Promise<SyncResult> {
-  const { data, bytes } = await listChangesPage(ctx, accessToken, changePage);
-  const changes = data.changes ?? [];
-  const counts = countAppliedDriveChanges(ctx, changes, now);
-  const next = data.nextPageToken;
-  if (next !== undefined && next !== "") {
-    return {
-      cursor: encodeDriveSyncCursor({ v: 1, phase: "drain", changePage: next }),
-      itemsUpserted: counts.itemsUpserted,
-      itemsDeleted: counts.itemsDeleted,
-      hasMore: true,
-      durationMs: Date.now() - startedAt,
-      bytesTransferred: bytes,
-    };
-  }
-  const newTok = data.newStartPageToken;
-  if (typeof newTok !== "string" || newTok === "") {
-    throw new Error("Google Drive sync failed: missing newStartPageToken after drain");
-  }
-  return {
-    cursor: encodeDriveSyncCursor({ v: 1, phase: "delta", pageToken: newTok }),
-    itemsUpserted: counts.itemsUpserted,
-    itemsDeleted: counts.itemsDeleted,
-    hasMore: false,
-    durationMs: Date.now() - startedAt,
-    bytesTransferred: bytes,
-  };
+  return runDriveChangePage({
+    ctx,
+    accessToken,
+    pageToken: changePage,
+    startedAt,
+    now,
+    buildNextCursor: (next) => encodeDriveSyncCursor({ v: 1, phase: "drain", changePage: next }),
+    missingNewTokenMessage: "Google Drive sync failed: missing newStartPageToken after drain",
+  });
 }
 
-const DELTA_PAGE_LIMIT = 10_000;
-
-async function runDrivePhaseDelta(
+function runDrivePhaseDelta(
   ctx: SyncContext,
   accessToken: string,
   v1: { pageToken: string; deltaPage?: number },
@@ -351,37 +367,21 @@ async function runDrivePhaseDelta(
       "Google Drive delta sync exceeded page limit — aborting to prevent infinite loop",
     );
   }
-  const { data, bytes } = await listChangesPage(ctx, accessToken, v1.pageToken);
-  const changes = data.changes ?? [];
-  const counts = countAppliedDriveChanges(ctx, changes, now);
-  const next = data.nextPageToken;
-  if (next !== undefined && next !== "") {
-    return {
-      cursor: encodeDriveSyncCursor({
+  return runDriveChangePage({
+    ctx,
+    accessToken,
+    pageToken: v1.pageToken,
+    startedAt,
+    now,
+    buildNextCursor: (next) =>
+      encodeDriveSyncCursor({
         v: 1,
         phase: "delta",
         pageToken: next,
         deltaPage: currentDeltaPage,
       }),
-      itemsUpserted: counts.itemsUpserted,
-      itemsDeleted: counts.itemsDeleted,
-      hasMore: true,
-      durationMs: Date.now() - startedAt,
-      bytesTransferred: bytes,
-    };
-  }
-  const newTok = data.newStartPageToken;
-  if (typeof newTok !== "string" || newTok === "") {
-    throw new Error("Google Drive sync failed: missing newStartPageToken");
-  }
-  return {
-    cursor: encodeDriveSyncCursor({ v: 1, phase: "delta", pageToken: newTok }),
-    itemsUpserted: counts.itemsUpserted,
-    itemsDeleted: counts.itemsDeleted,
-    hasMore: false,
-    durationMs: Date.now() - startedAt,
-    bytesTransferred: bytes,
-  };
+    missingNewTokenMessage: "Google Drive sync failed: missing newStartPageToken",
+  });
 }
 
 export type GoogleDriveSyncableOptions = {

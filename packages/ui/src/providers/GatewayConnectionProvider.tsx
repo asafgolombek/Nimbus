@@ -14,36 +14,57 @@ interface RunFirstConnectArgs {
   isCancelled: () => boolean;
 }
 
+function isFreshInstall(snap: DiagSnapshot, meta: string | null): boolean {
+  if (meta != null) {
+    return false;
+  }
+  if (snap.connectorCount !== 0) {
+    return false;
+  }
+  return snap.indexTotalItems === 0;
+}
+
+async function tryFirstConnectOnce(
+  args: RunFirstConnectArgs,
+): Promise<"done" | "cancelled" | "failed"> {
+  if (args.isCancelled()) {
+    return "cancelled";
+  }
+  try {
+    const snap = await args.client.call<DiagSnapshot>("diag.snapshot");
+    if (args.isCancelled()) {
+      return "cancelled";
+    }
+    const meta = await args.client.call<string | null>("db.getMeta", {
+      key: "onboarding_completed",
+    });
+    if (args.isCancelled()) {
+      return "cancelled";
+    }
+    args.navigate(isFreshInstall(snap, meta) ? "/onboarding/welcome" : "/", {
+      replace: true,
+    });
+    return "done";
+  } catch {
+    return "failed";
+  }
+}
+
 async function runFirstConnect(args: RunFirstConnectArgs): Promise<void> {
   if (args.firstConnectHandled.current) {
     return;
   }
   args.firstConnectHandled.current = true; // claim before any await to block concurrent invocations
   for (let attempt = 0; attempt < FIRST_CONNECT_ATTEMPTS; attempt++) {
-    if (args.isCancelled()) {
+    const result = await tryFirstConnectOnce(args);
+    if (result !== "failed") {
       return;
     }
-    try {
-      const snap = await args.client.call<DiagSnapshot>("diag.snapshot");
-      if (args.isCancelled()) {
-        return;
-      }
-      const meta = await args.client.call<string | null>("db.getMeta", {
-        key: "onboarding_completed",
-      });
-      if (args.isCancelled()) {
-        return;
-      }
-      const fresh = meta == null && snap.connectorCount === 0 && snap.indexTotalItems === 0;
-      args.navigate(fresh ? "/onboarding/welcome" : "/", { replace: true });
+    if (attempt === FIRST_CONNECT_ATTEMPTS - 1) {
+      args.firstConnectHandled.current = false; // all attempts exhausted — allow next event to retry
       return;
-    } catch {
-      if (attempt === FIRST_CONNECT_ATTEMPTS - 1) {
-        args.firstConnectHandled.current = false; // all attempts exhausted — allow next event to retry
-        return;
-      }
-      await new Promise((r) => setTimeout(r, FIRST_CONNECT_BACKOFF_MS[attempt]));
     }
+    await new Promise((r) => setTimeout(r, FIRST_CONNECT_BACKOFF_MS[attempt]));
   }
 }
 
