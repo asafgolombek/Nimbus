@@ -31,6 +31,14 @@ export type RunnerKind =
 
 export type CorpusTier = "small" | "medium" | "large";
 
+/**
+ * How the harness should interpret a driver's `samples[]` return:
+ *   - "latency"    — time-percentiles (p50/p95/p99/max in ms). Default.
+ *   - "throughput" — each sample is items/sec; result.throughputPerSec = median.
+ *   - "rss"        — each sample is RSS bytes; result.rssBytesP95 = p95(samples).
+ */
+export type BenchResultKind = "latency" | "throughput" | "rss";
+
 export interface BenchRunOptions {
   runs: number;
   runner: RunnerKind;
