@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runBenchCli } from "./bench-cli.ts";
+import { LINUX_ONLY_THRESHOLDS, runBenchCli } from "./bench-cli.ts";
 
 let dir = "";
 let historyPath = "";
@@ -115,5 +115,66 @@ describe("runBenchCli — PR-B-2a registrations", () => {
     const line = readHistoryLine();
     expect(line.surfaces["S2-a"]?.samples_count).toBe(0);
     expect(line.surfaces["S2-a"]?.stub_reason).toMatch(/driver-failed.*synthetic/);
+  });
+});
+
+describe("runBenchCli — PR-B-2b-1 registrations", () => {
+  test("--surface S7-c on --gha records reference-only stub with the surface-specific reason", async () => {
+    const exitCode = await runBenchCli(["--surface", "S7-c", "--runs", "1", "--gha"], {
+      runId: "s7c-test",
+      historyPath,
+      fixtureCacheDir: dir,
+      stdout: () => {},
+    });
+    expect(exitCode).toBe(0);
+    const line = readHistoryLine();
+    expect(line.surfaces["S7-c"]?.samples_count).toBe(0);
+    const reason = line.surfaces["S7-c"]?.stub_reason ?? "";
+    expect(reason).toMatch(/reference-only/);
+    expect(reason).toMatch(/LLM/);
+  });
+
+  test("LINUX_ONLY_THRESHOLDS contains S7-a, S7-b, S7-c", () => {
+    expect(LINUX_ONLY_THRESHOLDS.has("S7-a")).toBe(true);
+    expect(LINUX_ONLY_THRESHOLDS.has("S7-b")).toBe(true);
+    expect(LINUX_ONLY_THRESHOLDS.has("S7-c")).toBe(true);
+    expect(LINUX_ONLY_THRESHOLDS.has("S2-a")).toBe(false);
+  });
+
+  test("--surface S6-drive (driver injected via override) populates throughput_per_sec", async () => {
+    const exitCode = await runBenchCli(
+      ["--surface", "S6-drive", "--runs", "1", "--corpus", "small", "--gha"],
+      {
+        runId: "s6-drive-test",
+        historyPath,
+        fixtureCacheDir: dir,
+        stdout: () => {},
+        surfaceDriverOverrides: {
+          "S6-drive": async () => [10, 20, 30, 40, 50],
+        },
+      },
+    );
+    expect(exitCode).toBe(0);
+    const raw = JSON.parse(readFileSync(historyPath, "utf8").trim()) as {
+      surfaces: Record<string, { throughput_per_sec?: number }>;
+    };
+    expect(raw.surfaces["S6-drive"]?.throughput_per_sec).toBe(30);
+  });
+
+  test("--surface S7-a on --gha (driver injected via override) populates rss_bytes_p95", async () => {
+    const exitCode = await runBenchCli(["--surface", "S7-a", "--runs", "1", "--gha"], {
+      runId: "s7a-test",
+      historyPath,
+      fixtureCacheDir: dir,
+      stdout: () => {},
+      surfaceDriverOverrides: {
+        "S7-a": async () => [1_000_000, 1_100_000, 1_200_000, 1_300_000, 1_400_000],
+      },
+    });
+    expect(exitCode).toBe(0);
+    const raw = JSON.parse(readFileSync(historyPath, "utf8").trim()) as {
+      surfaces: Record<string, { rss_bytes_p95?: number }>;
+    };
+    expect(raw.surfaces["S7-a"]?.rss_bytes_p95).toBeGreaterThanOrEqual(1_300_000);
   });
 });

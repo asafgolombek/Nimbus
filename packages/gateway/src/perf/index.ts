@@ -1,7 +1,12 @@
 // packages/gateway/src/perf/index.ts
 
-export { type BenchCliDeps, runBenchCli } from "./bench-cli.ts";
+export { type BenchCliDeps, LINUX_ONLY_THRESHOLDS, runBenchCli } from "./bench-cli.ts";
 export { runBench, type SurfaceFn } from "./bench-harness.ts";
+export {
+  type SpawnGatewayForBenchOptions,
+  type SpawnGatewayResult,
+  spawnGatewayForBench,
+} from "./gateway-spawn-bench.ts";
 export {
   appendHistoryLine,
   type HistoryLine,
@@ -14,6 +19,11 @@ export {
   type SpawnMode,
   spawnAndTimeToMarker,
 } from "./process-spawn-bench.ts";
+export {
+  type SampleRssOptions,
+  type SampleRssResult,
+  sampleRss,
+} from "./rss-sampler.ts";
 export {
   type IncompleteContext,
   installIncompleteSignalHandler,
@@ -42,10 +52,39 @@ export {
 export { runQueryLatency1mOnce, S2C_TIER } from "./surfaces/bench-query-latency-1m.ts";
 export { runQueryLatency100kOnce, S2B_TIER } from "./surfaces/bench-query-latency-100k.ts";
 export {
+  type IpcCallFn as RssHeavySyncIpcCallFn,
+  type RssHeavySyncRunOptions,
+  runRssHeavySyncOnce,
+} from "./surfaces/bench-rss-heavy-sync.ts";
+export {
+  type RssIdleRunOptions,
+  runRssIdleOnce,
+} from "./surfaces/bench-rss-idle.ts";
+export {
+  runRssMultiAgentOnce,
+  S7C_REFERENCE_ONLY_REASON,
+} from "./surfaces/bench-rss-multi-agent.ts";
+export {
+  type IpcCallFn as SyncThroughputDriveIpcCallFn,
+  runSyncThroughputDriveOnce,
+  type SyncThroughputDriveRunOptions,
+} from "./surfaces/bench-sync-throughput-drive.ts";
+export {
+  type IpcCallFn as SyncThroughputGithubIpcCallFn,
+  runSyncThroughputGithubOnce,
+  type SyncThroughputGithubRunOptions,
+} from "./surfaces/bench-sync-throughput-github.ts";
+export {
+  type IpcCallFn as SyncThroughputGmailIpcCallFn,
+  runSyncThroughputGmailOnce,
+  type SyncThroughputGmailRunOptions,
+} from "./surfaces/bench-sync-throughput-gmail.ts";
+export {
   runTuiFirstPaintOnce,
   TUI_FIRST_PAINT_SAMPLES_PER_RUN,
 } from "./surfaces/bench-tui-first-paint.ts";
 export type {
+  BenchResultKind,
   BenchRunOptions,
   BenchSurfaceId,
   BenchSurfaceResult,

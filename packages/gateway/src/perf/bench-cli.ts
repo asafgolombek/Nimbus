@@ -21,8 +21,23 @@ import { runHitlPopupOnce, S5_STUB_REASON } from "./surfaces/bench-hitl-popup.ts
 import { runQueryLatencyOnce } from "./surfaces/bench-query-latency.ts";
 import { runQueryLatency1mOnce } from "./surfaces/bench-query-latency-1m.ts";
 import { runQueryLatency100kOnce } from "./surfaces/bench-query-latency-100k.ts";
+import { runRssHeavySyncOnce } from "./surfaces/bench-rss-heavy-sync.ts";
+import { runRssIdleOnce } from "./surfaces/bench-rss-idle.ts";
+import {
+  runRssMultiAgentOnce,
+  S7C_REFERENCE_ONLY_REASON,
+} from "./surfaces/bench-rss-multi-agent.ts";
+import { runSyncThroughputDriveOnce } from "./surfaces/bench-sync-throughput-drive.ts";
+import { runSyncThroughputGithubOnce } from "./surfaces/bench-sync-throughput-github.ts";
+import { runSyncThroughputGmailOnce } from "./surfaces/bench-sync-throughput-gmail.ts";
 import { runTuiFirstPaintOnce } from "./surfaces/bench-tui-first-paint.ts";
-import type { BenchRunOptions, BenchSurfaceId, BenchSurfaceResult, RunnerKind } from "./types.ts";
+import type {
+  BenchResultKind,
+  BenchRunOptions,
+  BenchSurfaceId,
+  BenchSurfaceResult,
+  RunnerKind,
+} from "./types.ts";
 
 export interface BenchCliDeps {
   /**
@@ -63,8 +78,25 @@ const SURFACE_REGISTRY: Partial<Record<BenchSurfaceId, DriverFn>> = {
   S3: (opts) => runDashboardFirstPaintOnce(opts),
   S4: (opts) => runTuiFirstPaintOnce(opts),
   S5: (opts) => runHitlPopupOnce(opts),
+  "S6-drive": (opts) => runSyncThroughputDriveOnce(opts),
+  "S6-gmail": (opts) => runSyncThroughputGmailOnce(opts),
+  "S6-github": (opts) => runSyncThroughputGithubOnce(opts),
+  "S7-a": (opts) => runRssIdleOnce(opts),
+  "S7-b": (opts) => runRssHeavySyncOnce(opts),
+  "S7-c": (opts) => runRssMultiAgentOnce(opts),
   "S11-a": (opts) => runCliOverheadColdOnce(opts),
   "S11-b": (opts) => runCliOverheadWarmOnce(opts),
+};
+
+/** Per-surface result aggregation. Defaults to "latency" for unlisted surfaces. */
+const SURFACE_RESULT_KIND: Partial<Record<BenchSurfaceId, BenchResultKind>> = {
+  "S6-drive": "throughput",
+  "S6-gmail": "throughput",
+  "S6-github": "throughput",
+  "S7-a": "rss",
+  "S7-b": "rss",
+  "S7-c": "rss",
+  // Latency surfaces (S1, S2-*, S4, S11-*) omit and default to "latency".
 };
 
 /** Surfaces that ship as stubs — driver returns []; orchestrator writes stub_reason. */
@@ -74,7 +106,23 @@ const STUB_SURFACES: Partial<Record<BenchSurfaceId, string>> = {
 };
 
 /** Surfaces that should only run when runner === reference-m1air. */
-const REFERENCE_ONLY: ReadonlySet<BenchSurfaceId> = new Set<BenchSurfaceId>(["S2-c"]);
+const REFERENCE_ONLY: ReadonlySet<BenchSurfaceId> = new Set<BenchSurfaceId>(["S2-c", "S7-c"]);
+
+/** Per-surface override for the reference-only stub message. Defaults to a generic "skipped on <runner>" message. */
+const REFERENCE_ONLY_REASONS: Partial<Record<BenchSurfaceId, string>> = {
+  "S7-c": S7C_REFERENCE_ONLY_REASON,
+};
+
+/**
+ * Surfaces whose threshold gate runs on Linux only. macOS/Windows still
+ * record samples (informational), but PR-C's threshold comparator
+ * imports this set and skips gating on non-Linux runners.
+ */
+export const LINUX_ONLY_THRESHOLDS: ReadonlySet<BenchSurfaceId> = new Set<BenchSurfaceId>([
+  "S7-a",
+  "S7-b",
+  "S7-c",
+]);
 
 function takeFlag(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -160,7 +208,7 @@ async function processSurface(
 
   // Reference-only skip branch — record a per-surface stub entry.
   if (REFERENCE_ONLY.has(id) && runner !== "reference-m1air") {
-    const reason = `reference-only — skipped on ${runner}`;
+    const reason = REFERENCE_ONLY_REASONS[id] ?? `reference-only — skipped on ${runner}`;
     return {
       kind: "result",
       entry: { samples_count: 0, stub_reason: reason },
@@ -180,7 +228,8 @@ async function processSurface(
   // surface entries on the same line stay valid for delta comparisons.
   let result: BenchSurfaceResult;
   try {
-    result = await runBench(id, (o) => driver(o, runOpts), opts);
+    const resultKind = SURFACE_RESULT_KIND[id] ?? "latency";
+    result = await runBench(id, (o) => driver(o, runOpts), opts, {}, resultKind);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {

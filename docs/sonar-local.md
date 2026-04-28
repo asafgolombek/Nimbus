@@ -37,5 +37,5 @@ CI in this repository runs Biome, TypeScript, and tests; it does **not** run Son
 
 ## Notes
 
-- Adjust `sonar.sources`, `sonar.tests`, or `sonar.typescript.tsconfigPath` in `sonar-project.properties` if SonarCloud reports missing files or wrong TypeScript context.
+- Adjust `sonar.sources`, `sonar.tests`, or `sonar.typescript.tsconfigPaths` in `sonar-project.properties` if SonarCloud reports missing files or wrong TypeScript context.
 - Do not commit Sonar tokens; use environment variables or your CI secret store only.

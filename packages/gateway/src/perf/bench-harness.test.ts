@@ -58,3 +58,32 @@ describe("runBench", () => {
     );
   });
 });
+
+describe("runBench — resultKind", () => {
+  test("default 'latency' behaviour is unchanged", async () => {
+    const fn = async (): Promise<number[]> => [10, 20, 30, 40, 50];
+    const result = await runBench("S2-a", fn, { runs: 3, runner: "local-dev" });
+    expect(result.p50Ms).toBeGreaterThan(0);
+    expect(result.throughputPerSec).toBeUndefined();
+    expect(result.rssBytesP95).toBeUndefined();
+  });
+
+  test("'throughput' kind populates throughputPerSec from per-run medians", async () => {
+    const fn = async (): Promise<number[]> => [100, 110, 120];
+    const result = await runBench("S2-a", fn, { runs: 3, runner: "local-dev" }, {}, "throughput");
+    expect(result.throughputPerSec).toBe(110);
+    expect(result.p50Ms).toBeUndefined();
+    expect(result.p95Ms).toBeUndefined();
+  });
+
+  test("'rss' kind populates rssBytesP95 across all samples", async () => {
+    const fn = async (): Promise<number[]> => [
+      1_000_000, 1_100_000, 1_200_000, 1_300_000, 1_400_000,
+    ];
+    const result = await runBench("S7-a", fn, { runs: 1, runner: "local-dev" }, {}, "rss");
+    expect(result.rssBytesP95).toBeGreaterThanOrEqual(1_300_000);
+    expect(result.rssBytesP95).toBeLessThanOrEqual(1_400_000);
+    expect(result.rawSamples).toEqual([1_000_000, 1_100_000, 1_200_000, 1_300_000, 1_400_000]);
+    expect(result.p50Ms).toBeUndefined();
+  });
+});

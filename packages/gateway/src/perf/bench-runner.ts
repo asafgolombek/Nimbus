@@ -37,8 +37,9 @@ Usage:
   nimbus bench --all [--corpus ...] [--runs N] (--reference|--gha)
 
 Flags:
-  --surface <id>      one of: S1, S2-a, S2-b, S2-c, S3, S4, S5, S11-a, S11-b
-                      (cluster C — S6/S7/S8/S9/S10 — lands in PR-B-2b)
+  --surface <id>      one of: S1, S2-a, S2-b, S2-c, S3, S4, S5, S6-drive, S6-gmail, S6-github,
+                      S7-a, S7-b, S7-c, S11-a, S11-b
+                      (S8/S9/S10 land in PR-B-2b-2)
   --all               run every registered surface
   --corpus <tier>     small | medium | large
   --runs <N>          per-surface invocations (default 5)
