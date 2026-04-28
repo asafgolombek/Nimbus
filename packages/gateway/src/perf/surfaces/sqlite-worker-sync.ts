@@ -15,7 +15,7 @@ import { Database } from "bun:sqlite";
 
 import { dbRun } from "../../db/write.ts";
 import { LocalIndex } from "../../index/local-index.ts";
-import { type ParentMsg, runWorkerLoop, type WorkerMsg } from "./sqlite-worker-shared.ts";
+import { runWorkerEntry, type WorkerSelf } from "./sqlite-worker-shared.ts";
 
 declare const self: Worker;
 
@@ -44,79 +44,33 @@ ON CONFLICT(id) DO UPDATE SET
   synced_at = excluded.synced_at,
   pinned = excluded.pinned`;
 
-let db: Database | null = null;
-let counter = 0;
-let stopRequested = false;
-let durationMs = 0;
-let config: SyncConfig = {};
-
-function postMsg(msg: WorkerMsg): void {
-  self.postMessage(msg);
-}
-
-function doOneWrite(): void {
-  if (db === null) throw new Error("db not initialised");
-  const idPrefix = config.idPrefix ?? "sync";
-  const id = `${idPrefix}:${counter}`;
-  counter += 1;
-  const now = Date.now();
-  dbRun(db, ITEM_INSERT_SQL, [
-    id,
-    "github",
-    "issue",
-    String(counter),
-    `Bench item ${counter}`,
-    "synthetic",
-    null,
-    null,
-    now,
-    null,
-    "{}",
-    now,
-    0,
-  ]);
-}
-
-self.onmessage = async (e: MessageEvent<unknown>): Promise<void> => {
-  const msg = e.data as ParentMsg;
-  try {
-    if (msg.kind === "init") {
-      config = msg.config as SyncConfig;
-      db = new Database(msg.dbPath);
-      LocalIndex.ensureSchema(db);
-      postMsg({ kind: "ready" });
-      return;
-    }
-    if (msg.kind === "stop") {
-      stopRequested = true;
-      return;
-    }
-    if (msg.kind === "start") {
-      durationMs = msg.durationMs;
-      const ac = new AbortController();
-      const checkStop = setInterval(() => {
-        if (stopRequested) ac.abort();
-      }, 50);
-      try {
-        const result = await runWorkerLoop({
-          durationMs,
-          signal: ac.signal,
-          deps: {
-            doOneWrite,
-            now: () => performance.now(),
-            sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-          },
-        });
-        postMsg({ kind: "done", writes: result.writes, busyRetries: result.busyRetries });
-      } finally {
-        clearInterval(checkStop);
-      }
-    }
-  } catch (err) {
-    postMsg({
-      kind: "error",
-      message: err instanceof Error ? err.message : String(err),
-      ...(err instanceof Error && err.stack !== undefined ? { stack: err.stack } : {}),
-    });
-  }
-};
+runWorkerEntry<SyncConfig>(self as unknown as WorkerSelf, {
+  init: (config, dbPath) => {
+    const db = new Database(dbPath);
+    LocalIndex.ensureSchema(db);
+    const idPrefix = config.idPrefix ?? "sync";
+    let counter = 0;
+    return {
+      doOneWrite: (): void => {
+        const id = `${idPrefix}:${counter}`;
+        counter += 1;
+        const now = Date.now();
+        dbRun(db, ITEM_INSERT_SQL, [
+          id,
+          "github",
+          "issue",
+          String(counter),
+          `Bench item ${counter}`,
+          "synthetic",
+          null,
+          null,
+          now,
+          null,
+          "{}",
+          now,
+          0,
+        ]);
+      },
+    };
+  },
+});

@@ -68,3 +68,80 @@ export async function runWorkerLoop(
   }
   return { writes, busyRetries };
 }
+
+/**
+ * Minimal Worker-globals shape — `self.postMessage` + `self.onmessage`.
+ * Each per-role worker script imports `self` from its Worker context and
+ * passes it here so `runWorkerEntry` can drive the protocol without
+ * reaching into module-global state itself.
+ */
+export interface WorkerSelf {
+  postMessage: (msg: WorkerMsg) => void;
+  onmessage: ((e: MessageEvent<unknown>) => Promise<void> | void) | null;
+}
+
+export interface WorkerEntryHooks<TConfig> {
+  /** Called once during init. Should construct/seed the DB and return the per-write fn. */
+  init: (config: TConfig, dbPath: string) => { doOneWrite: () => void };
+}
+
+/**
+ * Wires the standard init → ready → start → done|error message protocol on
+ * `worker`. Each per-role worker file (sync/watcher/audit) collapses to:
+ *   import { runWorkerEntry } from "./sqlite-worker-shared.ts";
+ *   runWorkerEntry(self as unknown as WorkerSelf, { init: ... });
+ * Owns the AbortController, stop-flag, error-shape mapping, and timing.
+ */
+export function runWorkerEntry<TConfig>(
+  worker: WorkerSelf,
+  hooks: WorkerEntryHooks<TConfig>,
+): void {
+  let doOneWrite: (() => void) | null = null;
+  let stopRequested = false;
+
+  const post = (msg: WorkerMsg): void => worker.postMessage(msg);
+
+  worker.onmessage = async (e: MessageEvent<unknown>): Promise<void> => {
+    const msg = e.data as ParentMsg;
+    try {
+      if (msg.kind === "init") {
+        const r = hooks.init(msg.config as TConfig, msg.dbPath);
+        doOneWrite = r.doOneWrite;
+        post({ kind: "ready" });
+        return;
+      }
+      if (msg.kind === "stop") {
+        stopRequested = true;
+        return;
+      }
+      if (msg.kind === "start") {
+        if (doOneWrite === null) throw new Error("doOneWrite not initialised");
+        const fn = doOneWrite;
+        const ac = new AbortController();
+        const checkStop = setInterval(() => {
+          if (stopRequested) ac.abort();
+        }, 50);
+        try {
+          const result = await runWorkerLoop({
+            durationMs: msg.durationMs,
+            signal: ac.signal,
+            deps: {
+              doOneWrite: fn,
+              now: () => performance.now(),
+              sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+            },
+          });
+          post({ kind: "done", writes: result.writes, busyRetries: result.busyRetries });
+        } finally {
+          clearInterval(checkStop);
+        }
+      }
+    } catch (err) {
+      post({
+        kind: "error",
+        message: err instanceof Error ? err.message : String(err),
+        ...(err instanceof Error && err.stack !== undefined ? { stack: err.stack } : {}),
+      });
+    }
+  };
+}
