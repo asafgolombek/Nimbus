@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { SLO_THRESHOLDS, type SloThreshold, thresholdsBySurface } from "./slo-thresholds.ts";
 
 describe("SLO_THRESHOLDS — schema invariants", () => {
-  test("contains exactly 27 rows", () => {
-    expect(SLO_THRESHOLDS.length).toBe(27);
+  test("contains exactly 29 rows", () => {
+    expect(SLO_THRESHOLDS.length).toBe(29);
   });
 
   test("every UX row is gated and has both refMax and ghaMax populated", () => {
@@ -45,7 +45,11 @@ describe("SLO_THRESHOLDS — schema invariants", () => {
       const row = SLO_THRESHOLDS.find((r) => r.surfaceId === id);
       expect(row).toBeDefined();
       expect(row!.gated).toBe(false);
-      expect(["tbd-c2", "skipped"]).toContain(row!.ghaMax);
+      const ghaMax = row!.ghaMax;
+      expect(typeof ghaMax).toBe("string");
+      if (typeof ghaMax === "string") {
+        expect(["tbd-c2", "skipped"]).toContain(ghaMax);
+      }
     }
   });
 
@@ -93,7 +97,7 @@ describe("SLO_THRESHOLDS — schema invariants", () => {
 
   test("contains all 12 S8 cells", () => {
     const s8Ids = SLO_THRESHOLDS.map((r) => r.surfaceId).filter((id) => id.startsWith("S8-"));
-    expect(s8Ids.sort()).toEqual(
+    expect((s8Ids as string[]).sort()).toEqual(
       [
         "S8-l50-b1",
         "S8-l50-b8",
