@@ -173,24 +173,34 @@ jobs:
         id: sanity
         run: |
           set -euo pipefail
-          # Exactly one new line, runner=reference-m1air, sha matches.
-          new_lines=$(git diff -- docs/perf/history.jsonl | grep -c '^+{')
-          if [[ "$new_lines" != "1" ]]; then
-            echo "::error::Expected exactly 1 new history.jsonl line, got $new_lines"
-            git diff -- docs/perf/history.jsonl
+          # 1. Exactly one file modified (no incidental edits).
+          changed=$(git status --porcelain | awk '{print $2}')
+          if [[ "$changed" != "docs/perf/history.jsonl" ]]; then
+            echo "::error::Expected only docs/perf/history.jsonl to change; got:"
+            git status --porcelain
             exit 1
           fi
+          # 2. Exactly one line added (count delta — robust against whitespace
+          #    diffs and file-creation header noise).
+          before=$(git show HEAD:docs/perf/history.jsonl 2>/dev/null | wc -l || echo 0)
+          after=$(wc -l < docs/perf/history.jsonl)
+          if [[ "$((after - before))" != "1" ]]; then
+            echo "::error::Expected +1 line in history.jsonl; got delta $((after - before))"
+            exit 1
+          fi
+          # 3. Last line is a valid JSON record with the expected runner, SHA,
+          #    and a populated os_version (proves auto-capture worked).
           last=$(tail -n 1 docs/perf/history.jsonl)
-          runner=$(echo "$last" | jq -r '.runner')
-          sha=$(echo "$last" | jq -r '.nimbus_git_sha')
-          if [[ "$runner" != "reference-m1air" ]]; then
-            echo "::error::history.jsonl runner=$runner, expected reference-m1air"
-            exit 1
-          fi
-          if [[ "$sha" != "$GITHUB_SHA" ]]; then
-            echo "::error::history.jsonl nimbus_git_sha=$sha, expected $GITHUB_SHA"
-            exit 1
-          fi
+          echo "$last" | jq -e \
+            --arg sha "$GITHUB_SHA" \
+            '.runner == "reference-m1air"
+             and .nimbus_git_sha == $sha
+             and (.os_version | type == "string" and length > 0)' \
+            >/dev/null || {
+              echo "::error::history.jsonl last line failed validation:"
+              echo "$last"
+              exit 1
+            }
           echo "branch=perf/reference-run-$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push branch
@@ -258,7 +268,28 @@ jobs:
 
 ## 5. `_perf.yml` cost-fallback gate
 
-The current `benchmark` matrix job runs `[ubuntu-24.04, macos-15, windows-2025]` on every trigger. Add an `if:` to the **heavy** steps (the `nimbus bench` invocation, the artifact upload, the `bench-ci` comparator step) gated on:
+Two coordinated changes. The `if:`-on-heavy-steps gate alone is not sufficient — the gate condition references `github.event.schedule == '0 4 * * 0'`, which only matches if such a cron exists. The current schedule block has only `'0 4 * * *'` (every day). Without splitting the cron, the condition would never short-circuit to "yes, run macOS today" via the schedule path.
+
+### 5.1 Schedule split
+
+Replace the single daily cron with a Mon–Sat daily + a Sunday cron:
+
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "0 4 * * 1-6"   # Mon–Sat 04:00 UTC — Linux only (cost-fallback)
+    - cron: "0 4 * * 0"     # Sunday 04:00 UTC — full three-OS coverage
+```
+
+Each cron fires exactly once per scheduled day; `github.event.schedule` carries the literal cron string at run time (GHA passes it through), so the gate can branch on it.
+
+### 5.2 Per-step gate
+
+Add an `if:` to the **heavy** steps (the `nimbus bench` invocation, the artifact upload, the `bench-ci` comparator step) gated on:
 
 ```yaml
 if: |
@@ -267,11 +298,20 @@ if: |
   github.event.schedule == '0 4 * * 0'
 ```
 
-Result on a weekday-nightly schedule trigger: ubuntu runs the full bench; macOS and Windows runners provision, complete cheap setup steps (Harden Runner, Checkout, Setup Bun, install — all of which run unconditionally), then skip every heavy step and exit. Per-OS runtime drops from ~45 min to ~2 min on weekday nights. Per-OS cost drops by ~95%.
+Cheap setup steps (Harden Runner, Checkout, Setup Bun, install) run unconditionally — keeps YAML readable; the runner provisions, does ~2 min of housekeeping, then exits. Per-non-Linux-OS minutes drop by ~95% on Mon–Sat nightlies.
 
-Triggers other than `schedule` (push, `perf`-labelled PR) are unaffected — full three-OS coverage.
+### 5.3 Coverage matrix
 
-The existing comment block at `_perf.yml:9-14` becomes the implementation rather than the documented-but-unwired stub. Update the comment to point at the active `if:` lines.
+| Trigger | Linux | macOS | Windows |
+|---|---|---|---|
+| `push` to `main` | ✅ | ✅ | ✅ |
+| `perf`-labelled PR | ✅ | ✅ | ✅ |
+| Mon–Sat 04:00 UTC schedule | ✅ | ⏭ skip heavy | ⏭ skip heavy |
+| Sunday 04:00 UTC schedule | ✅ | ✅ | ✅ |
+
+`bench-ci`'s "previous artifact" lookup (`bench-ci.ts:85, runListLatestSuccess`) already handles a missing per-OS artifact gracefully (logs `treating as first-run` and emits the no-baseline comment) — so even on the rare case where a `perf`-PR runs macOS without a recent main macOS artifact, the workflow degrades to first-run rather than failing. Push-to-main runs all three OSes regardless of weekday, so macOS / Windows artifacts on `main` are refreshed on every merge — the Sunday weekly schedule is the no-PR-traffic baseline check, not the artifact-keep-alive.
+
+The existing comment block at `_perf.yml:9-14` becomes the implementation rather than the documented-but-unwired stub. Update the comment to point at the active `if:` lines and the cron split.
 
 ## 6. Doc skeletons
 
@@ -328,7 +368,7 @@ How to register a 2020 M1 MacBook Air as a GitHub Actions self-hosted runner wit
 - 2020 M1 MacBook Air, 8 GB / 256 GB (matches spec § 4.1 reference machine).
 - macOS 14+ (Sonoma) or later.
 - Bun 1.2+ installed (`brew install bun` or `curl -fsSL https://bun.sh/install | bash`).
-- `gh` CLI installed (`brew install gh`).
+- `gh` CLI installed (`brew install gh`) and authenticated. Run `gh auth login --scopes repo,workflow` before continuing — the registration-token API call below requires those scopes.
 - Repo write permissions.
 
 ## Register the runner
@@ -403,9 +443,23 @@ For persistent installations: stop the launchd service first (`./svc.sh stop && 
 
 ## Security notes
 
-- Self-hosted runners on personal machines should run only against trusted private repos or, if used for a public repo (which Nimbus is), be isolated from the operator's main user account. Apple's recommended pattern: a dedicated user account on the M1 Air whose home directory holds only the runner agent and Bun.
+**Public-repo self-hosted runner risk.** GitHub's documented guidance discourages self-hosted runners on public repos because any PR (including from forks) can run workflows on the runner — a remote-code-execution vector. Three structural mitigations apply here:
+
+1. **`workflow_dispatch` only.** `_perf-reference.yml` has no `pull_request` or `push` trigger. Forks cannot dispatch a workflow run; only repo collaborators with `actions: write` permission can. This is the primary defence.
+2. **Repo settings.** Verify under **Settings → Actions → General**: "Require approval for first-time contributors" or stricter is enabled. This blocks any future workflow that *does* fire on `pull_request` from running on the self-hosted runner without maintainer approval.
+3. **No other workflow targets the `reference-m1air` label.** Search the repo (`grep -rn "reference-m1air" .github/`) before adding any new workflow. Only `_perf-reference.yml` should match.
+
+**One-shot vs persistent setup.**
+
+- **One-shot (recommended for borrowed M1 Air).** Run `./run.sh` in a terminal; press Ctrl+C when done; `./config.sh remove` to deregister. The runner is online only while the operator is in front of the machine. Minimal exposure window.
+- **Persistent (only if you own the M1 Air and dedicate it to this).** Install as a launchd service. The runner stays online and accepts dispatches at any time. Requires: the dedicated-user-account isolation pattern below; lockscreen + FileVault enabled; the user account has no access to the operator's main keychain.
+
+**Account isolation (mandatory if persistent).** Create a dedicated macOS user account on the M1 Air whose home directory holds only the runner agent and Bun. The account does not log into the operator's iCloud, has no access to the main keychain, and runs no other software. The runner's working directory is fully isolated from operator data.
+
+**Token hygiene.**
 - Never check the registration token into git or copy it into any persistent file. The token expires in ~1 hour.
-- The runner has access to repo write tokens during workflow execution. The `_perf-reference.yml` workflow's `permissions:` block scopes that to `contents: write` + `pull-requests: write` — no broader access.
+- The runner has access to repo write tokens during workflow execution (`GITHUB_TOKEN`). The `_perf-reference.yml` workflow's `permissions:` block scopes that to `contents: write` + `pull-requests: write` — no `actions: write`, no organisation-level scopes.
+- `gh auth login`'s saved token (used by the operator before runner registration) lives in `~/.config/gh/hosts.yml`. Treat it like any OAuth credential.
 ```
 
 ## 7. `--protocol-confirmed` bench CLI flag
@@ -509,7 +563,11 @@ When this PR merges:
 | D-X | `--protocol-confirmed` is a CLI flag (not an env var) so the audit trail is visible in `argv` of the workflow log. Operator dispatching with `protocol_attested: true` is the explicit human gate; the flag only wires the dependency. | Section 7 |
 | D-Y | `capture-benchmarks.ts` deletion has a precondition check (≥3 successful S2-a runs on `_perf.yml`). If unmet at PR-ready time, the deletion slips to a follow-up commit on `main`; rest of PR-C-2a still ships. Inherits D-Q from PR-C-1's spec. | Section 8 |
 | D-Z | Docs-site decision for `slo.md`: stays raw markdown for v0.1.0. `slo.md` is regenerated from `slo-thresholds.ts`; an Astro layer adds a re-export step that risks drift. Revisit when `packages/docs/` grows a Reference / SLO category. Documented in PR description per spec § 10. | Section 1 |
+| D-AA | Sanity-check rewrite: replace fragile `git diff \| grep -c '^+{'` with `git status --porcelain` (only-expected-file check) + `wc -l` delta + `tail -n 1 \| jq -e` validating runner / SHA / non-empty `os_version`. More robust under whitespace / file-creation diffs and explicitly verifies the `os_version` auto-capture. | Review feedback (Gemini OQ2 + S2) |
+| D-AB | `_perf.yml` cron split: replace `'0 4 * * *'` with two crons — `'0 4 * * 1-6'` (Mon–Sat, Linux only via the cost-fallback gate) and `'0 4 * * 0'` (Sunday, full three-OS). The `if:`-on-heavy-steps gate alone is insufficient because `github.event.schedule == '0 4 * * 0'` only matches if such a cron exists. | Review feedback (Gemini OQ3) |
+| D-AC | Runbook security expansion: documented public-repo self-hosted RCE concern with three structural mitigations (`workflow_dispatch`-only, repo settings, label uniqueness), explicit one-shot-vs-persistent trade-off, dedicated-user-account isolation pattern for persistent setups, `gh auth login` scope requirement (`repo,workflow`). | Review feedback (Gemini OQ4 + S3) |
+| D-AD | Dismissed without change: Gemini OQ1 (`history.jsonl` initial state — `appendHistoryLine` already creates parent dirs and append-creates the file via `mkdirSync(recursive:true)` + `appendFileSync`), Gemini OQ5 (`protocol_attested` boolean default — already covered by the `if: inputs.protocol_attested != true` validation step that fails the run with exit 1), Gemini S1 (`mkdir -p docs/perf` — redundant with checkout + `appendHistoryLine`), Gemini S4 (`confirmReferenceProtocol` typed optional — already optional at `bench-cli.ts:61`). All four claims contradicted by the actual code/spec; verified before dismissal per memory note "verify external AI-review claims". | Review feedback (Gemini OQ1, OQ5, S1, S4) |
 
 ---
 
-*Spec written by Claude Opus 4.7 — 2026-04-29.*
+*Spec written by Claude Opus 4.7 — 2026-04-29. Review feedback from Gemini CLI applied 2026-04-29.*
