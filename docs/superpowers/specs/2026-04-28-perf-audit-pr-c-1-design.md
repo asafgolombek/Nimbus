@@ -89,6 +89,7 @@ on:
 permissions:
   contents: read
   pull-requests: write                  # for gh pr comment in bench-ci.ts
+  actions: read                         # for `gh run list` + `gh run download` in bench-ci.ts
 
 concurrency:
   group: bench-${{ github.workflow }}-${{ matrix.os }}
@@ -112,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14, windows-2022]
+        os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -180,6 +181,17 @@ export interface SloThreshold {
     | "first_token_ms";
   refMax?: number;                            // reference threshold (M1 Air); undefined if reference-only/skipped
   ghaMax: number | "tbd-c2" | "skipped";      // absolute GHA threshold; tbd-c2 = workload row pending ref-run; skipped = S2-c, S7-c, S9
+  /**
+   * Whether this row gates the build. UX rows in C-1 are `true` (absolute
+   * + delta checks fail the build per spec § 3.1). Workload rows are
+   * `false` until C-2 fills in `ghaMax` from the reference run.
+   *
+   * Explicit boolean rather than inferring `gated = ghaMax !== "tbd-c2"`
+   * — the value of `ghaMax` is a numeric/sentinel concern, gating intent
+   * is a behaviour concern, and the comparator should not have to read
+   * the policy out of a sentinel string.
+   */
+  gated: boolean;
   noiseFloorPct: number;                      // delta-fail threshold, %
   noiseFloorAbs: number;                      // delta-fail floor, absolute (units match metric)
   noiseFloorAbsUnit: "ms" | "items_per_sec" | "bytes" | "tps";
@@ -214,9 +226,9 @@ export function compareAgainstHistory(
   runner: RunnerKind,
 ): SurfaceComparison[];
 
-export function isFailingComparison(c: SurfaceComparison): boolean;
-// True only for absolute-fail + delta-fail. C-1 gates UX rows;
-// workload rows resolve to skipped because their ghaMax is "tbd-c2".
+export function isFailingComparison(c: SurfaceComparison, slo: SloThreshold): boolean;
+// True only when `slo.gated === true` AND status is absolute-fail or delta-fail.
+// C-1 gates UX rows; workload rows have gated=false until C-2 sets it true.
 ```
 
 Pure function — no I/O. The same comparator C-2 will reuse for `missed.md` ranking.
@@ -256,12 +268,32 @@ CLI orchestrator. Composes the pipeline:
 
 1. Parse args: `--current <path>`, `--runner gha-{os}`.
 2. Read current run from `<path>` (one `HistoryLine`).
-3. Resolve previous: `gh run download --branch main --workflow _perf.yml --name perf-${runner}-* --limit 1` → JSON. Returns `null` if no prior artifact (first run, retention expired, or new OS).
-4. `compareAgainstHistory(current, previous, SLO_THRESHOLDS, runner)`.
-5. If `GITHUB_EVENT_NAME == "pull_request"`: `formatPrComment` → write to `$GITHUB_STEP_SUMMARY` and post via `gh pr comment`. On push/schedule, skip the comment (no PR to post on) but still write the step summary.
-6. If any UX comparison returns `absolute-fail` or `delta-fail`: `process.exit(1)` (fails the build per spec § 3.1).
+3. Resolve previous via two `gh` calls (since `gh run download` has no `--limit` flag and matching by run-id is more reliable than artifact-name globbing):
+   ```
+   # Find the most recent successful run on main of THIS workflow.
+   run_id="$(gh run list \
+                --workflow _perf.yml \
+                --branch main \
+                --status success \
+                --limit 1 \
+                --json databaseId \
+                --jq '.[0].databaseId')"
 
-**Retry policy.** `gh run download` flakes are retried 3× with 5 s backoff. Persistent failure logs a warning and proceeds as if first-run; the artifact upload step that ran before us is still preserved for the next run to diff against. We never fail the bench because diff plumbing failed.
+   # Download just this runner's artifact from that run.
+   gh run download "$run_id" \
+       --name "perf-${runner_os}-${prev_sha}" \
+       --dir /tmp/prev-artifact
+   ```
+   Two-step lookup avoids the ordering ambiguity that comes with globbing across many runs. Returns `null` if no prior successful run exists (first run on main, all prior runs failed) or if the named artifact is gone (90-day retention expired). The `prev_sha` is read from the run's metadata via `gh run view <run_id> --json headSha`.
+4. `compareAgainstHistory(current, previous, SLO_THRESHOLDS, runner)`.
+5. If `GITHUB_EVENT_NAME == "pull_request"`: `formatPrComment` → write to `$GITHUB_STEP_SUMMARY` and **upsert** the comment via `gh pr comment` with a hidden `<!-- nimbus-perf-delta:${runner} -->` marker:
+   - `gh pr comment --list --json id,body` → find existing comment whose body starts with the marker for this runner.
+   - If found: `gh pr comment --edit <id> --body-file <new>`.
+   - If not: `gh pr comment --body-file <new>`.
+   This prevents comment spam on every `synchronize` event (each push to the PR branch). One comment per matrix runner, updated in-place. On push/schedule, skip the comment (no PR to post on) but still write the step summary.
+6. If any comparison's `isFailingComparison(c, slo) === true`: `process.exit(1)` (fails the build per spec § 3.1). Workload rows have `gated: false` until C-2, so they cannot trigger this branch.
+
+**Retry policy.** `gh run list`, `gh run view`, and `gh run download` flakes are retried 3× with 5 s backoff. Persistent failure logs a warning and proceeds as if first-run; the artifact upload step that ran before us is still preserved for the next run to diff against. We never fail the bench because diff plumbing failed.
 
 ## 6. `slo.md` and `baseline.md` skeletons
 
@@ -272,7 +304,11 @@ Structure:
 1. **Header.** Updated wording: "UX **and workload** SLOs for Nimbus, used by `_perf.yml` for absolute-threshold and delta-vs-previous-main gating."
 2. **Caveat row** (mandatory per spec § 4.1) — preserved verbatim from `slo-ux.md`.
 3. **UX surfaces table** — verbatim from `slo-ux.md` (no value changes). Per-row Nielsen / RAIL / Nimbus-claim citations preserved.
-4. **Workload surfaces table** — new, 11 rows: S6-{drive,gmail,github}, S7-{a,b,c}, S8 (12-cell cross-product collapsed to one parameterized row + a footnote enumerating cells), S9, S10. Threshold cells say `TBD — Phase 2 reference run (PR-C-2)`. Citations cite spec § 3.2.
+4. **Workload surfaces table** — new. Two layout choices, both rendered by `regen-slo.ts`:
+   - **Logical-surface table (top-level):** 8 rows — S6-drive, S6-gmail, S6-github, S7-a, S7-b, S7-c, S9, S10 — plus one row labelled `S8 (12 cells, see § Workload › S8 cells below)`. Threshold cells say `TBD — Phase 2 reference run (PR-C-2)`. Citations cite spec § 3.2.
+   - **S8 sub-table (under its own H3):** 12 rows enumerating each `S8-l{50|500|5000}-b{1|8|32|64}` cell. Same TBD treatment per cell. Reader gets the cross-product without bloating the top-level table.
+
+   The comparator sees the same 27-row flat array from `slo-thresholds.ts`; the doc layout is purely presentational.
 5. **Generated-doc footer.** "This file is generated from `packages/gateway/src/perf/slo-thresholds.ts`. Run `bun scripts/regen-slo.ts` after changing thresholds. CI verifies they match via `bun scripts/regen-slo.ts --check`."
 
 **`slo-ux.md` deletion.** Internal-only references; clean delete is fine. The one source-code reference (a comment in `packages/cli/src/tui/App.tsx:133`) is updated in the same diff to point at `slo.md`.
@@ -297,7 +333,10 @@ Followed by `## Reference baseline (M1 Air)` with a TBD measurements table (16 r
 
 - **`benchmark.yml` retirement.** Same-PR delete in C-1 (D-C).
 - **`gh-pages` branch.** Kept untouched; historical chart remains accessible.
-- **`scripts/capture-benchmarks.ts`.** Stays in C-1. Spec § 4.7 step 2 conditions its deletion on "S2-a's first three nightly runs on main are visibly recorded in `history.jsonl`". That condition can't be satisfied in C-1 — `history.jsonl` is only written by reference runs (per § 4.4), not by GHA runs. Deletion deferred; C-1 PR description includes a one-liner pointing at the criterion. Likely lands as a C-2 follow-up.
+- **`scripts/capture-benchmarks.ts`.** Stays in C-1. Spec § 4.7 step 2 conditions its deletion on "S2-a's first three nightly runs on main are visibly recorded in `history.jsonl`". That condition can't be satisfied in C-1 — `history.jsonl` is only written by reference runs (per § 4.4), not by GHA runs. Deletion deferred; C-1 PR description includes a one-liner pointing at the criterion. **C-2 plan must include a dedicated validation task** that:
+  1. Confirms 3 reference-run S2-a entries exist in `history.jsonl` after the maintainer's ref-run.
+  2. Confirms the new harness's S2-a measurement is within an order of magnitude of the legacy `capture-benchmarks.ts` numbers from `gh-pages` (sanity check that we measure the same thing).
+  3. Deletes `scripts/capture-benchmarks.ts` and its `package.json` script entry only after both checks pass.
 - **PR description.** Explicitly calls out the migration so reviewers tracing old chart URLs find the new path (spec § 4.7 final paragraph).
 
 ## 8. Edge cases
@@ -364,6 +403,13 @@ When this PR merges:
 | D-H | Cost-fallback `if: github.event.schedule == '0 4 * * 0'` is documented in C-1 but not pre-wired. | Section 4 |
 | D-I | `scripts/capture-benchmarks.ts` stays in C-1; deletion deferred per spec § 4.7 step 2. | Section 7 |
 | D-J | `slo-ux.md` deleted cleanly (no redirect stub); `App.tsx:133` comment updated. | Section 6.1 |
+| D-K | `SloThreshold.gated: boolean` is an explicit field, not inferred from `ghaMax === "tbd-c2"`. Gating intent is a behaviour concern; row policy should not be derived from a sentinel string. | Review feedback (Gemini #3) |
+| D-L | PR comment is upserted (search-by-marker + edit), not appended on every `synchronize`. Hidden marker `<!-- nimbus-perf-delta:${runner} -->` identifies one comment per matrix runner. | Review feedback (Gemini #4) |
+| D-M | Previous-artifact lookup uses two-step `gh run list` + `gh run download <run-id>`, not a `gh run download --limit 1` glob (no such flag exists). Run-id lookup is unambiguous. | Review feedback (Gemini OQ2) — original spec invented a non-existent CLI flag |
+| D-N | `slo.md` workload table is split: top-level table has one row per logical surface (S8 collapsed); a sub-table under its own H3 enumerates the 12 S8 cells. The comparator sees the flat 27-row array regardless. | Review feedback (Gemini OQ1) |
+| D-O | Runner matrix `[ubuntu-24.04, macos-15, windows-2025]` matches the active CI matrix at `ci.yml:129,145,240`. (Original spec used outdated `macos-14` / `windows-2022`.) | Review feedback (Gemini #1) |
+| D-P | `_perf.yml` declares `actions: read` permission alongside `pull-requests: write`. Required for `gh run list` / `gh run view` / `gh run download`. Mirrors `codeql.yml:20` and `release.yml:213`. | Review feedback (Gemini #2) |
+| D-Q | `capture-benchmarks.ts` deletion in C-2 has its own dedicated validation task with three explicit checks before the rm. | Review feedback (Gemini OQ3) |
 
 ---
 
