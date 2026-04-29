@@ -20,8 +20,8 @@
 
 | File | Status | Responsibility |
 |---|---|---|
-| `packages/gateway/src/perf/slo-thresholds.ts` | Create | `SloThreshold` type + `SLO_THRESHOLDS` const (27 rows). Single source of truth |
-| `packages/gateway/src/perf/slo-thresholds.test.ts` | Create | Schema-validation snapshot for the 27 rows; one assertion per UX row matches spec § 3.2 |
+| `packages/gateway/src/perf/slo-thresholds.ts` | Create | `SloThreshold` type + `SLO_THRESHOLDS` const (29 rows). Single source of truth |
+| `packages/gateway/src/perf/slo-thresholds.test.ts` | Create | Schema-validation snapshot for the 29 rows; one assertion per UX row matches spec § 3.2 |
 | `packages/gateway/src/perf/threshold-comparator.ts` | Create | Pure `compareAgainstHistory()` + `isFailingComparison()` |
 | `packages/gateway/src/perf/threshold-comparator.test.ts` | Create | Unit tests for all 5 `ComparisonStatus` kinds + 9 edge cases |
 | `packages/gateway/src/perf/pr-comment-formatter.ts` | Create | `formatPrComment()` returning the spec § 4.6 markdown body |
@@ -92,8 +92,8 @@ import {
 } from "./slo-thresholds.ts";
 
 describe("SLO_THRESHOLDS — schema invariants", () => {
-  test("contains exactly 27 rows", () => {
-    expect(SLO_THRESHOLDS.length).toBe(27);
+  test("contains exactly 29 rows", () => {
+    expect(SLO_THRESHOLDS.length).toBe(29);
   });
 
   test("every UX row is gated and has both refMax and ghaMax populated", () => {
@@ -329,7 +329,7 @@ git add packages/gateway/src/perf/slo-thresholds.ts packages/gateway/src/perf/sl
 git commit -m "$(cat <<'EOF'
 feat(perf): SLO_THRESHOLDS const as single source of truth
 
-PR-C-1 — 27-row threshold table for the bench harness. UX rows
+PR-C-1 — 29-row threshold table for the bench harness. UX rows
 populated from spec § 3.2; workload rows scaffolded with
 ghaMax: "tbd-c2" and gated: false until PR-C-2 fills them from
 the M1 Air reference run. Explicit `gated` boolean rather than
@@ -382,7 +382,7 @@ describe("compareAgainstHistory", () => {
   test("returns one entry per gated SLO row even when missing from current", () => {
     const current = fakeLine("gha-ubuntu", {});
     const out = compareAgainstHistory(current, null, SLO_THRESHOLDS, "gha-ubuntu");
-    // 27 rows total — every row should produce one comparison entry.
+    // 29 rows total — every row should produce one comparison entry.
     expect(out.length).toBe(SLO_THRESHOLDS.length);
   });
 
@@ -1799,7 +1799,7 @@ Create `scripts/regen-slo.ts`:
  * Layout: a header + caveat, a UX table (rows from spec § 3.2),
  * a workload table (S6/S7/S9/S10 + a single S8 collapsing row),
  * an S8 sub-table enumerating the 12 cells (D-N), and a generated-
- * doc footer. The comparator sees the flat 27-row array regardless;
+ * doc footer. The comparator sees the flat 29-row array regardless;
  * the doc layout is purely presentational.
  */
 

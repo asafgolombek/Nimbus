@@ -201,7 +201,7 @@ export interface SloThreshold {
 export const SLO_THRESHOLDS: readonly SloThreshold[];
 ```
 
-Row count: ~27 — 15 non-S8 surfaces (S1, S2-a/b/c, S3, S4, S5, S6-drive/gmail/github, S7-a/b/c, S9, S10, S11-a/b) plus the 12 S8 cross-product cells (`S8-l{50|500|5000}-b{1|8|32|64}`, expanded in PR-B-2b-2 per its plan D-4). UX rows populated from spec § 3.2 verbatim; workload rows (S6, S7, S8 cells, S9, S10) have `ghaMax: "tbd-c2"`. The const is the SSoT — `slo.md` is regenerated from it; CI verifies they match.
+Row count: 29 — 17 non-S8 surfaces (9 UX: S1, S2-a/b/c, S3, S4, S5, S11-a/b; 8 workload: S6-drive/gmail/github, S7-a/b/c, S9, S10) plus the 12 S8 cross-product cells (`S8-l{50|500|5000}-b{1|8|32|64}`, expanded in PR-B-2b-2 per its plan D-4). UX rows populated from spec § 3.2 verbatim; workload rows (S6, S7, S8 cells, S9, S10) have `ghaMax: "tbd-c2"`. The const is the SSoT — `slo.md` is regenerated from it; CI verifies they match.
 
 ### 5.2 `threshold-comparator.ts`
 
@@ -308,7 +308,7 @@ Structure:
    - **Logical-surface table (top-level):** 8 rows — S6-drive, S6-gmail, S6-github, S7-a, S7-b, S7-c, S9, S10 — plus one row labelled `S8 (12 cells, see § Workload › S8 cells below)`. Threshold cells say `TBD — Phase 2 reference run (PR-C-2)`. Citations cite spec § 3.2.
    - **S8 sub-table (under its own H3):** 12 rows enumerating each `S8-l{50|500|5000}-b{1|8|32|64}` cell. Same TBD treatment per cell. Reader gets the cross-product without bloating the top-level table.
 
-   The comparator sees the same 27-row flat array from `slo-thresholds.ts`; the doc layout is purely presentational.
+   The comparator sees the same 29-row flat array from `slo-thresholds.ts`; the doc layout is purely presentational.
 5. **Generated-doc footer.** "This file is generated from `packages/gateway/src/perf/slo-thresholds.ts`. Run `bun scripts/regen-slo.ts` after changing thresholds. CI verifies they match via `bun scripts/regen-slo.ts --check`."
 
 **`slo-ux.md` deletion.** Internal-only references; clean delete is fine. The one source-code reference (a comment in `packages/cli/src/tui/App.tsx:133`) is updated in the same diff to point at `slo.md`.
