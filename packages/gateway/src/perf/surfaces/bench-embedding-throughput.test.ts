@@ -75,4 +75,59 @@ describe("runEmbeddingThroughputOnce", () => {
       expect(calls[i]?.texts.length).toBe(8);
     }
   });
+
+  // CI matrix budget: when --corpus small is passed, S8 cells must downscale
+  // their workload so all 12 cells fit in the 45-min job timeout. The
+  // canonical 1000×batch workload is reserved for reference / --corpus large
+  // and would consume ~3 hours of CI wall-time across the matrix.
+  test("scales totalItems to 50 × batch when corpus is 'small'", async () => {
+    const { embedder, calls } = makeFakeEmbedder(0);
+    await runEmbeddingThroughputOnce({
+      length: 50,
+      batch: 8,
+      corpus: "small",
+      embedder,
+    });
+    // 50 × 8 = 400 items / batch 8 = 50 batched calls + 1 warm-up = 51
+    expect(calls.length).toBe(51);
+  });
+
+  test("scales totalItems to 250 × batch when corpus is 'medium'", async () => {
+    const { embedder, calls } = makeFakeEmbedder(0);
+    await runEmbeddingThroughputOnce({
+      length: 50,
+      batch: 1,
+      corpus: "medium",
+      embedder,
+    });
+    // 250 × 1 = 250 items / batch 1 = 250 batched calls + 1 warm-up = 251
+    expect(calls.length).toBe(251);
+  });
+
+  // 1001 fake-embed calls (each yielding to the event loop) exceed the
+  // 5 s default test timeout on slower CI runners; this test exercises a
+  // path with no real I/O so a longer cap is harmless.
+  test("preserves the canonical 1000 × batch default when corpus is unset", async () => {
+    const { embedder, calls } = makeFakeEmbedder(0);
+    await runEmbeddingThroughputOnce({
+      length: 50,
+      batch: 1,
+      embedder,
+    });
+    // 1000 × 1 = 1000 items / batch 1 = 1000 batched calls + 1 warm-up
+    expect(calls.length).toBe(1001);
+  }, 30_000);
+
+  test("explicit totalItems overrides the corpus-derived default", async () => {
+    const { embedder, calls } = makeFakeEmbedder(0);
+    await runEmbeddingThroughputOnce({
+      length: 50,
+      batch: 8,
+      corpus: "small",
+      totalItems: 16,
+      embedder,
+    });
+    // totalItems wins over corpus: 16 / 8 = 2 batched calls + 1 warm-up = 3
+    expect(calls.length).toBe(3);
+  });
 });

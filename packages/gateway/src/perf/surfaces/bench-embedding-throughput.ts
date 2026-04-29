@@ -18,20 +18,46 @@ import { join } from "node:path";
 import { createLocalEmbedder } from "../../embedding/model.ts";
 import type { Embedder } from "../../embedding/types.ts";
 import { synthesizeText } from "../fixtures/synthetic-text.ts";
-import type { S8Batch, S8Length } from "../types.ts";
+import type { CorpusTier, S8Batch, S8Length } from "../types.ts";
 
 export interface EmbeddingThroughputOptions {
   length: S8Length;
   batch: S8Batch;
-  /** Total items in the corpus per run. Default 1000 × batch (spec §6.3). */
+  /**
+   * Total items in the corpus per run. Default is `batch × multiplier`,
+   * where multiplier is corpus-derived (see `CORPUS_BATCH_MULTIPLIER`).
+   * Explicit values override the corpus-derived default.
+   */
   totalItems?: number;
+  /**
+   * Workload tier. Scales the default multiplier so CI matrix runs (which
+   * pass `--corpus small`) fit inside the 45-min per-OS job budget without
+   * sacrificing the canonical 1000×batch workload that the reference run
+   * (M1 Air, `--reference`) is calibrated against.
+   *   - small  →   50× batch   (CI budget)
+   *   - medium →  250× batch
+   *   - large  → 1000× batch   (canonical, matches unset)
+   * Unset preserves pre-existing 1000×batch behaviour for local-dev runs.
+   */
+  corpus?: CorpusTier;
   /** Test-injectable embedder; production uses createLocalEmbedder. */
   embedder?: Embedder;
   /** Override default model cache dir. */
   cacheDir?: string;
 }
 
+/** Canonical reference workload. Reserved for `--corpus large` and unset. */
 const DEFAULT_BATCH_MULTIPLIER = 1_000;
+
+const CORPUS_BATCH_MULTIPLIER: Record<CorpusTier, number> = {
+  small: 50,
+  medium: 250,
+  large: DEFAULT_BATCH_MULTIPLIER,
+};
+
+function resolveBatchMultiplier(corpus: CorpusTier | undefined): number {
+  return corpus === undefined ? DEFAULT_BATCH_MULTIPLIER : CORPUS_BATCH_MULTIPLIER[corpus];
+}
 
 async function getEmbedder(opts: EmbeddingThroughputOptions): Promise<Embedder> {
   if (opts.embedder !== undefined) return opts.embedder;
@@ -43,7 +69,7 @@ async function getEmbedder(opts: EmbeddingThroughputOptions): Promise<Embedder> 
 export async function runEmbeddingThroughputOnce(
   opts: EmbeddingThroughputOptions,
 ): Promise<number[]> {
-  const totalItems = opts.totalItems ?? opts.batch * DEFAULT_BATCH_MULTIPLIER;
+  const totalItems = opts.totalItems ?? opts.batch * resolveBatchMultiplier(opts.corpus);
   const texts = synthesizeText({ length: opts.length, count: totalItems });
   const embedder = await getEmbedder(opts);
 
