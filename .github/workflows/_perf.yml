@@ -90,6 +90,27 @@ jobs:
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
 
+      # The S1 / S4 / S6-* / S7-a / S7-b drivers spawn `bun packages/gateway/
+      # src/index.ts`. Gateway init calls `createPlatformServices()`, which on
+      # Linux requires `secret-tool` (libsecret-tools) and on macOS needs an
+      # unlocked Keychain. Without these the gateway exits 1 before printing
+      # `[gateway] ready`, and every spawn-based surface fails fast. Steps
+      # mirror `_test-suite.yml` (lines 54-72) — keep in sync.
+      - name: Linux — libsecret + D-Bus (gateway vault init)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
+
+      - name: macOS — Create and unlock CI Keychain (gateway vault init)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          security create-keychain -p "" nimbus-ci.keychain
+          security list-keychains -d user -s nimbus-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s nimbus-ci.keychain
+          security unlock-keychain -p "" nimbus-ci.keychain
+          security set-keychain-settings -lut 7200 nimbus-ci.keychain
+
       # Derive runner_id once. bench-ci.ts and the artifact upload BOTH
       # consume this id verbatim — earlier versions had divergent forms
       # (matrix OS for upload, normalised id for lookup) and the artifact
