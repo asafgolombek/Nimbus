@@ -97,7 +97,8 @@ describe("SLO_THRESHOLDS — schema invariants", () => {
 
   test("contains all 12 S8 cells", () => {
     const s8Ids = SLO_THRESHOLDS.map((r) => r.surfaceId).filter((id) => id.startsWith("S8-"));
-    expect((s8Ids as string[]).sort()).toEqual(
+    const cmp = (a: string, b: string): number => a.localeCompare(b);
+    expect((s8Ids as string[]).sort(cmp)).toEqual(
       [
         "S8-l50-b1",
         "S8-l50-b8",
@@ -111,7 +112,7 @@ describe("SLO_THRESHOLDS — schema invariants", () => {
         "S8-l5000-b8",
         "S8-l5000-b32",
         "S8-l5000-b64",
-      ].sort(),
+      ].sort(cmp),
     );
   });
 

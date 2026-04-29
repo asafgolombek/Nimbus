@@ -52,7 +52,9 @@ describe("GhCli", () => {
   test("runDownloadArtifact: passes run-id, --name, --dir", async () => {
     const { spawn, calls } = makeFakeRunner([{ exitCode: 0, stdout: "", stderr: "" }]);
     const gh = new GhCli({ spawn });
-    await gh.runDownloadArtifact({ runId: 42, name: "perf-ubuntu-24.04-abc", dir: "/tmp/prev" });
+    // The dir value is a fake argv string, never opened — `spawn` is mocked.
+    const fakeDir = "fake-prev-artifact-dir";
+    await gh.runDownloadArtifact({ runId: 42, name: "perf-ubuntu-24.04-abc", dir: fakeDir });
     expect(calls[0]?.args).toEqual([
       "run",
       "download",
@@ -60,7 +62,7 @@ describe("GhCli", () => {
       "--name",
       "perf-ubuntu-24.04-abc",
       "--dir",
-      "/tmp/prev",
+      fakeDir,
     ]);
   });
 
@@ -69,7 +71,7 @@ describe("GhCli", () => {
       { exitCode: 1, stdout: "", stderr: "no artifact found matching name" },
     ]);
     const gh = new GhCli({ spawn });
-    const ok = await gh.runDownloadArtifact({ runId: 42, name: "missing", dir: "/tmp/x" });
+    const ok = await gh.runDownloadArtifact({ runId: 42, name: "missing", dir: "fake-dir" });
     expect(ok).toBe(false);
   });
 
@@ -114,8 +116,10 @@ describe("GhCli", () => {
   test("prCommentCreate: passes --body-file path", async () => {
     const { spawn, calls } = makeFakeRunner([{ exitCode: 0, stdout: "", stderr: "" }]);
     const gh = new GhCli({ spawn });
-    await gh.prCommentCreate({ pr: 99, bodyFile: "/tmp/c.md" });
-    expect(calls[0]?.args).toEqual(["pr", "comment", "99", "--body-file", "/tmp/c.md"]);
+    // bodyFile is a fake argv string, never read — `spawn` is mocked.
+    const fakeBodyFile = "fake-comment-body.md";
+    await gh.prCommentCreate({ pr: 99, bodyFile: fakeBodyFile });
+    expect(calls[0]?.args).toEqual(["pr", "comment", "99", "--body-file", fakeBodyFile]);
   });
 
   test("prCommentEdit: uses gh api PATCH to edit issue comment", async () => {
