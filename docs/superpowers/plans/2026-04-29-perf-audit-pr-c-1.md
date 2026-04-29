@@ -1227,6 +1227,16 @@ export class GhCli {
     }
   }
 
+  /**
+   * Note on pagination: `gh pr view --json comments` returns the first
+   * page of comments (per GitHub's GraphQL connection default — typically
+   * 100). For PRs with >100 comments, our marker may not appear in the
+   * response and we'd post a duplicate. This is acceptable for v0.1.0
+   * because typical Nimbus PRs have well under 100 comments; if it
+   * becomes a problem, switch to the paginated REST endpoint
+   * `gh api repos/:owner/:repo/issues/:pr/comments?per_page=100` with
+   * explicit page traversal.
+   */
   async prCommentList(args: { pr: number }): Promise<{ id: string; body: string }[]> {
     const r = await this.#run([
       "pr", "view", String(args.pr),
@@ -1753,6 +1763,13 @@ describe("renderSloMarkdown", () => {
     }
   });
 
+  test("S8 sub-table includes the cell-ID gloss for non-perf readers", () => {
+    const md = renderSloMarkdown();
+    // The gloss must explain what `l<N>` and `b<N>` encode.
+    expect(md).toMatch(/`l` = .* (length|chars)/i);
+    expect(md).toMatch(/`b` = .* batch/i);
+  });
+
   test("contains the generated-doc footer", () => {
     const md = renderSloMarkdown();
     expect(md).toContain("This file is generated from `packages/gateway/src/perf/slo-thresholds.ts`");
@@ -1908,6 +1925,8 @@ function s8SubTable(): string {
   lines.push("### S8 cells");
   lines.push("");
   lines.push("12-cell cross-product of `(length × batch)`. Each cell is its own surface ID with its own threshold (set by PR-C-2).");
+  lines.push("");
+  lines.push("Cell IDs encode the parameters: `S8-l<chars>-b<batch>` where `l` = approximate text length in characters (50, 500, 5000) and `b` = batch size passed to `embedder.embed()` (1, 8, 32, 64). E.g., `S8-l500-b32` measures embedding throughput on 500-char texts in batches of 32.");
   lines.push("");
   lines.push("| Cell | Metric | Reference threshold | GHA threshold | Noise floor (rel %, abs) |");
   lines.push("|---|---|---|---|---|");
