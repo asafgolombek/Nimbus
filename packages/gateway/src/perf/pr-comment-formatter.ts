@@ -80,22 +80,19 @@ export function formatPrComment(
   current: HistoryLine,
   previous: HistoryLine | null,
 ): string {
-  const lines: string[] = [];
-  lines.push(`<!-- ${COMMENT_MARKER_PREFIX}:${current.runner} -->`);
-  lines.push(`### Performance benchmarks — ${current.runner}`);
-  lines.push("");
-  if (previous === null) {
-    lines.push(
-      "> First run on this runner; no delta available yet. The artifact is uploaded; subsequent runs will diff against it.",
-    );
-  } else {
-    lines.push(
-      `> Compared against main artifact \`${previous.nimbus_git_sha}\` (${previous.timestamp}).`,
-    );
-  }
-  lines.push("");
-  lines.push("| Surface | Metric | Previous | Current | Δ | Status |");
-  lines.push("|---|---|---|---|---|---|");
+  const baselineNote =
+    previous === null
+      ? "> First run on this runner; no delta available yet. The artifact is uploaded; subsequent runs will diff against it."
+      : `> Compared against main artifact \`${previous.nimbus_git_sha}\` (${previous.timestamp}).`;
+  const lines: string[] = [
+    `<!-- ${COMMENT_MARKER_PREFIX}:${current.runner} -->`,
+    `### Performance benchmarks — ${current.runner}`,
+    "",
+    baselineNote,
+    "",
+    "| Surface | Metric | Previous | Current | Δ | Status |",
+    "|---|---|---|---|---|---|",
+  ];
   for (const c of comparisons) {
     const cur = readSurfaceMetric(current, c.surfaceId, c.metric);
     const prev = previous === null ? undefined : readSurfaceMetric(previous, c.surfaceId, c.metric);

@@ -130,65 +130,48 @@ const FOOTER = `
 *This file is generated from \`packages/gateway/src/perf/slo-thresholds.ts\`. Run \`bun scripts/regen-slo.ts\` after changing thresholds. CI runs \`bun scripts/regen-slo.ts --check\` to fail the build on drift.*
 `;
 
+const TABLE_HEADER =
+  "| Surface | Metric | Reference threshold | GHA threshold | Noise floor (rel %, abs) |";
+const TABLE_DIVIDER = "|---|---|---|---|---|";
+
 function uxTable(): string {
-  const lines: string[] = [];
-  lines.push("## UX surfaces");
-  lines.push("");
-  lines.push(
-    "| Surface | Metric | Reference threshold | GHA threshold | Noise floor (rel %, abs) |",
-  );
-  lines.push("|---|---|---|---|---|");
-  for (const t of SLO_THRESHOLDS) {
-    if (!UX_IDS.has(t.surfaceId)) continue;
+  const rows = SLO_THRESHOLDS.filter((t) => UX_IDS.has(t.surfaceId)).map((t) => {
     const f = fmtRow(t);
-    lines.push(
-      `| ${t.surfaceId} | ${t.metric} | **${f.refMax}** | ${f.ghaMax} | ${f.noiseFloor} |`,
-    );
-  }
-  return lines.join("\n");
+    return `| ${t.surfaceId} | ${t.metric} | **${f.refMax}** | ${f.ghaMax} | ${f.noiseFloor} |`;
+  });
+  return ["## UX surfaces", "", TABLE_HEADER, TABLE_DIVIDER, ...rows].join("\n");
 }
 
 function workloadTable(): string {
-  const lines: string[] = [];
-  lines.push("## Workload surfaces");
-  lines.push("");
-  lines.push(
-    "| Surface | Metric | Reference threshold | GHA threshold | Noise floor (rel %, abs) |",
-  );
-  lines.push("|---|---|---|---|---|");
+  const rows: string[] = [];
   for (const id of WORKLOAD_NON_S8_IDS) {
     const t = SLO_THRESHOLDS.find((r) => r.surfaceId === id);
     if (t === undefined) continue;
     const f = fmtRow(t);
-    lines.push(`| ${id} | ${t.metric} | ${f.refMax} | ${f.ghaMax} | ${f.noiseFloor} |`);
+    rows.push(`| ${id} | ${t.metric} | ${f.refMax} | ${f.ghaMax} | ${f.noiseFloor} |`);
   }
   // Collapsed S8 row
-  lines.push(
+  rows.push(
     `| S8 (12 cells, see § Workload › S8 cells below) | throughput_per_sec | TBD | TBD — Phase 2 reference run (PR-C-2) | 25 %, 5 items/sec |`,
   );
-  return lines.join("\n");
+  return ["## Workload surfaces", "", TABLE_HEADER, TABLE_DIVIDER, ...rows].join("\n");
 }
 
+const S8_HEADER =
+  "| Cell | Metric | Reference threshold | GHA threshold | Noise floor (rel %, abs) |";
+const S8_GLOSS =
+  "Cell IDs encode the parameters: `S8-l<chars>-b<batch>` where `l` = approximate text length in characters (50, 500, 5000) and `b` = batch size passed to `embedder.embed()` (1, 8, 32, 64). E.g., `S8-l500-b32` measures embedding throughput on 500-char texts in batches of 32.";
+const S8_INTRO =
+  "12-cell cross-product of `(length × batch)`. Each cell is its own surface ID with its own threshold (set by PR-C-2).";
+
 function s8SubTable(): string {
-  const lines: string[] = [];
-  lines.push("### S8 cells");
-  lines.push("");
-  lines.push(
-    "12-cell cross-product of `(length × batch)`. Each cell is its own surface ID with its own threshold (set by PR-C-2).",
-  );
-  lines.push("");
-  lines.push(
-    "Cell IDs encode the parameters: `S8-l<chars>-b<batch>` where `l` = approximate text length in characters (50, 500, 5000) and `b` = batch size passed to `embedder.embed()` (1, 8, 32, 64). E.g., `S8-l500-b32` measures embedding throughput on 500-char texts in batches of 32.",
-  );
-  lines.push("");
-  lines.push("| Cell | Metric | Reference threshold | GHA threshold | Noise floor (rel %, abs) |");
-  lines.push("|---|---|---|---|---|");
-  for (const t of SLO_THRESHOLDS) {
-    if (!t.surfaceId.startsWith("S8-")) continue;
+  const rows = SLO_THRESHOLDS.filter((t) => t.surfaceId.startsWith("S8-")).map((t) => {
     const f = fmtRow(t);
-    lines.push(`| ${t.surfaceId} | ${t.metric} | ${f.refMax} | ${f.ghaMax} | ${f.noiseFloor} |`);
-  }
-  return lines.join("\n");
+    return `| ${t.surfaceId} | ${t.metric} | ${f.refMax} | ${f.ghaMax} | ${f.noiseFloor} |`;
+  });
+  return ["### S8 cells", "", S8_INTRO, "", S8_GLOSS, "", S8_HEADER, TABLE_DIVIDER, ...rows].join(
+    "\n",
+  );
 }
 
 export function renderSloMarkdown(): string {

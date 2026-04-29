@@ -54,7 +54,7 @@ function readMetric(
 }
 
 function isStub(s: HistoryLineSurface | undefined): boolean {
-  return s !== undefined && s.samples_count === 0;
+  return s?.samples_count === 0;
 }
 
 function classifySkip(slo: SloThreshold, runner: RunnerKind): ComparisonStatus | null {
@@ -71,6 +71,11 @@ function classifySkip(slo: SloThreshold, runner: RunnerKind): ComparisonStatus |
     return { kind: "skipped", reason: "tbd-c2" };
   }
   return null;
+}
+
+function pickAbsoluteThreshold(slo: SloThreshold, runner: RunnerKind): number | undefined {
+  if (runner === "reference-m1air") return slo.refMax;
+  return typeof slo.ghaMax === "number" ? slo.ghaMax : undefined;
 }
 
 function compareOne(
@@ -91,12 +96,7 @@ function compareOne(
   }
 
   // Absolute check — only meaningful when ghaMax is numeric.
-  const threshold =
-    runner === "reference-m1air"
-      ? slo.refMax
-      : typeof slo.ghaMax === "number"
-        ? slo.ghaMax
-        : undefined;
+  const threshold = pickAbsoluteThreshold(slo, runner);
   if (threshold !== undefined && measured > threshold) {
     return { kind: "absolute-fail", measured, threshold };
   }
