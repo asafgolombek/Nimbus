@@ -163,4 +163,36 @@ describe("runBenchCiMain", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("artifact-name format passed to `gh run download` is `perf-${runner}-${sha}` (regression for C1)", async () => {
+    // C1 was a load-bearing bug: bench-ci.ts stripped `gha-` from the runner
+    // when constructing the artifact name (`perf-ubuntu-<sha>`), but the
+    // upload step in `_perf.yml` used the matrix OS (`perf-ubuntu-24.04-<sha>`).
+    // Names never matched, so every PR-comment delta said "no baseline yet"
+    // forever. This test pins the format on the lookup side; the upload
+    // side is pinned by the hand-aligned comment in `_perf.yml`.
+    const dir = mkdtempSync(join(tmpdir(), "bench-ci-"));
+    try {
+      const currentPath = writeHistory(dir, "current.jsonl", passingLine);
+      const { spawn, calls } = spawnSequence([
+        { exitCode: 0, stdout: "42\n", stderr: "" }, // gh run list → 42
+        { exitCode: 0, stdout: "deadbeef\n", stderr: "" }, // gh run view 42 → headSha
+        // gh run download — artifact missing path, returns "no artifact found"
+        { exitCode: 1, stdout: "", stderr: "no artifact found matching name" },
+      ]);
+      await runBenchCiMain(["--current", currentPath, "--runner", "gha-ubuntu"], {
+        gh: new GhCli({ spawn, sleep: async () => {} }),
+        env: { GITHUB_EVENT_NAME: "push" },
+      });
+      const downloadCall = calls.find((c) => c.args[0] === "run" && c.args[1] === "download");
+      expect(downloadCall).toBeDefined();
+      // The exact `--name` value must match the upload format from
+      // `.github/workflows/_perf.yml` step "Upload run history artifact".
+      const nameIdx = downloadCall!.args.indexOf("--name");
+      expect(nameIdx).toBeGreaterThanOrEqual(0);
+      expect(downloadCall!.args[nameIdx + 1]).toBe("perf-gha-ubuntu-deadbeef");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

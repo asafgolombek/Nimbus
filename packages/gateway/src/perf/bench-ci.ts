@@ -56,9 +56,14 @@ function parseArgs(args: string[]): ParsedArgs {
 }
 
 function parseHistoryFile(path: string): HistoryLine {
-  const raw = readFileSync(path, "utf8").trim();
-  // bench-runner.ts writes one HistoryLine per file in --history mode.
-  return JSON.parse(raw) as HistoryLine;
+  // history.jsonl is append-only — read the last non-empty line. Earlier
+  // lines may exist when a SIGTERM-incomplete entry was written before a
+  // complete one, or when the path is reused across runs.
+  const raw = readFileSync(path, "utf8");
+  const lines = raw.split("\n").filter((s) => s.trim() !== "");
+  const last = lines[lines.length - 1];
+  if (last === undefined) throw new Error(`history file is empty: ${path}`);
+  return JSON.parse(last) as HistoryLine;
 }
 
 function readPullRequestNumber(env: Record<string, string | undefined>): number | null {
@@ -98,7 +103,12 @@ async function resolvePreviousArtifact(
   if (prevSha === null) return null;
 
   mkdirSync(prevDir, { recursive: true });
-  const artifactName = `perf-${runner.replace(/^gha-/, "")}-${prevSha}`;
+  // Artifact name must match the upload step in `.github/workflows/_perf.yml`.
+  // We use the full runner kind (e.g. `gha-ubuntu`) on both sides — see
+  // `runner_id` derivation in the workflow's "Compare" step. Earlier
+  // versions stripped `gha-` here, but the upload kept the matrix OS
+  // version (`ubuntu-24.04`), causing every download to silently 404.
+  const artifactName = `perf-${runner}-${prevSha}`;
   let downloaded = false;
   try {
     downloaded = await gh.runDownloadArtifact({ runId, name: artifactName, dir: prevDir });
