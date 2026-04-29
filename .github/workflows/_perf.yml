@@ -1,0 +1,117 @@
+name: Performance Benchmarks
+
+# Triggers (spec § 4.3):
+#   - push to main: writes the per-OS baseline artifact subsequent PRs diff against.
+#   - schedule (nightly cron): always run.
+#   - pull_request: run only when labels include `perf` (auto-applied by labeler.yml
+#     on changes under packages/gateway/src/{engine,db,embedding,connectors,llm,voice,perf}/**).
+#
+# Cost discipline (spec § 4.3, D-H): if budget pressure ever requires reducing
+# the matrix to "ubuntu-only nightly + macos / windows once per week", change
+# the macos / windows matrix entries to use:
+#     if: github.event.schedule == '0 4 * * 0' || github.event_name != 'schedule'
+# That gates them on a weekly cron AND keeps PR runs full-coverage. Not pre-wired —
+# we flip when (and only if) we hit the cap.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "0 4 * * *"
+
+permissions:
+  contents: read
+  pull-requests: write   # for `gh pr comment` upsert in bench-ci.ts
+  actions: read          # for `gh run list` + `gh run view` + `gh run download`
+
+concurrency:
+  # Spec § 4.3 — do not skew measurements by cancelling a running matrix.
+  group: bench-${{ github.workflow }}-${{ matrix.os }}
+  cancel-in-progress: false
+
+jobs:
+  detect-trigger:
+    name: Decide whether to run the bench matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        run: |
+          set -euo pipefail
+          case "${GITHUB_EVENT_NAME}" in
+            push|schedule)
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            pull_request)
+              # Only run when the `perf` label is on the PR.
+              labels="${{ join(github.event.pull_request.labels.*.name, ' ') }}"
+              if echo "$labels" | tr ' ' '\n' | grep -Fxq "perf"; then
+                echo "run=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "run=false" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            *)
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+  benchmark:
+    needs: detect-trigger
+    if: needs.detect-trigger.outputs.run == 'true'
+    name: Bench (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Run bench
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/perf-fixtures"
+          bun packages/gateway/src/perf/bench-runner.ts \
+            --all --gha --runs 5 --corpus small \
+            --history "${RUNNER_TEMP}/run-history.jsonl" \
+            --fixture-cache "${RUNNER_TEMP}/perf-fixtures"
+
+      - name: Upload run history artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/run-history.jsonl
+          retention-days: 90
+
+      - name: Compare + post PR-comment delta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          runner_id="gha-${RUNNER_OS}"
+          # Normalise: bench-ci.ts expects gha-ubuntu / gha-macos / gha-windows.
+          case "${RUNNER_OS}" in
+            Linux)   runner_id="gha-ubuntu" ;;
+            macOS)   runner_id="gha-macos" ;;
+            Windows) runner_id="gha-windows" ;;
+          esac
+          bun packages/gateway/src/perf/bench-ci.ts \
+            --current "${RUNNER_TEMP}/run-history.jsonl" \
+            --runner "$runner_id"
