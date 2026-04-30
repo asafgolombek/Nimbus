@@ -132,15 +132,19 @@ const NON_S8_THRESHOLDS: readonly SloThreshold[] = [
     metric: "p95_ms",
     refMax: 50,
     // Spec § 3.2 originally proposed `ghaMax: 250` (5× refMax). Empirical
-    // GHA data on PR-C-1 shows Linux ~190-210 ms but Windows ~287 ms — Bun
-    // process-spawn overhead on `windows-2025` is intrinsically higher than
-    // on `ubuntu-24.04`, so the 5× rule of thumb breaks down on fast UX
-    // surfaces where OS spawn cost dominates. Bumped to 400 ms (≈8× refMax,
-    // ~40 % headroom over observed Windows p95) so the GHA threshold is
-    // achievable on all three runners. Refines spec § 3.2; the `refMax`
-    // budget is unchanged (PR-C-2 will recalibrate from a real M1 Air
-    // measurement).
-    ghaMax: 400,
+    // GHA data on PR-C-1 / PR-C-2a shows Linux ~190-210 ms, macOS ~135-
+    // 195 ms, and Windows 359-425 ms across recent runs — Bun process-spawn
+    // overhead on `windows-2025` is intrinsically higher than on
+    // `ubuntu-24.04`, and the runner exhibits ≈18 % p95-to-p95 variance
+    // across same-sha runs (359 → 425 ms). The 5× rule of thumb breaks
+    // down on fast UX surfaces where OS spawn cost dominates. Bumped to
+    // 600 ms (12× refMax, ~40 % headroom over the observed Windows peak
+    // of 425 ms) so the GHA threshold is achievable on all three runners
+    // without false-failing on Windows infrastructure noise. Refines
+    // spec § 3.2; the `refMax` budget is unchanged (PR-C-2 will
+    // recalibrate from a real M1 Air measurement). The `gated: true`
+    // delta check (`noiseFloorPct: 25`) still catches a real regression.
+    ghaMax: 600,
     gated: true,
     noiseFloorPct: 25,
     noiseFloorAbs: 10,
