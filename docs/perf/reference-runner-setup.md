@@ -82,11 +82,11 @@ For persistent installations: stop the launchd service first (`./svc.sh stop && 
 
 ## Security notes
 
-**Public-repo self-hosted runner risk.** GitHub's documented guidance discourages self-hosted runners on public repos because any PR (including from forks) can run workflows on the runner — a remote-code-execution vector. Three structural mitigations apply here:
+**Public-repo self-hosted runner risk.** GitHub's documented guidance discourages self-hosted runners on public repos because any PR (including from forks) can run workflows on the runner — a remote-code-execution vector. One structural mitigation and two procedural controls apply here:
 
 1. **`workflow_dispatch` only.** `_perf-reference.yml` has no `pull_request` or `push` trigger. Forks cannot dispatch a workflow run; only repo collaborators with `actions: write` permission can. This is the primary defence.
-2. **Repo settings.** Verify under **Settings → Actions → General**: "Require approval for first-time contributors" or stricter is enabled. This blocks any future workflow that *does* fire on `pull_request` from running on the self-hosted runner without maintainer approval.
-3. **No other workflow targets the `reference-m1air` label.** Search the repo (`grep -rn "reference-m1air" .github/`) before adding any new workflow. Only `_perf-reference.yml` should match.
+2. **Repo settings.** Verify under **Settings → Actions → General**: "Require approval for first-time contributors" or stricter is enabled. This blocks any future workflow that *does* fire on `pull_request` from running on the self-hosted runner without maintainer approval. (Procedural — depends on the setting being maintained correctly over the repo's lifetime.)
+3. **No other workflow targets the `reference-m1air` label.** Search the repo (`grep -rn "reference-m1air" .github/`) before adding any new workflow. Only `_perf-reference.yml` should match. (Procedural — relies on maintainer diligence; consider adding a CI check that fails if any other workflow file references the label.)
 
 **One-shot vs persistent setup.**
 
@@ -98,4 +98,4 @@ For persistent installations: stop the launchd service first (`./svc.sh stop && 
 **Token hygiene.**
 - Never check the registration token into git or copy it into any persistent file. The token expires in ~1 hour.
 - The runner has access to repo write tokens during workflow execution (`GITHUB_TOKEN`). The `_perf-reference.yml` workflow's `permissions:` block scopes that to `contents: write` + `pull-requests: write` — no `actions: write`, no organisation-level scopes.
-- `gh auth login`'s saved token (used by the operator before runner registration) lives in `~/.config/gh/hosts.yml`. Treat it like any OAuth credential.
+- `gh auth login` (used by the operator before runner registration) stores the token in the macOS Keychain by default; `~/.config/gh/hosts.yml` exists but holds only a pointer (or the raw token if `--insecure-storage` was used or the Keychain was unavailable). Treat the saved token like any OAuth credential — revoke via `gh auth logout` when done.
