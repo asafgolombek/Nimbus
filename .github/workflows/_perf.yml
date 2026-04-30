@@ -74,6 +74,9 @@ jobs:
     # Spec § 4.3 — do not skew measurements by cancelling a running matrix.
     # Group by (workflow, os, ref) so different branches don't queue behind
     # each other but two pushes on the same branch+OS serialise.
+    # Note: on Mon–Sat nightlies, macOS/Windows provision-then-skip (~2 min)
+    # before releasing their concurrency slot. A same-branch push arriving
+    # during that window queues briefly; accepted trade-off per D-W.
     concurrency:
       group: bench-${{ github.workflow }}-${{ matrix.os }}-${{ github.ref }}
       cancel-in-progress: false
