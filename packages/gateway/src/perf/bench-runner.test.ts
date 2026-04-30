@@ -52,4 +52,62 @@ describe("runBenchRunnerMain", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("--protocol-confirmed allows --reference to proceed without interactive prompt", async () => {
+    const dir = freshDir();
+    const historyPath = join(dir, "history.jsonl");
+    try {
+      const exitCode = await runBenchRunnerMain([
+        "--surface",
+        "S2-a",
+        "--runs",
+        "1",
+        "--corpus",
+        "small",
+        "--reference",
+        "--protocol-confirmed",
+        "--history",
+        historyPath,
+        "--fixture-cache",
+        dir,
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(readFileSync(historyPath, "utf8").trim());
+      expect(parsed.runner).toBe("reference-m1air");
+      expect(parsed.reference_protocol_compliant).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--reference without --protocol-confirmed refuses to record (default still gates)", async () => {
+    const dir = freshDir();
+    const historyPath = join(dir, "history.jsonl");
+    try {
+      const exitCode = await runBenchRunnerMain([
+        "--surface",
+        "S2-a",
+        "--runs",
+        "1",
+        "--corpus",
+        "small",
+        "--reference",
+        "--history",
+        historyPath,
+        "--fixture-cache",
+        dir,
+      ]);
+      expect(exitCode).not.toBe(0);
+      // history.jsonl must not exist or must be empty when the gate trips.
+      let contents = "";
+      try {
+        contents = readFileSync(historyPath, "utf8");
+      } catch {
+        // file absent is also acceptable — the orchestrator refused before writing
+      }
+      expect(contents.trim()).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

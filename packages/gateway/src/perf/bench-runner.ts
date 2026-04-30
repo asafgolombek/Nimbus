@@ -43,7 +43,9 @@ Flags:
   --all               run every registered surface
   --corpus <tier>     small | medium | large
   --runs <N>          per-surface invocations (default 5)
-  --reference         tag as reference-m1air (requires interactive protocol confirm)
+  --reference         tag as reference-m1air (interactive protocol confirm by default)
+  --protocol-confirmed  non-interactive §4.2 protocol confirmation; intended for CI
+                        dispatch from .github/workflows/_perf-reference.yml
   --gha               tag as gha-<os> (auto-derived from process.platform)
   --history <path>    history.jsonl override
   --fixture-cache <p> fixture cache dir override
@@ -78,14 +80,19 @@ export async function runBenchRunnerMain(
     return 0;
   }
 
+  // Strip --protocol-confirmed before runBenchCli sees args; capture its
+  // presence to wire confirmReferenceProtocol non-interactively (D-X).
+  const protocolConfirmed = hasFlag(args, "--protocol-confirmed");
+  const cliArgs = protocolConfirmed ? args.filter((a) => a !== "--protocol-confirmed") : args;
+
   const historyPath =
     deps.historyPath ??
-    takeFlag(args, "--history") ??
+    takeFlag(cliArgs, "--history") ??
     join(process.cwd(), "docs/perf/history.jsonl");
-  const fixtureCacheDir = takeFlag(args, "--fixture-cache");
+  const fixtureCacheDir = takeFlag(cliArgs, "--fixture-cache");
 
   const runId = randomUUID();
-  const runner = detectRunner(args);
+  const runner = detectRunner(cliArgs);
 
   const ctxFactory = (): IncompleteContext => ({
     runId,
@@ -98,10 +105,11 @@ export async function runBenchRunnerMain(
   const uninstall = installIncompleteSignalHandler(historyPath, ctxFactory);
 
   try {
-    return await runBenchCli(args, {
+    return await runBenchCli(cliArgs, {
       runId,
       historyPath,
       ...(fixtureCacheDir !== undefined && { fixtureCacheDir }),
+      ...(protocolConfirmed && { confirmReferenceProtocol: () => true }),
       stdout,
       stderr: (s) => process.stderr.write(`${s}\n`),
     });
