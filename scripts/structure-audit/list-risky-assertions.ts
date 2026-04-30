@@ -3,7 +3,7 @@
 // Informational — output goes into deferred-backlog as type-safety debt.
 // No exit-non-zero behaviour. Always exits 0.
 
-import { auditOutputPath, iterateSourceFiles } from "./lib.ts";
+import { auditOutputPath, iterateSourceFiles, stripComments } from "./lib.ts";
 
 export type Hit = { file: string; line: number; snippet: string };
 
@@ -14,7 +14,8 @@ const RE = /\bas\s+(?!const\b|unknown\b)([A-Za-z_][A-Za-z0-9_]*)/g;
 
 export function findRiskyAssertions(file: string, src: string): Hit[] {
   const hits: Hit[] = [];
-  const lines = src.split("\n");
+  const stripped = stripComments(src);
+  const lines = stripped.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] as string;
     RE.lastIndex = 0;
@@ -32,8 +33,12 @@ async function run(): Promise<void> {
   for await (const f of iterateSourceFiles()) {
     all.push(...findRiskyAssertions(f.relPath, f.contents));
   }
-  // Sort by file, line.
-  all.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  // Sort by file, line. Use lexicographic bit-compare (NOT localeCompare) so
+  // ordering is deterministic across locales and OSes.
+  all.sort((a, b) => {
+    if (a.file !== b.file) return a.file < b.file ? -1 : 1;
+    return a.line - b.line;
+  });
   const outPath = auditOutputPath("risky-assertions.json");
   await Bun.write(outPath, `${JSON.stringify(all, null, 2)}\n`);
   console.log(`risky assertions: ${all.length} → ${outPath}`);

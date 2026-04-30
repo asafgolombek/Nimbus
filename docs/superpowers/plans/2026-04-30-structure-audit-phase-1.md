@@ -522,6 +522,17 @@ describe("stripComments", () => {
   test("strips line comment after a string", () => {
     expect(stripComments('const u = "x"; // any')).toBe('const u = "x"; ');
   });
+  test("preserves newlines inside block comments", () => {
+    // D9 (list-risky-assertions) maps regex matches back to original line
+    // numbers via stripped.split("\n"). A multi-line block comment must
+    // contribute the same newline count as the original so downstream line
+    // numbers don't shift.
+    const src = "/*\n line1\n line2\n*/\nconst x = y as Foo;";
+    const stripped = stripComments(src);
+    expect(stripped.split("\n").length).toBe(src.split("\n").length);
+    // The cast still appears on line 5 (1-indexed) of the stripped output.
+    expect(stripped.split("\n")[4]).toBe("const x = y as Foo;");
+  });
 });
 
 describe("countAnyInSource", () => {
@@ -576,6 +587,12 @@ export const REPO_ROOT = resolve(import.meta.dir, "..", "..");
  * recurse into the expression because comments inside an expression are also
  * not in code we want to strip from the count.
  *
+ * Newline-preserving: line comments are replaced by a single trailing `\n`
+ * (the loop emits the newline on the next pass), and block comments are
+ * replaced by exactly the newlines they contained. Downstream callers that
+ * map regex matches back to line numbers (D9) therefore stay correct even
+ * when a multi-line block comment precedes a real cast.
+ *
  * Not a full TypeScript tokenizer. The audit's contract is "stable count across
  * runs"; this implementation also satisfies "doesn't strip from string contents".
  *
@@ -606,6 +623,12 @@ export function stripComments(src: string): string {
     if (c === "/" && next === "*") {
       const end = src.indexOf("*/", i + 2);
       if (end === -1) break;
+      // Preserve newlines inside the block so downstream line-number
+      // reporting stays correct (D9 maps regex hits back to line numbers).
+      const block = src.slice(i, end + 2);
+      for (let j = 0; j < block.length; j++) {
+        if (block[j] === "\n") out += "\n";
+      }
       i = end + 2;
       continue;
     }
@@ -899,7 +922,7 @@ Create `scripts/structure-audit/list-risky-assertions.ts`:
 // Informational — output goes into deferred-backlog as type-safety debt.
 // No exit-non-zero behaviour. Always exits 0.
 
-import { auditOutputPath, iterateSourceFiles } from "./lib.ts";
+import { auditOutputPath, iterateSourceFiles, stripComments } from "./lib.ts";
 
 export type Hit = { file: string; line: number; snippet: string };
 
@@ -910,7 +933,12 @@ const RE = /\bas\s+(?!const\b|unknown\b)([A-Za-z_][A-Za-z0-9_]*)/g;
 
 export function findRiskyAssertions(file: string, src: string): Hit[] {
   const hits: Hit[] = [];
-  const lines = src.split("\n");
+  // Strip comments so commented-out casts and CLI help text in `// ...`
+  // banners aren't flagged. stripComments preserves newlines (both for `//`
+  // line comments and `/* ... */` block comments) so reported line numbers
+  // stay aligned with the original source.
+  const stripped = stripComments(src);
+  const lines = stripped.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] as string;
     let m: RegExpExecArray | null;
@@ -927,8 +955,12 @@ async function run(): Promise<void> {
   for await (const f of iterateSourceFiles()) {
     all.push(...findRiskyAssertions(f.relPath, f.contents));
   }
-  // Sort by file, line.
-  all.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  // Sort by file, line. Use lexicographic bit-compare (NOT localeCompare) so
+  // ordering is deterministic across locales and OSes.
+  all.sort((a, b) => {
+    if (a.file !== b.file) return a.file < b.file ? -1 : 1;
+    return a.line - b.line;
+  });
   const outPath = auditOutputPath("risky-assertions.json");
   await Bun.write(outPath, JSON.stringify(all, null, 2) + "\n");
   console.log(`risky assertions: ${all.length} → ${outPath}`);

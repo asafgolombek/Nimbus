@@ -15,6 +15,12 @@ export const REPO_ROOT = resolve(import.meta.dir, "..", "..");
  * recurse into the expression because comments inside an expression are also
  * not in code we want to strip from the count.
  *
+ * Newline-preserving: line comments are replaced by a single trailing `\n`
+ * (the loop emits the newline on the next pass), and block comments are
+ * replaced by exactly the newlines they contained. Downstream callers that
+ * map regex matches back to line numbers (D9) therefore stay correct even
+ * when a multi-line block comment precedes a real cast.
+ *
  * Not a full TypeScript tokenizer. The audit's contract is "stable count across
  * runs"; this implementation also satisfies "doesn't strip from string contents".
  *
@@ -45,6 +51,12 @@ export function stripComments(src: string): string {
     if (c === "/" && next === "*") {
       const end = src.indexOf("*/", i + 2);
       if (end === -1) break;
+      // Preserve newlines inside the block so downstream line-number
+      // reporting stays correct (D9 maps regex hits back to line numbers).
+      const block = src.slice(i, end + 2);
+      for (let j = 0; j < block.length; j++) {
+        if (block[j] === "\n") out += "\n";
+      }
       i = end + 2;
       continue;
     }
