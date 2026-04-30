@@ -78,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           # 1. Exactly one file modified (no incidental edits).
-          changed=$(git status --porcelain | awk '{print $2}')
+          changed=$(git status --porcelain | awk '{print $NF}')
           if [[ "$changed" != "docs/perf/history.jsonl" ]]; then
             echo "::error::Expected only docs/perf/history.jsonl to change; got:"
             git status --porcelain
@@ -115,6 +115,16 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Pre-check: branch must not already exist on origin. If it does,
+          # the operator is likely re-dispatching after a partial failure;
+          # tell them exactly what to do rather than failing with a
+          # cryptic git push rejection.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "::error::Branch $BRANCH already exists on origin. If re-running after a partial failure, delete it first:"
+            echo "  git push origin --delete $BRANCH"
+            echo "Or wait until tomorrow for a fresh branch name."
+            exit 1
+          fi
           git checkout -b "$BRANCH"
           git add docs/perf/history.jsonl
           git commit -m "perf: reference benchmark run $(date -u +%Y-%m-%d) (${GITHUB_SHA::7})"
