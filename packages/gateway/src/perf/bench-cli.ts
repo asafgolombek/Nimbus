@@ -97,10 +97,20 @@ const SURFACE_REGISTRY: Partial<Record<BenchSurfaceId, DriverFn>> = {
 // S8 cross-product: 12 cells via (length × batch). Spec §6.3, plan D-4.
 // `for...of` with `const` captures `length`/`batch` per-iteration, so each
 // closure binds its own pair — no shared-state hazard.
+//
+// `opts.corpus` is forwarded so each cell scales its workload to the tier
+// passed via `--corpus`: CI (`--corpus small`) gets the 50×batch workload
+// that fits inside the 45-min job budget; reference / `--corpus large`
+// keeps the canonical 1000×batch workload the SLO is calibrated against.
 for (const length of S8_LENGTHS) {
   for (const batch of S8_BATCHES) {
     const id = `S8-l${length}-b${batch}` as BenchSurfaceId;
-    SURFACE_REGISTRY[id] = () => runEmbeddingThroughputOnce({ length, batch });
+    SURFACE_REGISTRY[id] = (opts) =>
+      runEmbeddingThroughputOnce({
+        length,
+        batch,
+        ...(opts.corpus !== undefined && { corpus: opts.corpus }),
+      });
   }
 }
 

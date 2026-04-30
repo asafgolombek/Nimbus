@@ -28,3 +28,14 @@
   - changed-files:
     - any-glob-to-any-file: '.github/**/*'
     - any-glob-to-any-file: 'scripts/ci/**/*'
+
+'perf':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'packages/gateway/src/engine/**'
+      - 'packages/gateway/src/db/**'
+      - 'packages/gateway/src/embedding/**'
+      - 'packages/gateway/src/connectors/**'
+      - 'packages/gateway/src/llm/**'
+      - 'packages/gateway/src/voice/**'
+      - 'packages/gateway/src/perf/**'

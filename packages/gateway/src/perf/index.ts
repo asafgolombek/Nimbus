@@ -1,5 +1,7 @@
 // packages/gateway/src/perf/index.ts
 
+export { type RunBenchCiDeps, runBenchCiMain } from "./bench-ci.ts";
+export { GhCli, type GhCliOptions, type GhSpawnFn, type GhSpawnResult } from "./bench-ci-gh.ts";
 export { type BenchCliDeps, LINUX_ONLY_THRESHOLDS, runBenchCli } from "./bench-cli.ts";
 export { runBench, type SurfaceFn } from "./bench-harness.ts";
 export {
@@ -20,6 +22,10 @@ export {
 export { computePercentiles, type PercentileResult } from "./percentiles.ts";
 export { buildSyntheticIndex, FIXTURE_SEED, FIXTURE_TIER_SIZES } from "./perf-fixture.ts";
 export {
+  COMMENT_MARKER_PREFIX,
+  formatPrComment,
+} from "./pr-comment-formatter.ts";
+export {
   type SpawnAndTimeOptions,
   type SpawnMode,
   spawnAndTimeToMarker,
@@ -34,6 +40,11 @@ export {
   installIncompleteSignalHandler,
   writeIncompleteLine,
 } from "./signal-handler.ts";
+export {
+  SLO_THRESHOLDS,
+  type SloThreshold,
+  thresholdsBySurface,
+} from "./slo-thresholds.ts";
 export {
   CLI_COLD_SAMPLES_PER_RUN,
   runCliOverheadColdOnce,
@@ -108,6 +119,12 @@ export {
   type WorkerLoopOptions,
   type WorkerMsg as SqliteWorkerWorkerMsg,
 } from "./surfaces/sqlite-worker-shared.ts";
+export {
+  type ComparisonStatus,
+  compareAgainstHistory,
+  isFailingComparison,
+  type SurfaceComparison,
+} from "./threshold-comparator.ts";
 export {
   type BenchResultKind,
   type BenchRunOptions,
