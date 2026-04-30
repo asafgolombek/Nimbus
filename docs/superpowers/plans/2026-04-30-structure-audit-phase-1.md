@@ -422,7 +422,7 @@ Create `knip.json`:
       "ignore": ["**/*.test.ts"]
     },
     "packages/gateway": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "entry": ["src/index.ts", "src/**/*.test.ts", "test/**/*.test.ts"],
       "project": "src/**/*.ts"
     },
     "packages/cli": {
@@ -430,11 +430,11 @@ Create `knip.json`:
       "project": "src/**/*.{ts,tsx}"
     },
     "packages/ui": {
-      "entry": ["src/main.tsx", "src/**/*.test.{ts,tsx}", "src/**/*.vitest.tsx"],
+      "entry": ["src/main.tsx", "src/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
       "project": "src/**/*.{ts,tsx}"
     },
     "packages/sdk": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "entry": ["src/index.ts", "src/testing/index.ts", "src/ipc/index.ts", "src/**/*.test.ts"],
       "project": "src/**/*.ts"
     },
     "packages/client": {
