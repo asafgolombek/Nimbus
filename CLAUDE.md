@@ -422,3 +422,23 @@ When implementing, focus only on the current phase. Do not add Phase N+1 feature
 **PAL:** All OS-specific logic lives under `packages/gateway/src/platform/` and is accessed via `PlatformServices` — never import `win32` / `darwin` / `linux` from business logic.
 
 **Prerequisites:** Bun v1.2+; Rust for building the Tauri UI (`packages/ui/src-tauri`).
+
+---
+
+## Dependency Safety
+
+Before suggesting any `bun add` (or `bun add -d`) command, run:
+
+```bash
+bun run check-package <name>
+```
+
+The script fetches the package metadata from `registry.npmjs.org` and prints the author, maintainers, created date, and version count.
+
+Verify the result before proposing the install. **Do not propose `bun add`** if any of the following are true:
+
+- The script exits with code `1` (the package does not exist on npm)
+- The script emits the `< 7 days old` warning — newly-published packages are a common slopsquatting / typosquatting vector
+- The author/maintainer is unfamiliar for a name that resembles a well-known package (e.g. `expresss`, `lodahs`, `react-domm`)
+
+When all three checks pass, include the package's published age and maintainer in your suggestion so the user can confirm before installing.

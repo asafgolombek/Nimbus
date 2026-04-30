@@ -121,6 +121,18 @@ See the [architecture](./architecture.md) for connector mesh details.
 
 ---
 
+## Adding a New Dependency
+
+Before adding any package with `bun add`, run:
+
+```bash
+bun run check-package <name>
+```
+
+Verify the printed author, maintainer, created date, and version count look reasonable. The script warns on packages less than 7 days old — these are a common slopsquatting / typosquatting vector and should not be added without an explicit reason.
+
+---
+
 ## Package Dependency Rules
 
 ```

@@ -38,7 +38,7 @@ runs:
         FROZEN_INSTALL: ${{ inputs.frozen-install }}
       run: |
         if [ "$VERIFY_LOCK" = "true" ]; then
-          bun install
+          bun install --frozen-lockfile
           git diff --exit-code -- bun.lock
         elif [ "$FROZEN_INSTALL" = "true" ]; then
           bun install --frozen-lockfile
