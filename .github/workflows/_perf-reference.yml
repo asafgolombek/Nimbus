@@ -30,6 +30,11 @@ concurrency:
   group: bench-reference
   cancel-in-progress: false
 
+# Default-deny at the workflow level (Scorecard `Token-Permissions`).
+# The `reference-run` job grants the specific scopes it needs (contents:
+# write to push the perf branch, pull-requests: write for `gh pr create`).
+permissions: {}
+
 jobs:
   reference-run:
     name: Reference benchmark run (M1 Air)

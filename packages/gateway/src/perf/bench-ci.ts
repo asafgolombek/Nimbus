@@ -10,7 +10,7 @@
  * Spec source: § 5.4 of the PR-C-1 design.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GhCli } from "./bench-ci-gh.ts";
@@ -139,7 +139,14 @@ async function upsertComment(
   tmpDir: string,
   env: Record<string, string | undefined>,
 ): Promise<void> {
-  const bodyFile = join(tmpDir, `comment-${runner}.md`);
+  // Write the comment body to a file inside a freshly-created per-call
+  // scratch dir, not to a predictable path under `tmpDir`. CodeQL
+  // (`js/insecure-temporary-file`) flags writeFileSync on a fixed name
+  // in os tmpdir as a TOCTOU/symlink-attack hazard. `mkdtempSync` returns
+  // a unique 0700 directory we own, so the bodyFile path is not
+  // predictable to a coresident process.
+  const scratchDir = mkdtempSync(join(tmpDir, `bench-ci-comment-${runner}-`));
+  const bodyFile = join(scratchDir, "body.md");
   writeFileSync(bodyFile, body, "utf8");
 
   const marker = `<!-- ${COMMENT_MARKER_PREFIX}:${runner} -->`;
