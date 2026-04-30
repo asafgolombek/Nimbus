@@ -507,6 +507,21 @@ describe("stripComments", () => {
   test("preserves any in code", () => {
     expect(stripComments("const x: any = 1;")).toBe("const x: any = 1;");
   });
+  test("does not strip inside double-quoted string", () => {
+    expect(stripComments('const u = "https://x.com/any";')).toBe('const u = "https://x.com/any";');
+  });
+  test("does not strip inside single-quoted string", () => {
+    expect(stripComments("const u = 'https://x.com/any';")).toBe("const u = 'https://x.com/any';");
+  });
+  test("does not strip inside template literal", () => {
+    expect(stripComments("const u = `https://x.com/any`;")).toBe("const u = `https://x.com/any`;");
+  });
+  test("honours escaped quote inside string", () => {
+    expect(stripComments('const u = "a\\"//not a comment";')).toBe('const u = "a\\"//not a comment";');
+  });
+  test("strips line comment after a string", () => {
+    expect(stripComments('const u = "x"; // any')).toBe('const u = "x"; ');
+  });
 });
 
 describe("countAnyInSource", () => {
@@ -553,16 +568,58 @@ import { Glob } from "bun";
 export const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 
 /**
- * Strips `//`-line comments and `/* … *​/` block comments from a source string.
- * Naive — does not handle string literals containing comment-like sequences.
- * Acceptable for the audit's purposes (count-stable across runs is what matters,
- * not perfect parse correctness).
+ * Strips `//`-line comments and block comments from a source string.
+ * String-literal-aware: a `//` or `/*` *inside* a `"…"`, `'…'`, or `` `…` ``
+ * literal is preserved (so URLs like `"https://x"` survive). Escape sequences
+ * (`\"`, `` \` ``) are honoured. Template-literal `${…}` interpolation is treated
+ * as part of the template string for this script's purposes — we don't need to
+ * recurse into the expression because comments inside an expression are also
+ * not in code we want to strip from the count.
+ *
+ * Not a full TypeScript tokenizer. The audit's contract is "stable count across
+ * runs"; this implementation also satisfies "doesn't strip from string contents".
  */
 export function stripComments(src: string): string {
-  // Remove block comments first, then line comments.
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\n]*/g, "");
+  let out = "";
+  let i = 0;
+  let inString: '"' | "'" | "`" | null = null;
+  while (i < src.length) {
+    const c = src[i] as string;
+    const next = src[i + 1];
+    if (inString) {
+      out += c;
+      if (c === "\\") {
+        // Include the escaped char as-is (handles \", \\, \n, \`, etc.).
+        if (next !== undefined) out += next;
+        i += 2;
+        continue;
+      }
+      if (c === inString) inString = null;
+      i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      const end = src.indexOf("*/", i + 2);
+      if (end === -1) break;
+      i = end + 2;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      const nl = src.indexOf("\n", i);
+      if (nl === -1) break;
+      i = nl;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      inString = c;
+      out += c;
+      i++;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
 }
 
 /**
@@ -1394,20 +1451,33 @@ export function computePercentile(sorted: readonly number[], p: number): number 
   return ascending[Math.min(idx, ascending.length - 1)] ?? 0;
 }
 
-function commitCount(file: string): number {
+/**
+ * One `git log` invocation that returns every changed-file path in the last
+ * 90 days; we count occurrences per-path. Strictly better than per-file
+ * `git rev-list` (which spawns ~500 processes on this monorepo, ~30 s of
+ * pure spawn overhead).
+ */
+function buildChurnMap(): Map<string, number> {
   const proc = Bun.spawnSync(
-    ["git", "rev-list", "--count", "HEAD", "--since=90 days ago", "--", file],
+    ["git", "log", "--since=90 days ago", "--name-only", "--pretty=format:"],
     { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
   );
-  if (proc.exitCode !== 0) return 0;
-  const out = new TextDecoder().decode(proc.stdout).trim();
-  return Number.parseInt(out, 10) || 0;
+  if (proc.exitCode !== 0) return new Map();
+  const text = new TextDecoder().decode(proc.stdout);
+  const counts = new Map<string, number>();
+  for (const raw of text.split("\n")) {
+    const file = raw.trim();
+    if (!file) continue;
+    counts.set(file, (counts.get(file) ?? 0) + 1);
+  }
+  return counts;
 }
 
 async function run(): Promise<void> {
+  const churn = buildChurnMap();
   const files: Array<{ file: string; commits90d: number }> = [];
   for await (const f of iterateSourceFiles()) {
-    files.push({ file: f.relPath, commits90d: commitCount(f.relPath) });
+    files.push({ file: f.relPath, commits90d: churn.get(f.relPath) ?? 0 });
   }
   files.sort((a, b) => b.commits90d - a.commits90d);
   const counts = files.map((e) => e.commits90d);
@@ -1436,7 +1506,7 @@ Expected: all tests pass.
 bun run scripts/structure-audit/get-git-churn.ts
 ```
 
-Expected: writes `docs/structure-audit/churn-90d.json`; prints `p80 = <N>` and top-10 most-changed files. The script may take a minute or two on a large monorepo because it spawns one `git rev-list` per file.
+Expected: writes `docs/structure-audit/churn-90d.json`; prints `p80 = <N>` and top-10 most-changed files. Single `git log` invocation, sub-second total runtime even on the full monorepo.
 
 - [ ] **Step 6: Commit**
 
@@ -1543,10 +1613,29 @@ bun run scripts/structure-audit/audit-structure.ts
 
 Expected: each step's stdout/stderr is forwarded; a `run-<timestamp>.json` blob is written; a summary table is printed. Some steps may report failures (knip exits non-zero when it finds unused exports — that's expected). Inspect the run blob's shape.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Add `run-*.json` to `.gitignore`**
+
+Each orchestrator invocation writes a per-run blob `docs/structure-audit/run-<timestamp>.json`. These are intentionally **not** committed (the committed artifacts are `any-baseline.json`, `db-run-census.json`, `churn-90d.json`, and `baseline.md` — the run blobs are debugging output). Append to `.gitignore`:
 
 ```bash
-git add scripts/structure-audit/audit-structure.ts
+cat >> .gitignore <<'EOF'
+
+# Per-run audit-orchestrator output (committed artifacts are tracked separately)
+docs/structure-audit/run-*.json
+EOF
+```
+
+Verify:
+```bash
+grep "run-\*\.json" .gitignore && echo ok
+```
+
+Expected: `docs/structure-audit/run-*.json` line present; prints `ok`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/structure-audit/audit-structure.ts .gitignore
 git commit -m "$(cat <<'EOF'
 feat(structure-audit): add audit-structure orchestrator
 
@@ -1734,7 +1823,19 @@ ranks deviations from these baselines.
 - `docs/structure-audit/sonarqube-rule-tuning.md` (empty placeholder, populated only if Phase 2 needs rule tuning)
 ```
 
-Fill in every `<N>`, `<%>`, `<name>:<loc>`, and `<SHA>` placeholder with the actual values from Steps 1-5 outputs. Do not leave any `<…>` placeholder in the committed file.
+**This file MUST NOT be committed with `<…>` placeholders.** For each placeholder:
+
+- `<SHA>` — output of `git rev-parse HEAD` from Step 5.
+- `<N>` for D8 — `count` field from `docs/structure-audit/any-baseline.json`.
+- `<N>` for D12 — `length` of the array in `docs/structure-audit/db-run-census.json` (run `bun -e 'console.log((await Bun.file("docs/structure-audit/db-run-census.json").json()).length)'`).
+- `<N>` for D4 — count of entries in `docs/structure-audit/file-loc.json` whose `loc > 800`. Top file: the first row of that array.
+- `<N>` for D6 — `statistics.total.percentage` from `docs/structure-audit/jscpd-report.json`.
+- `<N>` for D7 — sum of files-with-issues from `docs/structure-audit/knip-report.json` (run `bunx knip --reporter symbols` and count visible items).
+- `<N>` for D5 — leave as `(pending — populated when Phase 2 uploads the first SonarQube analysis)` for now; SonarQube isn't analysed in Phase 1.
+- `<N>` for D9 — `length` of the array in `docs/structure-audit/risky-assertions.json`.
+- `<N>` for D11 — `0` (verified by `bun run audit:invariants` exiting 0 in Step 6).
+
+Read each output file, extract the value, and write it into `baseline.md`. Do not leave any `<…>` placeholder in the committed file.
 
 - [ ] **Step 7: Verify all Phase 1 committed JSON files validate**
 
