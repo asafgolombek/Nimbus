@@ -6,7 +6,14 @@
       "ignore": ["**/*.test.ts"]
     },
     "packages/gateway": {
-      "entry": ["src/index.ts", "src/**/*.test.ts", "test/**/*.test.ts"],
+      "entry": [
+        "src/index.ts",
+        "src/perf/surfaces/sqlite-worker-sync.ts",
+        "src/perf/surfaces/sqlite-worker-watcher.ts",
+        "src/perf/surfaces/sqlite-worker-audit.ts",
+        "src/**/*.test.ts",
+        "test/**/*.test.ts"
+      ],
       "project": "src/**/*.ts"
     },
     "packages/cli": {
@@ -14,19 +21,19 @@
       "project": "src/**/*.{ts,tsx}"
     },
     "packages/ui": {
-      "entry": ["src/main.tsx", "src/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
+      "entry": ["src/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
       "project": "src/**/*.{ts,tsx}"
     },
     "packages/sdk": {
-      "entry": ["src/index.ts", "src/testing/index.ts", "src/ipc/index.ts", "src/**/*.test.ts"],
+      "entry": ["src/**/*.test.ts"],
       "project": "src/**/*.ts"
     },
     "packages/client": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "entry": ["src/index.ts", "src/**/*.test.ts", "test/**/*.test.ts"],
       "project": "src/**/*.ts"
     },
     "packages/mcp-connectors/*": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "entry": ["src/server.ts", "src/**/*.test.ts"],
       "project": "src/**/*.ts"
     }
   },
