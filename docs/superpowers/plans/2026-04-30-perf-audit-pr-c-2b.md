@@ -16,7 +16,8 @@
 - Top-5 fix plans (PR-D-1 … PR-D-N — each fix is its own PR after PR-C-2b merges).
 - Astro page for `slo.md` (deferred per PR-C-2a D-Z).
 - Real Ollama-driven S9 + Tauri-renderer instrumentation for S3 / S5 (hypothetical PR-B-2b-3).
-- **Gating throughput / tokens-per-sec surfaces (S6-*, S8-*, S9, S10) on the absolute `ghaMax`.** The current `threshold-comparator.ts` (line 100, `measured > threshold`) and its delta check (line 112, one-sided positive `deltaPct`) treat every metric as ceiling-only. That works for latency / RSS / `first_token_ms` but inverts the semantics for floor metrics (higher throughput = better). Setting numeric `ghaMax` + `gated: true` on a throughput row right now would cause every CI run to fail with `absolute-fail (measured > threshold)` whenever observed throughput exceeds the floor — backwards. PR-C-2b therefore sets `refMax` only for floor-metric workload surfaces and leaves `ghaMax: "tbd-c2"`, `gated: false` until a follow-up (call it PR-C-2c) teaches the comparator about metric direction. Ceiling-metric workload surfaces (S7-*) gate normally in this PR.
+
+**Resolved before this plan executes:** earlier drafts deferred floor-metric workload gating because `threshold-comparator.ts` treated every `ghaMax` as a ceiling. **PR-C-2c (commit `188aa0e`) added `isFloorMetric` and direction-aware absolute / delta comparisons**, so PR-C-2b now gates every workload row symmetrically. The plan below assumes that fix is on `main`; if you find yourself executing this plan against an earlier `main` (no `isFloorMetric` in `threshold-comparator.ts`), STOP and rebase onto the post-`188aa0e` tip first.
 
 ---
 
@@ -186,20 +187,13 @@ This file drives Task 5. The set of candidate-miss surfaces is exactly the 9 UX 
 
 Each workload row currently has `refMax: undefined`, `ghaMax: "tbd-c2"`, `gated: false`. Replace with concrete values per the rules below. UX rows (S1, S2-a, S2-b, S2-c, S3, S4, S5, S11-a, S11-b) already have concrete thresholds — do not change them in this task.
 
-- [ ] **Step 2.1: Re-confirm the comparator's current limitation**
-
-The comparator (`packages/gateway/src/perf/threshold-comparator.ts:100`) treats every metric's `ghaMax` as a ceiling (`measured > threshold` = fail) and only flags positive deltas (line 112, `deltaPct > effectiveFloorPct`). That is correct for ceiling metrics (`p95_ms`, `p50_ms`, `rss_bytes_p95`, `first_token_ms`) and incorrect for floor metrics (`throughput_per_sec`, `tokens_per_sec`). PR-C-2b ships within this constraint:
-
-- **Ceiling-metric workload surfaces** (S7-a, S7-b, S7-c): full Pattern A (set `refMax` + numeric `ghaMax` + `gated: true`).
-- **Floor-metric workload surfaces** (S6-*, S8-*, S9, S10): Pattern E only (set `refMax`, leave `ghaMax: "tbd-c2"`, leave `gated: false`). A follow-up PR teaches the comparator about metric direction and flips these to gated.
-
-If you find that the comparator has been updated to handle floor metrics by the time you execute this plan (i.e. the line-100 check is metric-direction aware), upgrade the floor-metric workload surfaces from Pattern E to Pattern A:
+- [ ] **Step 2.1: Confirm the comparator's metric-direction handling is present**
 
 ```bash
-grep -A 5 "absolute-fail" packages/gateway/src/perf/threshold-comparator.ts | head -10
+grep -nE "isFloorMetric|regressionPct" packages/gateway/src/perf/threshold-comparator.ts | head -5
 ```
 
-If the matching block has metric-direction handling (e.g. an `isFloorMetric` helper used to pick the comparison operator), proceed with Pattern A for throughput rows. Otherwise, stay on Pattern E.
+Expected: at least one match for each. PR-C-2c (commit `188aa0e`) added `isFloorMetric` plus a direction-aware regression check, so the comparator now treats `ghaMax` as a ceiling for `p95_ms` / `p50_ms` / `rss_bytes_p95` / `first_token_ms` and as a floor for `throughput_per_sec` / `tokens_per_sec`. If grep returns nothing, your `main` is older than `188aa0e` — STOP and rebase before continuing; otherwise the floor-metric workload rows you're about to flip to `gated: true` will trip `absolute-fail` on every CI run.
 
 - [ ] **Step 2.2: Pull the most-recent 3 successful `_perf.yml` artifacts on `main` for derived `ghaMax`**
 
@@ -221,65 +215,65 @@ Expected: at least 3 directories named `<runid>-ubuntu`, `<runid>-macos`, `<runi
 
 - [ ] **Step 2.3: Compute `ghaMax` per ceiling-metric workload surface**
 
-Only ceiling-metric workload surfaces — **S7-a and S7-b** — get `ghaMax` derived in this PR. (S7-c is reference-only; floor-metric surfaces stay `tbd-c2` per Step 2.1.)
+Now that the comparator handles metric direction (PR-C-2c), every measurable workload surface gets `ghaMax` derived in this PR. Scope:
 
-For each, across the 3 (or fewer) Linux artifacts (S7 carries `linuxOnlyGate: true`), pick the **maximum observed** value, then apply a variance-aware multiplier:
+- **Ceiling metrics** (S7-a, S7-b — RSS): `ghaMax` is the maximum-acceptable; pick the **max observed**, multiply up.
+- **Floor metrics** (S6-*, S8-*, S10 — throughput): `ghaMax` is the minimum-acceptable; pick the **min observed**, multiply down.
+- **Reference-only** (S2-c, S7-c, S9): no GHA derivation needed; `ghaMax` stays `"skipped"` (Pattern B in Step 2.4).
+
+Pull observations:
 
 ```bash
-# Pull S7-a values from the 3 most recent ubuntu artifacts:
+# Throughput floors: S6-drive across the 3 most recent per-OS artifacts (all three OSes for S6-*, S8-*, S10):
+for d in /tmp/perf-c-2b-gha/*-ubuntu /tmp/perf-c-2b-gha/*-macos /tmp/perf-c-2b-gha/*-windows; do
+  [ -d "$d" ] || continue
+  jq -r --arg d "$d" '.surfaces["S6-drive"].throughput_per_sec | "\($d) S6-drive throughput=\(.)"' "$d/run-history.jsonl" 2>/dev/null
+done | sort
+# Repeat for S6-gmail, S6-github, S10, and each of the 12 S8 cells.
+
+# Ceiling metric: S7-a / S7-b across Linux artifacts only (linuxOnlyGate: true):
 for d in /tmp/perf-c-2b-gha/*-ubuntu; do
   [ -d "$d" ] || continue
   jq -r --arg d "$d" '.surfaces["S7-a"].rss_bytes_p95 | "\($d) S7-a rss_p95=\(.)"' "$d/run-history.jsonl" 2>/dev/null
 done | sort
-# Same for S7-b.
 ```
 
-Choose the multiplier:
-- Compute `cv = stddev(observations) / mean(observations)`.
-- If `cv ≤ 0.2` (low variance): `ghaMax = round_up(max_observed × 1.5)`.
-- If `0.2 < cv ≤ 0.4` (moderate variance): `ghaMax = round_up(max_observed × 2.0)`.
-- If `cv > 0.4` (high variance): `ghaMax = round_up(max_observed × 3.0)`. Also note the row in the PR description so reviewers know this surface needs more nightly data before tightening.
+Choose the multiplier per row:
 
-**Fallback when fewer than 3 artifacts exist for that surface/runner combo:** use `reference value × 7`. Justification: S11-b's empirical refMax→ghaMax was 50 ms → 600 ms = 12× anchored on an actual Windows worst case; 7× is the conservative middle ground when no observations exist. The delta-floor noise check (line 112, default 25 %) still catches genuine regressions even if the absolute threshold is loose.
+- Compute `cv = stddev(observations) / mean(observations)` across the 3 (or fewer) artifacts.
+- **Ceiling metric:** `ghaMax = round_up(max_observed × M)` where M = 1.5 / 2.0 / 3.0 for `cv ≤ 0.2` / `0.2 < cv ≤ 0.4` / `cv > 0.4` respectively.
+- **Floor metric:** `ghaMax = round_down(min_observed × (1/M))` (i.e. 0.66 / 0.5 / 0.33 for the same variance bands). The lower bound widens with variance the same way the upper bound does for ceilings.
+- High-variance rows (`cv > 0.4`) — note them in the PR description so reviewers know they need more nightly data before tightening.
 
-Record one chosen value per ceiling-metric workload row in `/tmp/perf-c-2b-gha-thresholds.txt`. Format:
+**Fallback when fewer than 3 artifacts exist for that surface/runner combo:** use `reference value × 7` for ceilings or `reference value × 0.14` for floors. Justification: S11-b's empirical refMax→ghaMax was 50 ms → 600 ms = 12× anchored on an actual Windows worst case; 7× is the conservative middle ground when no observations exist. The delta-floor noise check (default 25 %) still catches genuine regressions even if the absolute threshold is loose.
+
+Record one chosen value per workload row in `/tmp/perf-c-2b-gha-thresholds.txt`. Format:
 
 ```
-S7-a   max_observed=345MiB   cv=0.07   multiplier=1.5x   ghaMax_chosen=520MiB
-S7-b   max_observed=...      cv=...    multiplier=...    ghaMax_chosen=...
+S7-a       ceiling  max_observed=345MiB    cv=0.07  mult=1.5x   ghaMax_chosen=520MiB
+S6-drive   floor    min_observed=85ips     cv=0.10  mult=0.66x  ghaMax_chosen=56ips
+S8-l50-b1  floor    min_observed=...       cv=...   mult=...    ghaMax_chosen=...
+... (one row per measurable workload surface)
 ```
 
-(Substitute real numbers from your artifact pulls. S7-c skipped — reference-only.)
+(Substitute real numbers. Reference-only rows S2-c / S7-c / S9 are excluded — they keep `ghaMax: "skipped"` per Pattern B.)
 
 - [ ] **Step 2.4: Apply the changes to `slo-thresholds.ts`**
 
 Open `packages/gateway/src/perf/slo-thresholds.ts`. For each workload row, apply the matching pattern below.
 
-**Pattern A — ceiling-metric workload surface (S7-a, S7-b):**
+**Pattern A — measurable workload surface (S6-*, S7-a, S7-b, S10), ceiling or floor:**
 
-Replace this block:
+The same template applies whether the metric is a ceiling (S7-a/b's `rss_bytes_p95`) or a floor (S6-*'s `throughput_per_sec`, S10's `throughput_per_sec`); the comparator now picks the right comparison direction from the metric (PR-C-2c). Substitute actual numbers from `/tmp/perf-c-2b-ref.json` and `/tmp/perf-c-2b-gha-thresholds.txt`.
 
-```typescript
-{
-  surfaceId: "S7-a",
-  metric: "rss_bytes_p95",
-  ghaMax: "tbd-c2",
-  gated: false,
-  noiseFloorPct: 20,
-  noiseFloorAbs: 20 * 1024 * 1024,
-  noiseFloorAbsUnit: "bytes",
-  linuxOnlyGate: true,
-},
-```
-
-With (substitute actual numbers from `/tmp/perf-c-2b-ref.json` and `/tmp/perf-c-2b-gha-thresholds.txt`):
+Ceiling-metric example (S7-a — RSS):
 
 ```typescript
 {
   surfaceId: "S7-a",
   metric: "rss_bytes_p95",
   refMax: <reference rss_bytes_p95 from /tmp/perf-c-2b-ref.json>,
-  ghaMax: <chosen value from /tmp/perf-c-2b-gha-thresholds.txt>,
+  ghaMax: <chosen value from /tmp/perf-c-2b-gha-thresholds.txt — ceiling, max_observed × M>,
   gated: true,
   noiseFloorPct: 20,
   noiseFloorAbs: 20 * 1024 * 1024,
@@ -288,29 +282,24 @@ With (substitute actual numbers from `/tmp/perf-c-2b-ref.json` and `/tmp/perf-c-
 },
 ```
 
-**Pattern E — floor-metric workload surface (S6-*, S8-*, S10):**
-
-Set `refMax` only; leave `ghaMax: "tbd-c2"` and `gated: false`. Add a one-line code comment naming the follow-up that lifts the limitation:
+Floor-metric example (S6-drive — throughput):
 
 ```typescript
 {
   surfaceId: "S6-drive",
   metric: "throughput_per_sec",
-  refMax: <reference value from /tmp/perf-c-2b-ref.json>,
-  // ghaMax + gated deferred: threshold-comparator.ts treats ghaMax as a
-  // ceiling for every metric; floor-metric gating awaits PR-C-2c
-  // (metric-direction handling in compareOne).
-  ghaMax: "tbd-c2",
-  gated: false,
+  refMax: <reference throughput_per_sec from /tmp/perf-c-2b-ref.json>,
+  ghaMax: <chosen value from /tmp/perf-c-2b-gha-thresholds.txt — floor, min_observed × (1/M)>,
+  gated: true,
   noiseFloorPct: 25,
   noiseFloorAbs: 5,
   noiseFloorAbsUnit: "items_per_sec",
 },
 ```
 
-**Pattern B — surface reference-only on GHA (S2-c, S7-c):**
+**Pattern B — surface reference-only on GHA (S2-c, S7-c, S9):**
 
-Ceiling metrics only — set `refMax` from the reference line; keep `ghaMax: "skipped"`; flip `gated` to `true`. Example:
+Set `refMax` from the reference line; keep `ghaMax: "skipped"`; flip `gated` to `true`. Works identically for ceiling (S2-c, S7-c) and floor (S9) metrics now that the comparator is direction-aware. Example:
 
 ```typescript
 {
@@ -325,18 +314,13 @@ Ceiling metrics only — set `refMax` from the reference line; keep `ghaMax: "sk
 },
 ```
 
-**Pattern B' — S9 (floor metric, reference-only on GHA):**
-
-S9 is a floor metric (`tokens_per_sec`) that's `ghaMax: "skipped"`. The comparator's absolute check never fires for S9 on GHA. The delta check (one-sided positive) still wouldn't catch a tokens/sec drop, but reference-vs-reference comparisons fire on a separate path (`_perf-reference.yml` → committed history line, not workflow artifact). Set `refMax`; keep `ghaMax: "skipped"`; leave `gated: false` — for symmetry with the other floor-metric rows whose gating is also deferred to PR-C-2c. Example:
-
 ```typescript
 {
   surfaceId: "S9",
   metric: "tokens_per_sec",
   refMax: <reference tokens_per_sec from /tmp/perf-c-2b-ref.json>,
-  // gated deferred — same reason as Pattern E.
   ghaMax: "skipped",
-  gated: false,
+  gated: true,
   noiseFloorPct: 30,
   noiseFloorAbs: 2,
   noiseFloorAbsUnit: "tps",
@@ -361,36 +345,39 @@ Leave `gated`, `ghaMax`, and `refMax` exactly as they currently are. Add a one-l
 },
 ```
 
-**Pattern D — S8 cell builder (all 12 cells, floor metric, gating deferred):**
+**Pattern D — S8 cell builder (all 12 cells, floor metric, gated):**
 
-S8 cells are throughput floors — same comparator limitation applies (Pattern E rationale). Update `buildS8Cells()` to carry `refMax` per cell, but keep `ghaMax: "tbd-c2"` and `gated: false`.
+S8 has 12 cells, all throughput floors. Update `buildS8Cells()` to carry both `refMax` and `ghaMax` per cell, with `gated: true` for every cell. Pattern A applies cell-by-cell; the only complication is the volume of numbers (12 cells × 2 values = 24 numbers).
 
-Generate the `S8_REF` object literal directly from `/tmp/perf-c-2b-ref.json` to avoid hand-transcription of 12 numbers:
+Generate the `S8_REF` map directly from `/tmp/perf-c-2b-ref.json` (refMax) and `/tmp/perf-c-2b-gha-thresholds.txt` (ghaMax) to avoid hand-transcription:
 
 ```bash
+# Step 1: emit a refMax-only skeleton from the reference line.
 jq -r '
   .surfaces
   | to_entries
   | map(select(.key | startswith("S8-")))
   | sort_by(.key)
-  | "const S8_REF: Record<BenchSurfaceId, { refMax: number }> = {\n"
-    + (map("  \"\(.key)\": { refMax: \(.value.throughput_per_sec) },") | join("\n"))
+  | "const S8_REF: Record<BenchSurfaceId, { refMax: number; ghaMax: number }> = {\n"
+    + (map("  \"\(.key)\": { refMax: \(.value.throughput_per_sec), ghaMax: 0 /* TODO fill from /tmp/perf-c-2b-gha-thresholds.txt */ },") | join("\n"))
     + "\n};"
 ' /tmp/perf-c-2b-ref.json
 ```
 
-Expected output (substitute when you run; numbers are real from the reference line):
+Expected output:
 
 ```typescript
-const S8_REF: Record<BenchSurfaceId, { refMax: number }> = {
-  "S8-l50-b1":    { refMax: <…> },
-  "S8-l50-b8":    { refMax: <…> },
+const S8_REF: Record<BenchSurfaceId, { refMax: number; ghaMax: number }> = {
+  "S8-l50-b1":    { refMax: <…>, ghaMax: 0 /* TODO fill from /tmp/perf-c-2b-gha-thresholds.txt */ },
+  "S8-l50-b8":    { refMax: <…>, ghaMax: 0 /* TODO fill ... */ },
   /* ...12 lines... */
-  "S8-l5000-b64": { refMax: <…> },
+  "S8-l5000-b64": { refMax: <…>, ghaMax: 0 /* TODO fill ... */ },
 };
 ```
 
-Paste that directly into `slo-thresholds.ts` above `buildS8Cells`. Then replace the function body:
+Step 2: open the printed map in your editor, replace each `0 /* TODO ... */` with the chosen `ghaMax_chosen` value from `/tmp/perf-c-2b-gha-thresholds.txt`. Verify zero remaining `TODO` markers before saving.
+
+Step 3: paste the completed map directly into `slo-thresholds.ts` above `buildS8Cells`. Then replace the function body:
 
 ```typescript
 function buildS8Cells(): readonly SloThreshold[] {
@@ -398,13 +385,13 @@ function buildS8Cells(): readonly SloThreshold[] {
   for (const length of S8_LENGTHS) {
     for (const batch of S8_BATCHES) {
       const id = `S8-l${length}-b${batch}` as BenchSurfaceId;
+      const { refMax, ghaMax } = S8_REF[id];
       out.push({
         surfaceId: id,
         metric: "throughput_per_sec",
-        refMax: S8_REF[id].refMax,
-        // ghaMax + gated deferred — same reason as Pattern E.
-        ghaMax: "tbd-c2",
-        gated: false,
+        refMax,
+        ghaMax,
+        gated: true,
         noiseFloorPct: 25,
         noiseFloorAbs: 5,
         noiseFloorAbsUnit: "items_per_sec",
@@ -927,7 +914,7 @@ Expected: all checks pass. The bench job runs all three OSes (matrix unaffected 
 
 When this PR merges:
 
-1. `SLO_THRESHOLDS` workload rows carry `refMax` for every measured surface. Ceiling-metric workload rows (S7-a, S7-b) additionally carry numeric `ghaMax` + `gated: true`. Floor-metric workload rows (S6-*, S8-*, S9, S10) keep `ghaMax: "tbd-c2"` (or `"skipped"` for S9 / S2-c / S7-c) and `gated: false`, with a code comment naming PR-C-2c as the follow-up — see "Out of scope" header for rationale.
+1. `SLO_THRESHOLDS` has no `tbd-c2` entries; every measured workload row carries `refMax`, a numeric `ghaMax`, and `gated: true`. Reference-only rows (S2-c, S7-c, S9) carry `refMax` + `ghaMax: "skipped"` + `gated: true`. Stubbed rows (S3, S5 if Tauri-renderer instrumentation is still deferred) keep their existing values with a one-line code comment naming the deferring PR.
 2. `slo.md` matches `slo-thresholds.ts` byte-for-byte (`regen-slo:check` passes).
 3. `baseline.md` cells all derive from one `run_id`; no TBD entries remain; the `## What lands in PR-C-2` section has been replaced with `## Provenance`.
 4. `missed.md` top-5 has 5 rows ranked by Impact / Cost (or the explicit zero-miss prose if no misses exist); the full-list section enumerates all misses; Confidence column populated per row.
@@ -946,7 +933,7 @@ Plan reviewed by external AI tool (`docs/superpowers/plans/2026-04-30-perf-audit
 |---|---|---|
 | #1 — Multiplier aggressiveness; consider variance-aware multiplier | **Applied** | Updated Task 2.3 to compute `cv = stddev / mean` over the 3 artifacts and pick 1.5× / 2.0× / 3.0× by variance band. Also flags high-variance rows in the PR description so reviewers know they need more nightly data. |
 | #2 — Manual-edit risk for S8's 12 cells; suggest a generator | **Applied** | Updated Pattern D to include a `jq` one-liner that prints the `S8_REF` literal directly from `/tmp/perf-c-2b-ref.json`. Reduces transcription error risk to zero for the per-cell `refMax` numbers. |
-| #3 — Bi-directional metrics? | **Dismissed** | Verified: every metric in `SloThreshold["metric"]` (`p95_ms`, `p50_ms`, `throughput_per_sec`, `rss_bytes_p95`, `tokens_per_sec`, `first_token_ms`) is monotonic. No bi-directional metrics exist or are planned. **However**, the comparator does NOT correctly handle floor metrics (it treats every `ghaMax` as a ceiling — `threshold-comparator.ts:100`). PR-C-2b ships within this constraint by deferring floor-metric gating; see new "Out of scope" bullet and Pattern E. The reviewer's question prompted the deeper check. |
+| #3 — Bi-directional metrics? | **Dismissed (and the deeper bug it surfaced was fixed in PR-C-2c)** | Verified: every metric in `SloThreshold["metric"]` is monotonic. No bi-directional metrics exist. **The reviewer's question surfaced a deeper bug**: the comparator was treating every `ghaMax` as a ceiling (`measured > threshold`) regardless of metric direction, which would have broken floor-metric gating in this PR. PR-C-2c (commit `188aa0e`) added `isFloorMetric` and direction-aware comparisons, so PR-C-2b now gates every workload row symmetrically. Pattern E (deferring floor-metric gating) was removed from this plan after PR-C-2c merged. |
 | #4 — Stub baselines for S3 / S5 if data looks valid | **Dismissed** | Verified: `S3_STUB_REASON` and `S5_STUB_REASON` are constants in `bench-dashboard-first-paint.ts` / `bench-hitl-popup.ts`; the drivers always return `[]` and `bench-cli` records `stub_reason`. Any data field on those rows in the reference run line will be missing or stub-tagged. Task 1.3 already distinguishes MEASURED (real driver, no `stub_reason`) from STUB (`stub_reason` set) — Pattern A applies if real, Pattern C if stubbed. The plan handles both correctly already; nothing to change. |
 | #5 — Miss computation scope (UX-only) | **Confirmed** | Already aligned with spec § 3.2 (workload surfaces are `TBD Phase 2` — no pre-PR-C-2b budget exists to miss). No change. |
 | #6 — Provenance abbreviation | **Confirmed** | Plan already preserves the full `run_id` in commit messages, PR body, and `history.jsonl`; only the markdown table cell uses the `${RUN_ID:0:8}…` form. No change. |
