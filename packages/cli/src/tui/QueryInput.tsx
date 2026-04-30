@@ -114,9 +114,16 @@ function handleSubmit(ctx: ProcessContext): void {
   if (trimmed === "") {
     return;
   }
-  void appendQuery(ctx.historyPathRef.current, trimmed).then(async () => {
-    ctx.historyRef.current = await readHistory(ctx.historyPathRef.current);
-  });
+  void appendQuery(ctx.historyPathRef.current, trimmed)
+    .then(async () => {
+      ctx.historyRef.current = await readHistory(ctx.historyPathRef.current);
+    })
+    .catch(() => {
+      // History persistence is best-effort; swallow filesystem errors so
+      // the rejection does not become an unhandled promise rejection
+      // (e.g. when a test's afterEach removes the temp dir before the
+      // background write completes).
+    });
   ctx.onSubmit(trimmed);
   ctx.bufRef.current = "";
   ctx.histCursorRef.current = null;
