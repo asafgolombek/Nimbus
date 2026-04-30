@@ -18,7 +18,7 @@ ranks deviations from these baselines.
 | D4 | B | Files > 800 raw LOC | 6 files (top file: `packages/gateway/src/connectors/lazy-mesh.ts`:1401) | `docs/structure-audit/file-loc.json` |
 | D5 | B | Functions with cognitive complexity > 15 | (pending — populated when Phase 2 uploads the first SonarQube analysis) | SonarQube dashboard (post-analysis) |
 | D6 | C | Per-workspace duplication % | 3.62% overall (`statistics.total.percentage` from jscpd-report) | `docs/structure-audit/jscpd-report.json` |
-| D7 | D | Unused exports / orphan files | 267 files with at least one finding (pre-cleanup; Task 14 may reduce) | `docs/structure-audit/knip-report.json` |
+| D7 | D | Unused exports / orphan files | 234 files with at least one finding (400 raw findings post-Task-14 cleanup) | `docs/structure-audit/knip-report.json` |
 | D8 | D | `any` count | 2 (frozen in `any-baseline.json`) | `bun run audit:any` |
 | D9 | D | Risky type assertions (informational) | 399 | `docs/structure-audit/risky-assertions.json` |
 | D10 | F | Spawn under connectors/ not via `extensionProcessEnv()` | 5 violations | `bun run audit:invariants` (binary) |
@@ -35,6 +35,7 @@ ranks deviations from these baselines.
 - `dependency-cruiser` config: `.dependency-cruiser.cjs` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
 - `jscpd` config: `.jscpd.json` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
 - `knip` config: `knip.json` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `knip.json` (post-Task-14 tuning) @ `16b2c58`
 
 ## Phase 2 thresholds derived from this baseline
 
