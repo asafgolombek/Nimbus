@@ -143,10 +143,18 @@ const NON_S8_THRESHOLDS: readonly SloThreshold[] = [
     // without false-failing on Windows infrastructure noise. Refines
     // spec § 3.2; the `refMax` budget is unchanged (PR-C-2 will
     // recalibrate from a real M1 Air measurement). The `gated: true`
-    // delta check (`noiseFloorPct: 25`) still catches a real regression.
+    // delta check still catches a real regression.
+    //
+    // 2026-04-30: bumped `noiseFloorPct` from 25 % → 40 %. macOS-15 GHA
+    // runners showed ~18 % p95-to-p95 variance across two same-sha runs
+    // (135 → 144 → 170 ms on `22f6564`); the 25 % floor was tripping
+    // delta-fail on noise alone. 40 % matches the empirical envelope
+    // and still flags a real ≥40 % regression. `noiseFloorAbs: 10` is
+    // unchanged — bumping it would loosen the M1 Air reference path
+    // (where prev ≈ refMax = 50 ms) far more than intended.
     ghaMax: 600,
     gated: true,
-    noiseFloorPct: 25,
+    noiseFloorPct: 40,
     noiseFloorAbs: 10,
     noiseFloorAbsUnit: "ms",
   },
