@@ -70,6 +70,18 @@ This boundary is the reason certain issue classes are listed as out of scope bel
 
 ---
 
+### Security Audits
+
+| Audit | Date | Scope | Outcome |
+|---|---|---|---|
+| **B1 — Phase 4 internal audit** | 2026-04-25 | 8 trust surfaces (HITL, Vault, LAN, Tauri allowlist, raw SQL, Updater, Extension sandbox, MCP boundary) + cross-surface chains | 78 unique findings filed (0 Critical / 16 High / 28 Medium / 34 Low). All High and Medium findings closed by PRs `#112` / `#113` / commit `806453a`. Three Low items remain scoped to Phase 4 as pre-`v0.1.0` blockers (S4-F6, S4-F8, S6-F1); two more are tracked under Phase 5 (S5-F4, S8-F10), one under Phase 7 (S3-F8 LAN forward secrecy). |
+
+The B1 audit also surfaced three orphaned defenses (`extensionProcessEnv`, `checkLanMethodAllowed`, the `<tool_output>` envelope) that were defined but never wired in production. To prevent recurrence, every structural defense Nimbus relies on is now paired with a production wiring site and a regression test in `packages/gateway/src/security-invariants.test.ts`. The full list lives in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md); the B1 audit results, threat model, and per-surface findings remain available under `docs/superpowers/specs/2026-04-25-security-audit-{results,threat-model}.md` for reviewers who want the full record.
+
+A formal third-party penetration test is planned for Phase 9 (Enterprise readiness).
+
+---
+
 ### Credentials
 
 OAuth tokens and all secrets are stored exclusively in the OS-native keystore:
@@ -81,6 +93,18 @@ OAuth tokens and all secrets are stored exclusively in the OS-native keystore:
 | Linux | Secret Service API via `libsecret` — GNOME Keyring / KWallet integration |
 
 There is no code path that writes credentials to disk in plaintext, includes them in log output, or returns them in IPC responses. The structured logger's `redact` configuration automatically censors any field matching `*.token`, `*.secret`, or `oauth.*` patterns.
+
+#### DPAPI optional entropy (Windows)
+
+On Windows, every `CryptProtectData` / `CryptUnprotectData` call passes a per-installation entropy value loaded (or generated on first use) from `<configDir>/vault/.entropy`. The entropy raises the bar for an attacker who already has access to the user's DPAPI master key (e.g. via a same-user malware foothold) — without the entropy, even a copied vault blob cannot be decrypted off-host.
+
+**Backup contract.** The `.entropy` file is bundled inside `nimbus data export` archives (passphrase-wrapped, alongside the credential manifest). Re-importing on the same or a fresh Windows machine restores it before any vault entry is decrypted. Deleting `.entropy` outside of an export round-trip is destructive — it invalidates every existing vault entry on that machine. The file is created with restrictive ACLs so it cannot be read by other users on a shared host.
+
+#### Data export / import (passphrase-wrapped portability)
+
+`nimbus data export` produces a `.tar.gz` archive that contains a re-encrypted credential manifest (Argon2id KDF + XChaCha20-Poly1305), an optional SQLite snapshot, and the Windows DPAPI entropy file when present. The wrapping passphrase is the only secret a user must remember; a 12-word BIP-39 recovery seed is also generated as a backup credential. Both are accepted by `nimbus data import`.
+
+**KDF allowlist procedure.** The importer validates the manifest's KDF parameters against a hardcoded `ACCEPTED_KDF_PROFILES` allowlist before decryption. When tightening the KDF (e.g. raising Argon2id memory or iterations), the **new** profile must be added to the allowlist and shipped in a release **before** any client begins generating exports under it — otherwise older clients fail to import their own backups. Removing an old profile follows the same migration window: ship a release that accepts both, wait one release, then drop the old profile.
 
 ---
 

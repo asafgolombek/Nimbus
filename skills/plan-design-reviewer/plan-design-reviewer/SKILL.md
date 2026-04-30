@@ -23,12 +23,12 @@ Use this skill to perform a structured critique of implementation plans or desig
 
 ## Example Usage
 
-**User**: "Review docs/superpowers/plans/2026-04-26-security-fixes-medium-tier.md"
+**User**: "Review docs/superpowers/plans/2026-NN-NN-some-feature.md"
 
 **Agent**: (Uses this skill)
 1. Reads the plan.
 2. Analyzes it against `nimbus-standards.md`.
-3. Writes `docs/superpowers/plans/2026-04-26-security-fixes-medium-tier-review.md` with structured feedback.
+3. Writes `docs/superpowers/plans/2026-NN-NN-some-feature-review.md` with structured feedback.
 4. Notifies the user of the findings.
 
 ## Standards Reference

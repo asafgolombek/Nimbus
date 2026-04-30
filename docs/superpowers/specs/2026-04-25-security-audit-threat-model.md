@@ -1,8 +1,8 @@
 # Threat model — Nimbus security audit (B1)
 
 **Date:** 2026-04-25
-**Related design:** [2026-04-25-security-audit-design.md](./2026-04-25-security-audit-design.md)
-**Audit branch:** `dev/asafgolombek/security-audit`
+**Related results:** [2026-04-25-security-audit-results.md](./2026-04-25-security-audit-results.md)
+**Audit branch:** `dev/asafgolombek/security-audit` (merged; design doc retired during 2026-04-30 docs cleanup)
 
 ---
 

@@ -4,7 +4,7 @@
 **Date:** 2026-04-26
 **Status:** Approved — ready for implementation plan
 **Scope:** Third of the planned maintenance initiatives (toolchain refresh ✅ · security audit B1 ✅ · **this perf audit B2** · later: B3 SOLID/duplication + B4 bug-hunt + third-party packages).
-**Predecessor:** [B1 security audit design](./2026-04-25-security-audit-design.md) — same three-phase shape (design → measurement → fix-PR plans).
+**Predecessor:** the B1 security audit (results: [`2026-04-25-security-audit-results.md`](./2026-04-25-security-audit-results.md)) — same three-phase shape (design → measurement → fix-PR plans). The B1 design / per-tier fix plans were retired post-completion; the results doc is the surviving record.
 
 ---
 
@@ -357,15 +357,14 @@ One PR per fix plan, numbered `PR-D-1`, `PR-D-2`, …, `PR-D-N` where N ≤ 5 (s
 ## 11. Follow-up specs
 
 1. `2026-??-??-perf-fixes-*-design.md` — one per top-5 fix that needs a design (most won't; they go straight to a plan).
-2. `2026-??-??-structure-audit-design.md` — **B3** (SOLID / duplication / project structure), as listed in the [B1 design `§13 Follow-up specs`](./2026-04-25-security-audit-design.md).
+2. `2026-??-??-structure-audit-design.md` — **B3** (SOLID / duplication / project structure), tracked in the maintenance-initiative sequence alongside this perf audit.
 3. `2026-??-??-bug-hunt-design.md` — **B4**.
 4. `2026-??-??-third-party-package-upgrades-design.md` — npm + cargo crate upgrades, deferred from the toolchain refresh spec.
 5. **B2-v2 (post-`v0.1.0`)** — covers the deferred-backlog items + Phase 5 connector surfaces; uses the harness from B2 (now mature). Not a Phase 4 deliverable.
 
 ## 12. Sources
 
-- [B1 security audit design](./2026-04-25-security-audit-design.md) — three-phase shape and PR strategy this spec mirrors.
-- [B1 security audit results](./2026-04-25-security-audit-results.md) — example of the consolidated-results-doc shape.
+- [B1 security audit results](./2026-04-25-security-audit-results.md) — three-phase shape, PR strategy this spec mirrors, and the consolidated-results-doc shape.
 - Nielsen, J. — *Response Times: The 3 Important Limits.* Nielsen Norman Group, originally published 1 January 1993, updated for the web at <https://www.nngroup.com/articles/response-times-3-important-limits/>. Cited in `slo-ux.md` per row using the precise interval (0.1 s perception threshold for S2, S5; 1.0 s flow threshold for S1, S3; 10 s attention upper bound as ceiling check).
 - Google — *Measure performance with the RAIL model.* Web Fundamentals, <https://web.dev/articles/rail>. Cross-checks Nielsen for UI-render thresholds: Response (≤100 ms), Animation (≤16 ms / frame), Idle (≤50 ms work units), Load (≤1 s).
 - Apple — *About AppKit-based memory reporting on Apple Silicon.* Informs § 3.3 cross-platform comparability constraint for S7 (memory RSS reporting differs across Linux/macOS/Windows).

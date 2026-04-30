@@ -386,6 +386,15 @@ Items deferred from the [Phase 4 security audit (B1)](./superpowers/specs/2026-0
 - [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6
 - [ ] **Updater production wiring (S6-F1)** — instantiate the `Updater` state machine in gateway startup so `nimbus update --check` and `updater.updateAvailable` run against a live state object; lands when GA prerequisites (signing certs, manifest server) are signed off
 
+#### Polish items from B1 follow-up review
+
+Smaller, lower-risk follow-ups surfaced when the B1 plans were retired. None are gating for `v0.1.0` but each closes a paper-cut a future audit would flag.
+
+- [ ] **Broaden URL-userinfo redaction regex** — the current redactor in updater `lastError` and a couple of log paths matches the canonical `scheme://userinfo@host` form but misses compound schemes like `git+https://` and `svn+ssh://`; switch to `/[a-zA-Z0-9+\-.]+:\/\/[^\s/]+@[^\s/]+/gi` and add fixtures covering git/svn/ssh URLs
+- [ ] **`patchPerson` transaction wrapping** — the per-field `dbRun` migration (S5-F5) traded one statement for many; audit callers and wrap the multi-field paths in `db.transaction(() => …)` so a crash mid-update cannot leave a partial row
+- [ ] **Centralise timing-safe hex compare** — extract the `timingSafeEqual` hex helpers used independently by `updater/`, `extensions/verify-extensions.ts`, and `ipc/lan-pairing.ts` into a single `packages/gateway/src/util/hex-compare.ts`; reduces drift risk and gives invariant `I10` one wiring site to point at
+- [ ] **Deprecate `connector.startAuth` alias** — annotate with `@deprecated` JSDoc + emit a single warning log per gateway run; remove the alias in Phase 5 once the desktop UI has migrated entirely to `connector.auth`
+
 ### Acceptance Criteria
 
 - `v0.1.0` installers pass Gatekeeper (macOS) and SmartScreen (Windows) without user override required
