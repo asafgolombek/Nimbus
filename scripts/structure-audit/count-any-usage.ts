@@ -8,7 +8,6 @@
 //
 // Flags:
 //   --baseline <path>   override path to baseline JSON (default: docs/structure-audit/any-baseline.json)
-//   --source <path>     override packages/*/src root (default: REPO_ROOT/packages); for tests
 //
 // Exit codes:
 //   0  baseline matches current count (--check) or update succeeded (--update)

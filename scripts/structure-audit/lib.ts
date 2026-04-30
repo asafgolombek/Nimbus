@@ -17,6 +17,11 @@ export const REPO_ROOT = resolve(import.meta.dir, "..", "..");
  *
  * Not a full TypeScript tokenizer. The audit's contract is "stable count across
  * runs"; this implementation also satisfies "doesn't strip from string contents".
+ *
+ * KNOWN LIMITATIONS: Regex literals are not tracked. A regex literal
+ * containing `//` (e.g. `/\/\//g`) can be misclassified as the start of a
+ * line comment, swallowing downstream code. No first-party source currently
+ * exercises this case.
  */
 export function stripComments(src: string): string {
   let out = "";
@@ -72,24 +77,47 @@ export function countAnyInSource(src: string): number {
 }
 
 /**
- * Iterates TypeScript source files under packages/&#42;/src/&#42;&#42;, excluding
- * test files. Test files are excluded because the `any` count and risky-assertion
- * scans should reflect production code only.
+ * Iterates TypeScript source files under packages/&#42;/src/&#42;&#42; and
+ * packages/mcp-connectors/&#42;/src/&#42;&#42;, excluding test files. Test files are
+ * excluded because the `any` count and risky-assertion scans should reflect
+ * production code only.
+ *
+ * Two globs are scanned because Bun.Glob's single `*` matches one path
+ * segment, so `packages/*&#47;src/**` would miss connector sources nested under
+ * `packages/mcp-connectors/<name>/src/**`. Results are deduplicated via a
+ * `Set` (defensive — the two globs don't currently overlap, but workspace
+ * renames could change that).
+ *
+ * Paths are normalized to forward slashes at the top of the loop because
+ * `Bun.Glob.scan` returns OS-native separators on Windows (`\\`), and the
+ * downstream `relPath.includes("/__fixtures__/")` filters are POSIX-shaped.
+ * `path.join` accepts forward slashes on Windows, so the absolute path
+ * construction stays correct.
  */
 export async function* iterateSourceFiles(): AsyncGenerator<{
   path: string;
   relPath: string;
   contents: string;
 }> {
-  const glob = new Glob("packages/*/src/**/*.ts");
-  for await (const relPath of glob.scan({ cwd: REPO_ROOT })) {
-    if (relPath.endsWith(".test.ts")) continue;
-    if (relPath.endsWith("-sql.ts")) continue;
-    if (relPath.includes("/__fixtures__/")) continue;
-    if (relPath.includes("/test/fixtures/")) continue;
-    const path = join(REPO_ROOT, relPath);
-    const contents = await Bun.file(path).text();
-    yield { path, relPath, contents };
+  const globs = [
+    new Glob("packages/*/src/**/*.ts"),
+    new Glob("packages/mcp-connectors/*/src/**/*.ts"),
+  ];
+  const seen = new Set<string>();
+  for (const glob of globs) {
+    for await (const rawRelPath of glob.scan({ cwd: REPO_ROOT })) {
+      const relPath = rawRelPath.replaceAll("\\", "/");
+      if (seen.has(relPath)) continue;
+      seen.add(relPath);
+      if (relPath.endsWith(".test.ts")) continue;
+      if (relPath.endsWith("-sql.ts")) continue;
+      if (relPath.endsWith(".d.ts")) continue;
+      if (relPath.includes("/__fixtures__/")) continue;
+      if (relPath.includes("/test/fixtures/")) continue;
+      const path = join(REPO_ROOT, relPath);
+      const contents = await Bun.file(path).text();
+      yield { path, relPath, contents };
+    }
   }
 }
 
