@@ -131,7 +131,16 @@ const NON_S8_THRESHOLDS: readonly SloThreshold[] = [
     surfaceId: "S11-b",
     metric: "p95_ms",
     refMax: 50,
-    ghaMax: 250,
+    // Spec § 3.2 originally proposed `ghaMax: 250` (5× refMax). Empirical
+    // GHA data on PR-C-1 shows Linux ~190-210 ms but Windows ~287 ms — Bun
+    // process-spawn overhead on `windows-2025` is intrinsically higher than
+    // on `ubuntu-24.04`, so the 5× rule of thumb breaks down on fast UX
+    // surfaces where OS spawn cost dominates. Bumped to 400 ms (≈8× refMax,
+    // ~40 % headroom over observed Windows p95) so the GHA threshold is
+    // achievable on all three runners. Refines spec § 3.2; the `refMax`
+    // budget is unchanged (PR-C-2 will recalibrate from a real M1 Air
+    // measurement).
+    ghaMax: 400,
     gated: true,
     noiseFloorPct: 25,
     noiseFloorAbs: 10,
