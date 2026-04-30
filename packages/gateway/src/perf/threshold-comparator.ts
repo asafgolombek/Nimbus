@@ -3,10 +3,18 @@
  * `HistoryLine` for the same runner, and the SLO_THRESHOLDS table,
  * returns one `SurfaceComparison` per SLO row. No I/O.
  *
- * Spec § 3.1 fail conditions:
- *   (a) measured > absolute threshold (`refMax` for reference, `ghaMax`
- *       for GHA — selected by `runner`)
- *   (b) delta_pct > max(noiseFloorPct, noiseFloorAbs / previous * 100)
+ * Spec § 3.1 fail conditions, direction-aware:
+ *   (a) Ceiling metrics (`p95_ms`, `p50_ms`, `rss_bytes_p95`,
+ *       `first_token_ms`): fail when `measured > absolute threshold`
+ *       (`refMax` for reference, `ghaMax` for GHA — selected by `runner`)
+ *       and when `deltaPct > max(noiseFloorPct, noiseFloorAbs / prev *
+ *       100)` (positive delta = regression).
+ *   (b) Floor metrics (`throughput_per_sec`, `tokens_per_sec`): fail
+ *       when `measured < absolute threshold` and when the *drop*
+ *       exceeds the noise floor (`-deltaPct > effectiveFloorPct`).
+ *       The `delta-fail` status keeps `deltaPct` in its natural sign
+ *       (negative for a throughput regression) so the PR-comment
+ *       formatter can render `-X%` directly.
  *
  * Workload rows have `gated: false`; `isFailingComparison()` short-
  * circuits to `false` for them regardless of status. C-1 callers
@@ -57,6 +65,14 @@ function isStub(s: HistoryLineSurface | undefined): boolean {
   return s?.samples_count === 0;
 }
 
+/**
+ * Floor metrics: higher = better, so the regression direction is *down*
+ * and the absolute threshold is a minimum. Ceiling metrics flip both.
+ */
+export function isFloorMetric(metric: SloThreshold["metric"]): boolean {
+  return metric === "throughput_per_sec" || metric === "tokens_per_sec";
+}
+
 function classifySkip(slo: SloThreshold, runner: RunnerKind): ComparisonStatus | null {
   // S2-c, S7-c, S9 — `ghaMax === "skipped"` means reference-only.
   if (slo.ghaMax === "skipped" && runner !== "reference-m1air") {
@@ -97,8 +113,11 @@ function compareOne(
 
   // Absolute check — only meaningful when ghaMax is numeric.
   const threshold = pickAbsoluteThreshold(slo, runner);
-  if (threshold !== undefined && measured > threshold) {
-    return { kind: "absolute-fail", measured, threshold };
+  if (threshold !== undefined) {
+    const absoluteFail = isFloorMetric(slo.metric) ? measured < threshold : measured > threshold;
+    if (absoluteFail) {
+      return { kind: "absolute-fail", measured, threshold };
+    }
   }
 
   // Delta check requires previous.
@@ -106,10 +125,14 @@ function compareOne(
   const prev = readMetric(previous, slo.metric);
   if (prev === undefined || prev <= 0) return { kind: "no-baseline", current: measured };
 
+  // deltaPct stays in its natural sign so the PR-comment formatter shows
+  // `-X%` for a throughput drop. regressionPct is the direction-aware
+  // magnitude — positive when the surface got worse.
   const deltaPct = ((measured - prev) / prev) * 100;
+  const regressionPct = isFloorMetric(slo.metric) ? -deltaPct : deltaPct;
   const floorAbsAsPct = (slo.noiseFloorAbs / prev) * 100;
   const effectiveFloorPct = Math.max(slo.noiseFloorPct, floorAbsAsPct);
-  if (deltaPct > effectiveFloorPct) {
+  if (regressionPct > effectiveFloorPct) {
     return {
       kind: "delta-fail",
       previous: prev,
