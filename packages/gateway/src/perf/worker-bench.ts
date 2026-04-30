@@ -5,8 +5,6 @@
  * `Worker`), drives them through a typed message protocol
  * (init → ready → start → done | error), and aggregates writes/sec +
  * busyRetries + errors[] across the fleet.
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §5.3.
  */
 
 export interface WorkerSpec {

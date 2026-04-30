@@ -3,8 +3,6 @@
  * GitHub paginates via the `Link` response header (RFC 5988); the
  * helper produces both the per-page PR array and the matching header
  * value for `buildGithubLinkHeader`.
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §6.1.
  */
 
 import type { CorpusTier } from "../types.ts";

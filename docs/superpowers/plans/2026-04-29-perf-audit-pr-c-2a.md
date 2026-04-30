@@ -10,7 +10,7 @@
 
 **Spec source:** [`docs/superpowers/specs/2026-04-29-perf-audit-pr-c-2a-design.md`](../specs/2026-04-29-perf-audit-pr-c-2a-design.md). All decisions D-R through D-AD are captured there.
 
-**Predecessor plan:** [`2026-04-29-perf-audit-pr-c-1.md`](./2026-04-29-perf-audit-pr-c-1.md) (PR-C-1, merged via commits `103256d` → `a747016`) — landed `_perf.yml`, `slo.md`, `baseline.md` skeleton, the four typed perf modules (`slo-thresholds.ts`, `threshold-comparator.ts`, `pr-comment-formatter.ts`, `bench-ci.ts`) and retired `slo-ux.md` + `benchmark.yml`.
+**Predecessor:** PR-C-1 (merged via commits `103256d` → `a747016`, retired plan doc removed in 2026-04-30 cleanup) — landed `_perf.yml`, `slo.md`, `baseline.md` skeleton, the four typed perf modules (`slo-thresholds.ts`, `threshold-comparator.ts`, `pr-comment-formatter.ts`, `bench-ci.ts`) and retired `slo-ux.md` + `benchmark.yml`.
 
 **Out of scope:** Self-hosted runner registration on the M1 Air (operator action in PR-C-2b). Reference run dispatch + populated `SLO_THRESHOLDS` workload values + populated `baseline.md` (PR-C-2b). Top-5 missed ranking + populated `deferred-backlog.md` rows (PR-C-2b). Astro page for `slo.md` (revisit when `packages/docs/` grows a Reference / SLO category). Real Ollama-driven S9 + real Tauri-renderer instrumentation (hypothetical PR-B-2b-3).
 

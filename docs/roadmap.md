@@ -374,7 +374,8 @@ These items resolve deferred decisions from Phase 3.
 
 ### Release Infrastructure
 
-- [ ] Signed + notarized release binaries: macOS (Gatekeeper notarized), Windows (Authenticode signed), Linux (GPG-signed `.deb` + AppImage) — signing scripts + CI workflow in place; pending cert procurement and Gatekeeper/SmartScreen verification
+- [x] **Linux GPG-signed binaries + `SHA256SUMS.asc`** — signing scripts + `release.yml` workflow live; `nimbus-verify.{sh,ps1}` helpers cross-check fingerprint; `release` GitHub Environment gates the publish job
+- [ ] **macOS Gatekeeper notarization + Windows Authenticode signing** — **explicitly deferred to a later point release (NOT `v0.1.1`)**, gated on a maintainer decision to fund recurring procurement (Apple Developer Program $99/yr + Windows EV cert ~$470–$840/yr). For `v0.1.0`, macOS and Windows binaries ship **unsigned**; the GPG-signed `SHA256SUMS.asc` is the canonical integrity boundary, and one-time bypass is documented in [`install-macos-unsigned.md`](./install-macos-unsigned.md) / [`install-windows-unsigned.md`](./install-windows-unsigned.md). See [`SECURITY.md` §"v0.1.0 signing cut-line"](./SECURITY.md#v010-signing-cut-line) for the full rationale.
 - [x] Auto-update — Ed25519-signed binary manifest (`latest.json`); `Updater` state machine verifies signature before install; `nimbus update --check` / `nimbus update`; Gateway emits `updater.updateAvailable` on startup
 - [x] Plugin API v1 — `@nimbus-dev/sdk` frozen at v1.0.0; `AuditLogger`, `HitlRequest`, `runContractTests` stable surface; `CHANGELOG.md` documents breaking-change policy
 
@@ -395,9 +396,28 @@ Smaller, lower-risk follow-ups surfaced when the B1 plans were retired. None are
 - [ ] **Centralise timing-safe hex compare** — extract the `timingSafeEqual` hex helpers used independently by `updater/`, `extensions/verify-extensions.ts`, and `ipc/lan-pairing.ts` into a single `packages/gateway/src/util/hex-compare.ts`; reduces drift risk and gives invariant `I10` one wiring site to point at
 - [ ] **Deprecate `connector.startAuth` alias** — annotate with `@deprecated` JSDoc + emit a single warning log per gateway run; remove the alias in Phase 5 once the desktop UI has migrated entirely to `connector.auth`
 
+### v0.1.1 batch (deferred from v0.1.0)
+
+These items have no external blocker; they slip out of `v0.1.0` to keep the release scope tight, and ship in `v0.1.1` once the listed trigger is met.
+
+| Item | Trigger to ship |
+|---|---|
+| **SQLite encryption at rest (SQLCipher, opt-in `[db.encrypt]`)** | engineering work only — no external dependency |
+| **Workflow branching / conditionals (`if` / `else` / `switch`)** | engineering work only |
+| **Built-in `nimbus prep` (Meeting preparation agent)** | WS6 streaming surface (`engine.askStream`) battle-tested in the wild |
+| **5 seed community extensions in the registry** | `registry.nimbus.dev` host live (see [`v0.1.0-prerequisites.md`](./release/v0.1.0-prerequisites.md) §5) |
+
+### Maintenance-initiative follow-ups (B-series)
+
+The B1 security audit and the B2 perf audit completed in Phase 4. Two more initiatives are sequenced behind them; each will get its own design spec when picked up.
+
+- [ ] **B3 — SOLID / duplication / project-structure audit** — same three-phase shape as B1/B2 (design → measurement → fix-PR plans); scoped at the package and module boundary level
+- [ ] **B4 — Bug-hunt audit** — same shape; ranked by user-facing impact / engineering cost
+- [ ] **Third-party package upgrades** — npm + cargo crate upgrades **deferred from the toolchain refresh** (the refresh PR bumped runner OSes, Node, and Rust MSRV but left dependency upgrades for a focused follow-up); land before B3/B4 so the audits measure the upgraded baseline
+
 ### Acceptance Criteria
 
-- `v0.1.0` installers pass Gatekeeper (macOS) and SmartScreen (Windows) without user override required
+- `v0.1.0` macOS + Windows binaries install and run correctly after the documented unsigned-install bypass; Linux installers verify cleanly against `SHA256SUMS.asc`. (Native Gatekeeper / SmartScreen acceptance is the bar for the *post-v0.1.1 signing release*, not v0.1.0.)
 - `nimbus ask "summarize everything that happened across my projects this week"` runs fully locally via Ollama — no API key, no network call — in under 30 seconds on a mid-range laptop
 - Multi-agent orchestration: a task decomposed into 3 parallel sub-agents cannot bypass HITL on any write step — verified by automated test
 - `nimbus data export` → wipe index and Vault → `nimbus data import` restores full functionality on a fresh machine with all connectors re-authenticated

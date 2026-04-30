@@ -314,6 +314,14 @@ If the active signing key is suspected to be compromised:
 
 Nimbus release artifacts are distributed with a GPG-signed `SHA256SUMS.asc` integrity manifest (and per-artifact `.asc` sidecars on Linux). All release signing uses the single key whose fingerprint is published below.
 
+### v0.1.0 signing cut-line
+
+`v0.1.0` ships with **Linux binaries GPG-signed** and **macOS + Windows binaries unsigned**. The integrity guarantee for non-Linux platforms therefore comes from the GPG-signed `SHA256SUMS.asc` manifest, **not** from platform-native code-signing — macOS users do not get a notarized `.pkg`, Windows users do not get an Authenticode-signed installer, and both platforms require a documented one-time bypass on first install ([`install-macos-unsigned.md`](./install-macos-unsigned.md), [`install-windows-unsigned.md`](./install-windows-unsigned.md)).
+
+This is an explicit project decision, not a temporary regression: native code-signing requires recurring spend on an Apple Developer Program membership ($99/yr) and a Windows EV certificate (~$470–$840/yr including signing-service fees). Both are **deferred to a later point release** — *not* `v0.1.1` — gated on an explicit maintainer decision to fund the procurement once the product is stable enough to justify it. Until that decision is made, the GPG manifest remains the canonical integrity boundary on macOS and Windows.
+
+Verifying a release on any platform follows the same `SHA256SUMS.asc` workflow described in [`verify-release-integrity.md`](./verify-release-integrity.md); the platform OS may additionally raise a Gatekeeper / SmartScreen prompt, which the unsigned-install docs walk through.
+
 **Project GPG fingerprint (v0.1.0 and later):**
 
 ```

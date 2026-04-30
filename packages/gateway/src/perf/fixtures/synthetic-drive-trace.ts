@@ -5,8 +5,6 @@
  *
  * Mirrors the Google Drive v3 response shape:
  *   { files: [...], nextPageToken?: string }
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §6.1.
  */
 
 import type { CorpusTier } from "../types.ts";

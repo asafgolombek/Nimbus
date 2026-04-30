@@ -10,7 +10,7 @@
 
 **Design spec:** [`docs/superpowers/specs/2026-04-24-ws7-vscode-extension-design.md`](../specs/2026-04-24-ws7-vscode-extension-design.md) — read first if unfamiliar. This plan implements that spec task-by-task.
 
-**Finish-plan reference:** [`docs/release/v0.1.0-finish-plan.md §4.4`](../../release/v0.1.0-finish-plan.md) — acceptance criteria.
+**Acceptance criteria source:** [`docs/roadmap.md` §"VS Code Extension"](../../roadmap.md) — the v0.1.0 finish plan was retired in the 2026-04-30 docs cleanup; the roadmap row is now the canonical bar.
 
 ---
 
@@ -86,8 +86,7 @@
 - `.github/workflows/_test-suite.yml` — add `vscode-extension` coverage row + 3 new node-compat jobs + 3 new vscode integration jobs
 - `CLAUDE.md` — Key File Locations rows; flip WS7 status; commands section
 - `GEMINI.md` — mirror
-- `docs/roadmap.md` — flip WS7 row
-- `docs/release/v0.1.0-finish-plan.md` — flip §2 row
+- `docs/roadmap.md` — flip WS7 row (canonical status; `v0.1.0-finish-plan.md` was retired in the 2026-04-30 docs cleanup)
 
 **Delete:** none.
 
@@ -6651,11 +6650,12 @@ git commit -m "docs(ws7): update CLAUDE.md + GEMINI.md with extension key files 
 
 ---
 
-## Task 31: Update `roadmap.md` and `v0.1.0-finish-plan.md`
+## Task 31: Update `roadmap.md`
 
 **Files:**
 - Modify: `docs/roadmap.md`
-- Modify: `docs/release/v0.1.0-finish-plan.md`
+
+(Note: `docs/release/v0.1.0-finish-plan.md` was retired in the 2026-04-30 docs cleanup; the roadmap is now the single source of truth for WS7 status.)
 
 ---
 
@@ -6663,17 +6663,11 @@ git commit -m "docs(ws7): update CLAUDE.md + GEMINI.md with extension key files 
 
 Open `docs/roadmap.md`. Find the WS7 row (likely under Phase 4 — Presence). Change `[ ]` to `[x]` and append the v0.1.0 marker if the convention requires it (match adjacent rows).
 
-- [ ] **Step 31.2: Update `docs/release/v0.1.0-finish-plan.md`**
-
-In the §2 status snapshot:
-- Move the WS7 row from "🔄 Open in v0.1.0" to "✅ Done (merged to `main`)".
-- Tick the §4.6 release-gate row "VS Code extension connects + Ask works" once manual smoke (Task 29) passes on all three platforms.
-
-- [ ] **Step 31.3: Commit**
+- [ ] **Step 31.2: Commit**
 
 ```bash
-git add docs/roadmap.md docs/release/v0.1.0-finish-plan.md
-git commit -m "docs(ws7): flip roadmap + finish-plan status to complete"
+git add docs/roadmap.md
+git commit -m "docs(ws7): flip roadmap status to complete"
 ```
 
 ---
@@ -6712,9 +6706,7 @@ Open `docs/superpowers/specs/2026-04-24-ws7-vscode-extension-design.md` §11 and
 - [ ] Theme syncing across Dark/Light/HC/HC-Light (manual screenshots)
 - [ ] Coverage ≥ 80%/75% (CI gate)
 
-- [ ] **Step 32.3: Update `docs/release/v0.1.0-finish-plan.md` §4.6 row**
-
-Tick "VS Code extension connects + Ask works" for all three platforms. Tick "code" + "verified" columns.
+- [ ] **Step 32.3: (retired)** — was a tick into `docs/release/v0.1.0-finish-plan.md` §4.6; that file was removed in the 2026-04-30 docs cleanup, so no doc edit is required here. Confirm the WS7 row in `docs/roadmap.md` from Step 31.1 is checked.
 
 - [ ] **Step 32.4: Final commit**
 

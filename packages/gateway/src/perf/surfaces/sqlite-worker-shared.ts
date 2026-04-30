@@ -6,8 +6,6 @@
  *  - the BEGIN IMMEDIATE + 100 ms retry budget on SQLITE_BUSY;
  *  - the writes / busyRetries counters;
  *  - the message-protocol shape that runWorkerBench (../worker-bench.ts) drives.
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §6.5.
  */
 
 const SQLITE_BUSY = 5;

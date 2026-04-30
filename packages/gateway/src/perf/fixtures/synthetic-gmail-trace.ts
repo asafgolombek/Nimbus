@@ -2,8 +2,6 @@
  * Synthetic Gmail `messages.list` + `messages.get` generator. Two-step:
  *   1. messages.list returns paginated id+threadId pairs.
  *   2. messages.get on each id returns the full message payload.
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §6.1.
  */
 
 import type { CorpusTier } from "../types.ts";

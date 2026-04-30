@@ -312,7 +312,7 @@ PR sequence:
 
 ### PR-A (Phase 0) — design + Phase 1 plan
 
-This design spec + the review doc (`2026-04-26-perf-audit-design-review.md` and any subsequent revision passes) + Phase 1 implementation plan. PR description summarises the methodology and links to this spec.
+This design spec + the Phase 1 implementation plan. PR description summarises the methodology and links to this spec. (Per-iteration review docs were retired during the 2026-04-30 docs cleanup; review feedback now lives in PR-thread comments and the kept results documents.)
 
 ### PR-B-1 + PR-B-2 (Phase 1) — split into two PRs
 
