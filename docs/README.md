@@ -182,10 +182,55 @@ See [`docs/roadmap.md`](./roadmap.md) for the full Phase 3.5 delivery list and [
 
 ### Prerequisites
 
-- **From source:** [Bun v1.2+](https://bun.sh/docs/installation)
-- **Workspace install (includes Sharp):** From the repository root, run **`bun install`**. The Gateway’s local embedder uses **`@xenova/transformers`**, which depends on **`sharp`** and platform packages such as **`@img/sharp-win32-x64`** (Windows x64). They are installed with the workspace; you do not install Sharp system-wide.
-- **If Sharp failed to download or build:** From the repo root, remove **`node_modules`** and run **`bun install`** again (ensure install scripts are not disabled). On Windows, [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) can help other native addons; Sharp itself uses prebuilt binaries for common platforms.
-- **Pre-built binaries:** No Bun required on the **target** machine for release executables. **Note:** Gateway binaries built with **`bun build --compile`** bundle JavaScript into a single file; **Sharp’s native `.node` file may not load inside that layout** on some platforms. If `nimbus-gateway` exits with a Sharp error, run the Gateway **from source** with **`bun`** after `bun install` (for example `cd packages/gateway && bun run dev`). Linux `.deb` / tarball artifacts from CI are normal compiled binaries—end users do not run `npm install sharp`; if a packaged binary ever failed the same way, the fix would be in **build/packaging**, not an extra OS package on the user’s machine.
+#### Required on every platform (source build)
+
+- **[Bun v1.2+](https://bun.sh/docs/installation)** — runtime, package manager, test runner. Verify with `bun --version`.
+- **Git** — for cloning the repo and the build's git-info embedding.
+- **A C++ build toolchain** — needed for the rare native dep that has no prebuilt binary for your platform.
+  - Windows: [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) and Visual Studio Build Tools (Desktop development with C++ workload).
+  - macOS: `xcode-select --install`.
+  - Linux: `build-essential` (Debian/Ubuntu) or `Development Tools` (Fedora/Arch).
+
+#### Required only for the Tauri 2.0 desktop UI (`packages/ui`)
+
+The headless Gateway and CLI build without these. Skip if you only want `nimbus` in the terminal.
+
+- **[Rust toolchain](https://www.rust-lang.org/tools/install)** — install via `rustup`; Tauri needs `cargo` and a stable `rustc` (≥ 1.78 recommended).
+- **Platform WebView dependencies:**
+  - **Windows 10+** — WebView2 Runtime (preinstalled on Windows 11; install [Evergreen Bootstrapper](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) on older Windows 10 builds).
+  - **macOS 13+** — Xcode Command Line Tools (already installed if you ran `xcode-select --install` above).
+  - **Linux (Ubuntu/Debian)** — `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`.
+  - Other distros: see the [Tauri prerequisites guide](https://tauri.app/start/prerequisites/).
+
+#### Required at runtime on Linux only
+
+- **`libsecret`** — backs the Vault on Linux (Windows uses DPAPI; macOS uses Keychain — both built-in).
+  - Debian/Ubuntu: `sudo apt install libsecret-1-0 libsecret-tools` (the `-tools` package provides `secret-tool`, which `nimbus doctor` checks for).
+  - Fedora/Arch: `sudo dnf install libsecret` / `sudo pacman -S libsecret`.
+  - You also need a running Secret Service implementation — `gnome-keyring`, KWallet (kwallet5/6), or `keepassxc` with Secret Service enabled. On a headless Linux server, use `gnome-keyring-daemon --unlock` in your session script.
+
+#### Native dependencies installed by `bun install`
+
+The Gateway's local embedder uses **`@xenova/transformers`**, which depends on **`sharp`** and a platform binary such as **`@img/sharp-win32-x64`**. These are pulled in automatically by `bun install` — you do not install them system-wide. If Sharp fails to download or build, remove `node_modules` and re-run `bun install` with install scripts enabled.
+
+#### Pre-built binaries (no Bun required on the target machine)
+
+Gateway binaries built with `bun build --compile` bundle JavaScript into a single file. Sharp's native `.node` file may not load inside that layout on some platforms. If `nimbus-gateway` exits with a Sharp error, run the Gateway **from source** with `bun` after `bun install` (for example `cd packages/gateway && bun run dev`). Linux `.deb` / tarball artifacts from CI are normal compiled binaries — end users do not run `npm install sharp`; if a packaged binary ever fails the same way, the fix is in build/packaging, not an extra OS package on the user's machine.
+
+#### Optional — only needed if you enable the corresponding feature
+
+| Feature | Requirement | How to install |
+|---|---|---|
+| **Local LLM (Ollama)** | [Ollama](https://ollama.com/download) running on `localhost:11434`, plus at least one pulled model (e.g. `ollama pull llama3.1:8b`) | Override the host with `OLLAMA_HOST` or `[llm.ollama_host]` in `nimbus.toml`. |
+| **Local LLM (llama.cpp)** | A `llama-server` HTTP endpoint reachable from the Gateway | Configure under `[llm.llamacpp]` — see `docs/architecture.md`. |
+| **Cloud LLM (Anthropic)** | Anthropic API key | `nimbus config set llm.provider anthropic`; export `ANTHROPIC_API_KEY=…` (or set `[llm].api_key` in `nimbus.toml`). |
+| **Cloud LLM (OpenAI)** | OpenAI API key | `nimbus config set llm.provider openai`; export `OPENAI_API_KEY=…`. |
+| **Voice — STT (`nimbus voice listen`)** | `whisper-cli` (whisper.cpp) on PATH, plus `ffmpeg` for audio capture | Build whisper.cpp from source or install via `brew install whisper-cpp`; `ffmpeg` via your distro/`brew`. Set `voice.whisper_path` if not on PATH. |
+| **Voice — TTS** | macOS: `say` (built-in). Windows: PowerShell SAPI (built-in). Linux: `espeak-ng` (preferred) or `spd-say` | `sudo apt install espeak-ng` / `brew install espeak-ng`. |
+| **Wake-word loop** | Same as STT, plus a microphone configured at the OS level | Verify with `nimbus doctor` — voice section appears when `[voice].enabled = true`. |
+| **GPU acceleration for embeddings or LLM** | Provider-specific (CUDA, ROCm, Metal). Nimbus serializes GPU access via `GpuArbiter` | Configure your provider's GPU support; Nimbus does not require any extra config. |
+
+Once installed, run **`nimbus doctor`** — it checks every prerequisite above and prints actionable remediation for anything missing.
 
 ### Option A — Pre-built Binaries
 
@@ -217,11 +262,40 @@ Built CLI location:
 
 Add `packages/cli/dist` to your `PATH` or call with a full path.
 
+### First-Run Configuration
+
+The first time the Gateway starts it creates a default `nimbus.toml` in the platform config directory and an empty SQLite index in the data directory:
+
+| Platform | Config (`nimbus.toml`) | Data (`index.db`, `audit.db`, `backups/`, `logs/`) |
+|---|---|---|
+| Windows | `%APPDATA%\Nimbus\nimbus.toml` | `%LOCALAPPDATA%\Nimbus\data` |
+| macOS | `~/Library/Application Support/Nimbus/nimbus.toml` | `~/Library/Application Support/Nimbus/data` |
+| Linux | `~/.config/nimbus/nimbus.toml` | `~/.local/share/nimbus` |
+
+Override either with `NIMBUS_CONFIG_DIR` / `NIMBUS_DATA_DIR` if you need separate trees per profile or per environment. All keys can be overridden with `NIMBUS_`-prefixed env vars (e.g. `NIMBUS_LLM_PROVIDER`, `NIMBUS_SYNC_INTERVAL_SECONDS`).
+
+Pick an LLM provider before running your first `nimbus ask` — without one, the agent has no reasoning surface:
+
+```bash
+# Cloud (default — fastest path to a working install)
+export ANTHROPIC_API_KEY=sk-ant-…
+nimbus config set llm.provider anthropic
+nimbus config set llm.model claude-sonnet-4-6
+
+# OR fully local (no network calls; requires Ollama running)
+ollama pull llama3.1:8b
+nimbus config set llm.provider ollama
+nimbus config set llm.model llama3.1:8b
+```
+
+See [`docs/cli-reference.md`](./cli-reference.md#configuration-file) for the full `nimbus.toml` schema.
+
 ### Start the Gateway
 
 ```bash
 nimbus start     # Start Gateway as a background process
 nimbus status    # Verify it's running; check connector health
+nimbus doctor    # Re-run any time something seems off — checks Bun, Vault, Gateway, index, voice, …
 ```
 
 ### Authenticate Services

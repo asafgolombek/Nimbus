@@ -364,6 +364,29 @@ nimbus connector remove github --yes    # Skip confirmation
 
 ---
 
+### `nimbus connector reindex <name>`
+
+Re-ingest a connector's data at a chosen depth. Useful after changing data-minimization policy, recovering from a corrupted partial sync, or applying a new schema version. The Gateway preserves Vault credentials; only index rows are rewritten.
+
+```bash
+nimbus connector reindex github
+nimbus connector reindex slack --depth metadata_only
+nimbus connector reindex notion --depth summary
+nimbus connector reindex confluence --depth full
+```
+
+**Depth values:**
+
+| Depth | Effect |
+|---|---|
+| `metadata_only` *(default)* | IDs, timestamps, titles, URLs, owners — no body content |
+| `summary` | Metadata + first-N-tokens summary of each item |
+| `full` | Metadata + summary + full body content (largest index footprint) |
+
+Output reports the resolved mode and the number of items affected. The depth is persisted as the connector's default for subsequent delta syncs.
+
+---
+
 ## Configuration
 
 ### `nimbus config get <key>`
@@ -866,6 +889,140 @@ nimbus audit --json
 ```
 
 **Columns:** `timestamp`, `action`, `service`, `payload_summary`, `hitl_status` (`approved` / `rejected` / `not_required`), `result`.
+
+---
+
+### `nimbus audit verify`
+
+Verify the BLAKE3 chain integrity of the audit log. Each row stores `row_hash = BLAKE3(prev_hash || canonical_row_bytes)`; this command walks the chain and reports the first break, if any.
+
+```bash
+nimbus audit verify              # Verify chain since the last successful checkpoint
+nimbus audit verify --full       # Verify the entire chain from row 1
+nimbus audit verify --since 1000 # Verify forward from a specific row id
+```
+
+**Exit codes:** `0` = chain intact, `1` = break detected (output names the first broken row id and the reason — e.g. `prev_hash mismatch`, `row_hash mismatch`, `missing predecessor`).
+
+A break indicates either tampering or unsynchronized writes. A break is a hard finding — file an internal issue and capture a `nimbus audit export` snapshot before any other action.
+
+---
+
+### `nimbus audit export`
+
+Export the full audit log as a JSON array. Suitable for backup, compliance handoff, or external SIEM ingestion.
+
+```bash
+nimbus audit export --output ./audit-2026-04-30.json
+```
+
+The exported payload includes `row_hash` and `prev_hash` for each row, so the chain can be re-verified offline. The output file is written with `Bun.write` and overwrites without prompting — pick a fresh path.
+
+---
+
+## Data Sovereignty
+
+Nimbus stores all your indexed data and credentials locally. The `nimbus data` family lets you take a portable, encrypted backup of that state, restore it on another machine, or perform a service-scoped GDPR deletion. Bundles are protected by an Argon2id-derived key envelope; a 12-word BIP39 recovery seed is generated once and shown only at export time.
+
+### `nimbus data export`
+
+Create an encrypted, portable backup of the local index, the audit log, and (where supported) Vault credential references.
+
+```bash
+nimbus data export --output ./nimbus-2026-04-30.tar.gz --passphrase "long-strong-passphrase"
+nimbus data export --output ./meta-only.tar.gz --passphrase "..." --no-index
+```
+
+**Required flags:**
+
+| Flag | Description |
+|---|---|
+| `--output <path>` | Destination `.tar.gz`. Overwrites without prompting. |
+| `--passphrase <pw>` | Argon2id-derived key. Choose a long passphrase — there is no recovery if you lose both this and the recovery seed. |
+
+**Optional flags:**
+
+| Flag | Description |
+|---|---|
+| `--no-index` | Skip the SQLite index; export only credential references and audit log. Smaller bundle, faster restore. |
+
+On first export, the Gateway generates a 12-word BIP39 recovery seed and prints it once. **Store it offline.** Subsequent exports reuse the same seed (it is bound to the Gateway, not to a single bundle), so either the passphrase *or* the seed can decrypt any bundle from this Gateway.
+
+---
+
+### `nimbus data import <bundle>`
+
+Restore a previously exported bundle. The Gateway must be stopped before running this command; the index is replaced atomically.
+
+```bash
+nimbus data import ./nimbus-2026-04-30.tar.gz --passphrase "..."
+nimbus data import ./nimbus-2026-04-30.tar.gz --recovery-seed "word1 word2 ... word12"
+```
+
+Provide **either** `--passphrase` or `--recovery-seed`, not both. The output reports the count of credentials restored and a count of OAuth entries that may need re-authentication on the next sync (refresh tokens that were rotated upstream since the export).
+
+**Version-compatibility note:** A bundle from a Gateway with a higher schema version cannot be imported into an older Gateway. Upgrade the target Gateway first.
+
+---
+
+### `nimbus data delete --service <name>`
+
+Service-scoped GDPR deletion. Removes all index rows, embeddings, audit log entries, and Vault credentials associated with the named connector. Irreversible.
+
+```bash
+nimbus data delete --service slack --dry-run     # Preview only — no changes
+nimbus data delete --service slack --yes         # Execute — required for non-interactive
+```
+
+**Flags:**
+
+| Flag | Description |
+|---|---|
+| `--service <name>` | Connector to purge (`github`, `slack`, `google_drive`, …) |
+| `--dry-run` | Print the preflight (item count, vault entry count) and exit |
+| `--yes` | Required to execute the deletion (the CLI is non-interactive) |
+
+The preflight is always printed — even with `--yes` — so the deletion blast radius is recorded in the audit log before the destructive write.
+
+---
+
+## Performance Benchmarking
+
+### `nimbus bench`
+
+Run the perf harness against one or all measurement surfaces. Surfaces are pre-defined synthetic workloads (intent classification, sync throughput, query latency, etc.) that produce comparable numbers across runs and machines.
+
+```bash
+nimbus bench --surface S2-a --runs 5 --reference     # Reference run — interactive protocol confirm
+nimbus bench --surface S2-a --runs 5 --gha           # CI run — auto-tag with platform
+nimbus bench --all --gha --corpus medium             # Every registered surface
+```
+
+**Required (one of):**
+
+| Flag | Description |
+|---|---|
+| `--surface <id>` | One of `S1`, `S2-a`, `S2-b`, `S2-c`, `S3`, `S4`, `S5`, `S11-a`, `S11-b` (cluster C — `S6`/`S7`/`S8`/`S9`/`S10` — adds in PR-B-2b) |
+| `--all` | Run every registered surface back-to-back |
+
+**Tagging (one of, required):**
+
+| Flag | Description |
+|---|---|
+| `--reference` | Tag the run as `reference-m1air`. Interactive protocol confirmation is required by default — see [`docs/perf/reference-runner-setup.md`](./perf/reference-runner-setup.md) |
+| `--protocol-confirmed` | Non-interactive equivalent for CI dispatch from `.github/workflows/_perf-reference.yml`. Do not pass this from a developer machine — the protocol gate exists to catch dirty environments before the number lands in `history.jsonl` |
+| `--gha` | Tag as `gha-<os>` (auto-derived from `process.platform`) |
+
+**Optional:**
+
+| Flag | Description |
+|---|---|
+| `--corpus <tier>` | `small` *(default)* / `medium` / `large` — fixture size |
+| `--runs <N>` | Per-surface invocations (default: 5) |
+| `--history <path>` | `history.jsonl` override — defaults to `packages/gateway/src/perf/history.jsonl` |
+| `--fixture-cache <p>` | Fixture cache directory override |
+
+The harness writes a structured `HistoryLine` per surface/run to `history.jsonl`. Surface implementations live under `packages/gateway/src/perf/surfaces/`; the bench runner is `packages/gateway/src/perf/bench-runner.ts`. See [`docs/superpowers/specs/2026-04-26-perf-audit-design.md`](./superpowers/specs/2026-04-26-perf-audit-design.md) for the surface table and acceptance protocol.
 
 ---
 
