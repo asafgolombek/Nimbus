@@ -110,4 +110,33 @@ describe("runBenchRunnerMain", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("--protocol-confirmed without --reference is a no-op (flag is ignored on non-reference runs)", async () => {
+    const dir = freshDir();
+    const historyPath = join(dir, "history.jsonl");
+    try {
+      const exitCode = await runBenchRunnerMain([
+        "--surface",
+        "S2-a",
+        "--runs",
+        "1",
+        "--corpus",
+        "small",
+        "--gha",
+        "--protocol-confirmed",
+        "--history",
+        historyPath,
+        "--fixture-cache",
+        dir,
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(readFileSync(historyPath, "utf8").trim());
+      expect(parsed.runner).toMatch(/^gha-/);
+      // The reference-protocol-compliant field is only set on reference runs;
+      // a --gha run with --protocol-confirmed must NOT carry this field.
+      expect(parsed.reference_protocol_compliant).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
