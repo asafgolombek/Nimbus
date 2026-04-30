@@ -34,10 +34,15 @@ export interface EmbeddingThroughputOptions {
    * pass `--corpus small`) fit inside the 45-min per-OS job budget without
    * sacrificing the canonical 1000×batch workload that the reference run
    * (M1 Air, `--reference`) is calibrated against.
-   *   - small  →   50× batch   (CI budget)
-   *   - medium →  250× batch
+   *   - small  →   10× batch   (CI budget)
+   *   - medium →  100× batch
    *   - large  → 1000× batch   (canonical, matches unset)
    * Unset preserves pre-existing 1000×batch behaviour for local-dev runs.
+   *
+   * The `small` tier is intentionally aggressive: ONNX per-batch time at
+   * length=5000 (l5000-b{32,64}) scales linearly with batch size and
+   * dominates wall time, so 10 batches × 5 runs is the largest workload
+   * that keeps every cell under ~5 min on ubuntu-24.04 GHA.
    */
   corpus?: CorpusTier;
   /** Test-injectable embedder; production uses createLocalEmbedder. */
@@ -50,8 +55,8 @@ export interface EmbeddingThroughputOptions {
 const DEFAULT_BATCH_MULTIPLIER = 1_000;
 
 const CORPUS_BATCH_MULTIPLIER: Record<CorpusTier, number> = {
-  small: 50,
-  medium: 250,
+  small: 10,
+  medium: 100,
   large: DEFAULT_BATCH_MULTIPLIER,
 };
 

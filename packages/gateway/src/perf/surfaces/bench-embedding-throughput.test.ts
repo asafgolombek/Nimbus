@@ -78,9 +78,12 @@ describe("runEmbeddingThroughputOnce", () => {
 
   // CI matrix budget: when --corpus small is passed, S8 cells must downscale
   // their workload so all 12 cells fit in the 45-min job timeout. The
-  // canonical 1000×batch workload is reserved for reference / --corpus large
-  // and would consume ~3 hours of CI wall-time across the matrix.
-  test("scales totalItems to 50 × batch when corpus is 'small'", async () => {
+  // canonical 1000×batch workload is reserved for reference / --corpus large.
+  // Empirically the l5000-b{32,64} cells dominate at multiplier ≥ 50 because
+  // ONNX MiniLM per-batch time grows with both length and batch (l5000-b32
+  // measured at ~2.7 s/batch on ubuntu-24.04 GHA), so the multiplier must
+  // be small enough that 5 runs × multiplier × per-batch-time stays bounded.
+  test("scales totalItems to 10 × batch when corpus is 'small'", async () => {
     const { embedder, calls } = makeFakeEmbedder(0);
     await runEmbeddingThroughputOnce({
       length: 50,
@@ -88,11 +91,11 @@ describe("runEmbeddingThroughputOnce", () => {
       corpus: "small",
       embedder,
     });
-    // 50 × 8 = 400 items / batch 8 = 50 batched calls + 1 warm-up = 51
-    expect(calls.length).toBe(51);
+    // 10 × 8 = 80 items / batch 8 = 10 batched calls + 1 warm-up = 11
+    expect(calls.length).toBe(11);
   });
 
-  test("scales totalItems to 250 × batch when corpus is 'medium'", async () => {
+  test("scales totalItems to 100 × batch when corpus is 'medium'", async () => {
     const { embedder, calls } = makeFakeEmbedder(0);
     await runEmbeddingThroughputOnce({
       length: 50,
@@ -100,8 +103,8 @@ describe("runEmbeddingThroughputOnce", () => {
       corpus: "medium",
       embedder,
     });
-    // 250 × 1 = 250 items / batch 1 = 250 batched calls + 1 warm-up = 251
-    expect(calls.length).toBe(251);
+    // 100 × 1 = 100 items / batch 1 = 100 batched calls + 1 warm-up = 101
+    expect(calls.length).toBe(101);
   });
 
   // 1001 fake-embed calls (each yielding to the event loop) exceed the
