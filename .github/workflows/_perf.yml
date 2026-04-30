@@ -101,6 +101,15 @@ jobs:
         shell: bash
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
 
+      # macOS GHA marks downloaded native libs with `com.apple.quarantine`,
+      # which blocks dlopen() of `sqlite-vec.dylib` from the bun:sqlite Workers
+      # spawned by the S10 driver and exits the bench with code 139 (SIGSEGV).
+      # Strip it pre-bench. Mirrors `_test-suite.yml:59-62`.
+      - name: macOS — Strip quarantine from native SQLite extensions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: find node_modules -name "*.dylib" -print0 2>/dev/null | xargs -0 xattr -d com.apple.quarantine 2>/dev/null || true
+
       - name: macOS — Create and unlock CI Keychain (gateway vault init)
         if: runner.os == 'macOS'
         shell: bash
