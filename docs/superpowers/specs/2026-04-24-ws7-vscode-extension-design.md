@@ -1,8 +1,8 @@
 # WS7 — VS Code Extension — Design Spec (v0.1.0, Phase 4)
 
 **Date:** 2026-04-24
-**Authoritative source:** `docs/release/v0.1.0-finish-plan.md §4.4` + the WS7 section of the `nimbus-phase-4` skill. This spec folds those two sources into a single implementation-ready design and resolves eight scope questions raised during brainstorming.
-**Phase placement:** Workstream 7 of Phase 4 (Presence). Sequentially after WS6 (Rich TUI, shipped) per the P2-track sequencing in the finish plan. WS7 is the last new-surface workstream before the v0.1.0 release-gate execution.
+**Authoritative source:** `docs/roadmap.md` §"VS Code Extension" + the WS7 section of the `nimbus-phase-4` skill. (The original `v0.1.0-finish-plan.md §4.4` source was retired in the 2026-04-30 docs cleanup; the roadmap row carries the live acceptance criteria.) This spec folds those sources into a single implementation-ready design and resolves eight scope questions raised during brainstorming.
+**Phase placement:** Workstream 7 of Phase 4 (Presence). Sequentially after WS6 (Rich TUI, shipped). WS7 is the last new-surface workstream before the v0.1.0 release-gate execution.
 **Prior art:** WS5-A/B/C/D (Tauri UI) defined the gateway-offline UX, HITL dialog mental model, and IPC allowlist conventions this spec mirrors in an editor-extension surface. WS6 (Rich TUI) validated `engine.askStream` + `agent.subTaskProgress` + `agent.hitlBatch` end-to-end against a real Gateway — WS7 consumes the same surfaces.
 
 ---
@@ -705,8 +705,7 @@ Both documented in `docs/release/v0.1.0-prerequisites.md` §6–§7. No new proc
 - `.github/workflows/_test-suite.yml` — add `vscode-extension-coverage`, `vscode-extension-integration-{ubuntu,macos,windows}`, `client-node-compat-{ubuntu,macos,windows}` jobs
 - `CLAUDE.md` — add Key File Locations rows; flip WS7 status; add commands section
 - `GEMINI.md` — mirror `CLAUDE.md`
-- `docs/roadmap.md` — flip WS7 row to `[x]`
-- `docs/release/v0.1.0-finish-plan.md` §2 — flip WS7 status; tick §4.6 row when manual smoke passes
+- `docs/roadmap.md` — flip WS7 row to `[x]` (canonical status; `v0.1.0-finish-plan.md` was retired in the 2026-04-30 docs cleanup)
 
 ### 10.3 Delete
 
@@ -716,7 +715,7 @@ None. The CLI's `paths.ts` and `gateway-process.ts` stay in place during WS7; co
 
 ## 11. Acceptance criteria
 
-Reproducing the finish-plan §4.4 list with the design's specifics added:
+Reproducing the roadmap row's acceptance bar with the design's specifics added:
 
 - [ ] `Nimbus: Ask` streams a result from a running Gateway without manual configuration on VS Code 1.90+ and Cursor.
 - [ ] Inline HITL surfaces in the chat panel when visible+focused; non-modal toast otherwise (modal when `nimbus.hitlAlwaysModal: true`); `consent.respond` called exactly once per `requestId`.
@@ -788,4 +787,4 @@ When this spec is approved by the user:
 3. Invoke `superpowers:writing-plans` to produce the task-by-task implementation plan in `docs/superpowers/plans/2026-04-24-ws7-vscode-extension.md`.
 4. Cross-reference the plan back to this spec in its header.
 5. Implementation proceeds via TDD per the plan; each task is a small, reviewable diff.
-6. On WS7 completion, tick the relevant rows in `docs/release/v0.1.0-finish-plan.md` §2 and §4.6.
+6. On WS7 completion, flip the WS7 row in `docs/roadmap.md` to `[x]` (the `v0.1.0-finish-plan.md` rows it formerly tracked were retired in the 2026-04-30 docs cleanup).

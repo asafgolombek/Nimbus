@@ -1,9 +1,8 @@
 # Security audit (B1) — consolidated results
 
 **Date:** 2026-04-25
-**Related design:** [2026-04-25-security-audit-design.md](./2026-04-25-security-audit-design.md)
 **Related threat model:** [2026-04-25-security-audit-threat-model.md](./2026-04-25-security-audit-threat-model.md)
-**Audit branch:** `dev/asafgolombek/security-audit`
+**Audit branch:** `dev/asafgolombek/security-audit` (merged; design and per-tier fix plans retired during 2026-04-30 docs cleanup)
 **Status:** complete — all 8 surface deep-dives and cross-surface chain analysis finished; 72 findings filed, 6 composite chains documented; GitHub issues pending (Task 13). **Fixes applied:** S1-F3 / C4 structural split closed (`ae27fe9`, 2026-04-25).
 
 ---

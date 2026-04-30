@@ -7,8 +7,6 @@
  * Tests should register `setupServer` with `onUnhandledRequest: "error"`
  * (sentinel) so any URL the connector hits that is not covered fails
  * with a diagnostic.
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §6.1.
  */
 
 import { HttpResponse, http } from "msw";

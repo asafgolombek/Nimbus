@@ -2,8 +2,7 @@
 
 **Date:** 2026-04-29
 **Parent spec:** [`2026-04-26-perf-audit-design.md`](./2026-04-26-perf-audit-design.md) — defines the surface table, threshold semantics, reference-hardware protocol, and PR sequence (PR-A → PR-B-1 → PR-B-2a → PR-B-2b-1 → PR-B-2b-2 → PR-C-1 → **PR-C-2a → PR-C-2b** → PR-D-N). Read it first; this doc fills in PR-C-2a's architectural decisions.
-**Predecessor plan:** [`2026-04-29-perf-audit-pr-c-1.md`](../plans/2026-04-29-perf-audit-pr-c-1.md) (PR-C-1, merged via commits `103256d` → `a747016`) — landed `_perf.yml`, `slo.md`, `baseline.md` skeleton, `slo-thresholds.ts` (SSoT), the threshold comparator, the PR-comment formatter, the `bench-ci` orchestrator, and retired `slo-ux.md` + `benchmark.yml`.
-**Sibling spec:** [`2026-04-28-perf-audit-pr-c-1-design.md`](./2026-04-28-perf-audit-pr-c-1-design.md) — D-A through D-Q; PR-C-2a inherits its decisions and extends them.
+**Predecessor:** PR-C-1 (merged via commits `103256d` → `a747016`, retired plan + design docs removed in 2026-04-30 cleanup) — landed `_perf.yml`, `slo.md`, `baseline.md` skeleton, `slo-thresholds.ts` (SSoT), the threshold comparator, the PR-comment formatter, the `bench-ci` orchestrator, and retired `slo-ux.md` + `benchmark.yml`. Decisions D-A through D-Q from the PR-C-1 design carry over and PR-C-2a extends them with D-R through D-AD captured below.
 
 ## 1. Goal
 

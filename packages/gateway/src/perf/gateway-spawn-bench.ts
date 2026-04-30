@@ -8,8 +8,6 @@
  *
  * Distinct from `process-spawn-bench.ts` which times spawn-to-marker;
  * this helper times *during* the warm phase.
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §5.1.
  */
 
 const DEFAULT_READY_TIMEOUT_MS = 30_000;

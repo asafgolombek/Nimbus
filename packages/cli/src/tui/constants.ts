@@ -2,8 +2,7 @@
  * Shared tuning constants for the Nimbus Rich TUI.
  *
  * Every time one of these needs a new value, reach for this file first —
- * not a per-component magic number. Values are documented in the design
- * spec (docs/superpowers/specs/2026-04-23-ws6-rich-tui-design.md).
+ * not a per-component magic number.
  */
 
 /** Below this terminal width, App.tsx collapses to a single-column layout. */

@@ -7,8 +7,6 @@
  * tokenizer + encoder paths (not just zero-width strings), but small
  * enough that the harness can hold the entire corpus in memory at the
  * largest tier (length=5000 × count=64 ≈ 20 MB).
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §6.3.
  */
 
 export const SYNTHETIC_TEXT_DEFAULT_SEED = 0x6e696d62; // "nimb"

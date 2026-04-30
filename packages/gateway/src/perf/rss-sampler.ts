@@ -6,8 +6,6 @@
  *
  * Tests inject the pidusage function. Production callers omit it and
  * the helper imports the real npm package lazily.
- *
- * See docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md §5.2.
  */
 
 import { computePercentiles } from "./percentiles.ts";

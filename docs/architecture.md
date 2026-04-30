@@ -1205,7 +1205,9 @@ PRs that drop below threshold are blocked when checks are required.
 
 Every structural defense Nimbus relies on is documented as a **security invariant** in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). Each invariant pairs the defense with (a) the production wiring site that makes it active and (b) an enforcement test in `packages/gateway/src/security-invariants.test.ts` that fails if the wiring is removed.
 
-This pairing exists because the B1 audit found that several defenses (`extensionProcessEnv`, `checkLanMethodAllowed`, the `<tool_output>` envelope) were **defined in code but had zero production callers** — orphaned helpers that documentation continued to claim as active. The invariants file + enforcement test are how that gap is prevented from recurring: if a defense has no caller, the test fails.
+This pairing exists because the B1 audit (Phase 4 internal audit, 2026-04-25) found that several defenses (`extensionProcessEnv`, `checkLanMethodAllowed`, the `<tool_output>` envelope) were **defined in code but had zero production callers** — orphaned helpers that documentation continued to claim as active. The invariants file + enforcement test are how that gap is prevented from recurring: if a defense has no caller, the test fails.
+
+B1 produced 78 unique findings (no Critical) across 8 trust surfaces; all High and Medium items have been closed. Three Low findings remain scoped to Phase 4 as pre-`v0.1.0` blockers — Tauri-native file picker for `data.import` (S4-F6), profile-switch broadcast refactor (S4-F8), and updater production wiring (S6-F1) — and are tracked in [`docs/roadmap.md`](./roadmap.md#security-audit-follow-ups-b1). The summary, threat model, and full per-surface findings live under [`docs/SECURITY.md`](./SECURITY.md#security-audits) and `docs/superpowers/specs/2026-04-25-security-audit-{results,threat-model}.md`.
 
 A new structural defense lands as a *triple*: the production wiring, an entry in the invariants file, and an assertion in the test. If any of the three is missing, the defense is not yet real.
 

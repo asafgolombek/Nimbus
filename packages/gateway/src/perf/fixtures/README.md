@@ -1,7 +1,6 @@
 # Perf bench fixtures
 
-Synthetic HTTP-trace generators + MSW v2 handlers used by the S6
-sync-throughput drivers. See `docs/superpowers/specs/2026-04-27-perf-audit-cluster-c-design.md` §13 for the verification rationale.
+Synthetic HTTP-trace generators + MSW v2 handlers used by the S6 sync-throughput drivers. The verification table below documents which connector traffic each fixture intercepts.
 
 ## Connector HTTP-layer verification (PR-B-2b-1, Task 2)
 

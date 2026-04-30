@@ -1,0 +1,173 @@
+name: Performance Reference Run (M1 Air)
+
+# Triggers (spec §4.2 + design D-T):
+#   - workflow_dispatch only. Operator manually triggers from the Actions UI
+#     after preparing the M1 Air per the §4.2 protocol checklist.
+#
+# This workflow runs on the self-hosted runner registered with the
+# `reference-m1air` label (see docs/perf/reference-runner-setup.md). It
+# performs the bench, sanity-checks the resulting history.jsonl line, and
+# opens a `perf`-labelled bot PR for review.
+
+on:
+  workflow_dispatch:
+    inputs:
+      protocol_attested:
+        description: "Have you completed the §4.2 reference protocol checklist? (AC powered, Low Power Mode off, fresh reboot ≥5 min, no Spotlight/Time Machine/iCloud/Messages activity, display on)"
+        required: true
+        type: boolean
+        default: false
+      notes:
+        description: "Optional free-form notes (e.g., thermal state, deviations from protocol). Goes into PR body, not the history line."
+        required: false
+        type: string
+        default: ""
+
+# Spec §4.3 — only one reference run at a time. cancel-in-progress: false
+# so a queued dispatch waits for the current run to finish rather than
+# corrupting its measurements.
+concurrency:
+  group: bench-reference
+  cancel-in-progress: false
+
+jobs:
+  reference-run:
+    name: Reference benchmark run (M1 Air)
+    runs-on: [self-hosted, macOS, ARM64, reference-m1air]
+    # 3 runs × ~15 min worst-case + setup overhead. Reference protocol
+    # explicitly forbids parallelism, so this is a wall-clock budget.
+    timeout-minutes: 60
+    permissions:
+      contents: write       # branch push
+      pull-requests: write  # gh pr create
+
+    steps:
+      - name: Validate protocol attestation
+        if: inputs.protocol_attested != true
+        run: |
+          echo "::error::Reference run requires §4.2 protocol attestation."
+          echo "Re-dispatch with protocol_attested=true after completing the checklist."
+          echo "See docs/perf/reference-runner-setup.md and spec §4.2."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0           # we read git history (HEAD:docs/perf/history.jsonl)
+          persist-credentials: true # we push back to the same repo
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Run reference benchmark (3 runs, all surfaces)
+        # Direct bench-runner.ts invocation matches the existing _perf.yml
+        # pattern. No separate `bun run build` step needed — the bench
+        # harness runs against TS source via Bun.
+        run: |
+          set -euo pipefail
+          bun packages/gateway/src/perf/bench-runner.ts \
+            --all \
+            --reference \
+            --runs 3 \
+            --protocol-confirmed \
+            --history "${{ github.workspace }}/docs/perf/history.jsonl"
+
+      - name: Sanity-check history.jsonl diff
+        id: sanity
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 1. Exactly one file modified (no incidental edits).
+          changed=$(git status --porcelain | awk '{print $NF}')
+          if [[ "$changed" != "docs/perf/history.jsonl" ]]; then
+            echo "::error::Expected only docs/perf/history.jsonl to change; got:"
+            git status --porcelain
+            exit 1
+          fi
+          # 2. Exactly one line added (count delta — robust against whitespace
+          #    diffs and file-creation header noise).
+          before=$(git show HEAD:docs/perf/history.jsonl 2>/dev/null | wc -l || echo 0)
+          after=$(wc -l < docs/perf/history.jsonl)
+          if [[ "$((after - before))" != "1" ]]; then
+            echo "::error::Expected +1 line in history.jsonl; got delta $((after - before))"
+            exit 1
+          fi
+          # 3. Last line is a valid JSON record with the expected runner, SHA,
+          #    and a populated os_version (proves auto-capture worked).
+          last=$(tail -n 1 docs/perf/history.jsonl)
+          echo "$last" | jq -e \
+            --arg sha "$GITHUB_SHA" \
+            '.runner == "reference-m1air"
+             and .nimbus_git_sha == $sha
+             and (.os_version | type == "string" and length > 0)' \
+            >/dev/null || {
+              echo "::error::history.jsonl last line failed validation:"
+              echo "$last"
+              exit 1
+            }
+          echo "branch=perf/reference-run-$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push branch
+        env:
+          BRANCH: ${{ steps.sanity.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Pre-check: branch must not already exist on origin. If it does,
+          # the operator is likely re-dispatching after a partial failure;
+          # tell them exactly what to do rather than failing with a
+          # cryptic git push rejection.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "::error::Branch $BRANCH already exists on origin. If re-running after a partial failure, delete it first:"
+            echo "  git push origin --delete $BRANCH"
+            echo "Or wait until tomorrow for a fresh branch name."
+            exit 1
+          fi
+          git checkout -b "$BRANCH"
+          git add docs/perf/history.jsonl
+          git commit -m "perf: reference benchmark run $(date -u +%Y-%m-%d) (${GITHUB_SHA::7})"
+          git push origin "$BRANCH"
+
+      - name: Open perf-labelled PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.sanity.outputs.branch }}
+          NOTES: ${{ inputs.notes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          body=$(cat <<EOF
+          ## Reference benchmark run
+
+          - **Runner:** \`reference-m1air\` (self-hosted, M1 Air, 8 GB / 256 GB)
+          - **Triggered by:** @${{ github.actor }} via workflow_dispatch
+          - **macOS version:** see \`os_version\` field in the new history line
+          - **Notes:** ${NOTES:-_(none)_}
+
+          ### § 4.2 Reference protocol checklist (operator attested)
+
+          - [x] AC powered
+          - [x] Low Power Mode off
+          - [x] Fresh reboot ≥5 min before run
+          - [x] No Spotlight / Time Machine / iCloud / Messages / Bun / Docker / Xcode activity
+          - [x] Display on, screensaver disabled
+          - [x] macOS version recorded (auto-captured in \`os_version\`)
+
+          ### History line
+
+          One aggregated line (median across 3 runs per surface, spec §4.5) appended to \`docs/perf/history.jsonl\`.
+
+          ### Reviewer action
+
+          Spot-check the surface values for sanity (compare against last reference run if available). Merge to record the run as the new reference baseline. PR-C-2b will then populate \`SLO_THRESHOLDS\` workload values from this line.
+          EOF
+          )
+          gh pr create \
+            --title "perf: reference benchmark run $(date -u +%Y-%m-%d) (${GITHUB_SHA::7})" \
+            --body "$body" \
+            --label perf \
+            --base main \
+            --head "$BRANCH"
+          echo "PR opened on branch $BRANCH" >> "$GITHUB_STEP_SUMMARY"
