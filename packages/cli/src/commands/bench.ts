@@ -32,7 +32,9 @@ Flags:
   --all               run every registered surface
   --corpus <tier>     small | medium | large
   --runs <N>          per-surface invocations (default 5)
-  --reference         tag as reference-m1air (requires interactive protocol confirm)
+  --reference         tag as reference-m1air (interactive protocol confirm by default)
+  --protocol-confirmed  non-interactive §4.2 protocol confirmation; intended for CI
+                        dispatch from .github/workflows/_perf-reference.yml
   --gha               tag as gha-<os> (auto-derived from process.platform)
   --history <path>    history.jsonl override
   --fixture-cache <p> fixture cache dir override
