@@ -1504,10 +1504,12 @@ import { auditOutputPath, iterateSourceFiles, REPO_ROOT } from "./lib.ts";
 
 export function computePercentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;
-  // Use the descending sorted array's percentile from the LOW end.
+  // Nearest-rank (inclusive): index = ceil(p/100 * N) - 1, clamped to [0, N-1].
+  // For [1..10] p80 → index 7 → value 8 (matches the documented contract).
   const ascending = [...sorted].sort((a, b) => a - b);
-  const idx = Math.floor((p / 100) * ascending.length);
-  return ascending[Math.min(idx, ascending.length - 1)] ?? 0;
+  const rank = Math.ceil((p / 100) * ascending.length);
+  const idx = Math.min(Math.max(rank - 1, 0), ascending.length - 1);
+  return ascending[idx] ?? 0;
 }
 
 /**
@@ -1542,7 +1544,7 @@ async function run(): Promise<void> {
   const counts = files.map((e) => e.commits90d);
   const p80Threshold = computePercentile(counts, 80);
   const outPath = auditOutputPath("churn-90d.json");
-  await Bun.write(outPath, JSON.stringify({ files, p80Threshold }, null, 2) + "\n");
+  await Bun.write(outPath, `${JSON.stringify({ files, p80Threshold }, null, 2)}\n`);
   console.log(`churn report: ${files.length} files; p80 = ${p80Threshold}; → ${outPath}`);
   console.log(`Top 10 most-changed:`);
   for (const e of files.slice(0, 10)) console.log(`  ${e.commits90d}\t${e.file}`);
