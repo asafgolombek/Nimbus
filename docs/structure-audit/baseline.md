@@ -1,0 +1,53 @@
+# B3 Structure Audit — Phase 1 Baseline
+
+**Generated at commit:** `a3f327be871c810ff7c86690bb059fa381d85a6e`
+**Date:** 2026-04-30
+**Phase 1 of:** [`docs/superpowers/specs/2026-04-30-structure-audit-design.md`](../superpowers/specs/2026-04-30-structure-audit-design.md)
+
+This file is the measured starting state of the structure-audit dimensions on
+the `dev/asafgolombek/structure-audit-design` branch. Phase 2's `missed.md`
+ranks deviations from these baselines.
+
+## Per-dimension baselines
+
+| # | Bucket | Dimension | Baseline | Source / threshold |
+|---|---|---|---|---|
+| D1 | A | Forbidden cross-package imports | 0 violations | `bun run audit:boundaries` (binary) |
+| D2 | A | Cyclic imports within a workspace | 0 violations | `bun run audit:boundaries` (binary) |
+| D3 | A | PAL leakage | 0 violations | `bun run audit:boundaries` (binary) |
+| D4 | B | Files > 800 raw LOC | 6 files (top file: `packages/gateway/src/connectors/lazy-mesh.ts`:1401) | `docs/structure-audit/file-loc.json` |
+| D5 | B | Functions with cognitive complexity > 15 | (pending — populated when Phase 2 uploads the first SonarQube analysis) | SonarQube dashboard (post-analysis) |
+| D6 | C | Per-workspace duplication % | 3.62% overall (`statistics.total.percentage` from jscpd-report) | `docs/structure-audit/jscpd-report.json` |
+| D7 | D | Unused exports / orphan files | 267 files with at least one finding (pre-cleanup; Task 14 may reduce) | `docs/structure-audit/knip-report.json` |
+| D8 | D | `any` count | 2 (frozen in `any-baseline.json`) | `bun run audit:any` |
+| D9 | D | Risky type assertions (informational) | 399 | `docs/structure-audit/risky-assertions.json` |
+| D10 | F | Spawn under connectors/ not via `extensionProcessEnv()` | 5 violations | `bun run audit:invariants` (binary) |
+| D11 | F | Vault-key construction outside allow-list | 56 violations | `bun run audit:invariants` (binary) |
+| D12 | F | `db.run()` outside `db/write.ts` (census) | 94 sites | `docs/structure-audit/db-run-census.json` |
+
+## Provenance
+
+- `count-any-usage` script: `scripts/structure-audit/count-any-usage.ts` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `check-nimbus-invariants` script: `scripts/structure-audit/check-nimbus-invariants.ts` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `measure-file-loc` script: `scripts/structure-audit/measure-file-loc.ts` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `get-git-churn` script: `scripts/structure-audit/get-git-churn.ts` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `list-risky-assertions` script: `scripts/structure-audit/list-risky-assertions.ts` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `dependency-cruiser` config: `.dependency-cruiser.cjs` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `jscpd` config: `.jscpd.json` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+- `knip` config: `knip.json` @ `a3f327be871c810ff7c86690bb059fa381d85a6e`
+
+## Phase 2 thresholds derived from this baseline
+
+- **D8 manual ratchet:** any new PR's `any` count must equal `2` from this file. Reductions require updating `any-baseline.json` in the same PR (see spec § 3.3).
+- **D6 duplication threshold:** `> 3 %` per workspace, **or** any duplicated block ≥ 100 tokens (whichever fires first).
+- **D4 LOC threshold:** `> 800` raw LOC per file.
+- **D5 cognitive complexity threshold:** `> 15` per function (SonarQube).
+- **`structural_impact_score = 4` cutoff:** files in the top 20% by 90-day commit count (`p80Threshold` in `churn-90d.json`).
+
+## Files committed at Phase 1 close
+
+- `docs/structure-audit/any-baseline.json`
+- `docs/structure-audit/db-run-census.json`
+- `docs/structure-audit/churn-90d.json`
+- `docs/structure-audit/baseline.md` (this file)
+- `docs/structure-audit/sonarqube-rule-tuning.md` (empty placeholder, populated only if Phase 2 needs rule tuning)

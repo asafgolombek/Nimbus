@@ -1,0 +1,566 @@
+[
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 53,
+    "function": "if",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 79,
+    "function": "updateSchedulerState",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 105,
+    "function": "setNextSyncAt",
+    "snippet": "db.run(`UPDATE scheduler_state SET next_sync_at = ? WHERE service_id = ?`, ["
+  },
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 112,
+    "function": "setPaused",
+    "snippet": "db.run(`UPDATE scheduler_state SET paused = ? WHERE service_id = ?`, [paused ? 1 : 0, serviceId]);"
+  },
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 116,
+    "function": "setIntervalMs",
+    "snippet": "db.run(`UPDATE scheduler_state SET interval_ms = ? WHERE service_id = ?`, ["
+  },
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 200,
+    "function": "clearSchedulerCursor",
+    "snippet": "db.run(`UPDATE scheduler_state SET cursor = NULL WHERE service_id = ?`, [serviceId]);"
+  },
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 204,
+    "function": "deleteSchedulerStateRow",
+    "snippet": "db.run(`DELETE FROM scheduler_state WHERE service_id = ?`, [serviceId]);"
+  },
+  {
+    "file": "packages/gateway/src/sync/scheduler-store.ts",
+    "line": 220,
+    "function": "insertSyncTelemetry",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/platform/assemble.ts",
+    "line": 75,
+    "function": "push",
+    "snippet": "db.run(\"PRAGMA busy_timeout = 8000\");"
+  },
+  {
+    "file": "packages/gateway/src/perf/perf-fixture.ts",
+    "line": 105,
+    "function": "buildSyntheticIndex",
+    "snippet": "db.run(\"BEGIN\");"
+  },
+  {
+    "file": "packages/gateway/src/perf/perf-fixture.ts",
+    "line": 110,
+    "function": "for",
+    "snippet": "db.run(\"COMMIT\");"
+  },
+  {
+    "file": "packages/gateway/src/people/linker.ts",
+    "line": 408,
+    "function": "if",
+    "snippet": "db.run(\"UPDATE item SET author_id = ? WHERE author_id = ?\", [personIdA, personIdB]);"
+  },
+  {
+    "file": "packages/gateway/src/people/person-store.ts",
+    "line": 195,
+    "function": "insertPerson",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/people/person-store.ts",
+    "line": 335,
+    "function": "deletePersonById",
+    "snippet": "db.run(\"DELETE FROM person WHERE id = ?\", [id]);"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 10,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET github_login = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 13,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET gitlab_login = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 16,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET slack_handle = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 19,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET linear_member_id = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 22,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET jira_account_id = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 25,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET notion_user_id = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 28,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET bitbucket_uuid = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 31,
+    "function": "switch",
+    "snippet": "db.run(\"UPDATE person SET discord_user_id = NULL\");"
+  },
+  {
+    "file": "packages/gateway/src/people/prune.ts",
+    "line": 36,
+    "function": "switch",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/memory/session-memory-store.ts",
+    "line": 65,
+    "function": "transaction",
+    "snippet": "this.db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, ["
+  },
+  {
+    "file": "packages/gateway/src/memory/session-memory-store.ts",
+    "line": 69,
+    "function": "transaction",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/memory/session-memory-store.ts",
+    "line": 130,
+    "function": "for",
+    "snippet": "this.db.run(`DELETE FROM session_memory WHERE id = ?`, [r.id]);"
+  },
+  {
+    "file": "packages/gateway/src/memory/session-memory-store.ts",
+    "line": 139,
+    "function": "deleteSession",
+    "snippet": "this.db.run(`DELETE FROM session_memory WHERE session_id = ?`, [sessionId]);"
+  },
+  {
+    "file": "packages/gateway/src/llm/registry.ts",
+    "line": 106,
+    "function": "if",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/llm/registry.ts",
+    "line": 134,
+    "function": "for",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/ipc/http-server.ts",
+    "line": 156,
+    "function": "startReadOnlyHttpServer",
+    "snippet": "db.run(\"PRAGMA query_only = ON\");"
+  },
+  {
+    "file": "packages/gateway/src/index/item-store.ts",
+    "line": 71,
+    "function": "upsertIndexedItem",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/item-store.ts",
+    "line": 169,
+    "function": "if",
+    "snippet": "db.run(\"DELETE FROM item WHERE id = ?\", [primaryKey]);"
+  },
+  {
+    "file": "packages/gateway/src/index/item-store.ts",
+    "line": 188,
+    "function": "map",
+    "snippet": "db.run(\"DELETE FROM item WHERE service = ?\", [service]);"
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 289,
+    "function": "ensureSchema",
+    "snippet": "db.run(\"PRAGMA foreign_keys = ON\");"
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 439,
+    "function": "if",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 472,
+    "function": "transaction",
+    "snippet": "this.db.run(\"DELETE FROM sync_state WHERE connector_id = ?\", [serviceId]);"
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 744,
+    "function": "recordSync",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 818,
+    "function": "setAuditVerifiedThroughId",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 848,
+    "function": "setMeta",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 873,
+    "function": "listLanPeers",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 895,
+    "function": "grantLanWrite",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 902,
+    "function": "revokeLanWrite",
+    "snippet": "this.db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 909,
+    "function": "removeLanPeer",
+    "snippet": "this.db.run(`DELETE FROM lan_peers WHERE peer_id = ?`, [peerId]);"
+  },
+  {
+    "file": "packages/gateway/src/index/local-index.ts",
+    "line": 923,
+    "function": "close",
+    "snippet": "this.db.run(\"PRAGMA wal_checkpoint(TRUNCATE)\");"
+  },
+  {
+    "file": "packages/gateway/src/index/migrations/runner.ts",
+    "line": 77,
+    "function": "recordMigration",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/migrations/runner.ts",
+    "line": 119,
+    "function": "transaction",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/index/migrations/runner.ts",
+    "line": 477,
+    "function": "writePreMigrationBackup",
+    "snippet": "db.run(`VACUUM INTO ?`, [tmpPath]);"
+  },
+  {
+    "file": "packages/gateway/src/graph/graph-populator.ts",
+    "line": 29,
+    "function": "clearRelationsTouchingEntity",
+    "snippet": "db.run(\"DELETE FROM graph_relation WHERE from_id = ? OR to_id = ?\", [entityId, entityId]);"
+  },
+  {
+    "file": "packages/gateway/src/graph/relationship-graph.ts",
+    "line": 57,
+    "function": "upsertGraphEntity",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/graph/relationship-graph.ts",
+    "line": 77,
+    "function": "upsertGraphRelation",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/graph/relationship-graph.ts",
+    "line": 95,
+    "function": "map",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/engine/sub-agent.ts",
+    "line": 17,
+    "function": "tryPersistStart",
+    "snippet": "const stmt = db.run("
+  },
+  {
+    "file": "packages/gateway/src/engine/sub-agent.ts",
+    "line": 32,
+    "function": "tryPersistDone",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/engine/sub-agent.ts",
+    "line": 52,
+    "function": "tryPersistError",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/embedding/pipeline.ts",
+    "line": 73,
+    "function": "transaction",
+    "snippet": "this.db.run(`DELETE FROM embedding_chunk WHERE item_id = ? AND model = ?`, [itemId, model]);"
+  },
+  {
+    "file": "packages/gateway/src/embedding/pipeline.ts",
+    "line": 103,
+    "function": "deleteItemEmbeddings",
+    "snippet": "this.db.run(`DELETE FROM embedding_chunk WHERE item_id = ?`, [itemId]);"
+  },
+  {
+    "file": "packages/gateway/src/db/audit-chain.ts",
+    "line": 58,
+    "function": "appendAuditEntry",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/db/repair.ts",
+    "line": 61,
+    "function": "map",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/db/repair.ts",
+    "line": 69,
+    "function": "map",
+    "snippet": "db.run(`UPDATE scheduler_state SET cursor = NULL`);"
+  },
+  {
+    "file": "packages/gateway/src/db/repair.ts",
+    "line": 88,
+    "function": "repairFts5",
+    "snippet": "db.run(\"INSERT INTO item_fts(item_fts) VALUES('rebuild')\");"
+  },
+  {
+    "file": "packages/gateway/src/db/repair.ts",
+    "line": 102,
+    "function": "repairOrphanedSyncTokens",
+    "snippet": "const result = db.run("
+  },
+  {
+    "file": "packages/gateway/src/db/repair.ts",
+    "line": 136,
+    "function": "repairForeignKeys",
+    "snippet": "db.run(\"PRAGMA foreign_keys = ON\");"
+  },
+  {
+    "file": "packages/gateway/src/db/repair.ts",
+    "line": 168,
+    "function": "map",
+    "snippet": "const res = db.run("
+  },
+  {
+    "file": "packages/gateway/src/db/repair.ts",
+    "line": 195,
+    "function": "writeAuditEntry",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/db/snapshot.ts",
+    "line": 81,
+    "function": "takeSnapshot",
+    "snippet": "db.run(`VACUUM INTO ?`, [tmpPath]);"
+  },
+  {
+    "file": "packages/gateway/src/db/verify.ts",
+    "line": 82,
+    "function": "checkFts5Consistency",
+    "snippet": "db.run(\"INSERT INTO item_fts(item_fts) VALUES('integrity-check')\");"
+  },
+  {
+    "file": "packages/gateway/src/db/verify.ts",
+    "line": 212,
+    "function": "checkForeignKeyIntegrity",
+    "snippet": "db.run(\"PRAGMA foreign_keys = ON\");"
+  },
+  {
+    "file": "packages/gateway/src/connectors/health.ts",
+    "line": 123,
+    "function": "upsertHealthRow",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/connectors/health.ts",
+    "line": 127,
+    "function": "upsertHealthRow",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/connectors/health.ts",
+    "line": 154,
+    "function": "appendHistory",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/connectors/health.ts",
+    "line": 352,
+    "function": "pruneConnectorHealthHistory",
+    "snippet": "const result = db.run(`DELETE FROM connector_health_history WHERE occurred_at < ?`, [cutoffMs]);"
+  },
+  {
+    "file": "packages/gateway/src/connectors/remove-intent.ts",
+    "line": 23,
+    "function": "writeRemoveIntent",
+    "snippet": "db.run(`INSERT OR REPLACE INTO connector_remove_intent (service_id, started_at) VALUES (?, ?)`, ["
+  },
+  {
+    "file": "packages/gateway/src/connectors/remove-intent.ts",
+    "line": 31,
+    "function": "clearRemoveIntent",
+    "snippet": "db.run(`DELETE FROM connector_remove_intent WHERE service_id = ?`, [serviceId]);"
+  },
+  {
+    "file": "packages/gateway/src/connectors/user-mcp-store.ts",
+    "line": 70,
+    "function": "insertUserMcpConnector",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/connectors/user-mcp-store.ts",
+    "line": 80,
+    "function": "deleteUserMcpConnector",
+    "snippet": "const r = db.run(`DELETE FROM user_mcp_connector WHERE service_id = ?`, [serviceId]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/extension-store.ts",
+    "line": 32,
+    "function": "touchExtensionVerifiedAt",
+    "snippet": "db.run(`UPDATE extension SET last_verified_at = ? WHERE id = ?`, [ts, id]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/extension-store.ts",
+    "line": 43,
+    "function": "insertExtensionRow",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/automation/extension-store.ts",
+    "line": 63,
+    "function": "setExtensionEnabled",
+    "snippet": "const r = db.run(`UPDATE extension SET enabled = ? WHERE id = ?`, [enabled ? 1 : 0, id]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/extension-store.ts",
+    "line": 85,
+    "function": "if",
+    "snippet": "db.run(`DELETE FROM extension WHERE id = ?`, [id]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/watcher-store.ts",
+    "line": 50,
+    "function": "insertWatcher",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/automation/watcher-store.ts",
+    "line": 73,
+    "function": "deleteWatcher",
+    "snippet": "db.run(`DELETE FROM watcher WHERE id = ?`, [id]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/watcher-store.ts",
+    "line": 80,
+    "function": "setWatcherEnabled",
+    "snippet": "const r = db.run(`UPDATE watcher SET enabled = ? WHERE id = ?`, [enabled ? 1 : 0, id]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/watcher-store.ts",
+    "line": 85,
+    "function": "updateWatcherLastChecked",
+    "snippet": "db.run(`UPDATE watcher SET last_checked_at = ? WHERE id = ?`, [ts, id]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/watcher-store.ts",
+    "line": 89,
+    "function": "updateWatcherLastFired",
+    "snippet": "db.run(`UPDATE watcher SET last_fired_at = ? WHERE id = ?`, [ts, id]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/watcher-store.ts",
+    "line": 99,
+    "function": "insertWatcherEvent",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/automation/watcher-store.ts",
+    "line": 114,
+    "function": "setWatcherGraphPredicate",
+    "snippet": "const r = db.run(`UPDATE watcher SET graph_predicate_json = ? WHERE id = ?`, ["
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-run-history.ts",
+    "line": 79,
+    "function": "pruneWorkflowRuns",
+    "snippet": "const res = db.run("
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-store.ts",
+    "line": 54,
+    "function": "if",
+    "snippet": "db.run(`UPDATE workflow SET description = ?, steps_json = ?, updated_at = ? WHERE id = ?`, ["
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-store.ts",
+    "line": 63,
+    "function": "if",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-store.ts",
+    "line": 75,
+    "function": "deleteWorkflowByName",
+    "snippet": "const r = db.run(`DELETE FROM workflow WHERE name = ?`, [name]);"
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-store.ts",
+    "line": 91,
+    "function": "insertWorkflowRunRow",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-store.ts",
+    "line": 113,
+    "function": "finishWorkflowRunRow",
+    "snippet": "db.run(`UPDATE workflow_run SET status = ?, finished_at = ?, error_msg = ? WHERE id = ?`, ["
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-store.ts",
+    "line": 131,
+    "function": "insertWorkflowRunStepRow",
+    "snippet": "db.run("
+  },
+  {
+    "file": "packages/gateway/src/automation/workflow-store.ts",
+    "line": 144,
+    "function": "updateWorkflowRunStepRow",
+    "snippet": "db.run("
+  }
+]
