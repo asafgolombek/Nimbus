@@ -1,24 +1,25 @@
 name: Performance Benchmarks
 
-# Triggers (spec § 4.3):
+# Triggers (spec §4.3, design D-W/D-AB):
 #   - push to main: writes the per-OS baseline artifact subsequent PRs diff against.
-#   - schedule (nightly cron): always run.
+#   - schedule: '0 4 * * 1-6' (Mon–Sat, Linux only via cost-fallback gate);
+#               '0 4 * * 0'   (Sunday, full three-OS coverage).
 #   - pull_request: run only when labels include `perf` (auto-applied by labeler.yml
 #     on changes under packages/gateway/src/{engine,db,embedding,connectors,llm,voice,perf}/**).
 #
-# Cost discipline (spec § 4.3, D-H): if budget pressure ever requires reducing
-# the matrix to "ubuntu-only nightly + macos / windows once per week", change
-# the macos / windows matrix entries to use:
-#     if: github.event.schedule == '0 4 * * 0' || github.event_name != 'schedule'
-# That gates them on a weekly cron AND keeps PR runs full-coverage. Not pre-wired —
-# we flip when (and only if) we hit the cap.
+# Cost-fallback gate (spec §4.3): macOS+Windows skip the heavy bench/upload/
+# compare steps on Mon–Sat nightlies; cheap setup steps (Harden Runner,
+# Checkout, Setup Bun, install) run unconditionally. Net: ~95% per-non-Linux-OS
+# minutes saved on weekday nights. Push-to-main and perf-PRs always run all
+# three OSes, so artifacts on `main` are kept fresh on every merge.
 on:
   push:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "0 4 * * 1-6"   # Mon–Sat 04:00 UTC — Linux only (cost-fallback gate, D-W/D-AB)
+    - cron: "0 4 * * 0"     # Sunday 04:00 UTC — full three-OS coverage
 
 # Note: permissions and concurrency are set per-job (not per-workflow)
 # per SonarQube `githubactions:S8264` / `S8233` (least-privilege at the
@@ -138,6 +139,10 @@ jobs:
           echo "id=${runner_id}" >> "$GITHUB_OUTPUT"
 
       - name: Run bench
+        if: |
+          matrix.os == 'ubuntu-24.04' ||
+          github.event_name != 'schedule' ||
+          github.event.schedule == '0 4 * * 0'
         shell: bash
         run: |
           set -euo pipefail
@@ -148,6 +153,10 @@ jobs:
             --fixture-cache "${RUNNER_TEMP}/perf-fixtures"
 
       - name: Upload run history artifact
+        if: |
+          matrix.os == 'ubuntu-24.04' ||
+          github.event_name != 'schedule' ||
+          github.event.schedule == '0 4 * * 0'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           # MUST match the format `perf-${runner_id}-${sha}` that
@@ -157,6 +166,10 @@ jobs:
           retention-days: 90
 
       - name: Compare + post PR-comment delta
+        if: |
+          matrix.os == 'ubuntu-24.04' ||
+          github.event_name != 'schedule' ||
+          github.event.schedule == '0 4 * * 0'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
