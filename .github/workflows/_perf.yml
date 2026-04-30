@@ -21,11 +21,17 @@ on:
     - cron: "0 4 * * 1-6"   # Mon–Sat 04:00 UTC — Linux only (cost-fallback gate, D-W/D-AB)
     - cron: "0 4 * * 0"     # Sunday 04:00 UTC — full three-OS coverage
 
-# Note: permissions and concurrency are set per-job (not per-workflow)
+# Note: per-job permissions and concurrency are used (not workflow-level)
 # per SonarQube `githubactions:S8264` / `S8233` (least-privilege at the
 # narrowest scope) and because workflow-level `concurrency` cannot read
 # `matrix.*` — it would degrade to one shared group across all OSes and
 # serialise the matrix.
+#
+# A workflow-level `permissions: {}` baseline is still set so any job
+# that omits its own permissions block inherits no token scopes (Scorecard
+# `Token-Permissions` requires a top-level declaration). Each job below
+# explicitly grants only the scopes it actually uses.
+permissions: {}
 
 jobs:
   detect-trigger:
