@@ -55,15 +55,10 @@ module.exports = {
         "Business logic uses the PlatformServices interface.",
       from: {
         path: "^packages/gateway/src/",
-        pathNot: [
-          "^packages/gateway/src/platform/index\\.ts$",
-          "\\.test\\.ts$",
-          "/test/",
-        ],
+        pathNot: ["^packages/gateway/src/platform/index\\.ts$", "\\.test\\.ts$", "/test/"],
       },
       to: {
-        path:
-          "^packages/gateway/src/platform/(win32|darwin|linux)\\.ts$",
+        path: "^packages/gateway/src/platform/(win32|darwin|linux)\\.ts$",
       },
     },
   ],
@@ -77,13 +72,7 @@ module.exports = {
     },
     includeOnly: "^packages/",
     exclude: {
-      path: [
-        "\\.test\\.ts$",
-        "\\.test\\.tsx$",
-        "/dist/",
-        "node_modules",
-        "/__fixtures__/",
-      ],
+      path: ["\\.test\\.ts$", "\\.test\\.tsx$", "/dist/", "node_modules", "/__fixtures__/"],
     },
   },
 };

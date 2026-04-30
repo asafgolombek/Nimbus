@@ -66,7 +66,7 @@ async function run(): Promise<void> {
   results.push(await step("git-churn", ["bun", "run", "scripts/structure-audit/get-git-churn.ts"]));
 
   const outPath = auditOutputPath(`run-${timestamp}.json`);
-  await Bun.write(outPath, JSON.stringify({ timestamp, results }, null, 2) + "\n");
+  await Bun.write(outPath, `${JSON.stringify({ timestamp, results }, null, 2)}\n`);
   console.log(`\nOrchestrator run blob: ${outPath}`);
   for (const r of results) {
     console.log(`  ${r.ok ? "OK " : "FAIL"} ${r.durationMs.toString().padStart(6)}ms  ${r.name}`);
