@@ -164,7 +164,7 @@ describe("runBenchCiMain", () => {
     }
   });
 
-  test("artifact-name format passed to `gh run download` is `perf-${runner}-${sha}` (regression for C1)", async () => {
+  test("artifact-name format passed to `gh run download` is `perf-<runner>-<sha>` (regression for C1)", async () => {
     // C1 was a load-bearing bug: bench-ci.ts stripped `gha-` from the runner
     // when constructing the artifact name (`perf-ubuntu-<sha>`), but the
     // upload step in `_perf.yml` used the matrix OS (`perf-ubuntu-24.04-<sha>`).
