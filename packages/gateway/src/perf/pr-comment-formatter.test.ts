@@ -53,6 +53,26 @@ describe("formatPrComment", () => {
     expect(out).toContain("absolute-fail");
     expect(out).toContain("12000");
     expect(out).toContain("10000");
+    // ceiling metric: regression direction is up
+    expect(out).toContain("12000 > 10000");
+  });
+
+  test("absolute-fail for floor metric renders `<` instead of `>`", () => {
+    const out = formatPrComment(
+      [
+        {
+          surfaceId: "S6-drive",
+          metric: "throughput_per_sec",
+          status: { kind: "absolute-fail", measured: 40, threshold: 60 },
+        },
+      ],
+      fakeLine("gha-ubuntu"),
+      fakeLine("gha-ubuntu"),
+    );
+    expect(out).toContain("absolute-fail");
+    // floor metric: regression direction is down — observed is below the floor
+    expect(out).toContain("40 < 60");
+    expect(out).not.toContain("40 > 60");
   });
 
   test("renders delta-fail with delta percentage", () => {

@@ -7,7 +7,7 @@
  */
 
 import type { HistoryLine, HistoryLineSurface } from "./history-line.ts";
-import type { SurfaceComparison } from "./threshold-comparator.ts";
+import { isFloorMetric, type SurfaceComparison } from "./threshold-comparator.ts";
 
 export const COMMENT_MARKER_PREFIX = "nimbus-perf-delta";
 
@@ -49,8 +49,10 @@ function statusCell(c: SurfaceComparison): string {
   switch (c.status.kind) {
     case "pass":
       return "✅ pass";
-    case "absolute-fail":
-      return `❌ absolute-fail (${fmtNum(c.status.measured)} > ${fmtNum(c.status.threshold)})`;
+    case "absolute-fail": {
+      const op = isFloorMetric(c.metric) ? "<" : ">";
+      return `❌ absolute-fail (${fmtNum(c.status.measured)} ${op} ${fmtNum(c.status.threshold)})`;
+    }
     case "delta-fail":
       return `⚠️ delta-fail (floor ${c.status.floorPct.toFixed(1)}%)`;
     case "no-baseline":

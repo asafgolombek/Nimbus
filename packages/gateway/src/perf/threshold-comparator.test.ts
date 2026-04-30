@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import type { HistoryLine } from "./history-line.ts";
-import { SLO_THRESHOLDS } from "./slo-thresholds.ts";
-import { compareAgainstHistory, isFailingComparison } from "./threshold-comparator.ts";
+import { SLO_THRESHOLDS, type SloThreshold } from "./slo-thresholds.ts";
+import {
+  compareAgainstHistory,
+  isFailingComparison,
+  isFloorMetric,
+} from "./threshold-comparator.ts";
 
 function fakeLine(runner: HistoryLine["runner"], surfaces: HistoryLine["surfaces"]): HistoryLine {
   return {
@@ -91,6 +95,134 @@ describe("compareAgainstHistory", () => {
     const out = compareAgainstHistory(current, null, SLO_THRESHOLDS, "gha-ubuntu");
     const s3 = out.find((c) => c.surfaceId === "S3");
     expect(s3?.status).toEqual({ kind: "skipped", reason: "stub" });
+  });
+});
+
+describe("isFloorMetric", () => {
+  test("returns true for floor metrics", () => {
+    expect(isFloorMetric("throughput_per_sec")).toBe(true);
+    expect(isFloorMetric("tokens_per_sec")).toBe(true);
+  });
+
+  test("returns false for ceiling metrics", () => {
+    expect(isFloorMetric("p95_ms")).toBe(false);
+    expect(isFloorMetric("p50_ms")).toBe(false);
+    expect(isFloorMetric("rss_bytes_p95")).toBe(false);
+    expect(isFloorMetric("first_token_ms")).toBe(false);
+  });
+});
+
+describe("compareAgainstHistory — floor metrics", () => {
+  // No production row currently has floor metric + numeric ghaMax + gated:true
+  // (PR-C-2b will eventually flip them after PR-C-2c lands). Construct a
+  // synthetic row to exercise the direction-aware branches.
+  const floorRow: SloThreshold = {
+    surfaceId: "S6-drive",
+    metric: "throughput_per_sec",
+    refMax: 100,
+    ghaMax: 60,
+    gated: true,
+    noiseFloorPct: 25,
+    noiseFloorAbs: 5,
+    noiseFloorAbsUnit: "items_per_sec",
+  };
+
+  test("absolute-fail when throughput drops below ghaMax floor", () => {
+    const current = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 50 },
+    });
+    const out = compareAgainstHistory(current, null, [floorRow], "gha-ubuntu");
+    const s6 = out.find((c) => c.surfaceId === "S6-drive");
+    expect(s6?.status).toEqual({ kind: "absolute-fail", measured: 50, threshold: 60 });
+  });
+
+  test("absolute-pass when throughput is above ghaMax floor (no baseline → no-baseline)", () => {
+    const current = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 80 },
+    });
+    const out = compareAgainstHistory(current, null, [floorRow], "gha-ubuntu");
+    const s6 = out.find((c) => c.surfaceId === "S6-drive");
+    expect(s6?.status).toEqual({ kind: "no-baseline", current: 80 });
+  });
+
+  test("absolute-pass at exactly the floor (boundary — strict <, not <=)", () => {
+    const current = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 60 },
+    });
+    const out = compareAgainstHistory(current, null, [floorRow], "gha-ubuntu");
+    const s6 = out.find((c) => c.surfaceId === "S6-drive");
+    expect(s6?.status).toEqual({ kind: "no-baseline", current: 60 });
+  });
+
+  test("delta-fail when throughput drops more than the noise floor; deltaPct stays signed", () => {
+    // Previous 100, current 70 → -30% drop, exceeds 25% floor, fail.
+    const previous = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 100 },
+    });
+    const current = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 70 },
+    });
+    const out = compareAgainstHistory(current, previous, [floorRow], "gha-ubuntu");
+    const s6 = out.find((c) => c.surfaceId === "S6-drive");
+    expect(s6?.status).toMatchObject({
+      kind: "delta-fail",
+      previous: 100,
+      current: 70,
+      // natural sign preserved so the formatter renders `-30.0%`
+      deltaPct: -30,
+    });
+  });
+
+  test("improvement (throughput rises) is never a delta-fail", () => {
+    // Previous 70, current 100 → +43% rise; ceiling-style this would fail
+    // delta floor 25%, but for a floor metric an increase is good.
+    const previous = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 70 },
+    });
+    const current = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 100 },
+    });
+    const out = compareAgainstHistory(current, previous, [floorRow], "gha-ubuntu");
+    const s6 = out.find((c) => c.surfaceId === "S6-drive");
+    expect(s6?.status).toEqual({ kind: "pass" });
+  });
+
+  test("small drop within the noise floor passes", () => {
+    // Previous 100, current 85 → -15%, within the 25% noise floor.
+    const previous = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 100 },
+    });
+    const current = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 85 },
+    });
+    const out = compareAgainstHistory(current, previous, [floorRow], "gha-ubuntu");
+    const s6 = out.find((c) => c.surfaceId === "S6-drive");
+    expect(s6?.status).toEqual({ kind: "pass" });
+  });
+
+  test("absolute-fail (measured below ghaMax) fires before delta-fail considered", () => {
+    // Previous 70 (already below floor), current 50 → both ≤ ghaMax 60.
+    // Absolute fires first with the current measured value.
+    const previous = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 70 },
+    });
+    const current = fakeLine("gha-ubuntu", {
+      "S6-drive": { samples_count: 100, throughput_per_sec: 50 },
+    });
+    const out = compareAgainstHistory(current, previous, [floorRow], "gha-ubuntu");
+    const s6 = out.find((c) => c.surfaceId === "S6-drive");
+    expect(s6?.status).toEqual({ kind: "absolute-fail", measured: 50, threshold: 60 });
+  });
+});
+
+describe("compareAgainstHistory — ceiling metrics regression direction", () => {
+  test("ceiling-metric improvement (latency drop) does not fail delta", () => {
+    // S2-a: prev 100ms → current 50ms. -50% delta. Ceiling-metric improvement.
+    const previous = fakeLine("gha-ubuntu", { "S2-a": { samples_count: 500, p95_ms: 100 } });
+    const current = fakeLine("gha-ubuntu", { "S2-a": { samples_count: 500, p95_ms: 50 } });
+    const out = compareAgainstHistory(current, previous, SLO_THRESHOLDS, "gha-ubuntu");
+    const s2a = out.find((c) => c.surfaceId === "S2-a");
+    expect(s2a?.status).toEqual({ kind: "pass" });
   });
 });
 
