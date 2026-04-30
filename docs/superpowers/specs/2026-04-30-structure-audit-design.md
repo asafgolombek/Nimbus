@@ -2,7 +2,7 @@
 
 **Branch:** `dev/asafgolombek/structure-audit` (to be created at start of Phase 1)
 **Date:** 2026-04-30
-**Status:** Draft — pending user review
+**Status:** Approved — reviewer feedback applied (revisions per `2026-04-30-structure-audit-design-review.md`); ready for implementation plan
 **Scope:** Fourth of the planned maintenance initiatives (toolchain refresh ✅ · security audit B1 ✅ · perf audit B2 ✅ · **this structure audit B3** · later: B4 bug-hunt + third-party package upgrades).
 **Predecessor:** the B2 perf audit (design: [`2026-04-26-perf-audit-design.md`](./2026-04-26-perf-audit-design.md)) — same three-phase shape (design → measurement → fix-PR plans). Per the established B-series convention, this design and any per-subsystem fix plans are retired post-completion; the surviving record will be `docs/structure-audit/results.md` (mirrors `2026-04-25-security-audit-results.md`).
 
@@ -45,7 +45,9 @@ Wire the signal sources and capture the starting numbers. No findings list yet, 
 - `scripts/structure-audit/*.ts` — five custom scripts (see § 4).
 - Five new `audit:*` entries in the root `package.json` (see § 4).
 - `docs/structure-audit/baseline.md` — measured starting state for every dimension, with provenance (script name + commit SHA at measurement time). Per-dimension thresholds documented inline. Bucket A and F are binary; B/C/D get numeric thresholds. Threshold intent is "no regression worse than baseline + headroom" — same as B2's threshold formula.
+- `docs/structure-audit/any-baseline.json` — committed JSON file pinning the D8 baseline `any` count. The CI gate reads this file (not a static env var) so the manual-ratchet workflow has a single source of truth.
 - `docs/structure-audit/sonarqube-rule-tuning.md` — empty placeholder; populated only if Phase 2 rule tuning is needed.
+- **Knip baseline cleanup pass.** During Phase 1, tune `knip.json`'s `ignore` list and add `@knip-ignore` annotations on legitimately-unused exports (e.g., types intentionally re-exported as the package's public API surface) so the baseline `knip-report.json` is a list of *actual* findings, not noise. Phase 2's D7 ranking is only useful if the report is clean to begin with.
 
 **Reuse, not rebuild.** SonarQube is already wired via MCP. The bucket-F custom rules are the static-time complement of the existing `security-invariants.test.ts` runtime checks — same Invariant text, different enforcement layer. Where an Invariant has a runtime test today, B3 adds the structural sibling; where it doesn't, B3 adds *both* (script and test row) in the same Phase 1 PR.
 
@@ -80,21 +82,28 @@ The audit's surface. 12 dimensions across 5 buckets (A, B, C, D, F). Bucket E (S
 | D1 | A | Forbidden cross-package imports — CLI/UI never import gateway TS; SDK imports neither core nor UI; mcp-connectors only import `@nimbus-dev/sdk` | `dependency-cruiser` rules | Binary: any violation | ✅ |
 | D2 | A | Cyclic imports within a workspace | `dependency-cruiser` (cycle rule) | Binary: any cycle | ✅ |
 | D3 | A | PAL leakage — only `platform/index.ts` may import `win32` / `darwin` / `linux`; business logic uses `PlatformServices` | custom `dependency-cruiser` rule | Binary: any direct OS-file import outside `platform/index.ts` and tests | ✅ |
-| D4 | B | File LOC (`packages/*/src/**`, excludes `*.test.ts`, generated SQL, fixtures) | small custom script | > 800 LOC, ranked by overshoot | ❌ |
+| D4 | B | File LOC (`packages/*/src/**`, excludes `*.test.ts`, generated SQL, fixtures) — **raw LOC**, including comments and blank lines | small custom script | > 800 LOC, ranked by overshoot | ❌ |
 | D5 | B | Function cognitive complexity | SonarQube `cognitive_complexity` per function | > 15 | ❌ |
 | D6 | C | Token-level duplication | `jscpd` (50 tokens / 5 lines minimum block) | > 3 % per workspace, **or** any duplicated block ≥ 100 tokens | ❌ |
 | D7 | D | Unused exports & orphan files | `knip` | Listed, ranked by file LOC × unused-export count | ❌ |
 | D8 | D | `any` / `as any` count in `src/` (excludes `*.test.ts`) | custom script | No increase vs Phase 1 baseline (count locked at measurement time) | ✅ |
 | D9 | D | Risky type assertions — `as <T>` outside tests, excluding `as const` / `as unknown` | custom script | Listed, informational only — bucket-D ranking input | ❌ |
 | D10 | F | `Bun.spawn` / `child_process.spawn` under `connectors/` not routed through `extensionProcessEnv()` (Invariant I1 structural side) | custom script | Binary | ✅ (also caught by `security-invariants.test.ts` at runtime — the structural check is the static-time complement) |
-| D11 | F | Vault-key construction outside `connector-vault.ts` helpers | custom script | Binary | ✅ |
-| D12 | F | `db.run()` call sites outside `db/write.ts` (precursor census for the roadmap S5-F4 migration) | custom script | Listed, count vs baseline (not a gate — the migration is its own future project) | ❌ |
+| D11 | F | Vault-key construction outside the **approved key-construction modules** (allow-list: `connectors/connector-vault.ts`, `auth/google-access-token.ts`, `auth/pkce.ts`) | custom script | Binary | ✅ |
+| D12 | F | `db.run()` call sites outside `db/write.ts` (precursor census for the roadmap S5-F4 migration) | custom script — **JSON output** (file, line, function name, call snippet) committed as `docs/structure-audit/db-run-census.json` so S5-F4 can consume it directly without re-grepping | Listed, count vs baseline (not a gate — the migration is its own future project) | ❌ |
 
 ### 3.2 Coverage note on bucket F
 
 Several invariants in `CLAUDE.md` already have runtime tests in `security-invariants.test.ts` (I1, I2, I9, I10, …). B3's bucket F is the **structural** complement: enforce the same rules at static time so a regressing PR fails CI before the test even runs, and surface invariants that *don't* yet have a test as findings. The Phase 1 deliverable for D10/D11 includes a test row in `security-invariants.test.ts` for any invariant that lacks one.
 
-### 3.3 Package scope
+### 3.3 Per-dimension scope clarifications
+
+- **D8 ratchet (any count).** The CI gate reads the locked count from a committed `docs/structure-audit/any-baseline.json` — *not* a static env var, *not* an auto-update from CI. If a PR introduces new `any`s the gate fails (regression). If a PR *reduces* the count, the gate also fails with `Reduce baseline to <new count> in any-baseline.json` so the PR author updates the committed value in the same PR. This is the standard manual-ratchet pattern (also used by ESLint baselines and mypy strict-migration). Auto-update from CI is the wrong shape: it requires write-access from the workflow, races with concurrent PRs, and turns the gate into a moving target with no review trail.
+- **D9 ranking (risky type assertions).** D9 output is informational and lands in `deferred-backlog.md` as a single "Type-safety debt" entry whose body is the raw script output. B3 does **not** rank by "type distance" (e.g., `as unknown as T` worse than `as BaseType`) — that's a heuristic ranking that fits a future type-safety-debt sub-project, not B3 itself. The deferred-backlog row is the hand-off; promotion happens when someone picks it up.
+- **D10 scope (spawn rule).** The check applies *only* to `packages/gateway/src/connectors/`, intentionally. Invariant I1 in `CLAUDE.md` is itself scoped to `connectors/` because `extensionProcessEnv()` is the env-scoping helper for *extension subprocesses* — `Bun.spawn` calls in `platform/browser.ts` (opens a browser URL), `voice/service.ts` (whisper-cli, TTS engines), and `updater/updater.ts` (platform installer) have different env-scoping requirements and should not route through `extensionProcessEnv()`. The script's source-path filter encodes this scoping; expanding to all packages would generate false positives.
+- **D11 allow-list (vault keys).** The three approved modules in the table are: `connectors/connector-vault.ts` (`perServiceOAuthVaultKey`, `writePerServiceOAuthKey`), `auth/google-access-token.ts` (`resolveGoogleOAuthVaultKey` — Google service-id resolution, calls into `connector-vault.ts` internally), and `auth/pkce.ts` (`vaultKeyForProvider` — provider-level PKCE persistence). Vault-key string construction in any other source file under `packages/gateway/src/` is a finding. Test files are excluded.
+
+### 3.4 Package scope
 
 All five TypeScript workspaces — `packages/gateway`, `packages/cli`, `packages/ui`, `packages/sdk`, `packages/mcp-connectors/*`. Rust (`packages/ui/src-tauri/`) is out of scope; the existing security tests for Invariants I7 and I8 are sufficient pre-`v0.1.0`. Cross-package boundary checks (D1) are meaningful only when all five workspaces are scanned together — a gateway-only audit would miss the entire point.
 
@@ -132,10 +141,11 @@ Reasoning over `ts-prune`: monorepo-aware, supports Vite / Tauri / Bun entry poi
 
 ### 4.5 Custom scripts (`scripts/structure-audit/*.ts`)
 
-- `count-any-usage.ts` — counts `: any`, `as any`, `<any>` casts in `packages/*/src/**` excluding tests. Outputs a baseline count and per-file breakdown. Drives D8.
-- `list-risky-assertions.ts` — lists `as <Type>` casts outside tests, excluding `as const` / `as unknown`. Drives D9.
-- `check-nimbus-invariants.ts` — single script with one inspection function per F-bucket rule (D10, D11, D12). Each function returns a list of violations. Adding a new invariant = adding a new inspector.
-- `measure-file-loc.ts` — list every TS file in `packages/*/src/**` with its LOC, sorted descending. Drives D4.
+- `count-any-usage.ts` — counts `: any`, `as any`, `<any>` casts in `packages/*/src/**` excluding tests. Reads the locked baseline from `docs/structure-audit/any-baseline.json`. Modes: `--check` (CI-mode, exits non-zero on regression *or* reduction with a "lower baseline" hint), `--update` (rewrites the baseline file — local use only, never called from CI). Drives D8.
+- `list-risky-assertions.ts` — lists `as <Type>` casts outside tests, excluding `as const` / `as unknown`. Drives D9. Output is informational only (no ranking algorithm — see § 3.3).
+- `check-nimbus-invariants.ts` — single script with one inspection function per F-bucket rule (D10, D11, D12). Each function returns a list of violations. Adding a new invariant = adding a new inspector. Subcommands: `--rule spawn` (D10, exit non-zero on any hit, scoped to `connectors/`), `--rule vault-key` (D11, exit non-zero on any hit outside the allow-list), `--rule db-run` (D12, *always exits zero*, writes structured JSON `[{ file, line, function, snippet }, ...]` to `docs/structure-audit/db-run-census.json`), `--binary-only` (CI mode — runs spawn + vault-key only).
+- `measure-file-loc.ts` — list every TS file in `packages/*/src/**` with its raw LOC (including comments and blanks), sorted descending. Drives D4.
+- `get-git-churn.ts` — wraps `git rev-list --count HEAD --since="90 days ago" -- <file>` for every TS source file in `packages/*/src/**`, sorted descending; computes the 80th-percentile cutoff. Used as evidence input for the human-assigned `structural_impact_score` of 4 (see § 5.1). Output: `docs/structure-audit/churn-90d.json` so the ranker can join it against the findings list.
 - `audit-structure.ts` — top-level orchestrator. Runs every script + jscpd + knip + dependency-cruiser, writes a single `docs/structure-audit/run-<timestamp>.json` blob. The Phase 2 `missed.md` is generated from this blob.
 
 ### 4.6 New root `package.json` scripts
@@ -168,7 +178,7 @@ Replaces B2's user-felt impact, which doesn't apply to structural findings.
 | Score | Meaning |
 |---|---|
 | 5 | Touches a non-negotiable directly: forbidden cross-package import, `any` in a public API surface (SDK / client), security-invariant wired incorrectly, PAL leakage from business logic |
-| 4 | High-churn hot path: file shows up in last-90-day commit count above the 80th percentile **and** violates ≥ 1 dimension; or duplication block ≥ 100 tokens spanning 3+ files |
+| 4 | High-churn hot path: file shows up in last-90-day commit count above the 80th percentile (computed by `get-git-churn.ts`, see § 4.5) **and** violates ≥ 1 dimension; or duplication block ≥ 100 tokens spanning 3+ files |
 | 3 | Public API surface of an exported package: any duplication / dead-code / unused-export / size finding inside `packages/sdk` or `packages/client` (external consumers read these) |
 | 2 | Internal critical subsystem: engine, vault, IPC, executor, `db/write.ts` — single-dimension violation, normal churn |
 | 1 | Internal helper, low traffic, low blast radius — auxiliary scripts, one-off utilities, well-tested leaf modules |
@@ -212,7 +222,7 @@ Runs on every PR (via `pr-quality` aggregate) and every push to `main`. No night
 | D1 — forbidden cross-package imports | `audit:boundaries` (dependency-cruiser) | Job fails; reviewer comment lists the violating import |
 | D2 — circular imports within a workspace | `audit:boundaries` (dependency-cruiser cycle rule) | Job fails; comment lists the cycle |
 | D3 — PAL leakage | `audit:boundaries` (custom dependency-cruiser rule) | Job fails; comment lists the OS-file import |
-| D8 — `any` count not exceeding baseline | `audit:any` against `MAX_ANY_COUNT` env var pinned at Phase 1 baseline | Job fails; comment shows new count vs baseline + diff of new occurrences |
+| D8 — `any` count matches committed baseline (manual ratchet, see § 3.3) | `audit:any --check` against `docs/structure-audit/any-baseline.json` | Job fails on **regression** (new count > baseline; diff of new occurrences in the comment) **or reduction** (new count < baseline; comment instructs PR author to commit the lower value to `any-baseline.json` in the same PR) |
 | D10 — `spawn()` not via `extensionProcessEnv()` under `connectors/` | `check-nimbus-invariants.ts --rule spawn` | Job fails; comment names the offending file |
 | D11 — Vault-key construction outside helpers | `check-nimbus-invariants.ts --rule vault-key` | Job fails; comment names the offending file |
 
@@ -247,8 +257,11 @@ The gate covers non-negotiables; there is no `--no-verify` analogue. If a legiti
 - `.dependency-cruiser.cjs` (committed) — D1, D2, D3 rules.
 - `.jscpd.json` (committed) — duplication config.
 - `knip.json` (committed) — workspace-aware dead-code config.
-- `scripts/structure-audit/*.ts` — five custom scripts.
-- `package.json` — five new `audit:*` scripts (root level + delegated where appropriate).
+- `scripts/structure-audit/*.ts` — six custom scripts (`count-any-usage`, `list-risky-assertions`, `check-nimbus-invariants`, `measure-file-loc`, `get-git-churn`, `audit-structure`).
+- `package.json` — six new `audit:*` scripts (root level + delegated where appropriate).
+- `docs/structure-audit/any-baseline.json` — committed JSON pinning the D8 manual-ratchet count (single source of truth for the CI gate).
+- `docs/structure-audit/db-run-census.json` — D12 census output, committed; ready to feed S5-F4 design without re-grepping.
+- `docs/structure-audit/churn-90d.json` — D-ranking input committed at Phase 1 measurement time so the rank in Phase 2's `missed.md` is reproducible.
 - `docs/structure-audit/baseline.md` — measured starting state per dimension, with provenance.
 - `docs/structure-audit/sonarqube-rule-tuning.md` — empty placeholder; populated only if Phase 2 rule tuning happens.
 
