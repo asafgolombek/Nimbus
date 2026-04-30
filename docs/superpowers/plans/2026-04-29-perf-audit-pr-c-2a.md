@@ -1073,6 +1073,16 @@ If Steps 8.1–8.3 indicated the precondition is not yet met, do NOT delete the 
 
 No commit in this case.
 
+- [ ] **Step 8.6: Clean up the precondition-check scratch directory**
+
+Run unconditionally (delete-path or defer-path):
+
+```bash
+rm -rf /tmp/perf-precondition
+```
+
+Expected: silent. The directory was a transient artifact-inspection cache; nothing committed depends on it.
+
 ---
 
 ## Task 9 — Self-review and verification
@@ -1222,6 +1232,22 @@ gh pr checks --watch
 ```
 
 Expected: all checks pass. If `_perf.yml` is triggered (it is — this PR is `perf`-labelled), the matrix runs all three OSes and the bench-ci comparator posts a delta comment. Workload-row deltas record but do not gate (PR-C-1 D-B); UX-row deltas gate.
+
+---
+
+## Review feedback log
+
+Plan reviewed by Gemini CLI on 2026-04-29 (`docs/superpowers/plans/2026-04-29-perf-audit-pr-c-2a-review.md`). Each item verified against the actual code per the project memory note "verify external AI-review claims".
+
+| Reviewer item | Verdict | Verification |
+|---|---|---|
+| OQ1 — `reference_protocol_compliant` field on success | Dismissed | `bench-cli.ts:307` sets the field on every reference-run history line that completes; gate fails-closed before line 307 if confirmation returns false. Plan T1 test expectation is correct. |
+| OQ2 — `os_version` in successful history line | Dismissed | `bench-cli.ts:303` populates `os_version: \`${platform()} ${release()} (${hostname()})\`` in `buildHistoryLine` for successful runs (the `ctxFactory` for incomplete runs is a separate path). T3 sanity check is valid. |
+| OQ3 — sanity check robustness for multi-file changes | Dismissed | `awk '{print $2}'` on multi-file `git status --porcelain` produces a multi-line string; `[[ "$changed" != "docs/perf/history.jsonl" ]]` correctly evaluates true (different) and fails the step. Reviewer's alternative is more verbose without being more correct. |
+| OQ4 — `bun install` lockfile drift | Dismissed | `.github/actions/setup-nimbus-ci/action.yml` defaults to `frozen-install: "true"` (line 18); `bun install --frozen-lockfile` cannot modify `bun.lock`. Bench fixture caches default to `$TMPDIR/nimbus-bench-fixtures/`, outside the workspace. Sanity check correctly fails (fail-safe) on any unexpected dirt. |
+| S1 — `/tmp/perf-precondition` cleanup | **Applied** | Added Step 8.6 to remove the scratch directory after the precondition-check phase, on both delete-path and defer-path. |
+| S2 — workflow input mentions "AC powered" | Dismissed | Reviewer's own follow-up acknowledged it's already covered. No-op. |
+| S3 — `BenchCliDeps.confirmReferenceProtocol` typed optional | Dismissed | Already verified in design-review pass (D-AD). `bench-cli.ts:61` has the optional `?:`. Reviewer repeating a dismissed point. |
 
 ---
 
