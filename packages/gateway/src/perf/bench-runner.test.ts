@@ -8,33 +8,48 @@ function freshDir(): string {
   return mkdtempSync(join(tmpdir(), "bench-runner-test-"));
 }
 
+async function runBenchTest(
+  args: string[],
+): Promise<{ exitCode: number; historyContents: string }> {
+  const dir = freshDir();
+  const historyPath = join(dir, "history.jsonl");
+  try {
+    const exitCode = await runBenchRunnerMain([
+      ...args,
+      "--history",
+      historyPath,
+      "--fixture-cache",
+      dir,
+    ]);
+    let historyContents = "";
+    try {
+      historyContents = readFileSync(historyPath, "utf8");
+    } catch {
+      // Absent file is acceptable — caller asserts on the contents.
+    }
+    return { exitCode, historyContents };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("runBenchRunnerMain", () => {
   test("generates a UUID, calls runBenchCli, and writes one history line", async () => {
-    const dir = freshDir();
-    const historyPath = join(dir, "history.jsonl");
-    try {
-      const exitCode = await runBenchRunnerMain([
-        "--surface",
-        "S2-a",
-        "--runs",
-        "1",
-        "--corpus",
-        "small",
-        "--gha",
-        "--history",
-        historyPath,
-        "--fixture-cache",
-        dir,
-      ]);
-      expect(exitCode).toBe(0);
-      const parsed = JSON.parse(readFileSync(historyPath, "utf8").trim());
-      // run_id must be a UUID-shaped string (8-4-4-4-12 hex), not a placeholder.
-      expect(parsed.run_id).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const { exitCode, historyContents } = await runBenchTest([
+      "--surface",
+      "S2-a",
+      "--runs",
+      "1",
+      "--corpus",
+      "small",
+      "--gha",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(historyContents.trim());
+    // run_id must be a UUID-shaped string (8-4-4-4-12 hex), not a placeholder.
+    expect(parsed.run_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
   });
 
   test("--help prints usage and exits 0 without writing history", async () => {
@@ -54,89 +69,53 @@ describe("runBenchRunnerMain", () => {
   });
 
   test("--protocol-confirmed allows --reference to proceed without interactive prompt", async () => {
-    const dir = freshDir();
-    const historyPath = join(dir, "history.jsonl");
-    try {
-      const exitCode = await runBenchRunnerMain([
-        "--surface",
-        "S2-a",
-        "--runs",
-        "1",
-        "--corpus",
-        "small",
-        "--reference",
-        "--protocol-confirmed",
-        "--history",
-        historyPath,
-        "--fixture-cache",
-        dir,
-      ]);
-      expect(exitCode).toBe(0);
-      const parsed = JSON.parse(readFileSync(historyPath, "utf8").trim());
-      expect(parsed.runner).toBe("reference-m1air");
-      expect(parsed.reference_protocol_compliant).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const { exitCode, historyContents } = await runBenchTest([
+      "--surface",
+      "S2-a",
+      "--runs",
+      "1",
+      "--corpus",
+      "small",
+      "--reference",
+      "--protocol-confirmed",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(historyContents.trim());
+    expect(parsed.runner).toBe("reference-m1air");
+    expect(parsed.reference_protocol_compliant).toBe(true);
   });
 
   test("--reference without --protocol-confirmed refuses to record (default still gates)", async () => {
-    const dir = freshDir();
-    const historyPath = join(dir, "history.jsonl");
-    try {
-      const exitCode = await runBenchRunnerMain([
-        "--surface",
-        "S2-a",
-        "--runs",
-        "1",
-        "--corpus",
-        "small",
-        "--reference",
-        "--history",
-        historyPath,
-        "--fixture-cache",
-        dir,
-      ]);
-      expect(exitCode).not.toBe(0);
-      // history.jsonl must not exist or must be empty when the gate trips.
-      let contents = "";
-      try {
-        contents = readFileSync(historyPath, "utf8");
-      } catch {
-        // file absent is also acceptable — the orchestrator refused before writing
-      }
-      expect(contents.trim()).toBe("");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const { exitCode, historyContents } = await runBenchTest([
+      "--surface",
+      "S2-a",
+      "--runs",
+      "1",
+      "--corpus",
+      "small",
+      "--reference",
+    ]);
+    expect(exitCode).not.toBe(0);
+    // history.jsonl must not exist or must be empty when the gate trips.
+    expect(historyContents.trim()).toBe("");
   });
 
   test("--protocol-confirmed without --reference is a no-op (flag is ignored on non-reference runs)", async () => {
-    const dir = freshDir();
-    const historyPath = join(dir, "history.jsonl");
-    try {
-      const exitCode = await runBenchRunnerMain([
-        "--surface",
-        "S2-a",
-        "--runs",
-        "1",
-        "--corpus",
-        "small",
-        "--gha",
-        "--protocol-confirmed",
-        "--history",
-        historyPath,
-        "--fixture-cache",
-        dir,
-      ]);
-      expect(exitCode).toBe(0);
-      const parsed = JSON.parse(readFileSync(historyPath, "utf8").trim());
-      expect(parsed.runner).toMatch(/^gha-/);
-      // The reference-protocol-compliant field is only set on reference runs;
-      // a --gha run with --protocol-confirmed must NOT carry this field.
-      expect(parsed.reference_protocol_compliant).toBeUndefined();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const { exitCode, historyContents } = await runBenchTest([
+      "--surface",
+      "S2-a",
+      "--runs",
+      "1",
+      "--corpus",
+      "small",
+      "--gha",
+      "--protocol-confirmed",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(historyContents.trim());
+    expect(parsed.runner).toMatch(/^gha-/);
+    // The reference-protocol-compliant field is only set on reference runs;
+    // a --gha run with --protocol-confirmed must NOT carry this field.
+    expect(parsed.reference_protocol_compliant).toBeUndefined();
   });
 });
