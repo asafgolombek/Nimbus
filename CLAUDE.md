@@ -83,7 +83,6 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
 | `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
 | `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
-| `packages/gateway/src/db/health.ts` | Disk space monitoring — polling + reactive `SQLITE_FULL` path; `DiskFullError` |
 | `packages/gateway/src/db/snapshot.ts` | Manual and scheduled snapshot management |
 | `packages/gateway/src/db/metrics.ts` | `IndexMetrics` — item counts, embedding coverage, query latency percentiles |
 | `packages/gateway/src/db/latency-ring-buffer.ts` | In-memory ring buffer for query latency samples; async batch flush to `query_latency_log` |
