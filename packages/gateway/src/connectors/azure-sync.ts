@@ -1,3 +1,4 @@
+import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   clampSyncTitle,
@@ -32,14 +33,12 @@ async function azureCliJson(
   if (tenant === "" || clientId === "" || secret === "") {
     return { ok: false, text: "" };
   }
-  const env = {
-    ...process.env,
-    AZURE_TENANT_ID: tenant,
-    AZURE_CLIENT_ID: clientId,
-    AZURE_CLIENT_SECRET: secret,
-  } as Record<string, string | undefined>;
   const proc = Bun.spawn(["az", ...args, "-o", "json"], {
-    env,
+    env: extensionProcessEnv({
+      AZURE_TENANT_ID: tenant,
+      AZURE_CLIENT_ID: clientId,
+      AZURE_CLIENT_SECRET: secret,
+    }),
     stdout: "pipe",
     stderr: "pipe",
   });
