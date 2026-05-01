@@ -1254,6 +1254,17 @@ const DB_RUN_RE = /\bdb\.run\s*\(/;
 const FN_DECL_RE = /(?:function|async\s+function)\s+([A-Za-z_$][\w$]*)/;
 const FN_CALL_RE = /([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{=]/;
 
+function findEnclosingFunction(lines: readonly string[], from: number): string {
+  for (let j = from; j >= Math.max(0, from - 30); j--) {
+    const candidate = lines[j] as string;
+    const decl = FN_DECL_RE.exec(candidate);
+    if (decl) return decl[1] ?? "<unknown>";
+    const call = FN_CALL_RE.exec(candidate);
+    if (call) return call[1] ?? "<unknown>";
+  }
+  return "<top-level>";
+}
+
 export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
   const out: DbRunHit[] = [];
   for (const f of files) {
@@ -1262,25 +1273,10 @@ export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] as string;
       if (!DB_RUN_RE.test(line)) continue;
-      // Walk back up to 30 lines looking for an enclosing function name.
-      let fnName = "<top-level>";
-      for (let j = i; j >= Math.max(0, i - 30); j--) {
-        const candidate = lines[j] as string;
-        const decl = FN_DECL_RE.exec(candidate);
-        if (decl) {
-          fnName = decl[1] ?? "<unknown>";
-          break;
-        }
-        const call = FN_CALL_RE.exec(candidate);
-        if (call) {
-          fnName = call[1] ?? "<unknown>";
-          break;
-        }
-      }
       out.push({
         file: f.relPath,
         line: i + 1,
-        function: fnName,
+        function: findEnclosingFunction(lines, i),
         snippet: line.trim(),
       });
     }

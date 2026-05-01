@@ -25,12 +25,12 @@ const _CTRL_CHARS = (() => {
   const allowed = new Set([0x09, 0x0a, 0x0d]);
   let chars = "";
   for (let cp = 0x00; cp <= 0x1f; cp++) {
-    if (!allowed.has(cp)) chars += String.fromCharCode(cp);
+    if (!allowed.has(cp)) chars += String.fromCodePoint(cp);
   }
-  for (let cp = 0x7f; cp <= 0x9f; cp++) chars += String.fromCharCode(cp);
+  for (let cp = 0x7f; cp <= 0x9f; cp++) chars += String.fromCodePoint(cp);
   return chars;
 })();
-const CTRL_RE = new RegExp(`[${_CTRL_CHARS.replace(/[\\\]^-]/g, "\\$&")}]`, "g");
+const CTRL_RE = new RegExp(`[${_CTRL_CHARS.replaceAll(/[\\\]^-]/g, String.raw`\$&`)}]`, "g");
 
 /**
  * Strip C0/C1 control characters from registry-fetched strings before
