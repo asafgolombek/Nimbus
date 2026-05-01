@@ -4,6 +4,25 @@ This file is empty by design. It is populated **only if** Phase 2's first
 SonarQube analysis run produces unacceptable signal-to-noise on the default
 Sonar Way profile, requiring explicit rule disables.
 
+## Phase 2 verification
+
+**Date:** 2026-05-01
+**SonarCloud project:** `asafgolombek_Nimbus`
+**Profile in use:** Sonar Way (default)
+
+Reviewed the SonarCloud findings produced against PR #135 (Phase 1 close).
+Findings were Issues, not rule-disable candidates — the rule profile is
+producing actionable signal at acceptable noise levels for this codebase.
+
+**Outcome:** No rules disabled. Sonar Way profile retained as-is for B3.
+
+Re-evaluate at B3 close (Phase 3) — if the top-5 fix work surfaces
+new noise patterns, populate the disable table below.
+
+| Rule | Reason | Date | Where |
+|---|---|---|---|
+| _none_ | Sonar Way verified clean for B3 scope | 2026-05-01 | `sonar-project.properties` |
+
 If you disable a rule, record:
 
 - Rule key (e.g., `typescript:S1135`)

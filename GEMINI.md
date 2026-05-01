@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -45,6 +45,14 @@ These are the structural defenses Nimbus relies on. Each one has a production wi
 | I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
 
 When changing a wiring site referenced above, update both the test and `SECURITY-INVARIANTS.md` in the same commit. When retiring an invariant, delete the row — never leave it as documentation drift.
+
+**Static-time complement:** Phase 1 of the B3 structure audit added
+`scripts/structure-audit/check-nimbus-invariants.ts` which enforces I1
+(`spawn` under `connectors/` must use `extensionProcessEnv()`) and the
+vault-key allow-list at static time. The runtime tests in
+`packages/gateway/src/security-invariants.test.ts` remain authoritative
+for invariant wiring; the static checks catch regressions before the test
+runs. See `docs/structure-audit/baseline.md` for current findings.
 
 ---
 
@@ -280,6 +288,7 @@ bun scripts/structure-audit/count-any-usage.ts --check    # D8 CI gate (fails on
 bun scripts/structure-audit/count-any-usage.ts --update   # rewrite docs/structure-audit/any-baseline.json
 bun run audit:invariants        # D10 spawn rule + D11 vault-key allow-list (binary, --binary-only)
 # Baselines: docs/structure-audit/{any-baseline.json,db-run-census.json,churn-90d.json,baseline.md}
+# CI gate (reusable workflow): .github/workflows/_structure.yml — wired into ci.yml after Phase 3 top-5 fixes land
 
 # Phase 3.5 CLI commands (reference — not bun scripts)
 # nimbus query --service github --type pr --since 7d --json

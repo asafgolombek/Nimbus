@@ -1,0 +1,56 @@
+name: Structure audit
+
+# Reusable workflow — fast PR check (≤30 s budget) for the binary subset of
+# audit:* gates: D1/D2/D3 (boundaries), D8 (any-count ratchet), D10/D11
+# (Nimbus invariants).
+#
+# Ubuntu-only by design: every gate is static analysis with zero OS variance.
+# The platform-equality non-negotiable is a runtime property
+# (spec § 6.1, 2026-04-30-structure-audit-design.md).
+#
+# NOT YET wired into ci.yml — current main has 5 D10 + 56 D11 violations
+# (Phase 2 missed.md). The last top-5 fix PR (Phase 3) wires this once
+# D10/D11 are clean.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  structure:
+    name: structure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: D1/D2/D3 — boundaries (dependency-cruiser)
+        run: bun run audit:boundaries
+
+      - name: D8 — any-count (manual ratchet)
+        run: bun scripts/structure-audit/count-any-usage.ts --check
+
+      - name: D10/D11 — Nimbus invariants (binary)
+        run: bun run audit:invariants
