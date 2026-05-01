@@ -10,7 +10,7 @@ export type Hit = { file: string; line: number; snippet: string };
 // Match `as <Type>` where Type is NOT `const` or `unknown`.
 // Type is one alphanum-or-`_` token (good enough for the audit; misses generics like `as Foo<Bar>`,
 // which is acceptable — generic-cast cases are rare and would need an AST to do precisely).
-const RE = /\bas\s+(?!const\b|unknown\b)([A-Za-z_][A-Za-z0-9_]*)/g;
+const RE = /\bas\s+(?!const\b|unknown\b)([A-Za-z_]\w*)/g;
 
 export function findRiskyAssertions(file: string, src: string): Hit[] {
   const hits: Hit[] = [];

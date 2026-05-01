@@ -26,44 +26,37 @@ async function step(name: string, cmd: readonly string[]): Promise<StepResult> {
 }
 
 async function run(): Promise<void> {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const results: StepResult[] = [];
+  const timestamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 
-  results.push(
-    await step("dependency-cruiser", [
-      "bunx",
+  // Steps run serially (intentional — they all walk packages/) so a single
+  // for-of loop replaces the previous chain of results.push() calls and
+  // closes the SonarCloud "multiple push" warning.
+  const steps: ReadonlyArray<readonly [string, readonly string[]]> = [
+    [
       "dependency-cruiser",
-      "--config",
-      ".dependency-cruiser.cjs",
-      "--no-progress",
-      "--output-type",
-      "err",
-      "packages",
-    ]),
-  );
-  results.push(await step("jscpd", ["bunx", "jscpd", "packages"]));
-  results.push(await step("knip", ["bunx", "knip", "--reporter", "json"]));
-  results.push(
-    await step("file-loc", ["bun", "run", "scripts/structure-audit/measure-file-loc.ts"]),
-  );
-  results.push(
-    await step("any-count", ["bun", "run", "scripts/structure-audit/count-any-usage.ts"]),
-  );
-  results.push(
-    await step("risky-assertions", [
-      "bun",
-      "run",
-      "scripts/structure-audit/list-risky-assertions.ts",
-    ]),
-  );
-  results.push(
-    await step("nimbus-invariants", [
-      "bun",
-      "run",
-      "scripts/structure-audit/check-nimbus-invariants.ts",
-    ]),
-  );
-  results.push(await step("git-churn", ["bun", "run", "scripts/structure-audit/get-git-churn.ts"]));
+      [
+        "bunx",
+        "dependency-cruiser",
+        "--config",
+        ".dependency-cruiser.cjs",
+        "--no-progress",
+        "--output-type",
+        "err",
+        "packages",
+      ],
+    ],
+    ["jscpd", ["bunx", "jscpd", "packages"]],
+    ["knip", ["bunx", "knip", "--reporter", "json"]],
+    ["file-loc", ["bun", "run", "scripts/structure-audit/measure-file-loc.ts"]],
+    ["any-count", ["bun", "run", "scripts/structure-audit/count-any-usage.ts"]],
+    ["risky-assertions", ["bun", "run", "scripts/structure-audit/list-risky-assertions.ts"]],
+    ["nimbus-invariants", ["bun", "run", "scripts/structure-audit/check-nimbus-invariants.ts"]],
+    ["git-churn", ["bun", "run", "scripts/structure-audit/get-git-churn.ts"]],
+  ];
+  const results: StepResult[] = [];
+  for (const [name, cmd] of steps) {
+    results.push(await step(name, cmd));
+  }
 
   const outPath = auditOutputPath(`run-${timestamp}.json`);
   await Bun.write(outPath, `${JSON.stringify({ timestamp, results }, null, 2)}\n`);

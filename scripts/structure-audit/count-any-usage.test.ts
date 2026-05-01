@@ -21,8 +21,8 @@ describe("stripComments", () => {
     expect(stripComments("const u = `https://x.com/any`;")).toBe("const u = `https://x.com/any`;");
   });
   test("honours escaped quote inside string", () => {
-    expect(stripComments('const u = "a\\"//not a comment";')).toBe(
-      'const u = "a\\"//not a comment";',
+    expect(stripComments(String.raw`const u = "a\"//not a comment";`)).toBe(
+      String.raw`const u = "a\"//not a comment";`,
     );
   });
   test("strips line comment after a string", () => {

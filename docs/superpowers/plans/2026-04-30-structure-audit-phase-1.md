@@ -517,7 +517,9 @@ describe("stripComments", () => {
     expect(stripComments("const u = `https://x.com/any`;")).toBe("const u = `https://x.com/any`;");
   });
   test("honours escaped quote inside string", () => {
-    expect(stripComments('const u = "a\\"//not a comment";')).toBe('const u = "a\\"//not a comment";');
+    expect(stripComments(String.raw`const u = "a\"//not a comment";`)).toBe(
+      String.raw`const u = "a\"//not a comment";`,
+    );
   });
   test("strips line comment after a string", () => {
     expect(stripComments('const u = "x"; // any')).toBe('const u = "x"; ');
@@ -601,53 +603,85 @@ export const REPO_ROOT = resolve(import.meta.dir, "..", "..");
  * line comment, swallowing downstream code. No first-party source currently
  * exercises this case.
  */
-export function stripComments(src: string): string {
-  let out = "";
-  let i = 0;
-  let inString: '"' | "'" | "`" | null = null;
-  while (i < src.length) {
-    const c = src[i] as string;
-    const next = src[i + 1];
-    if (inString) {
-      out += c;
-      if (c === "\\") {
-        // Include the escaped char as-is (handles \", \\, \n, \`, etc.).
-        if (next !== undefined) out += next;
-        i += 2;
-        continue;
-      }
-      if (c === inString) inString = null;
-      i++;
-      continue;
-    }
-    if (c === "/" && next === "*") {
-      const end = src.indexOf("*/", i + 2);
-      if (end === -1) break;
-      // Preserve newlines inside the block so downstream line-number
-      // reporting stays correct (D9 maps regex hits back to line numbers).
-      const block = src.slice(i, end + 2);
-      for (let j = 0; j < block.length; j++) {
-        if (block[j] === "\n") out += "\n";
-      }
-      i = end + 2;
-      continue;
-    }
-    if (c === "/" && next === "/") {
-      const nl = src.indexOf("\n", i);
-      if (nl === -1) break;
-      i = nl;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") {
-      inString = c;
-      out += c;
-      i++;
-      continue;
-    }
-    out += c;
-    i++;
+type StringDelim = '"' | "'" | "`";
+type StripState = {
+  i: number;
+  out: string;
+  inString: StringDelim | null;
+  done: boolean;
+};
+
+/**
+ * Step the state machine while inside a string literal. Consumes one
+ * character (or two for an escape sequence) and clears `inString` when the
+ * closing delimiter is reached.
+ */
+function stepInString(src: string, state: StripState): void {
+  const c = src[state.i] as string;
+  const next = src[state.i + 1];
+  state.out += c;
+  if (c === "\\") {
+    // Include the escaped char as-is (handles \", \\, \n, \`, etc.).
+    if (next !== undefined) state.out += next;
+    state.i += 2;
+    return;
   }
-  return out;
+  if (c === state.inString) state.inString = null;
+  state.i += 1;
+}
+
+/**
+ * Step the state machine when not inside a string. Handles block comments,
+ * line comments, and string-opening delimiters; otherwise emits the
+ * character verbatim.
+ */
+function stepDefault(src: string, state: StripState): void {
+  const c = src[state.i] as string;
+  const next = src[state.i + 1];
+  if (c === "/" && next === "*") {
+    const end = src.indexOf("*/", state.i + 2);
+    if (end === -1) {
+      state.done = true;
+      return;
+    }
+    // Preserve newlines inside the block so downstream line-number
+    // reporting stays correct (D9 maps regex hits back to line numbers).
+    const block = src.slice(state.i, end + 2);
+    for (const ch of block) {
+      if (ch === "\n") state.out += "\n";
+    }
+    state.i = end + 2;
+    return;
+  }
+  if (c === "/" && next === "/") {
+    const nl = src.indexOf("\n", state.i);
+    if (nl === -1) {
+      state.done = true;
+      return;
+    }
+    state.i = nl;
+    return;
+  }
+  if (c === '"' || c === "'" || c === "`") {
+    state.inString = c;
+    state.out += c;
+    state.i += 1;
+    return;
+  }
+  state.out += c;
+  state.i += 1;
+}
+
+export function stripComments(src: string): string {
+  const state: StripState = { i: 0, out: "", inString: null, done: false };
+  while (!state.done && state.i < src.length) {
+    if (state.inString) {
+      stepInString(src, state);
+    } else {
+      stepDefault(src, state);
+    }
+  }
+  return state.out;
 }
 
 /**
@@ -678,31 +712,33 @@ export function countAnyInSource(src: string): number {
  * `path.join` accepts forward slashes on Windows, so the absolute path
  * construction stays correct.
  */
+async function* iterateGlob(
+  glob: Glob,
+  seen: Set<string>,
+): AsyncGenerator<{ path: string; relPath: string; contents: string }> {
+  for await (const rawRelPath of glob.scan({ cwd: REPO_ROOT })) {
+    const relPath = rawRelPath.replaceAll("\\", "/");
+    if (seen.has(relPath)) continue;
+    seen.add(relPath);
+    if (relPath.endsWith(".test.ts")) continue;
+    if (relPath.endsWith("-sql.ts")) continue;
+    if (relPath.endsWith(".d.ts")) continue;
+    if (relPath.includes("/__fixtures__/")) continue;
+    if (relPath.includes("/test/fixtures/")) continue;
+    const path = join(REPO_ROOT, relPath);
+    const contents = await Bun.file(path).text();
+    yield { path, relPath, contents };
+  }
+}
+
 export async function* iterateSourceFiles(): AsyncGenerator<{
   path: string;
   relPath: string;
   contents: string;
 }> {
-  const globs = [
-    new Glob("packages/*/src/**/*.ts"),
-    new Glob("packages/mcp-connectors/*/src/**/*.ts"),
-  ];
   const seen = new Set<string>();
-  for (const glob of globs) {
-    for await (const rawRelPath of glob.scan({ cwd: REPO_ROOT })) {
-      const relPath = rawRelPath.replaceAll("\\", "/");
-      if (seen.has(relPath)) continue;
-      seen.add(relPath);
-      if (relPath.endsWith(".test.ts")) continue;
-      if (relPath.endsWith("-sql.ts")) continue;
-      if (relPath.endsWith(".d.ts")) continue;
-      if (relPath.includes("/__fixtures__/")) continue;
-      if (relPath.includes("/test/fixtures/")) continue;
-      const path = join(REPO_ROOT, relPath);
-      const contents = await Bun.file(path).text();
-      yield { path, relPath, contents };
-    }
-  }
+  yield* iterateGlob(new Glob("packages/*/src/**/*.ts"), seen);
+  yield* iterateGlob(new Glob("packages/mcp-connectors/*/src/**/*.ts"), seen);
 }
 
 /**
@@ -929,7 +965,7 @@ export type Hit = { file: string; line: number; snippet: string };
 // Match `as <Type>` where Type is NOT `const` or `unknown`.
 // Type is one alphanum-or-`_` token (good enough for the audit; misses generics like `as Foo<Bar>`,
 // which is acceptable — generic-cast cases are rare and would need an AST to do precisely).
-const RE = /\bas\s+(?!const\b|unknown\b)([A-Za-z_][A-Za-z0-9_]*)/g;
+const RE = /\bas\s+(?!const\b|unknown\b)([A-Za-z_]\w*)/g;
 
 export function findRiskyAssertions(file: string, src: string): Hit[] {
   const hits: Hit[] = [];
@@ -1211,8 +1247,12 @@ export type DbRunHit = {
 };
 
 const DB_RUN_RE = /\bdb\.run\s*\(/;
-// Best-effort enclosing-function detection: nearest preceding `function name(` or `name(...) {` or `=> {`.
-const FN_NAME_RE = /(?:function|async\s+function)\s+([A-Za-z_$][\w$]*)|([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{=]/;
+// Best-effort enclosing-function detection: nearest preceding `function name(`
+// or `name(...) {` / `name(...) =`. Split into two simpler patterns so each
+// alternation has bounded complexity (closes ReDoS warning vs. the previous
+// single combined regex).
+const FN_DECL_RE = /(?:function|async\s+function)\s+([A-Za-z_$][\w$]*)/;
+const FN_CALL_RE = /([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{=]/;
 
 export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
   const out: DbRunHit[] = [];
@@ -1225,9 +1265,15 @@ export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
       // Walk back up to 30 lines looking for an enclosing function name.
       let fnName = "<top-level>";
       for (let j = i; j >= Math.max(0, i - 30); j--) {
-        const m = FN_NAME_RE.exec(lines[j] as string);
-        if (m) {
-          fnName = (m[1] ?? m[2] ?? "<unknown>") as string;
+        const candidate = lines[j] as string;
+        const decl = FN_DECL_RE.exec(candidate);
+        if (decl) {
+          fnName = decl[1] ?? "<unknown>";
+          break;
+        }
+        const call = FN_CALL_RE.exec(candidate);
+        if (call) {
+          fnName = call[1] ?? "<unknown>";
           break;
         }
       }
@@ -1629,17 +1675,37 @@ async function step(name: string, cmd: readonly string[]): Promise<StepResult> {
 }
 
 async function run(): Promise<void> {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const results: StepResult[] = [];
+  const timestamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 
-  results.push(await step("dependency-cruiser", ["bunx", "dependency-cruiser", "--config", ".dependency-cruiser.cjs", "--no-progress", "--output-type", "err", "packages"]));
-  results.push(await step("jscpd", ["bunx", "jscpd", "packages"]));
-  results.push(await step("knip", ["bunx", "knip", "--reporter", "json"]));
-  results.push(await step("file-loc", ["bun", "run", "scripts/structure-audit/measure-file-loc.ts"]));
-  results.push(await step("any-count", ["bun", "run", "scripts/structure-audit/count-any-usage.ts"]));
-  results.push(await step("risky-assertions", ["bun", "run", "scripts/structure-audit/list-risky-assertions.ts"]));
-  results.push(await step("nimbus-invariants", ["bun", "run", "scripts/structure-audit/check-nimbus-invariants.ts"]));
-  results.push(await step("git-churn", ["bun", "run", "scripts/structure-audit/get-git-churn.ts"]));
+  // Steps run serially (intentional — they all walk packages/) so a single
+  // for-of loop replaces the previous chain of results.push() calls and
+  // closes the SonarCloud "multiple push" warning.
+  const steps: ReadonlyArray<readonly [string, readonly string[]]> = [
+    [
+      "dependency-cruiser",
+      [
+        "bunx",
+        "dependency-cruiser",
+        "--config",
+        ".dependency-cruiser.cjs",
+        "--no-progress",
+        "--output-type",
+        "err",
+        "packages",
+      ],
+    ],
+    ["jscpd", ["bunx", "jscpd", "packages"]],
+    ["knip", ["bunx", "knip", "--reporter", "json"]],
+    ["file-loc", ["bun", "run", "scripts/structure-audit/measure-file-loc.ts"]],
+    ["any-count", ["bun", "run", "scripts/structure-audit/count-any-usage.ts"]],
+    ["risky-assertions", ["bun", "run", "scripts/structure-audit/list-risky-assertions.ts"]],
+    ["nimbus-invariants", ["bun", "run", "scripts/structure-audit/check-nimbus-invariants.ts"]],
+    ["git-churn", ["bun", "run", "scripts/structure-audit/get-git-churn.ts"]],
+  ];
+  const results: StepResult[] = [];
+  for (const [name, cmd] of steps) {
+    results.push(await step(name, cmd));
+  }
 
   const outPath = auditOutputPath(`run-${timestamp}.json`);
   await Bun.write(outPath, JSON.stringify({ timestamp, results }, null, 2) + "\n");

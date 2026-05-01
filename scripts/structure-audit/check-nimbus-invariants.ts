@@ -80,9 +80,12 @@ export type DbRunHit = {
 };
 
 const DB_RUN_RE = /\bdb\.run\s*\(/;
-// Best-effort enclosing-function detection: nearest preceding `function name(` or `name(...) {` or `=> {`.
-const FN_NAME_RE =
-  /(?:function|async\s+function)\s+([A-Za-z_$][\w$]*)|([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{=]/;
+// Best-effort enclosing-function detection: nearest preceding `function name(`
+// or `name(...) {` / `name(...) =`. Split into two simpler patterns so each
+// alternation has bounded complexity (closes ReDoS warning vs. the previous
+// single combined regex).
+const FN_DECL_RE = /(?:function|async\s+function)\s+([A-Za-z_$][\w$]*)/;
+const FN_CALL_RE = /([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{=]/;
 
 export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
   const out: DbRunHit[] = [];
@@ -95,9 +98,15 @@ export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
       // Walk back up to 30 lines looking for an enclosing function name.
       let fnName = "<top-level>";
       for (let j = i; j >= Math.max(0, i - 30); j--) {
-        const m = FN_NAME_RE.exec(lines[j] as string);
-        if (m) {
-          fnName = (m[1] ?? m[2] ?? "<unknown>") as string;
+        const candidate = lines[j] as string;
+        const decl = FN_DECL_RE.exec(candidate);
+        if (decl) {
+          fnName = decl[1] ?? "<unknown>";
+          break;
+        }
+        const call = FN_CALL_RE.exec(candidate);
+        if (call) {
+          fnName = call[1] ?? "<unknown>";
           break;
         }
       }
