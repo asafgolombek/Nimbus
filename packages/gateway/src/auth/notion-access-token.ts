@@ -1,4 +1,5 @@
 import { Config } from "../config.ts";
+import { readConnectorSecret } from "../connectors/connector-vault.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { parseStoredOAuthTokens } from "./oauth-vault-tokens.ts";
 import { refreshNotionToken } from "./pkce.ts";
@@ -7,7 +8,7 @@ import { refreshNotionToken } from "./pkce.ts";
  * Returns a valid Notion integration access token, refreshing when the synthetic vault expiry is near.
  */
 export async function getValidNotionAccessToken(vault: NimbusVault): Promise<string> {
-  const raw = await vault.get("notion.oauth");
+  const raw = await readConnectorSecret(vault, "notion", "oauth");
   if (raw === null || raw === "") {
     throw new Error("Notion OAuth not configured; run: nimbus connector auth notion");
   }

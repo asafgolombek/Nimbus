@@ -1,4 +1,5 @@
 import { Config } from "../config.ts";
+import { readConnectorSecret } from "../connectors/connector-vault.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { parseStoredOAuthTokens } from "./oauth-vault-tokens.ts";
 import { refreshSlackUserToken } from "./pkce.ts";
@@ -7,7 +8,7 @@ import { refreshSlackUserToken } from "./pkce.ts";
  * Returns a valid Slack user access token, refreshing via `oauth.v2.access` when near expiry.
  */
 export async function getValidSlackAccessToken(vault: NimbusVault): Promise<string> {
-  const raw = await vault.get("slack.oauth");
+  const raw = await readConnectorSecret(vault, "slack", "oauth");
   if (raw === null || raw === "") {
     throw new Error("Slack OAuth not configured; run: nimbus connector auth slack");
   }
