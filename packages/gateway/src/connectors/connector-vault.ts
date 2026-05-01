@@ -7,6 +7,7 @@ import {
   GOOGLE_CONNECTOR_SERVICES,
   MICROSOFT_CONNECTOR_SERVICES,
 } from "./connector-catalog.ts";
+import type { CONNECTOR_VAULT_SECRET_KEYS } from "./connector-secrets-manifest.ts";
 
 const GOOGLE_SERVICES = [...GOOGLE_CONNECTOR_SERVICES];
 const MICROSOFT_SERVICES = [...MICROSOFT_CONNECTOR_SERVICES];
@@ -115,4 +116,40 @@ export async function clearOAuthVaultIfProviderUnused(
     }
   }
   return cleared;
+}
+
+// ─── Bucket-B helper: typed connector-secret reader ──────────────────────────
+
+/**
+ * Bare-key view derived from `CONNECTOR_VAULT_SECRET_KEYS`. For service `S`,
+ * extracts the suffix after the dot in each fully-qualified manifest entry.
+ *
+ * Services with an empty manifest array (e.g. `google_drive`) resolve to `never`,
+ * making `readConnectorSecret(vault, "google_drive", ...)` uncallable — those
+ * services use OAuth via auth/google-access-token.ts, not this helper.
+ *
+ * The `[T] extends [never]` non-distributive guard short-circuits the empty-tuple
+ * case before the template-literal `infer K` runs — without it, `never extends ...`
+ * distribution would let `infer K` bind to its default constraint (`string`).
+ */
+export type ConnectorSecretKeyOf<S extends ConnectorServiceId> = [
+  (typeof CONNECTOR_VAULT_SECRET_KEYS)[S][number],
+] extends [never]
+  ? never
+  : (typeof CONNECTOR_VAULT_SECRET_KEYS)[S][number] extends `${S}.${infer K}`
+    ? K
+    : never;
+
+/**
+ * Reads a connector's secret from the Vault by structural key name. Returns
+ * the raw stored value (no trim, no default) — semantics match `vault.get`.
+ * Misspelled or non-manifested key names fail at compile time.
+ */
+export async function readConnectorSecret<S extends ConnectorServiceId>(
+  vault: NimbusVault,
+  serviceId: S,
+  keyName: ConnectorSecretKeyOf<S>,
+): Promise<string | null> {
+  const fullKey = `${serviceId}.${keyName}`;
+  return vault.get(fullKey);
 }
