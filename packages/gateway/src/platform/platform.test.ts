@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -31,12 +32,30 @@ describe("Platform Abstraction Layer", () => {
     processEnvSet("XDG_RUNTIME_DIR", tmpDir);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     processEnvDelete("NIMBUS_SKIP_EMBEDDING_RUNTIME");
     for (const [key, val] of Object.entries(originalEnv)) {
       processEnvSet(key, val);
     }
-    rmSync(tmpDir, { recursive: true, force: true });
+    // Async fs.promises.rm with retries — the documented Windows-EBUSY
+    // workaround. Several tests in this file import ./index.ts, which
+    // constructs full PlatformServices (sync scheduler, connector mesh,
+    // lazy-loaded embedding runtime); under full-suite parallelism those
+    // services may still hold OS file handles inside tmpDir when this hook
+    // runs. POSIX unlinks open files happily and won't retry; Windows
+    // refuses deletion. If retries still fail (services that hold handles
+    // longer than the retry budget), the cleanup is logged-and-deferred to
+    // the OS temp reaper — failing the suite over a racy cleanup of a temp
+    // dir is worse than the leak.
+    try {
+      await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== "EBUSY" && code !== "ENOTEMPTY" && code !== "EPERM") {
+        throw err;
+      }
+      console.warn(`[platform.test] tmpDir cleanup deferred to OS (${code}): ${tmpDir}`);
+    }
   });
 
   it("createPlatformServices is exported", async () => {

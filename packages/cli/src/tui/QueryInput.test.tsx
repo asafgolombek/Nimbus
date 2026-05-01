@@ -5,6 +5,34 @@ import { join } from "node:path";
 import { render } from "ink-testing-library";
 import { QueryInput } from "./QueryInput.tsx";
 
+/**
+ * Polls `check` until it returns a truthy value or the timeout elapses.
+ * Used in place of fixed setTimeout waits for post-action assertions, so
+ * tests don't flake on busy CI hosts (notably Windows under full-suite
+ * parallelism where Ink render → file load → React state update → submit →
+ * persist can take much longer than a fixed 20–30ms wait).
+ */
+async function waitFor<T>(
+  check: () => T | null | undefined,
+  opts: { timeout?: number; interval?: number } = {},
+): Promise<T> {
+  const timeout = opts.timeout ?? 2000;
+  const interval = opts.interval ?? 10;
+  const start = Date.now();
+  while (true) {
+    try {
+      const result = check();
+      if (result) return result;
+    } catch {
+      // ignore and retry
+    }
+    if (Date.now() - start > timeout) {
+      throw new Error(`waitFor timed out after ${timeout}ms`);
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}
+
 let tmpDir: string;
 let historyPath: string;
 
@@ -195,7 +223,8 @@ describe("QueryInput — history cycling", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(lastFrame() ?? "").toContain("one");
     stdin.write("\r");
-    await new Promise((r) => setTimeout(r, 20));
+    // Poll for submit callback rather than fixed wait — survives busy hosts.
+    await waitFor(() => lastSubmitted === "one" || null, { timeout: 2000, interval: 10 });
     expect(lastSubmitted).toBe("one");
     unmount();
   });
@@ -236,11 +265,22 @@ describe("QueryInput — history cycling", () => {
         showCancelHint={false}
       />,
     );
-    await new Promise((r) => setTimeout(r, 20));
+    // Small grace period for the component to hydrate the existing entry from
+    // disk before we submit; without it the submit can race the load and the
+    // result becomes ["new"] only.
+    await new Promise((r) => setTimeout(r, 50));
     stdin.write("new");
     stdin.write("\r");
-    await new Promise((r) => setTimeout(r, 30));
-    const parsed = JSON.parse(readFileSync(historyPath, "utf-8")) as { entries: string[] };
+    // Poll the history file until the new entry has been persisted, instead
+    // of a fixed setTimeout which intermittently flaked on Windows under
+    // full-suite parallelism.
+    const parsed = await waitFor(
+      () => {
+        const p = JSON.parse(readFileSync(historyPath, "utf-8")) as { entries: string[] };
+        return p.entries.length >= 2 ? p : null;
+      },
+      { timeout: 2000, interval: 10 },
+    );
     expect(parsed.entries).toEqual(["old", "new"]);
     unmount();
   });
