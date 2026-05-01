@@ -1,0 +1,78 @@
+# Build and deploy the Astro Starlight docs site (packages/docs) to GitHub Pages.
+# Site URL: https://asafgolombek.github.io/Nimbus/ (project pages — base = /Nimbus/).
+# Configured under repo Settings → Pages → Source = GitHub Actions (build_type=workflow).
+
+name: Deploy docs to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/docs/**"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch:
+
+# Only one Pages deploy can run at a time; queueing prevents racey
+# overwrite of the live site. `cancel-in-progress: false` lets each push
+# finish so we don't ship partial builds.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# Permissions are scoped per-job so neither token carries privileges
+# the other doesn't need: `build` only reads source; `deploy` only writes
+# Pages + mints the OIDC token actions/deploy-pages requires.
+
+jobs:
+  build:
+    name: Build docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Build Astro Starlight site
+        run: bun run --filter @nimbus/docs build
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: packages/docs/dist
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
