@@ -1176,6 +1176,9 @@ CREATE TABLE extensions (
 |---|---|
 | Engine | ≥85% |
 | Vault | ≥90% |
+| Sync scheduler | ≥80% |
+| Per-provider rate limiter | ≥85% |
+| People graph + cross-service linker | ≥80% |
 | Embedding pipeline | ≥80% |
 | Workflow runner + store | ≥80% |
 | Watcher engine + store | ≥80% |
@@ -1186,14 +1189,23 @@ CREATE TABLE extensions (
 | `@nimbus-dev/client` *(Phase 3.5)* | ≥80% |
 | Telemetry collector *(Phase 3.5)* | ≥85% |
 | `nimbus doctor` *(Phase 3.5)* | ≥80% |
+| TUI components *(Phase 4)* | ≥80% |
+| MCP connectors | ≥70% |
+| Updater state machine *(Phase 4 WS4)* | ≥80% |
+| LAN server + crypto *(Phase 4 WS4)* | ≥80% |
+| Perf bench harness *(Phase 4 B2)* | ≥80% |
+| `@nimbus-dev/sdk` | ≥80% |
+| UI (Vitest, separate runner) *(Phase 4 WS5-A)* | ≥80% lines / ≥75% branches |
 
 PRs that drop below threshold are blocked when checks are required.
 
 **CI breakdown:**
 
-- **PR (`pr-quality`, Ubuntu only):** typecheck → Biome lint/format → build → Rust fmt/clippy → unit + integration tests (JUnit reports) + coverage gates → Vitest UI
-- **Push to `main`/`develop` (`ci`, 3-platform matrix):** same steps on `ubuntu-24.04`, `macos-15`, `windows-2025` in parallel
-- **Push to `main` only:** E2E Desktop (Playwright + Tauri WebDriver), after matrix `ci` succeeds
+- **PR (Ubuntu only, three parallel jobs):** `pr-quality-ts` (typecheck → Biome → build → unit + integration + e2e + coverage gates → Vitest UI, via reusable `_test-suite.yml`); `pr-quality-rust` (Rust fmt/clippy/build for `packages/ui/src-tauri`, runs only when Rust files change); `pr-quality-duplication` (jscpd token scan).
+- **PR opt-in:** E2E Desktop (Playwright + Tauri WebDriver) when the PR carries the `ci:e2e-desktop` label and UI/SDK files changed.
+- **Push to `main`/`develop` (full 3-platform matrix):** `ci-ts` and `ci-rust` run the same suites on `ubuntu-24.04`, `macos-15`, `windows-2025` in parallel.
+- **Push to `main` only:** E2E Desktop on the full 3-platform matrix, after `ci-ts` and `ci-rust` succeed.
+- **Reusable workflows under `.github/workflows/`:** `_test-suite.yml` (unit + coverage + integration + e2e + UI, parameterized by runner), `_perf.yml` / `_perf-reference.yml` (B2 perf benches), `_structure.yml` (boundaries + any-count + Nimbus invariants — not yet wired into `ci.yml`; see CLAUDE.md).
 
 **Security scans:** `bun audit` + `trivy` on every PR and nightly; `CodeQL` static analysis; Dependabot for dependency updates. HIGH/CRITICAL findings block merges.
 
@@ -1276,28 +1288,42 @@ nimbus/
 │   │       ├── ipc/            ← Gateway IPC client for WebView
 │   │       └── pages/          ← Dashboard, Search, Marketplace, Settings, AuditLog
 │   │
-│   ├── vscode-extension/       ← VS Code extension (Phase 4)
-│   │   └── src/
+│   ├── (planned) vscode-extension/  ← VS Code extension (Phase 4 — not yet
+│   │                                    in tree; design entries below describe
+│   │                                    the planned layout)
 │   │       ├── extension.ts    ← activation, command registration
 │   │       ├── gateway-client.ts ← @nimbus-dev/client IPC wrapper
 │   │       └── hitl-provider.ts  ← HITL consent via VS Code notification API
 │   │
 │   ├── mcp-connectors/         ← First-party MCP servers (workspace packages)
-│   │   ├── google-drive/
+│   │   ├── google-drive/       ← Phase 1–2 (productivity / collaboration)
 │   │   ├── gmail/
 │   │   ├── google-photos/
 │   │   ├── onedrive/
 │   │   ├── outlook/
+│   │   ├── teams/
 │   │   ├── github/
 │   │   ├── gitlab/
 │   │   ├── bitbucket/
 │   │   ├── slack/
-│   │   ├── teams/
 │   │   ├── linear/
 │   │   ├── jira/
 │   │   ├── notion/
 │   │   ├── confluence/
-│   │   └── … (Phase 3 CI/CD + cloud connectors)
+│   │   ├── discord/            (opt-in)
+│   │   ├── jenkins/            ← Phase 3 (CI/CD + cloud + observability)
+│   │   ├── github-actions/
+│   │   ├── circleci/
+│   │   ├── pagerduty/
+│   │   ├── kubernetes/
+│   │   ├── aws/
+│   │   ├── azure/
+│   │   ├── gcp/
+│   │   ├── iac/                (Terraform / Pulumi / CloudFormation)
+│   │   ├── grafana/
+│   │   ├── sentry/
+│   │   ├── newrelic/
+│   │   └── datadog/
 │   │
 │   └── sdk/                    ← @nimbus-dev/sdk (npm, MIT-licensed)
 │       └── src/
@@ -1307,12 +1333,20 @@ nimbus/
 │
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml              ← pr-quality (PR, Ubuntu) + matrix on push
+│   │   ├── ci.yml              ← PR (ts + rust + duplication) + push (3-OS matrix) + E2E Desktop
+│   │   ├── _test-suite.yml     ← reusable: unit + coverage gates + integration + e2e + UI
+│   │   ├── _perf.yml           ← reusable: B2 perf benches (matrix runners)
+│   │   ├── _perf-reference.yml ← reusable: reference-machine perf bench
+│   │   ├── _structure.yml      ← reusable: boundaries + any-count + Nimbus invariants
 │   │   ├── security.yml        ← bun audit + trivy (PRs + nightly)
-│   │   ├── codeql.yml          ← CodeQL JavaScript/TypeScript
+│   │   ├── codeql.yml          ← CodeQL JavaScript/TypeScript + Rust
+│   │   ├── scorecard.yml       ← OpenSSF Scorecard (weekly + on default-branch push)
 │   │   ├── release.yml         ← bun build --compile → signed binaries → GitHub Releases
-│   │   ├── publish-client.yml  ← (Phase 3.5) publish @nimbus-dev/client on client-v* tag
-│   │   └── deploy-docs.yml     ← (Phase 3.5) build + deploy Astro Starlight site to Cloudflare Pages
+│   │   ├── release-please.yml  ← Conventional-commit changelog + tag automation
+│   │   ├── publish-client.yml  ← publish @nimbus-dev/client on client-v* tag
+│   │   ├── labeler.yml
+│   │   ├── lock-threads.yml
+│   │   └── stale.yml
 │   ├── dependabot.yml
 │   └── BRANCH_PROTECTION.md   ← required check configuration (manual GitHub settings)
 │
@@ -1332,4 +1366,4 @@ nimbus/
 
 ---
 
-*Nimbus Architecture v0.7 — Built for engineers who run systems in production. Cross-platform. Security-hardened. DevOps and SecDevOps ready. Extension-ready.*
+*Nimbus Architecture v0.8 — Built for engineers who run systems in production. Cross-platform. Security-hardened. DevOps and SecDevOps ready. Extension-ready.*

@@ -234,7 +234,7 @@ Once installed, run **`nimbus doctor`** — it checks every prerequisite above a
 
 ### Option A — Pre-built Binaries
 
-Download from [GitHub Releases](https://github.com/your-org/nimbus/releases):
+Download from [GitHub Releases](https://github.com/asafgolombek/Nimbus/releases):
 
 | Asset | Purpose |
 |---|---|
@@ -246,8 +246,8 @@ Linux/macOS: `chmod +x nimbus-gateway-* nimbus-cli-*`. Optionally rename the CLI
 ### Option B — Build from Source
 
 ```bash
-git clone https://github.com/your-org/nimbus.git
-cd nimbus
+git clone https://github.com/asafgolombek/Nimbus.git
+cd Nimbus
 bun install          # NOT "bun run install" — that looks for a script and fails
                      # Installs sharp + platform @img/sharp-* for embeddings (via @xenova/transformers)
 bun run build

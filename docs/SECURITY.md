@@ -264,7 +264,7 @@ HIGH and CRITICAL findings block merges when branch protection checks are requir
 Release binaries (Gateway + CLI, all four platform builds) carry a **GitHub build provenance attestation** (`actions/attest-build-provenance`) and a **CycloneDX SBOM**, both attached to the GitHub Release. Verify with:
 
 ```bash
-gh attestation verify nimbus-gateway-linux-x64 --owner nimbus-dev
+gh attestation verify nimbus-gateway-linux-x64 --owner asafgolombek
 ```
 
 ---
@@ -287,15 +287,17 @@ Plan a rotation at least once every 12 months, and immediately on any of these t
 
 **Steps (must all happen in the same release cycle):**
 
-1. **Generate the new keypair** locally on an air-gapped or hardened workstation:
+1. **Reset the embedded public key.** `scripts/generate-updater-keypair.ts` refuses to run if `packages/gateway/src/updater/public-key.ts` already contains a non-dev key (an intentional safety against accidental rotation). On a feature branch, replace the body of `UPDATER_PUBLIC_KEY_BASE64` with `"<DEV-PLACEHOLDER>"` so the script will run.
+2. **Generate the new keypair** locally on an air-gapped or hardened workstation:
    ```bash
-   bun scripts/generate-ed25519-keypair.ts > new-updater-key.json
+   bun scripts/generate-updater-keypair.ts
    ```
-2. **Update the embedded public key** in `packages/gateway/src/updater/public-key.ts` (and the test override `NIMBUS_DEV_UPDATER_PUBLIC_KEY` if used) on a feature branch. Land via PR.
-3. **Cut a transitional release** that ships *both* the old and new public key as trusted (the updater accepts either signature). This release must be signed with the **old** key.
-4. **Rotate the secret**: replace `UPDATER_SIGNING_KEY` in repository secrets with the new private key. Delete the local copy of the new private key from the workstation immediately after upload.
-5. **Cut a second release** signed with the new key. Verify clients on N-1, N, and N+1 all auto-update successfully.
-6. **Remove the old public key** from `public-key.ts` in the next release. Document the rotation in `docs/SECURITY.md` change history.
+   The script prints the new public key (base64 + hex) to stdout and writes the new private key to a freshly-created temp file under `<tmpdir>/nimbus-updater-key-*/updater-private.b64` (mode `0600`).
+3. **Update the embedded public key** in `packages/gateway/src/updater/public-key.ts` (and the test override `NIMBUS_DEV_UPDATER_PUBLIC_KEY` if used) using the printed base64 value. Land via PR.
+4. **Cut a transitional release** that ships *both* the old and new public key as trusted (the updater accepts either signature). This release must be signed with the **old** key.
+5. **Rotate the secret**: upload the temp-file private key to repository secret `UPDATER_SIGNING_KEY` (`gh secret set UPDATER_SIGNING_KEY < <path>`), then shred and delete the temp file immediately.
+6. **Cut a second release** signed with the new key. Verify clients on N-1, N, and N+1 all auto-update successfully.
+7. **Remove the old public key** from `public-key.ts` in the next release. Document the rotation in `docs/SECURITY.md` change history.
 
 ### Compromise response
 

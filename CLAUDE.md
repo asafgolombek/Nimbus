@@ -215,8 +215,11 @@ bun run typecheck
 bun run lint
 bun run lint:fix
 
-# Run all unit tests
+# Run all unit tests (workspace packages + scripts/)
 bun test
+
+# Run only scripts/**/*.test.ts (regen-slo, structure-audit, package-linux-installers, nimbus-verify)
+bun run test:scripts
 
 # Run with coverage
 bun run test:coverage
@@ -244,7 +247,7 @@ bun run test:coverage:sdk          # ≥80% threshold (@nimbus-dev/sdk)
 # Phase 4 WS4 coverage gates
 bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
 bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
-bun run test:coverage:perf      # ≥80% threshold (perf bench harness)
+bun run test:coverage:perf         # ≥80% threshold (perf bench harness)
 
 # Phase 4 WS5-A UI coverage gate (Vitest — separate runner)
 cd packages/ui && bunx vitest run --coverage  # ≥80% lines / ≥75% branches
@@ -268,6 +271,12 @@ bun run build:release  # production build (also: scripts/linux/build-release.sh,
 
 # Clean all build outputs
 bun run clean
+
+# Workspace-aware deep clean (root + per-package node_modules + bun.lock)
+bun run clean-deep
+
+# Contributor environment health check (Bun version, node_modules, Rust, gcloud, libsecret on Linux)
+bun run dev-doctor
 
 # Security audit
 bun audit --audit-level high
