@@ -12,19 +12,16 @@ on:
       - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
 
-# Reading content + writing the Pages artifact + minting OIDC tokens for
-# actions/deploy-pages. Job-level `permissions` already minimize beyond this.
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 # Only one Pages deploy can run at a time; queueing prevents racey
 # overwrite of the live site. `cancel-in-progress: false` lets each push
 # finish so we don't ship partial builds.
 concurrency:
   group: pages
   cancel-in-progress: false
+
+# Permissions are scoped per-job so neither token carries privileges
+# the other doesn't need: `build` only reads source; `deploy` only writes
+# Pages + mints the OIDC token actions/deploy-pages requires.
 
 jobs:
   build:
@@ -67,6 +64,9 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
