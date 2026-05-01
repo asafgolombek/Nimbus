@@ -129,6 +129,14 @@ jobs:
           fi
 
       - name: Upload coverage to Codecov
+        # Supplementary reporting only — coverage threshold is enforced by the
+        # `bun test --coverage-threshold-lines=…` invocation in the gate steps,
+        # not by this upload. The codecov-action v6 OIDC pre-step
+        # (actions/github-script) is intermittently flaky on Windows-2025
+        # (silent fail with no diagnostic output); decoupling upload from
+        # gate success keeps the gate semantics intact while tolerating that
+        # flake.
+        continue-on-error: true
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -278,6 +286,12 @@ jobs:
           CI: "true"
 
       - name: Upload coverage to Codecov
+        # See note on the unit-test Codecov step: this upload is supplementary,
+        # not the gate. `continue-on-error` tolerates intermittent OIDC pre-step
+        # failures on Windows-2025 without masking real coverage-threshold
+        # regressions, which are enforced earlier by the `Run coverage gate`
+        # step's `bun run` exit code.
+        continue-on-error: true
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
