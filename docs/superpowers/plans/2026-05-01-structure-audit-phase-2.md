@@ -41,7 +41,9 @@
 - The actual top-5 fix code (lands as separate PRs, one per fix plan).
 - Wiring `_structure.yml` into `pr-quality.yml` (last fix PR does this).
 - `docs/structure-audit/results.md` (written at B3 close, after Phase 3).
-- SonarCloud rule tuning beyond the empty placeholder (only populated if Phase 2's first SonarCloud analysis run on this branch produces unacceptable signal-to-noise — track in Task 4 below).
+- SonarCloud rule tuning beyond the placeholder update (Task 12 Step 6 below records the Phase 2 outcome; rule disables only happen if D5 dashboard signal is unacceptable).
+
+**Phase 3 parallelism:** The top-5 fix PRs are designed to run in parallel — each plan is scoped to one subsystem and one dimension. The only ordering constraint is that the LAST PR to land must wire `_structure.yml` into `pr-quality.yml` (after `audit:invariants` exits 0). Each fix plan's "Final verification" step checks for this condition. Multiple agents/developers can work the plans concurrently.
 
 ---
 
@@ -182,6 +184,16 @@ wc -l /tmp/d11.txt
 # Expected: ~56 (matches Phase 1 baseline)
 ```
 
+- [ ] **Step 1b: Pre-pass — per-directory tally (triage assistant)**
+
+Group D11 sites by their immediate parent directory before bucketing. A directory with 8+ sites is almost always Bucket C (centralization candidate, cost ≥ 3); a directory with 1–2 sites is usually Bucket A or B.
+
+```bash
+awk -F'file=|,line' '/D11 vault-key/ { print $2 }' /tmp/d11.txt | sed 's|/[^/]*$||' | sort | uniq -c | sort -rn
+```
+
+Expected output: per-directory counts, e.g. `12 packages/gateway/src/connectors`, `8 packages/gateway/src/ipc`, etc. Use this tally to seed the Bucket-C list (top-2-3 directories), then drop into Bucket A/B for the long tail. Saves the executor from inspecting all 56 sites individually.
+
 - [ ] **Step 2: Bucket each site into one of three categories**
 
 Read each line of `/tmp/d11.txt`. The line contains `file=<path>,line=<n>::D11 vault-key constructed outside allow-list: <snippet>`. For each site, decide its category:
@@ -191,7 +203,13 @@ Read each line of `/tmp/d11.txt`. The line contains `file=<path>,line=<n>::D11 v
   - A doc-comment example
   - A test fixture (note: `iterateSourceFiles` already excludes `.test.ts`, but a non-test file with literal example strings can still match)
   
-  Fix shape: widen the D11 regex to skip these contexts (e.g., add a known-FP allow-list of file paths inside the script). Cost 1 (one regex tweak, retest). Goes to **fix plan #2 candidate**.
+  **Fix shape (preferred):** add a per-line opt-out comment immediately before the false-positive line — e.g., `// audit-ignore-next-line D11-vault-key (log redaction key, not a real vault key)` — and teach `check-nimbus-invariants.ts` to honour it (one-line addition: `if (lines[i - 1]?.includes("audit-ignore-next-line D11-vault-key")) continue;`). This is more surgical than regex changes: the suppression is co-located with the false positive, future regex tightening doesn't re-flag it, and a `grep audit-ignore-next-line` enumerates every suppression for review.
+  
+  **Fix shape (fallback):** if a single file has many FPs from the same pattern, add the file path to a `D11_FP_FILE_ALLOWLIST` constant in the script. Less surgical than per-line comments — risks silently suppressing a real finding if one is later added to the same file — so prefer per-line comments unless the count is overwhelming.
+  
+  Cost 1 (one script change + per-line comment additions, retest). Goes to **fix plan #2 candidate**.
+
+  **DO NOT widen the regex** to match fewer things based on heuristic context (e.g., "skip if line contains `redact`"). That couples the audit to its callers' wording and silently suppresses real violations whose lines happen to contain the trigger word.
 
 - **Bucket B — production vault-key construction not in helper.** The site is a real `vault.get()` / `vault.set()` call that constructs the key inline.
   - Fix shape: add the file path to the D11 allow-list constant (`VAULT_KEY_ALLOW_LIST` in `check-nimbus-invariants.ts`) AND/OR refactor the call site to use `perServiceOAuthVaultKey()` / `writePerServiceOAuthKey()` from `connector-vault.ts`.
@@ -1052,21 +1070,57 @@ diff <(grep -A2 "Static-time complement" CLAUDE.md) <(grep -A2 "Static-time comp
 # Expected: empty (identical)
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Update `docs/structure-audit/sonarqube-rule-tuning.md` with the Phase 2 outcome**
+
+Spec § 4.1 says the file is populated only if Phase 2's first SonarCloud analysis run requires explicit rule disables. Even when no rules are disabled, recording the verification outcome closes the loop and replaces the empty placeholder.
+
+Open `docs/structure-audit/sonarqube-rule-tuning.md`. After the introductory paragraph, add a section:
+
+```markdown
+## Phase 2 verification
+
+**Date:** 2026-05-01
+**SonarCloud project:** `asafgolombek_Nimbus`
+**Profile in use:** Sonar Way (default)
+
+Reviewed the SonarCloud findings produced against PR #135 (Phase 1 close).
+Findings were Issues, not rule-disable candidates — the rule profile is
+producing actionable signal at acceptable noise levels for this codebase.
+
+**Outcome:** No rules disabled. Sonar Way profile retained as-is for B3.
+
+Re-evaluate at B3 close (Phase 3) — if the top-5 fix work surfaces
+new noise patterns, populate the disable table below.
+
+| Rule | Reason | Date | Where |
+|---|---|---|---|
+| _none_ | Sonar Way verified clean for B3 scope | 2026-05-01 | `sonar-project.properties` |
+```
+
+If you DO find that Phase 2's analysis required rule disables (e.g., a SonarCloud rule produces hundreds of false positives on the codebase), add concrete rows to the table with rule keys + reasons + the disable location.
+
+- [ ] **Step 6: Stage all three doc files**
 
 ```bash
-git add CLAUDE.md GEMINI.md
-git commit -m "$(cat <<'EOF'
-docs: cross-reference B3 Phase 2 in CLAUDE.md / GEMINI.md (spec § 7.4)
+git add CLAUDE.md GEMINI.md docs/structure-audit/sonarqube-rule-tuning.md
+```
 
-Two mirrored updates per the alignment rule:
+- [ ] **Step 7: Commit**
+
+```bash
+git commit -m "$(cat <<'EOF'
+docs: cross-reference B3 Phase 2 in CLAUDE.md / GEMINI.md + record SonarCloud outcome
+
+Three mirrored updates per the alignment rule + one Phase 2 close-out:
 
 1. Status line — append `B3 Phase 2 ✅` to the Phase 4 progress list.
 2. Commands section — note _structure.yml wiring deferred to Phase 3.
 3. Security Invariants — paragraph linking I1/I9/I10 static-time
    complement at scripts/structure-audit/check-nimbus-invariants.ts.
+4. sonarqube-rule-tuning.md — record Phase 2 verification outcome
+   (Sonar Way profile retained; no rules disabled).
 
-Refs: docs/superpowers/specs/2026-04-30-structure-audit-design.md § 7.4
+Refs: docs/superpowers/specs/2026-04-30-structure-audit-design.md § 4.1, § 7.4
 EOF
 )"
 ```
