@@ -75,6 +75,34 @@ After workflows have run at least once, add as **required checks**:
 
 **Note:** Required checks must match the **exact** job names shown in the Actions UI. After changing workflow job names, update the rule accordingly. Marking every Security job as required ensures `bun audit`, Trivy, gateway contract tests, and `cargo audit` all block merges when they fail.
 
+## Currently active required checks (`General` ruleset on `main`)
+
+The `General` ruleset (id `14784377`) currently requires the following 10 checks to pass before a PR can merge to `main`. These names are matched **verbatim** against the Actions UI; renaming a job in the workflow YAML without updating the ruleset will break merges.
+
+| Required check | Source workflow | Notes |
+|---|---|---|
+| `PR quality — TS/Bun (ubuntu-24.04) / Test — ubuntu-24.04` | `_test-suite.yml` (called by `ci.yml` on PR) | Unit tests + UI Vitest + integration + e2e on Ubuntu |
+| `PR quality — Duplication scan` | `ci.yml` | jscpd |
+| `Dependency audit` | `security.yml` | `bun audit` |
+| `Trivy vulnerability scan` | `security.yml` | filesystem scan + SARIF upload |
+| `Gitleaks secret scan` | `security.yml` | committed-secret detection |
+| `Gateway audit JSON + connector.remove vault restore` | `security.yml` | Gateway contract tests |
+| `Cargo audit (Tauri)` | `security.yml` | Rust dep advisories |
+| `Cargo deny (licenses + advisories + bans)` | `security.yml` | License + bans + registry pinning |
+| `Analyze (javascript-typescript)` | `codeql.yml` | CodeQL JS/TS security-extended |
+| `Analyze (rust)` | `codeql.yml` | CodeQL Rust security-extended |
+
+**Conditional jobs intentionally excluded** from required checks — they skip on PRs that don't touch their domain, and a skipped check would block merge:
+
+- `PR quality — Rust/Tauri (ubuntu-24.04)` (skips when no `packages/ui/src-tauri/` change)
+- `E2E Desktop (PR) — ubuntu-24.04` (only on PRs labelled `ci:e2e-desktop`)
+- `Bench (${{ matrix.os }})` (only on `perf`-labelled PRs)
+- The 22 `Coverage — *` matrix jobs (granular signals folded into the parent `Test —` job's pass/fail)
+
+**When job names change:** `gh api repos/asafgolombek/Nimbus/rulesets/14784377` exposes the current `required_status_checks` array. Update via `PUT repos/asafgolombek/Nimbus/rulesets/14784377` with the corrected `context` strings.
+
+**Solo-dev approval policy:** the same ruleset has `required_approving_review_count: 0` and `bypass_mode: pull_request` — PRs are mandatory, status checks are mandatory, but human approval is not (see `docs/SECURITY.md` and the threat model around AI-assisted review).
+
 ## Security features (org or repo)
 
 - **Secret scanning** — detect leaked secrets in the repository.
