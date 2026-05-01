@@ -4,7 +4,7 @@
 
 **Goal:** Ship a VS Code/Cursor extension (`packages/vscode-extension/`) that exposes Nimbus Ask/Search/Run-Workflow inside the editor, with a persistent chat Webview, context-sensitive HITL routing, and a status bar — built on a Node-compatible refactor of `@nimbus-dev/client` (dual-runtime IPC, typed `askStream` AsyncIterable, socket discovery) and two new Gateway IPC methods (`engine.getSessionTranscript`, `engine.cancelStream`).
 
-**Architecture:** Three deliverable surfaces. (1) `@nimbus-dev/client` v0.2.0 — runtime-detected Unix transport (Bun.connect under Bun, net.createConnection under Node) plus typed streaming API. (2) Gateway IPC additions — refactor inline `engine.askStream` handler into its own module with AbortController-based cancellation; add `engine.getSessionTranscript` over existing `audit_log`. (3) New `packages/vscode-extension/` package with eager activation, persistent chat panel, non-modal HITL toasts (modal opt-in), `nimbus-item:` URI scheme for search results.
+**Architecture:** Three deliverable surfaces. (1) `@nimbus-dev/client` v0.2.0 — runtime-detected Unix transport (Bun.connect under Bun, net.createConnection under Node) plus typed streaming API. (2) Gateway IPC additions — refactor inline `engine.askStream` handler into its own module with AbortController-based cancellation; add a V24 schema migration extending `audit_log` with `session_id`, populate it from the `engine.askStream` audit insertion path, then add `engine.getSessionTranscript` reading the new column. (3) New `packages/vscode-extension/` package with eager activation, persistent chat panel, non-modal HITL toasts (modal opt-in), `nimbus-item:` URI scheme for search results.
 
 **Tech Stack:** TypeScript 6.x strict / esbuild (extension + Webview bundles) / vitest (extension unit) / `@vscode/test-electron` (one happy-path integration) / `marked` (Webview markdown) / Bun for repo workflow / Node `net` + `node:fs` for transport + discovery.
 
@@ -36,6 +36,10 @@
 - `engine-cancel-stream.test.ts`
 - `engine-get-session-transcript.ts`
 - `engine-get-session-transcript.test.ts`
+
+`packages/gateway/src/index/`:
+- `audit-session-v24-sql.ts`
+- `migrations/runner-v24.test.ts`
 
 `packages/vscode-extension/` — entire new package:
 - `package.json`, `tsconfig.json`, `biome.json`, `vitest.config.ts`, `LICENSE` (MIT), `README.md`, `CHANGELOG.md`, `.vscodeignore`, `icon.png` (placeholder, see Task 14), `esbuild.mjs`
@@ -81,7 +85,9 @@
 - `packages/client/src/mock-client.ts` — surface `askStream` for downstream tests
 - `packages/client/package.json` — bump to 0.2.0
 - `packages/gateway/src/ipc/server.ts` — replace inline `engine.askStream` handler with delegation; add `engine.cancelStream` + `engine.getSessionTranscript` cases
-- `packages/ui/src-tauri/src/gateway_bridge.rs` — add 2 entries to `ALLOWED_METHODS`; assert size 58
+- `packages/gateway/src/db/audit-chain.ts` — add `sessionId?: string` to `AppendAuditEntryFields`; INSERT it into the new `session_id` column
+- `packages/gateway/src/index/migrations/runner.ts` — register V24 migration (`migrateIndexedV23ToV24`)
+- `packages/ui/src-tauri/src/gateway_bridge.rs` — add 2 entries to `ALLOWED_METHODS`; assert size 57
 - `package.json` (root) — add `test:coverage:vscode-extension` script
 - `.github/workflows/_test-suite.yml` — add `vscode-extension` coverage row + 3 new node-compat jobs + 3 new vscode integration jobs
 - `CLAUDE.md` — Key File Locations rows; flip WS7 status; commands section
@@ -95,7 +101,7 @@
 ## Execution Order Rationale
 
 - **Tasks 1-7** — `@nimbus-dev/client` refactor first. Pure additions to a published package; the rest of the plan imports from this. Running first means subsequent tasks never hit "module not found" in TDD.
-- **Tasks 8-10** — Gateway IPC additions. Only the `cancelStream` mechanism is genuinely new; `getSessionTranscript` is read-only. Adding before the extension means the integration test in Task 27 sees the real surface.
+- **Tasks 8-10 (plus 9.5)** — Gateway IPC additions. `cancelStream` is genuinely new; `getSessionTranscript` is read-only at runtime but requires a one-time V24 migration (Task 9.5) adding `audit_log.session_id` plus a write-side change in `audit-chain.ts` so future `engine.askStream` rows carry the new column. Adding before the extension means the integration test in Task 27 sees the real surface.
 - **Task 11** — Tauri allowlist bump. One file, one number; do it once both new methods exist.
 - **Tasks 12-13** — Node-compat test + CI wiring. Gates the client refactor before any extension code consumes it.
 - **Task 14** — Extension package scaffold (manifest, build, deps). Unblocks every subsequent task that imports from `vscode` or runs `bunx vitest`.

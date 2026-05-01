@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/schemas/jscpd.json",
+  "minTokens": 50,
+  "minLines": 5,
+  "threshold": 3,
+  "reporters": ["json", "console"],
+  "output": "docs/structure-audit",
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.vitest.tsx",
+    "**/*-sql.ts",
+    "**/__fixtures__/**",
+    "**/test/fixtures/**",
+    "**/*.lock",
+    "**/*.snap",
+    "packages/docs/**"
+  ],
+  "format": ["typescript", "tsx"],
+  "absolute": false,
+  "blame": false,
+  "silent": false,
+  "noSymlinks": true
+}

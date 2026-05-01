@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -78,6 +78,8 @@ When changing a wiring site referenced above, update both the test and `SECURITY
 | `packages/gateway/src/db/write.ts` | Central DB write wrapper — catches `SQLITE_FULL`, re-throws `DiskFullError` |
 | `packages/gateway/src/perf/` | B2 bench harness — `BenchHarness`, `PerfFixture`, `HistoryLine`, `bench-cli.ts`; one S2-a driver under `surfaces/` |
 | `packages/cli/src/commands/bench.ts` | `nimbus bench` CLI command — thin `Bun.spawn` wrapper around `bench-runner.ts` |
+| `scripts/structure-audit/lib.ts` | Shared B3 audit helpers — `REPO_ROOT`, `stripComments`, `countAnyInSource`, `iterateSourceFiles`, `auditOutputPath`; imported by every audit driver |
+| `docs/structure-audit/baseline.md` | Phase 1 baseline reference for the B3 structure audit; per-dimension starting state + Phase 2 thresholds |
 | `packages/gateway/src/telemetry/collector.ts` | Opt-in telemetry — aggregate counters only, no content, configurable endpoint |
 | `packages/gateway/src/config/profiles.ts` | Named configuration profiles (`work`, `personal`); Vault key prefixing |
 | `packages/gateway/src/llm/types.ts` | LLM provider interfaces — `LlmProvider`, `LlmTaskType`, `LlmModelInfo`, `LlmGenerateOptions/Result` |
@@ -267,6 +269,17 @@ bun run dev:doctor
 # Security audit
 bun audit --audit-level high
 bun run audit:high                 # same (root script)
+
+# Phase 4 B3 — Structure audit (Phase 1 tooling complete; Phase 2 ranking pending)
+bun run audit:structure         # full pack via orchestrator (writes run-<ts>.json)
+bun run audit:boundaries        # dep-cruiser: D1 cross-pkg / D2 cycles / D3 PAL leakage
+bun run audit:duplication       # jscpd token-level duplication (D6)
+bun run audit:dead-code         # knip unused exports / orphan files (D7)
+bun run audit:any               # D8 any-count print mode
+bun scripts/structure-audit/count-any-usage.ts --check    # D8 CI gate (fails on regression OR reduction without --update)
+bun scripts/structure-audit/count-any-usage.ts --update   # rewrite docs/structure-audit/any-baseline.json
+bun run audit:invariants        # D10 spawn rule + D11 vault-key allow-list (binary, --binary-only)
+# Baselines: docs/structure-audit/{any-baseline.json,db-run-census.json,churn-90d.json,baseline.md}
 
 # Phase 3.5 CLI commands (reference — not bun scripts)
 # nimbus query --service github --type pr --since 7d --json

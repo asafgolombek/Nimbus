@@ -15,6 +15,7 @@
       "!**/coverage",
       "!**/node_modules",
       "!packages/docs",
+      "!docs/structure-audit/*.json",
       "!**/src-tauri",
       "!**/*.d.ts",
       "!packages/cli/src/nimbus.js",
