@@ -91,7 +91,7 @@ jobs:
       - name: Unit tests (with coverage) — Linux
         if: runner.os == 'Linux'
         shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml
+        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors scripts --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml
         env:
           CI: "true"
 
@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2; do
-            bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml && break
+            bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors scripts --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml && break
             echo "Attempt $attempt failed, retrying in 5 s..." && sleep 5
           done
         env:
@@ -243,6 +243,8 @@ jobs:
             script: "test:coverage:updater"
           - name: LAN
             script: "test:coverage:lan"
+          - name: Perf
+            script: "test:coverage:perf"
           - name: SDK
             script: "test:coverage:sdk"
     steps:

@@ -43,7 +43,7 @@ $ErrorActionPreference = "Stop"
 $TrustedFingerprints = @(
   "0000000000000000000000000000000000000000"
 )
-$GithubRepo = "nimbus-dev/Nimbus"
+$GithubRepo = "asafgolombek/Nimbus"
 
 if ($env:NIMBUS_VERIFY_FINGERPRINT_OVERRIDE) {
   $TrustedFingerprints = @($env:NIMBUS_VERIFY_FINGERPRINT_OVERRIDE)

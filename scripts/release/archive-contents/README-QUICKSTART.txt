@@ -5,15 +5,15 @@ This archive contains the Nimbus headless Gateway and CLI binaries.
 
 Contents:
   nimbus-gateway-<os>-<arch>   The long-running Gateway daemon.
-  nimbus-<os>-<arch>           The CLI client.
+  nimbus-cli-<os>-<arch>       The CLI client.
   README-QUICKSTART.txt        This file.
   LICENSE-AGPL.txt             AGPL-3.0 license (full text).
 
 Getting started (macOS / Linux):
   1. Extract this archive.
-  2. chmod +x ./nimbus-gateway-* ./nimbus-*
+  2. chmod +x ./nimbus-gateway-* ./nimbus-cli-*
   3. Start the Gateway:   ./nimbus-gateway-<os>-<arch>
-  4. In another terminal: ./nimbus-<os>-<arch> --help
+  4. In another terminal: ./nimbus-cli-<os>-<arch> --help
 
 Getting started (Windows):
   1. Extract this archive (right-click → Extract All).
@@ -35,4 +35,4 @@ License:
   AGPL-3.0. Full text in LICENSE-AGPL.txt.
 
 More information:
-  https://github.com/nimbus-dev/Nimbus
+  https://github.com/asafgolombek/Nimbus

@@ -49,6 +49,7 @@ function runInitialUnitTestsWithCoverage(): void {
     "packages/sdk",
     "packages/client",
     "packages/mcp-connectors",
+    "scripts",
     "--coverage",
   ];
 
