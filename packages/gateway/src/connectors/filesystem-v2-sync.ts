@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
+import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -66,18 +67,20 @@ async function gitLogRecords(
   root: string,
   maxCount: number,
 ): Promise<{ sha: string; ct: number; subject: string }[]> {
-  const proc = Bun.spawn(
-    [
-      "git",
-      "-C",
-      root,
-      "log",
-      `--max-count=${String(maxCount)}`,
-      "-z",
-      "--pretty=format:%H%x00%ct%x00%s",
-    ],
-    { stdout: "pipe", stderr: "pipe" },
-  );
+  const args = [
+    "git",
+    "-C",
+    root,
+    "log",
+    `--max-count=${String(maxCount)}`,
+    "-z",
+    "--pretty=format:%H%x00%ct%x00%s",
+  ];
+  const proc = Bun.spawn(args, {
+    env: extensionProcessEnv({}),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const code = await proc.exited;
   const out = await new Response(proc.stdout).text();
   if (code !== 0) {

@@ -1,3 +1,4 @@
+import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { clampSyncTitle, syncPassCursorParseEmpty } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
@@ -33,7 +34,7 @@ function decodeCursor(raw: string | null): AwsCursorV1 | null {
   return { nextMarker: typeof m === "string" && m !== "" ? m : null };
 }
 
-async function awsProcessEnv(ctx: SyncContext): Promise<Record<string, string | undefined> | null> {
+async function awsCredentialsExtra(ctx: SyncContext): Promise<Record<string, string> | null> {
   const ak = (await ctx.vault.get("aws.access_key_id"))?.trim() ?? "";
   const sk = (await ctx.vault.get("aws.secret_access_key"))?.trim() ?? "";
   const reg = (await ctx.vault.get("aws.default_region"))?.trim() ?? "";
@@ -42,32 +43,32 @@ async function awsProcessEnv(ctx: SyncContext): Promise<Record<string, string | 
   if (!ok) {
     return null;
   }
-  const e = { ...process.env } as Record<string, string | undefined>;
+  const extra: Record<string, string> = {};
   if (ak !== "") {
-    e["AWS_ACCESS_KEY_ID"] = ak;
+    extra["AWS_ACCESS_KEY_ID"] = ak;
   }
   if (sk !== "") {
-    e["AWS_SECRET_ACCESS_KEY"] = sk;
+    extra["AWS_SECRET_ACCESS_KEY"] = sk;
   }
   if (reg !== "") {
-    e["AWS_DEFAULT_REGION"] = reg;
+    extra["AWS_DEFAULT_REGION"] = reg;
   }
   if (prof !== "") {
-    e["AWS_PROFILE"] = prof;
+    extra["AWS_PROFILE"] = prof;
   }
-  return e;
+  return extra;
 }
 
 async function awsCliJson(
   ctx: SyncContext,
   args: string[],
 ): Promise<{ ok: boolean; text: string }> {
-  const env = await awsProcessEnv(ctx);
-  if (env === null) {
+  const extra = await awsCredentialsExtra(ctx);
+  if (extra === null) {
     return { ok: false, text: "" };
   }
   const proc = Bun.spawn(["aws", ...args, "--output", "json"], {
-    env,
+    env: extensionProcessEnv(extra),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -166,8 +167,8 @@ export function createAwsSyncable(options: AwsSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureAwsMcpRunning();
-      const env = await awsProcessEnv(ctx);
-      if (env === null) {
+      const extra = await awsCredentialsExtra(ctx);
+      if (extra === null) {
         return syncNoopResult(cursor, t0);
       }
 

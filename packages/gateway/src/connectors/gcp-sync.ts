@@ -1,3 +1,4 @@
+import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   clampSyncTitle,
@@ -30,12 +31,8 @@ async function gcloudJson(
   if (credPath === "") {
     return { ok: false, text: "" };
   }
-  const env = {
-    ...process.env,
-    GOOGLE_APPLICATION_CREDENTIALS: credPath,
-  } as Record<string, string | undefined>;
   const proc = Bun.spawn(["gcloud", ...args, "--format", "json"], {
-    env,
+    env: extensionProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: credPath }),
     stdout: "pipe",
     stderr: "pipe",
   });

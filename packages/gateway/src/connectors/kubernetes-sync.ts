@@ -1,3 +1,4 @@
+import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { syncPassCursorParseEmpty } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
@@ -109,7 +110,7 @@ async function kubectlDeploymentsJson(
   }
   args.push("get", "deployments", "-A", "-o", "json");
   const proc = Bun.spawn(args, {
-    env: { ...process.env, KUBECONFIG: kubeconfig },
+    env: extensionProcessEnv({ KUBECONFIG: kubeconfig }),
     stdout: "pipe",
     stderr: "pipe",
   });
