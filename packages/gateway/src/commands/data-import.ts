@@ -93,6 +93,7 @@ export async function runDataImport(input: RunDataImportInput): Promise<RunDataI
     for (const e of entries) {
       await input.vault.set(e.key, e.value);
       writtenKeys.push(e.key);
+      // audit-ignore-next-line D11-vault-key (shape-check on already-restored entry, not vault-key construction)
       if (e.key.endsWith(".oauth") || e.key.includes(".oauth.")) oauthFlagged += 1;
     }
     if (input.injectFailureAfterVault === true) {

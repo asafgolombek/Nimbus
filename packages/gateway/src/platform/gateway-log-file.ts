@@ -70,7 +70,9 @@ const PINO_REDACT_PATHS: readonly string[] = [
   "err.config.headers.authorization",
   "err.config.headers.Authorization",
   "err.apiKey",
+  // audit-ignore-next-line D11-vault-key (log-redaction key path, not vault-key construction)
   "err.api_key",
+  // audit-ignore-next-line D11-vault-key (log-redaction key path, not vault-key construction)
   "err.token",
   "err.accessToken",
 ];

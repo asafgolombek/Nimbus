@@ -106,6 +106,7 @@ export function microsoftOAuthAccessFromConfig(): {
 }
 
 /**
+ * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
  * Space-separated Graph delegated scopes from `microsoft.oauth` for `MICROSOFT_OAUTH_SCOPES`
  * (Outlook MCP registers only tools satisfied by these scopes). Returns `undefined` when
  * the vault payload has no non-empty `scopes` array — Outlook keeps full tool surface.
