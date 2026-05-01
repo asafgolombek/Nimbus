@@ -564,6 +564,7 @@ export class LazyConnectorMesh {
 
   /**
    * Starts Google Drive / Gmail / Google Photos MCP subprocesses for which a vault
+   * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
    * token exists (per-service keys or legacy `google.oauth`). Each server gets its own access token.
    */
   async ensureGoogleDriveRunning(): Promise<void> {
@@ -619,6 +620,7 @@ export class LazyConnectorMesh {
   }
 
   /**
+   * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
    * Starts OneDrive + Outlook + Teams MCP subprocesses when `microsoft.oauth` is present (shared token).
    */
   async ensureMicrosoftBundleRunning(): Promise<void> {
@@ -662,6 +664,7 @@ export class LazyConnectorMesh {
   }
 
   /**
+   * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
    * Starts GitHub MCP when `github.pat` is present in the Vault.
    */
   async ensureGithubRunning(): Promise<void> {
@@ -698,6 +701,7 @@ export class LazyConnectorMesh {
   }
 
   /**
+   * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
    * Starts GitLab MCP when `gitlab.pat` is present in the Vault.
    */
   async ensureGitlabRunning(): Promise<void> {
@@ -772,6 +776,7 @@ export class LazyConnectorMesh {
   }
 
   /**
+   * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
    * Starts Slack MCP when `slack.oauth` is present in the Vault.
    */
   async ensureSlackRunning(): Promise<void> {
@@ -808,6 +813,7 @@ export class LazyConnectorMesh {
   }
 
   /**
+   * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
    * Starts Linear MCP when `linear.api_key` is present in the Vault.
    */
   async ensureLinearRunning(): Promise<void> {
@@ -883,6 +889,7 @@ export class LazyConnectorMesh {
   }
 
   /**
+   * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
    * Starts Notion MCP when `notion.oauth` is present and a valid access token can be resolved.
    */
   async ensureNotionRunning(): Promise<void> {

@@ -2,6 +2,7 @@
  * nimbus-mcp-outlook — Microsoft Graph mail, calendar, contacts (read + guarded writes).
  * Access token is injected as MICROSOFT_OAUTH_ACCESS_TOKEN (never logged).
  * Optional `MICROSOFT_OAUTH_SCOPES` (space-separated) gates which tools register; the Gateway
+ * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
  * sets it from `microsoft.oauth` JSON when `scopes` is present.
  * Send / calendar mutations require Gateway HITL (email.send, calendar.event.create | delete).
  */

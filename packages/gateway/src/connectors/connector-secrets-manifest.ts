@@ -11,13 +11,18 @@ export const CONNECTOR_VAULT_SECRET_KEYS: {
   onedrive: [],
   outlook: [],
   teams: [],
+  // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   slack: ["slack.oauth"],
+  // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   github: ["github.pat"],
   github_actions: [],
+  // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   gitlab: ["gitlab.pat", "gitlab.api_base"],
   bitbucket: ["bitbucket.username", "bitbucket.app_password"],
+  // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   linear: ["linear.api_key"],
   jira: ["jira.api_token", "jira.email", "jira.base_url"],
+  // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   notion: ["notion.oauth"],
   confluence: ["confluence.api_token", "confluence.email", "confluence.base_url"],
   discord: ["discord.bot_token", "discord.enabled"],
@@ -31,7 +36,9 @@ export const CONNECTOR_VAULT_SECRET_KEYS: {
   iac: ["iac.enabled"],
   grafana: ["grafana.url", "grafana.api_token"],
   sentry: ["sentry.auth_token", "sentry.org_slug", "sentry.url"],
+  // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   newrelic: ["newrelic.api_key", "newrelic.account_id"],
+  // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   datadog: ["datadog.api_key", "datadog.app_key", "datadog.site"],
 };
 

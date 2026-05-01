@@ -71,6 +71,34 @@ describe("D11 — checkVaultKeyAllowList", () => {
     );
     expect(violations).toHaveLength(0);
   });
+
+  test("ignores vault-key when previous line has audit-ignore-next-line D11-vault-key marker", () => {
+    const violations = checkVaultKeyAllowList(
+      [
+        {
+          relPath: "packages/gateway/src/connectors/some-other.ts",
+          contents:
+            "// audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)\n" +
+            'const entry = "slack.oauth";',
+        },
+      ],
+      ALLOW_LIST,
+    );
+    expect(violations).toHaveLength(0);
+  });
+
+  test("still flags vault-key when no opt-out marker is on previous line", () => {
+    const violations = checkVaultKeyAllowList(
+      [
+        {
+          relPath: "packages/gateway/src/connectors/some-other.ts",
+          contents: "// just a regular comment\n" + 'const entry = "slack.oauth";',
+        },
+      ],
+      ALLOW_LIST,
+    );
+    expect(violations).toHaveLength(1);
+  });
 });
 
 describe("D12 — collectDbRunCensus", () => {

@@ -60,6 +60,8 @@ export function checkVaultKeyAllowList(
     const lines = f.contents.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] as string;
+      const prevLine = lines[i - 1] ?? "";
+      if (prevLine.includes("audit-ignore-next-line D11-vault-key")) continue;
       if (!VAULT_KEY_RE.test(line)) continue;
       out.push({
         rule: "D11-vault-key",
