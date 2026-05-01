@@ -148,8 +148,8 @@ For each of the 5 files (`aws-sync.ts`, `azure-sync.ts`, `gcp-sync.ts`, `kuberne
 1. Read the violating line + 5 lines of context.
 2. Identify the local env-builder pattern. Most are of the form `{ ...process.env, AWS_*: ... }` or similar.
 3. Determine whether the fix is one of:
-   - **(a) Replace `{ ...process.env, X: y }` with `{ ...extensionProcessEnv(), X: y }`** — cost-1, no behavior change beyond filtering ambient env. Confirm `extensionProcessEnv` is importable from the file's location (it lives in `packages/gateway/src/connectors/extension-process-env.ts` per Phase 1's I1 wiring). If not, the import path is the same as `lazy-mesh.ts` uses — copy it.
-   - **(b) The connector spawns a CLI that REQUIRES specific ambient env vars** (e.g., `KUBECONFIG`, `AWS_PROFILE`) that are intentionally inherited. In this case, route through `extensionProcessEnv()` PLUS preserve the specific opt-in keys via an explicit pass-through list.
+   - **(a) Replace `{ ...process.env, X: y }` with `extensionProcessEnv({ X: y })`** — cost-1, no behavior change beyond filtering ambient env. The helper signature is `extensionProcessEnv(extra: Record<string, string | undefined>): Record<string, string>` — pass the connector-specific keys via the `extra` parameter (BASELINE_KEYS like PATH/HOME/TMPDIR/LANG/TZ are already preserved by the helper). The helper lives at `packages/gateway/src/extensions/spawn-env.ts`; import path from a sibling `connectors/` file is `import { extensionProcessEnv } from "../extensions/spawn-env.ts";`. Reference usage: `packages/gateway/src/connectors/lazy-mesh.ts:18`.
+   - **(b) The connector spawns a CLI that REQUIRES additional ambient env vars** beyond BASELINE_KEYS (PATH, HOME, TMPDIR, TEMP, TMP, APPDATA, LOCALAPPDATA, USERPROFILE, SYSTEMROOT, BUN_INSTALL, LANG, TZ). In this case, route through `extensionProcessEnv()` and add the extra keys as an explicit pass-through. Note: in practice for this codebase, all 5 connectors are case (a) — the BASELINE_KEYS already cover what `aws`/`az`/`gcloud`/`kubectl`/`git` need.
 4. Record per-file: `{ file, line, fix-shape: "(a)" | "(b)" }`.
 
 - [ ] **Step 3: Score each finding**
@@ -805,9 +805,9 @@ Create the file with this content (substituting line numbers from Task 2's per-f
 
 **Goal:** Fix all 5 D10 violations surfaced by the Phase 1/2 audit. Each violation is a `Bun.spawn(...)` call under `packages/gateway/src/connectors/` that constructs the child process's environment from `{ ...process.env, ... }` instead of routing through `extensionProcessEnv()` — a regression of security invariant **I1** (`docs/SECURITY-INVARIANTS.md`).
 
-**Architecture:** Each of the 5 connectors has a small per-file env-builder pattern. The fix is one of two shapes per file (Bucket A / B in the Phase 2 missed.md). Most are Bucket A: replace `{ ...process.env, X: y }` with `{ ...extensionProcessEnv(), X: y }`. Where the connector requires specific opt-in inheritance (e.g., `KUBECONFIG`), preserve those keys via an explicit pass-through.
+**Architecture:** Each of the 5 connectors has a small per-file env-builder pattern. The fix is to call `extensionProcessEnv(extra)` instead of constructing `{ ...process.env, ...extra }` manually. The helper preserves an audited BASELINE_KEYS allow-list (PATH, HOME, TMPDIR/TEMP/TMP, APPDATA, LOCALAPPDATA, USERPROFILE, SYSTEMROOT, BUN_INSTALL, LANG, TZ) which covers everything `aws`/`az`/`gcloud`/`kubectl`/`git` actually need. The connector-specific keys (e.g., `AWS_*`, `KUBECONFIG`, `GOOGLE_APPLICATION_CREDENTIALS`) are passed via the helper's `extra` parameter. **Special case for `aws-sync.ts`:** the `{ ...process.env }` is inside the local `awsProcessEnv()` helper at line 45, NOT at the spawn site at line 69. Rewrite the helper, not the spawn call — the audit script flags line 69 because that's where Bun.spawn is, but fixing line 45 resolves it transitively.
 
-**Tech Stack:** Existing `extensionProcessEnv()` helper at `packages/gateway/src/connectors/extension-process-env.ts`; existing connector patterns in `lazy-mesh.ts` for reference. No new dependencies.
+**Tech Stack:** Existing `extensionProcessEnv()` helper at `packages/gateway/src/extensions/spawn-env.ts`; existing connector patterns in `lazy-mesh.ts:18` for reference. No new dependencies.
 
 **Spec:** `docs/superpowers/specs/2026-04-30-structure-audit-design.md` § 6.2 (D10 gate); `CLAUDE.md` Security Invariants table I1.
 
@@ -858,11 +858,15 @@ bun run scripts/structure-audit/check-nimbus-invariants.ts --rule spawn 2>&1 | g
 
 - [ ] **Step 3: Apply the fix**
 
-Replace `{ ...process.env, K: v, ... }` with `{ ...extensionProcessEnv(), K: v, ... }`. If `extensionProcessEnv` is not yet imported, add the import:
+Replace `{ ...process.env, K: v, ... }` with `extensionProcessEnv({ K: v, ... })`. If `extensionProcessEnv` is not yet imported, add the import:
 
 ```ts
-import { extensionProcessEnv } from "./extension-process-env.ts";
+import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 ```
+
+For `aws-sync.ts`: the `{ ...process.env }` is inside the local `awsProcessEnv()` helper at line ~45, not at the spawn site at line 69. Rewrite the helper to use `extensionProcessEnv` and pass the AWS_* keys via its `extra` parameter — that's the cleanest fix; line 69's Bun.spawn doesn't change.
+
+For `filesystem-v2-sync.ts`: the spawn at line ~69 has NO `env` field at all (Bun defaults to inheriting all of `process.env`). Add `env: extensionProcessEnv({})` to the spawn options.
 
 - [ ] **Step 4: Re-run audit:invariants**
 
