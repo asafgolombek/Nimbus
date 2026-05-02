@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CONNECTOR_VAULT_SECRET_KEYS } from "../../packages/gateway/src/connectors/connector-secrets-manifest.ts";
 import {
   checkSpawnInvariant,
   checkVaultKeyAllowList,
@@ -103,13 +104,37 @@ describe("D11 — checkVaultKeyAllowList", () => {
 });
 
 describe("D11 — VAULT_KEY_ALLOW_LIST is frozen at structural entries", () => {
-  test("VAULT_KEY_ALLOW_LIST has exactly 5 entries", () => {
-    // Each entry has a documented structural reason in the design spec § 4.4
-    // (helper home, Google OAuth canonical reader, Google PKCE writer,
-    // Microsoft provider-shared OAuth, OpenAI embedding provider).
-    // Adding a 6th entry requires updating this test, forcing a PR-level
-    // discussion of why the new file legitimately constructs vault keys.
-    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(5);
+  test("VAULT_KEY_ALLOW_LIST has exactly 6 entries", () => {
+    // Each entry has a documented structural reason. The first 5 land in the
+    // structure-audit design spec § 4.4 (helper home, Google OAuth canonical
+    // reader, Google PKCE writer, Microsoft provider-shared OAuth, OpenAI
+    // embedding provider). The 6th — connector-secrets-manifest.ts — was
+    // added in the manifest-derived widening spec (2026-05-02) as the
+    // canonical declaration site for per-connector vault keys.
+    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(6);
+  });
+});
+
+describe("D11 — manifest-derived VAULT_KEY_RE", () => {
+  test("matches representative manifest entries", () => {
+    const keys = Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat();
+    // Spot-check each suffix family present in the manifest.
+    for (const sample of [
+      "jira.api_token",
+      "aws.access_key_id",
+      "bitbucket.app_password",
+      "datadog.app_key",
+      "iac.enabled",
+    ]) {
+      expect(keys).toContain(sample);
+      expect(`vault.set("${sample}", x)`).toMatch(/['"`][a-z0-9_]+\.[a-z0-9_]+['"`]/);
+    }
+  });
+
+  test("does not match non-manifest literals", () => {
+    const keys = Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat();
+    expect(keys).not.toContain("console.log");
+    expect(keys).not.toContain("path.to.file");
   });
 });
 

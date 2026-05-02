@@ -80,6 +80,7 @@ function validatePlatformAsset(key: string, asset: unknown): void {
   }
   const a = asset as Record<string, unknown>;
   if (typeof a["url"] !== "string") {
+    // audit-ignore-next-line D11-vault-key (validation error message, not vault-key construction; .url suffix is a manifest false positive)
     throw new ManifestFetchError(`platforms.${key}.url must be a string`);
   }
   if (typeof a["sha256"] !== "string") {
