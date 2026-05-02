@@ -63,6 +63,22 @@ Suggested next step: rollback to v2.14.0?
    Rollback? [y/n]: n  Aborted. No changes made.
 ```
 
+**On-call brief — no query required:**
+
+```
+$ nimbus oncall
+
+🔍 PagerDuty: P1 — payment-service error rate 4.2% — fired 6 minutes ago, assigned to you
+🔍 Last deploy before alert: payment-service v2.14.1 — 21 minutes ago, by @elena
+🔍 Triggering PR #312 "Increase retry backoff" — merged 39 minutes ago
+   Diff: src/billing/retry.ts +18 -4 — backoff multiplier raised 1.5 → 3.0
+🔍 CI: payment-service main #4821 — passed (12 min ago)
+🔍 Slack #payments-eng: 4 messages in last 24h mentioning payment-service (@elena ×2, @raj ×2)
+🔍 Similar alert 14 days ago (incident PD-8174) — resolved by rolling back v2.13.7 → v2.13.6 in 9 minutes
+
+Brief assembled in 2.1s — read-only, no consent prompts fired.
+```
+
 **SecDevOps example:**
 
 ```
@@ -106,7 +122,7 @@ Nimbus is built for engineers and operators who run systems in production. If yo
 | **On-call / SRE** | Instant incident context — last deploy, triggering commit, CI result, Slack thread — in one query, without seven browser tabs |
 | **Platform Engineer** | Drift detection, multi-cloud infra state, deployment correlation, consent-gated IaC apply and rollback |
 | **Security Engineer** | Alert-to-commit tracing, CVE-to-PR correlation, full audit log for every agent action, compliance posture queries |
-| **Senior Developer** | Cross-repo PR intelligence, release readiness checks, pipeline context, local-only credential storage |
+| **Senior Developer** | Cross-repo PR intelligence, release readiness checks, pipeline context, local-only credential storage; OpenAPI / AsyncAPI spec indexing for "which services expose this endpoint?" queries (Phase 5) |
 | **Analytics Engineer / Data Scientist** | Cross-stack lineage from dashboard to dbt model to warehouse table to orchestration DAG — one local query instead of five consoles; metadata-only ingestion keeps row data on the warehouse |
 
 This is not a tool for everyone. There is no managed cloud service, no Nimbus account, and no relay server. If that's what you need, look elsewhere.

@@ -1842,6 +1842,9 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 | `packages/vscode-extension/` (new package) | 7.1–7.7 |
 | `packages/vscode-extension/src/commands/switch-profile.ts` | 7.3 |
 | `packages/gateway/src/agents/meeting-prep.ts` | A.4 |
+| `packages/gateway/src/agents/oncall-brief.ts` | A.5 |
+| `packages/gateway/src/ipc/mcp-adapter.ts` | B.1 (Editor AI Context — MCP Native) |
+| `packages/cli/src/commands/mcp-server.ts` | B.2 (Editor AI Context — MCP Native) |
 | `.github/workflows/release.yml` | 4.1 |
 | `.github/workflows/publish-vscode.yml` | 7.7 |
 

@@ -340,6 +340,10 @@ First-party demonstrations of multi-agent orchestration and multi-connector cont
   - Published to Open VSX Registry and VS Code Marketplace
   - `packages/vscode-extension` workspace package; depends on `@nimbus-dev/client` only; never imports Gateway source
 
+### Editor AI Context (MCP Native)
+
+- [ ] **Native Cursor / Claude Code / Copilot context exposure** — expose the Nimbus local index as an MCP server endpoint that AI coding assistants can connect to directly. Cursor, Claude Code, and any MCP-compatible editor AI can then query the Nimbus index as a tool during code generation — giving the assistant access to incident history, deployment state, open PRs, and connector health without the user switching context. Implementation: the Gateway's existing JSON-RPC IPC surface is wrapped as an MCP stdio server via a thin adapter (`packages/gateway/src/ipc/mcp-adapter.ts`); read-only tools only (`searchIndex`, `getConnectorStatus`, `getRecentIncidents`, `getOpenPRs`); no write tools exposed; no HITL surface required. Configured via `nimbus mcp-server` CLI command which prints the MCP server config block the user pastes into their editor's `mcp.json`. This is not a new protocol — Nimbus is already MCP-native; this just inverts the client/server relationship for the local index.
+
 ### Terminal Power Users
 
 - [x] **Rich TUI** (Ink-based) `v0.1.0` — builds on the Phase 3 Session CLI; pane layout: query input, result stream, connector health sidebar, active watcher list; keyboard navigation; SSH-safe; real-time inline HITL consent; `nimbus tui` command; also launchable from system tray
@@ -406,6 +410,8 @@ These items have no external blocker; they slip out of `v0.1.0` to keep the rele
 | **Workflow branching / conditionals (`if` / `else` / `switch`)** | engineering work only |
 | **Built-in `nimbus prep` (Meeting preparation agent)** | WS6 streaming surface (`engine.askStream`) battle-tested in the wild |
 | **5 seed community extensions in the registry** | `registry.nimbus.dev` host live (see [`v0.1.0-prerequisites.md`](./release/v0.1.0-prerequisites.md) §5) |
+| **`nimbus oncall` (opinionated on-call brief, no query required)** — auto-identifies the active PagerDuty/OpsGenie incident assigned to the user, then assembles in parallel: last deployment before the alert fired, the triggering PR and commit diff summary, CI run result, Slack threads mentioning the affected service in the last 24 h, and the last time a similar alert fired and how it was resolved. Output is a structured Markdown brief identical in shape to `nimbus prep` but scoped to the active incident. Requires the PagerDuty or OpsGenie connector authenticated. Entirely read-only — no HITL triggered. Trigger: `nimbus oncall` with no arguments; `--service <name>` to override auto-detection. | engineering work only — depends on the Phase 3 PagerDuty connector (already shipped); OpsGenie support folds in once that connector lands |
+| **`nimbus watch` (lightweight real-time terminal feed of Gateway operational state)** — not the full Ink TUI; a simple line-by-line stream (respects `NO_COLOR`) showing connector health state changes, watcher fires with payload summary, HITL requests with action type and target, and sync cycle completions with item delta counts. Intended for users who keep a terminal pane open during incidents. Exits on Ctrl+C. No Gateway API changes required — subscribes to existing IPC notifications. Trigger: `nimbus watch` with no arguments; `--filter <connector\|watcher\|hitl\|sync>` to scope output. | engineering work only — uses existing IPC notification surface |
 
 ### Maintenance-initiative follow-ups (B-series)
 
@@ -423,6 +429,7 @@ The B1 security audit and the B2 perf audit completed in Phase 4. Two more initi
 - `nimbus data export` → wipe index and Vault → `nimbus data import` restores full functionality on a fresh machine with all connectors re-authenticated
 - Five community extensions available in the Marketplace at `v0.1.0` launch *(seed plan: publish first-party connectors as community packages and engage early adopters via `docs/contributors/extension-author-walkthrough.md`)*
 - VS Code extension installs from Open VSX and connects to a running Gateway without any manual configuration
+- Cursor can query the Nimbus local index via MCP and surface the last deployment and open PRs for a service mentioned in a code comment — verified manually by connecting Cursor to a running `nimbus mcp-server` instance
 - Voice query completes end-to-end (speech → Whisper.cpp transcription → Gateway → TTS playback) on all three platforms; audio never leaves the machine — verified by network inspection in CI
 
 ---
@@ -442,10 +449,13 @@ The B1 security audit and the B2 perf audit completed in Phase 4. Two more initi
 #### Browser & Reading
 
 - [ ] **Pocket / Readwise / Raindrop** — saved articles, highlights, reading lists, tags; read-only index
-- [ ] **Browser history connector** — local browser extension (Chrome/Firefox/Safari) pushes visited URLs + page titles to Gateway over local HTTP; includes explicit support for local-only SQLite history indexing for Arc, Brave, and Vivaldi; no cloud relay; opt-in; history stored locally only
 - [ ] **Web clipper** — browser extension saves a page into the Nimbus index with a tag; includes a browser "sidecar" UI (overlay) to show related local items without leaving the tab; surfaced in `nimbus search` alongside Drive files and emails
 - [ ] **Obsidian vault connector** — indexes local Markdown vaults with frontmatter metadata, backlinks, and daily notes; uses `[[filesystem.roots]]` as the discovery mechanism; `obsidian_note` item type; backlinks surfaced in the relationship graph; append to daily note behind HITL; no network call required — fully local
 - [ ] **Zotero / Mendeley** — index whitepapers, PDFs, and citations alongside technical docs; `research_paper` item type; read-only
+
+#### API Surface Intelligence
+
+- [ ] **OpenAPI / AsyncAPI spec indexer** — crawls configured filesystem roots and indexed GitHub/GitLab repositories for `openapi.yaml`, `openapi.json`, `swagger.yaml`, `swagger.json`, and `asyncapi.yaml` files; parses and indexes each endpoint as an `api_endpoint` item type with fields: `path`, `method`, `operationId`, `tags`, `deprecated`, `service` (inferred from repo or directory name), `spec_file`, `last_modified`. Enables queries like "which services expose a `/v1/payments` endpoint?", "what endpoints were added or removed in this PR?", "show me all deprecated endpoints that still have active callers in the codebase." No new auth required — uses the existing filesystem and GitHub connectors. New item type `api_endpoint` added to the indexed-items schema. Indexing is passive and read-only; spec files are parsed locally with no outbound call. Parser: `@readme/openapi-parser` or equivalent.
 
 #### Email via IMAP/SMTP
 
@@ -531,6 +541,7 @@ The B1 security audit and the B2 perf audit completed in Phase 4. Two more initi
 - [ ] **Semgrep** — SAST findings, rule matches, triage status; API token or CI output parsing; `sast_finding` item type indexed with rule ID, severity, file, line; read-only
 - [ ] **Wiz** — cloud security posture findings, misconfigurations, toxic combinations, asset inventory; API token; read-only index; `cloud_finding` item type; enables "show me all critical Wiz findings for the services that paged last week" queries
 - [ ] **SBOM / supply chain tracking** — ingests CycloneDX or SPDX SBOMs from CI artefacts or GitHub Dependency Graph; indexes component → repo → version relationships; enables queries like "which of my services ship lodash <4.17.21?" without touching each repo; no auth required beyond existing GitHub/GitLab connectors
+- [ ] **`nimbus security scan`** — local secret and credential hygiene scan across indexed filesystem roots and repository content. Runs a Gitleaks-compatible pattern set against already-indexed file content (requires `[indexing.depth] = "full"` or `"summary"` for the relevant connector); never fetches new content for the scan — only what is already in the local index. Reports: files containing high-confidence secret patterns (API keys, tokens, private keys), which connector/service they belong to, and whether the file has been modified since the secret was introduced (via git metadata already indexed). Output: `nimbus security scan --json` for machine-readable results; plain text table by default. Write operations: none — purely read. HITL: not triggered. Fits naturally into the existing `nimbus doctor` / `nimbus diag` diagnostic family. New CLI command at `packages/cli/src/commands/security.ts`; pattern definitions at `packages/gateway/src/security/secret-patterns.ts`.
 
 ### Nimbus as a CI/CD Data Layer
 
@@ -570,7 +581,8 @@ Items deferred from the [Phase 4 security audit (B1)](./superpowers/specs/2026-0
 - A user with a Fastmail account can run `nimbus connector auth fastmail` and have their inbox indexed within 5 minutes using the IMAP connector
 - A HubSpot deal update initiated by the agent triggers HITL before any outbound API call
 - The `nimbus-dev/query-action` GitHub Actions action successfully queries a running Gateway's HTTP API and blocks a deploy when an active P1 incident is detected for the target service
-- Browser history connector indexes visited pages locally; verified by network inspection in CI that no data leaves `localhost`
+- A repo containing `openapi.yaml` is indexed and `nimbus ask "which services have a POST /payments endpoint?"` returns the correct service name from the local index without a live API call
+- `nimbus security scan` detects a deliberately introduced test credential in a filesystem root configured at `summary` depth and reports the file path, pattern match type, and connector — verified in `packages/gateway/test/e2e/scenarios/security-scan.e2e.test.ts`
 - A community extension published via the Marketplace can be installed, enabled, and used without the author having access to Nimbus core source
 - `nimbus ask "which repos have critical Snyk vulnerabilities with open PRs touching the affected packages?"` returns results from the local index without any live API call
 - `nimbus metrics dora --service payment-service --since 30d` returns all four DORA metrics computed from indexed GitHub and PagerDuty data
