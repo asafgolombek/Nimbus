@@ -115,7 +115,7 @@ describe("sharedOAuthKey", () => {
 
   test("compile-time: rejects non-provider strings", () => {
     // @ts-expect-error — SharedOAuthProvider is "google" | "microsoft" only.
-    void sharedOAuthKey("github");
+    assertEq<Parameters<typeof sharedOAuthKey>[0], "github">(true);
     expect(true).toBe(true);
   });
 });
