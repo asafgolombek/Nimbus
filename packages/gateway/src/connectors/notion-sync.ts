@@ -2,6 +2,7 @@ import { getValidNotionAccessToken } from "../auth/notion-access-token.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { isoMs, maxIso } from "./sync-iso-helpers.ts";
 import {
   decodeWatermarkCursorV1,
@@ -236,7 +237,7 @@ export function createNotionSyncable(options: NotionSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureNotionMcpRunning();
-      const rawVault = await ctx.vault.get("notion.oauth");
+      const rawVault = await readConnectorSecret(ctx.vault, "notion", "oauth");
       if (rawVault === null || rawVault === "") {
         return syncNoopResult(cursor, t0);
       }

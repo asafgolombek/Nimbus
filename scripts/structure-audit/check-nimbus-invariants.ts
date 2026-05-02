@@ -13,10 +13,14 @@ import { auditOutputPath, iterateSourceFiles } from "./lib.ts";
 export type FileEntry = { relPath: string; contents: string };
 export type Violation = { rule: string; file: string; line: number; snippet: string };
 
-const VAULT_KEY_ALLOW_LIST = [
+export const VAULT_KEY_ALLOW_LIST = [
   "packages/gateway/src/connectors/connector-vault.ts",
   "packages/gateway/src/auth/google-access-token.ts",
   "packages/gateway/src/auth/pkce.ts",
+  // Provider-shared OAuth canonical reader (Microsoft); mirrors google-access-token.ts.
+  "packages/gateway/src/auth/oauth-vault-tokens.ts",
+  // OpenAI embedding provider — not a Nimbus connector; no ConnectorServiceId.
+  "packages/gateway/src/embedding/create-embedding-runtime.ts",
 ];
 
 // Match a Bun.spawn or child_process spawn call.

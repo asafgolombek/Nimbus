@@ -151,6 +151,7 @@ async function* iterateGlob(
     if (relPath.endsWith(".d.ts")) continue;
     if (relPath.includes("/__fixtures__/")) continue;
     if (relPath.includes("/test/fixtures/")) continue;
+    if (relPath.includes("/testing/")) continue;
     const path = join(REPO_ROOT, relPath);
     const contents = await Bun.file(path).text();
     yield { path, relPath, contents };

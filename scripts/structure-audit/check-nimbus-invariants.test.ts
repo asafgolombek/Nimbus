@@ -3,6 +3,7 @@ import {
   checkSpawnInvariant,
   checkVaultKeyAllowList,
   collectDbRunCensus,
+  VAULT_KEY_ALLOW_LIST,
 } from "./check-nimbus-invariants.ts";
 
 describe("D10 — checkSpawnInvariant (under connectors/)", () => {
@@ -98,6 +99,17 @@ describe("D11 — checkVaultKeyAllowList", () => {
       ALLOW_LIST,
     );
     expect(violations).toHaveLength(1);
+  });
+});
+
+describe("D11 — VAULT_KEY_ALLOW_LIST is frozen at structural entries", () => {
+  test("VAULT_KEY_ALLOW_LIST has exactly 5 entries", () => {
+    // Each entry has a documented structural reason in the design spec § 4.4
+    // (helper home, Google OAuth canonical reader, Google PKCE writer,
+    // Microsoft provider-shared OAuth, OpenAI embedding provider).
+    // Adding a 6th entry requires updating this test, forcing a PR-level
+    // discussion of why the new file legitimately constructs vault keys.
+    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(5);
   });
 });
 

@@ -2,9 +2,7 @@ import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { ConnectorServiceId } from "./connector-catalog.ts";
 
 /** PAT / API keys cleared when removing a connector (OAuth keys use provider-wide clear elsewhere). */
-export const CONNECTOR_VAULT_SECRET_KEYS: {
-  readonly [K in ConnectorServiceId]: readonly string[];
-} = {
+export const CONNECTOR_VAULT_SECRET_KEYS = {
   google_drive: [],
   gmail: [],
   google_photos: [],
@@ -40,6 +38,8 @@ export const CONNECTOR_VAULT_SECRET_KEYS: {
   newrelic: ["newrelic.api_key", "newrelic.account_id"],
   // audit-ignore-next-line D11-vault-key (manifest entry, not vault-key construction)
   datadog: ["datadog.api_key", "datadog.app_key", "datadog.site"],
+} as const satisfies {
+  readonly [K in ConnectorServiceId]: readonly string[];
 };
 
 export async function clearConnectorVaultSecretKeys(
