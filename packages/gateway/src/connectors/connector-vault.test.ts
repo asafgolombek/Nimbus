@@ -9,7 +9,9 @@ import { type ConnectorSecretKeyOf, readConnectorSecret } from "./connector-vaul
 // that any silent widening (e.g. to `string`) fails compile, not just runtime.
 type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
-function assertEq<_A, _B>(_: Eq<_A, _B>): void {}
+function assertEq<_A, _B>(_: Eq<_A, _B>): void {
+  // Intentionally empty: assertion happens at the type-checker, not at runtime.
+}
 
 describe("readConnectorSecret", () => {
   test("returns the stored value when the key is set", async () => {
