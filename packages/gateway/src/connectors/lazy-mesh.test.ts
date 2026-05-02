@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { LazyDrainTracker, mergeToolMapsOrThrow } from "./lazy-mesh.ts";
+import { LazyDrainTracker, mergeToolMapsOrThrow } from "./lazy-mesh/index.ts";
 
 describe("mergeToolMapsOrThrow (S8-F4)", () => {
   test("throws on duplicate tool key across sources", () => {

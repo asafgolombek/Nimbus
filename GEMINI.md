@@ -31,7 +31,7 @@ These are the structural defenses Nimbus relies on. Each one has a production wi
 
 | # | Invariant | Wired at | Anti-pattern that regresses it |
 |---|---|---|---|
-| I1 | Child-process env scoping via `extensionProcessEnv()` | `connectors/lazy-mesh.ts` (every spawn) | `spawn(..., { env: { ...process.env } })` anywhere under `connectors/` |
+| I1 | Child-process env scoping via `extensionProcessEnv()` | `connectors/lazy-mesh/` (every spawn across `mesh.ts`, `connector-spawns.ts`, `phase3-config.ts`, `user-mcp.ts`) | `spawn(..., { env: { ...process.env } })` anywhere under `connectors/` |
 | I2 | HITL frozen-set membership; `HITL_REQUIRED_BACKING` is module-private | `engine/executor.ts:192` | New destructive RPC that skips `ToolExecutor` or omits the action type from the set |
 | I3 | HITL gate consults `action.type` only (NOT `payload.mcpToolId`) | `engine/executor.ts` | Gating on `mcpToolId` or `resolvedToolId` — the set holds logical types, not MCP ids |
 | I4 | `hitlStatus` is set only by the consent gate | `engine/executor.ts:194-210` | Hardcoding `hitlStatus: "approved"` in any handler |
@@ -68,7 +68,7 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/vault/index.ts` | `NimbusVault` interface |
 | `packages/gateway/src/auth/google-access-token.ts` | Google per-service OAuth token resolution — `resolveGoogleOAuthVaultKey()`, `anyGoogleOAuthVaultPresent()` |
 | `packages/gateway/src/auth/oauth-vault-tokens.ts` | Generic OAuth token storage/refresh helpers — `getValidVaultOAuthAccessToken()`, `microsoftOAuthAccessFromConfig()` |
-| `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh.ts` — Phase 3 bundle spawns AWS/Azure/GCP/IaC/observability MCPs when vault keys exist) |
+| `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh/` — Phase 3 bundle spawns AWS/Azure/GCP/IaC/observability MCPs when vault keys exist) |
 | `packages/gateway/src/connectors/health.ts` | Connector health state machine — `transitionHealth()`, `ConnectorHealthSnapshot` |
 | `packages/gateway/src/connectors/connector-vault.ts` | Per-service OAuth vault key helpers + typed connector-secret reader — `perServiceOAuthVaultKey()`, `writePerServiceOAuthKey()`, `migrateToPerServiceOAuthKeys()`, `readConnectorSecret()` (Phase 4 / D11 Bucket B) |
 | `packages/gateway/src/connectors/connector-secrets-manifest.ts` | `CONNECTOR_VAULT_SECRET_KEYS` — per-connector PAT/API-key vault manifest; `clearConnectorVaultSecretKeys()` |

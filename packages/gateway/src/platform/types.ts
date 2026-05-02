@@ -1,4 +1,4 @@
-import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { IPCServer } from "../ipc/index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
