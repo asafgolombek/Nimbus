@@ -19,6 +19,13 @@ import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import type { ConnectorServiceId } from "./connector-catalog.ts";
+import {
+  type ConnectorSecretKeyOf,
+  readConnectorSecret,
+  type SharedOAuthProvider,
+  sharedOAuthKey,
+} from "./connector-vault.ts";
 import { transitionHealth } from "./health.ts";
 import type { UserMcpConnectorRow } from "./user-mcp-store.ts";
 
@@ -485,7 +492,7 @@ export class LazyConnectorMesh {
   private async phase3AddNewrelicMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const nrKey = (await this.vault.get("newrelic.api_key"))?.trim() ?? "";
+    const nrKey = (await readConnectorSecret(this.vault, "newrelic", "api_key"))?.trim() ?? "";
     if (nrKey === "") {
       return;
     }
@@ -499,7 +506,7 @@ export class LazyConnectorMesh {
   private async phase3AddDatadogMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const ddKey = (await this.vault.get("datadog.api_key"))?.trim() ?? "";
+    const ddKey = (await readConnectorSecret(this.vault, "datadog", "api_key"))?.trim() ?? "";
     const ddApp = (await this.vault.get("datadog.app_key"))?.trim() ?? "";
     if (ddKey === "" || ddApp === "") {
       return;
@@ -674,7 +681,7 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const pat = await this.vault.get("github.pat");
+    const pat = await readConnectorSecret(this.vault, "github", "pat");
     if (pat === null || pat === "") {
       return;
     }
@@ -711,7 +718,7 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const pat = await this.vault.get("gitlab.pat");
+    const pat = await readConnectorSecret(this.vault, "gitlab", "pat");
     if (pat === null || pat === "") {
       return;
     }
@@ -823,7 +830,7 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const apiKey = await this.vault.get("linear.api_key");
+    const apiKey = await readConnectorSecret(this.vault, "linear", "api_key");
     if (apiKey === null || apiKey === "") {
       return;
     }
@@ -899,7 +906,7 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const raw = await this.vault.get("notion.oauth");
+    const raw = await readConnectorSecret(this.vault, "notion", "oauth");
     if (raw === null || raw === "") {
       return;
     }
@@ -1148,8 +1155,22 @@ export class LazyConnectorMesh {
     this.scheduleLazyDisconnect(slotKey);
   }
 
-  private async ensureIfVaultKeyNonEmpty(key: string, run: () => Promise<void>): Promise<void> {
-    const v = await this.vault.get(key);
+  private async ensureIfConnectorSecretSet<S extends ConnectorServiceId>(
+    serviceId: S,
+    keyName: ConnectorSecretKeyOf<S>,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const v = await readConnectorSecret(this.vault, serviceId, keyName);
+    if (v !== null && v !== "") {
+      await run();
+    }
+  }
+
+  private async ensureIfProviderOAuthSet(
+    provider: SharedOAuthProvider,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const v = await this.vault.get(sharedOAuthKey(provider));
     if (v !== null && v !== "") {
       await run();
     }
@@ -1235,16 +1256,14 @@ export class LazyConnectorMesh {
   /** Spawns connector MCP children when matching vault keys are present (used before aggregating tools). */
   private async ensureCredentialConnectorsRunning(): Promise<void> {
     await this.ensureIfGoogleOAuthPresent();
-    await this.ensureIfVaultKeyNonEmpty("microsoft.oauth", () =>
-      this.ensureMicrosoftBundleRunning(),
-    );
-    await this.ensureIfVaultKeyNonEmpty("github.pat", () => this.ensureGithubRunning());
-    await this.ensureIfVaultKeyNonEmpty("gitlab.pat", () => this.ensureGitlabRunning());
+    await this.ensureIfProviderOAuthSet("microsoft", () => this.ensureMicrosoftBundleRunning());
+    await this.ensureIfConnectorSecretSet("github", "pat", () => this.ensureGithubRunning());
+    await this.ensureIfConnectorSecretSet("gitlab", "pat", () => this.ensureGitlabRunning());
     await this.ensureBitbucketIfVaultCreds();
-    await this.ensureIfVaultKeyNonEmpty("slack.oauth", () => this.ensureSlackRunning());
-    await this.ensureIfVaultKeyNonEmpty("linear.api_key", () => this.ensureLinearRunning());
+    await this.ensureIfConnectorSecretSet("slack", "oauth", () => this.ensureSlackRunning());
+    await this.ensureIfConnectorSecretSet("linear", "api_key", () => this.ensureLinearRunning());
     await this.ensureJiraIfVaultCreds();
-    await this.ensureIfVaultKeyNonEmpty("notion.oauth", () => this.ensureNotionRunning());
+    await this.ensureIfConnectorSecretSet("notion", "oauth", () => this.ensureNotionRunning());
     await this.ensureConfluenceIfVaultCreds();
     await this.ensureDiscordIfOptIn();
     await this.ensureJenkinsIfVaultCreds();
