@@ -406,6 +406,10 @@ These items have no external blocker; they slip out of `v0.1.0` to keep the rele
 | **Workflow branching / conditionals (`if` / `else` / `switch`)** | engineering work only |
 | **Built-in `nimbus prep` (Meeting preparation agent)** | WS6 streaming surface (`engine.askStream`) battle-tested in the wild |
 | **5 seed community extensions in the registry** | `registry.nimbus.dev` host live (see [`v0.1.0-prerequisites.md`](./release/v0.1.0-prerequisites.md) §5) |
+| **`nimbus explain last` (X-ray of the most recent `nimbus ask`)** — prints what data the agent loaded into its context window, how each item was ranked and why, what was discarded and the reason (connector rate-limited, below relevance threshold, context window full), and which connectors were queried vs answered from cache. Helps users understand weak or wrong answers and tune their index accordingly. No new Gateway APIs required — the agent already tracks this metadata internally during query execution; this command surfaces it. Output: plain text by default; `--json` for machine-readable. Read-only, no HITL. | engineering work only — surfaces metadata the agent already records |
+| **`nimbus changelog` (Markdown changelog assembled from the local index)** — generates a human-readable changelog for a service or across all connected services by assembling everything that moved in the indexed data over a time window: PRs merged, deployments ran, incidents opened and resolved, dependency updates, config changes. Formatted as a Markdown document suitable for release notes, weekly engineering updates, or onboarding new team members. Flags: `--service <name>` to scope to one service, `--since <duration>` (default: `7d`), `--format <markdown\|slack\|plain>`. Zero new connectors required. Read-only, no HITL. | engineering work only — uses existing indexed data |
+| **`nimbus standup` (personal standup update from indexed activity)** — assembles everything the authenticated user did across all connected services in the last 24 hours (configurable via `--since`): PRs opened, reviewed, and merged; tickets moved or commented on; incidents responded to; deployments triggered; Slack threads participated in. Output is copy-pasteable Markdown. Scoped to the current user's identity as resolved by the people graph. `--format <markdown\|slack\|plain>` flag. Read-only, no HITL. Entirely local — nothing is posted anywhere without a separate explicit command. | engineering work only — uses existing people graph |
+| **`nimbus index health` (index quality report beyond raw item counts)** — embedding coverage percentage per connector, connectors contributing stale data (last synced more than a configurable threshold ago), item types with sparse metadata (missing `url`, `modified_at`, or `raw_meta` fields), and an overall query confidence score (0–100) derived from coverage and freshness. Helps users understand why they're getting weak query results before giving up on Nimbus. Integrates with `nimbus doctor` — a confidence score below 60 prints a warning in `nimbus doctor` output. Read-only, no HITL. `--json` flag for machine-readable output. | engineering work only — index metrics already collected |
 
 ### Maintenance-initiative follow-ups (B-series)
 
@@ -424,6 +428,10 @@ The B1 security audit and the B2 perf audit completed in Phase 4. Two more initi
 - Five community extensions available in the Marketplace at `v0.1.0` launch *(seed plan: publish first-party connectors as community packages and engage early adopters via `docs/contributors/extension-author-walkthrough.md`)*
 - VS Code extension installs from Open VSX and connects to a running Gateway without any manual configuration
 - Voice query completes end-to-end (speech → Whisper.cpp transcription → Gateway → TTS playback) on all three platforms; audio never leaves the machine — verified by network inspection in CI
+- `nimbus changelog --service payment-service --since 7d` produces a Markdown document containing at least PRs merged and incidents resolved for that service, assembled entirely from the local index without a live API call
+- `nimbus standup` produces a Markdown summary of the authenticated user's activity across at least GitHub and Linear in the last 24 hours, resolved via the people graph from the local index
+- `nimbus explain last` after a recent `nimbus ask` lists the indexed items loaded into context with their relevance scores and the reason any candidate items were discarded, and identifies which connectors were queried vs answered from cache
+- `nimbus index health` reports per-connector embedding coverage and a 0–100 confidence score derived from coverage and freshness; a confidence score below 60 surfaces in `nimbus doctor` output as a warning
 
 ---
 
@@ -532,6 +540,12 @@ The B1 security audit and the B2 perf audit completed in Phase 4. Two more initi
 - [ ] **Wiz** — cloud security posture findings, misconfigurations, toxic combinations, asset inventory; API token; read-only index; `cloud_finding` item type; enables "show me all critical Wiz findings for the services that paged last week" queries
 - [ ] **SBOM / supply chain tracking** — ingests CycloneDX or SPDX SBOMs from CI artefacts or GitHub Dependency Graph; indexes component → repo → version relationships; enables queries like "which of my services ship lodash <4.17.21?" without touching each repo; no auth required beyond existing GitHub/GitLab connectors
 
+### Team Intelligence
+
+- [ ] **`nimbus expert <topic-or-file>`** — answers "who on my team has the most context on this?" by querying the relationship graph and indexed metadata: git blame history for the file or topic (via indexed code symbols and PR authorship), PR review participation patterns, Slack thread activity mentioning the topic, and Linear/Jira ticket assignments. Returns a ranked list of people with a confidence score and the evidence behind each ranking (e.g. "authored 4 of the last 6 PRs touching this file, resolved 2 incidents tagged `payment-retry`"). Uses the existing people graph — no new connectors required. Read-only, no HITL.
+- [ ] **`nimbus catchup --since <duration>`** — retrospective digest of everything that happened across connected services while the user was away, prioritized by relevance to their recent work history. Unlike `nimbus changelog` (which is service-scoped and uniform), `nimbus catchup` is personalized — it weights activity by the user's historical involvement: services they own, repos they contribute to, incidents they've responded to, people they collaborate with frequently. Default window: `3d`. Output: structured Markdown with sections per service, prioritized by relevance score. Read-only, no HITL.
+- [ ] **`nimbus impact <file-or-PR-url>`** — answers "if I change this, what breaks?" by running a reverse dependency query across the relationship graph: which services import the affected module (via indexed code symbols and `depends_on` graph edges), which pipelines would rebuild (via `pipeline_run` items linked to the repo), which dashboards pull from affected data models (via `upstream_refs` graph edges), and which on-call rotations own the affected services (via PagerDuty schedule index). Returns a structured impact report with blast radius by category. Built entirely on the Phase 3 relationship graph substrate — no new connectors required. Read-only, no HITL. `--json` flag for CI integration.
+
 ### Nimbus as a CI/CD Data Layer
 
 The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data source for CI pipelines and external tooling. This section makes that story explicit with first-class integration points.
@@ -580,6 +594,9 @@ Items deferred from the [Phase 4 security audit (B1)](./superpowers/specs/2026-0
 - **Downstream Impact Analysis** — `nimbus ask "if I change the revenue calc in this PR, which Looker dashboards break?"` resolves via `traverseGraph` over `code_symbol` → `data_model` → `dashboard` relations in the Phase 3 relationship graph; returns affected dashboards in under 500 ms from the local index
 - Local data-file profiling indexes column names + types + row-count estimates from `.parquet`, `.csv`, `.jsonl`, `.json`, and `.orc` files under configured filesystem roots; contract test asserts the connector surface exposes no row-sample or cell-read tool; manual audit confirms only file footers / header lines / line counts are read — never row contents
 - MLflow / SageMaker / Vertex AI experiments and models are indexed with framework, metric snapshots, and stage transitions; `ml.model.promote` triggers HITL before a registered model is moved to Production on any of the three providers
+- `nimbus expert src/billing/retry.ts` returns a ranked list of team members with evidence drawn from indexed PR authorship, review history, and incident involvement — answered from the local index without a live API call
+- `nimbus catchup --since 3d` returns a digest prioritized by the authenticated user's historical involvement, with higher-ranked items matching services and repos the user has recently contributed to — verified by seeding two connectors with different activity levels and confirming the more-relevant one ranks first
+- `nimbus impact src/billing/retry.ts` returns at minimum the set of services that depend on the file and the pipelines that would be affected, resolved from the local relationship graph without a live API call
 
 ---
 
@@ -692,6 +709,7 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - [ ] **Personalization layer** — agent adapts communication style and tool selection priority based on observed user preferences; preferences are explicit (configurable), not inferred silently
 - [ ] **Automated PR pre-review** — agent performs "lint-plus" review based on team's historical review patterns (e.g., "In this repo, we usually ask for Y when X is changed")
 - [ ] **Decision pattern recognition** — agent identifies repeated HITL decision patterns across history; surfaces them as standing rule candidates
+- [ ] **Point-in-time index queries** — ability to reconstruct the state of the indexed data at a specific historical timestamp using sync history and item `modified_at` metadata already stored in the index. Enables queries like `nimbus ask "what was the deployment state of payment-service at 14:32 last Tuesday?"` for post-incident analysis. Implementation: the query layer filters indexed items to their state at the requested timestamp using `modified_at` and sync cycle timestamps already recorded in `sync_state`; no new data collection required. Exposed via `--at <ISO8601-or-relative-time>` flag on `nimbus ask` and `nimbus query`. Read-only, no HITL.
 
 ### Core — LAN Hardening (deferred from Phase 4 B1 audit)
 
@@ -722,6 +740,7 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - A morning briefing workflow runs fully unattended; any write step without a standing rule sends a notification and blocks rather than executing silently
 - `nimbus ask "who's on call for payment-service right now?"` returns the correct engineer from the indexed PagerDuty schedule without a live API call
 - A post-mortem draft for a resolved incident is generated from the incident record and surfaced for review; the HITL-gated push to Notion succeeds only after the user explicitly approves
+- `nimbus ask "what PRs were open for payment-service at 09:00 yesterday?" --at yesterday-09:00` returns results consistent with the indexed sync history for that timestamp, verified by seeding the index with timestamped items and confirming the filter excludes items modified after the requested time
 
 ---
 
