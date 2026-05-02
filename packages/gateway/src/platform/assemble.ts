@@ -14,7 +14,10 @@ import {
 import { loadNimbusSessionFromPath } from "../config/session-toml.ts";
 import { Config } from "../config.ts";
 import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
-import { migrateToPerServiceOAuthKeys } from "../connectors/connector-vault.ts";
+import {
+  migrateToPerServiceOAuthKeys,
+  readConnectorSecret,
+} from "../connectors/connector-vault.ts";
 import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
 import { createLazyConnectorMesh, type LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
@@ -124,13 +127,13 @@ async function ensureGithubCircleCiSchedulerCompanions(
   localIndex: LocalIndex,
   vault: NimbusVault,
 ): Promise<void> {
-  const pat = await vault.get("github.pat");
+  const pat = await readConnectorSecret(vault, "github", "pat");
   localIndex.ensureGithubActionsSchedulerCompanionIfNeeded({
     githubPatPresent: pat !== null && pat !== "",
     now: Date.now(),
     intervalMs: defaultSyncIntervalMsForService("github_actions"),
   });
-  const cciTok = await vault.get("circleci.api_token");
+  const cciTok = await readConnectorSecret(vault, "circleci", "api_token");
   localIndex.ensureCircleciSchedulerCompanionIfNeeded({
     circleciTokenPresent: cciTok !== null && cciTok !== "",
     now: Date.now(),
