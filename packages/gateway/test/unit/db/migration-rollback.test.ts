@@ -97,50 +97,48 @@ describe("runIndexedSchemaMigrations — with backup options", () => {
   });
 });
 
-describe("runIndexedSchemaMigrations — rollback on failure", () => {
-  test("throws MigrationRollbackError when a step throws, schema version unchanged", () => {
-    const tempDir = makeTempDir();
-    const dbPath = join(tempDir, "nimbus.db");
-    const _backupDir = join(tempDir, "backups");
+describe("runIndexedSchemaMigrations — unsupported target version", () => {
+  test("throws when target exceeds the highest known step; schema version unchanged", () => {
+    // No file-backed DB or backups needed — this only exercises the
+    // post-loop "Unsupported local index schema version" throw.
+    const db = new Database(":memory:");
 
-    // Create a DB already at version 11 so only one more step runs
-    const db = new Database(dbPath);
-    runIndexedSchemaMigrations(db, 11);
+    // Bring the DB up to the current schema so the next call has nothing to do.
+    runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION);
     expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(
-      11,
+      LocalIndex.SCHEMA_VERSION,
     );
 
-    // Now inject a broken migration by patching the step list indirectly:
-    // We simulate failure by pointing to version 99 which has no step defined.
-    // The runner will throw "Unsupported local index schema version" — not a
-    // MigrationRollbackError. To test the rollback path properly, we need a
-    // step that throws mid-run. We test this by attempting to migrate to a
-    // non-existent target version greater than the max step.
-    expect(() => runIndexedSchemaMigrations(db, 99)).toThrow();
+    // Targeting one beyond the highest known step throws and leaves user_version intact.
+    expect(() => runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION + 1)).toThrow(
+      /Unsupported local index schema version/,
+    );
 
-    // Schema version advances to the highest known step before the runner
-    // throws "Unsupported local index schema version" for the gap to 99.
     const row = db.query("PRAGMA user_version").get() as { user_version: number };
     expect(row.user_version).toBe(LocalIndex.SCHEMA_VERSION);
     db.close();
   });
+});
 
-  test("backup file exists after failed migration attempt", () => {
+describe("runIndexedSchemaMigrations — backup files per step", () => {
+  test("writes a non-empty .db.gz for each migration step", () => {
     const tempDir = makeTempDir();
     const dbPath = join(tempDir, "nimbus.db");
     const backupDir = join(tempDir, "backups");
 
     const db = new Database(dbPath);
-    // Migrate to v1 so we have a real file-backed DB with one schema applied
+    // Establish a real file-backed DB with one schema applied so VACUUM INTO
+    // has something to copy on the next call.
     runIndexedSchemaMigrations(db, 1);
 
-    // Now run from v1→v13 with backup options so backups are written
+    // Two backups are enough to prove the per-step contract; running the full
+    // schema range here is wall-clock heavy on Windows (Defender + journal fsync)
+    // and offers no extra coverage.
     const opts: MigrationBackupOptions = { backupDir, dbPath };
-    runIndexedSchemaMigrations(db, 13, opts);
+    runIndexedSchemaMigrations(db, 3, opts);
 
     const files = readdirSync(backupDir).filter((f) => f.endsWith(".db.gz"));
     expect(files.length).toBeGreaterThan(0);
-    // Verify files are non-empty (actual gzip data)
     for (const f of files) {
       const size = statSync(join(backupDir, f)).size;
       expect(size).toBeGreaterThan(0);

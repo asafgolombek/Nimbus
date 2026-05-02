@@ -305,6 +305,10 @@ Commercial license also available now for organizations that need to embed Nimbu
 - [x] **System tray enhancements (WS5-B)** — aggregate-health icon (green → amber → red); pending-HITL badge; "Connectors ▸" submenu populated from `set_connectors_menu`; click navigates to Dashboard and flashes the matching tile
 - [x] **Dashboard (WS5-B)** — `IndexMetricsStrip` (items · embeddings · p95 · size), `ConnectorGrid` with live `connector://health-changed` patches + empty state, `AuditFeed` (last 25); `useIpcQuery` polling hook pauses on hidden / disconnected
 - [x] **HITL consent dialogs (WS5-B)** — dedicated frameless 480×360 always-on-top popup at `#/hitl-popup`; `StructuredPreview` renders details XSS-safely; destructive-action deny-list suppresses Approve `autoFocus`; Rust `pending_hitl` inbox + `consent://request`/`consent://resolved` classifier; diff view for file/code changes and optional edit-before-approve deferred to a later sub-project
+- [x] **Settings Shell (WS5-C)** — Profiles, Telemetry, Connectors, Model, Audit, Updates, and Data panels (including Export/Import/Delete wizards); per-service OAuth vault keys; re-attaches to in-flight pulls
+- [x] **Extension Marketplace panel (WS5-D)** — list, install-from-directory, enable/disable, remove; v0.1.0 MVP
+- [x] **Watcher management UI (WS5-D)** — create, pause, delete; graph-aware condition builder; history-of-fires drawer
+- [x] **Workflow pipeline editor (WS5-D)** — step list editor, run, dry-run toggle, delete; run history drawer with audit deep-link + "Run with params…" override
 
 #### WS5 Sub-project B acceptance
 
@@ -314,10 +318,6 @@ Commercial license also available now for organizations that need to embed Nimbu
 - Tray badge matches pending HITL count.
 - `ALLOWED_METHODS` grew by exactly four read-side methods; no `vault.*` or `db.*` writes.
 - `packages/ui` coverage ≥ 80 % lines / ≥ 75 % branches.
-- [x] **Extension Marketplace panel** (v0.1.0 MVP) — list, install-from-directory, enable/disable, remove. *Online browse, verified publisher, ratings, changelog, auto-update — deferred to Phase 5 "Marketplace v2".*
-- [x] **Watcher management UI** (v0.1.0) — create, pause, delete; graph-aware condition builder; **history-of-fires drawer** (WS5-D Polish).
-- [x] **Workflow pipeline editor** (v0.1.0) — step list editor, run, dry-run toggle, delete; **run history drawer with audit deep-link** + **"Run with params…" one-shot parameter override** (WS5-D Polish). *Re-run-failed-steps deferred to v0.1.1.*
-- [x] **Settings** — ~~model selection (cloud vs local)~~ ✅ (Plan 3) · ~~sync intervals per connector~~ ✅ (Plan 3) · ~~profile switcher~~ ✅ (Plan 2) · ~~audit log viewer + export~~ ✅ (Plan 4) · ~~data export/import~~ ✅ (Plan 5) · ~~telemetry toggle~~ ✅ (Plan 2) · ~~Updates panel~~ ✅ (Plan 4) · ~~Delete service data~~ ✅ (Plan 5) — Vault key listing deferred to Phase 5
 
 ### Local LLM & Multi-Agent
 
@@ -419,11 +419,12 @@ These items have no external blocker; they slip out of `v0.1.0` to keep the rele
 
 ### Maintenance-initiative follow-ups (B-series)
 
-The B1 security audit and the B2 perf audit completed in Phase 4. Two more initiatives are sequenced behind them; each will get its own design spec when picked up.
+The B1 security audit completed in Phase 4. Three more initiatives are active or sequenced; each gets its own design spec when picked up.
 
-- [ ] **B3 — SOLID / duplication / project-structure audit** — same three-phase shape as B1/B2 (design → measurement → fix-PR plans); scoped at the package and module boundary level
-- [ ] **B4 — Bug-hunt audit** — same shape; ranked by user-facing impact / engineering cost
-- [ ] **Third-party package upgrades** — npm + cargo crate upgrades **deferred from the toolchain refresh** (the refresh PR bumped runner OSes, Node, and Rust MSRV but left dependency upgrades for a focused follow-up); land before B3/B4 so the audits measure the upgraded baseline
+- [x] **B2 — Perf bench (Phase 1)** — S8/S9/S10 drivers implemented; reference-machine baseline established; wired into CI via `_perf.yml`.
+- [x] **B3 — Structure audit (Phases 1 & 2)** — Phase 1 tooling (`check-nimbus-invariants.ts`, `count-any-usage.ts`) implemented; Phase 2 ranking and findings documented in `docs/structure-audit/baseline.md`.
+- [ ] **B4 — Bug-hunt audit** — ranked by user-facing impact / engineering cost.
+- [ ] **Third-party package upgrades** — npm + cargo crate upgrades **deferred from the toolchain refresh** (the refresh PR bumped runner OSes, Node, and Rust MSRV but left dependency upgrades for a focused follow-up).
 
 ### Acceptance Criteria
 
