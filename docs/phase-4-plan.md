@@ -378,7 +378,7 @@ Existing `engine.ask` returns a complete string result. The voice query flow and
 
 `engine.askStream` is a JSON-RPC method that streams token notifications:
 - Returns immediately with `{ streamId: string }`
-- Emits `engine.streamToken { streamId, token, meta }` notifications as the LLM produces tokens
+- Emits `engine.streamToken { streamId, text, meta }` notifications as the LLM produces tokens
 - Emits `engine.streamDone { streamId, result, meta }` when the stream is complete
 - Emits `engine.streamError { streamId, error }` on failure
 
@@ -1842,6 +1842,9 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 | `packages/vscode-extension/` (new package) | 7.1–7.7 |
 | `packages/vscode-extension/src/commands/switch-profile.ts` | 7.3 |
 | `packages/gateway/src/agents/meeting-prep.ts` | A.4 |
+| `packages/gateway/src/agents/oncall-brief.ts` | A.5 |
+| `packages/gateway/src/ipc/mcp-adapter.ts` | B.1 (Editor AI Context — MCP Native) |
+| `packages/cli/src/commands/mcp-server.ts` | B.2 (Editor AI Context — MCP Native) |
 | `.github/workflows/release.yml` | 4.1 |
 | `.github/workflows/publish-vscode.yml` | 7.7 |
 
@@ -1849,7 +1852,7 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 
 ## WS5-D — Marketplace, Watchers & Workflows (Implementation Tasks)
 
-> **Status (2026-04-22):** WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅
+> **Status (2026-04-26):** WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅
 
 **Goal:** Replace the three `*Stub.tsx` placeholder pages with fully-tested implementations that talk to the existing Gateway `automation-rpc` handlers.
 
