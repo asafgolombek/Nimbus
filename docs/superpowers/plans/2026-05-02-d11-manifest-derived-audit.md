@@ -129,7 +129,7 @@ Expected: `2130 packages installed`.
 - [ ] **Step 4: Confirm the discovery grep finds 44 manifest-shaped literals in rpc-handlers (the migration target)**
 
 ```bash
-PAT='slack\.oauth|github\.pat|gitlab\.pat|gitlab\.api_base|bitbucket\.username|bitbucket\.app_password|linear\.api_key|jira\.api_token|jira\.email|jira\.base_url|notion\.oauth|confluence\.api_token|confluence\.email|confluence\.base_url|discord\.bot_token|discord\.enabled|jenkins\.base_url|jenkins\.username|jenkins\.api_token|circleci\.api_token|pagerduty\.api_token|kubernetes\.kubeconfig|kubernetes\.context|aws\.access_key_id|aws\.secret_access_key|aws\.default_region|aws\.profile|azure\.tenant_id|azure\.client_id|azure\.client_secret|gcp\.credentials_json_path|gcp\.project_id|iac\.enabled|grafana\.url|grafana\.api_token|sentry\.auth_token|sentry\.org_slug|sentry\.url|newrelic\.api_key|newrelic\.account_id|datadog\.api_key|datadog\.app_key|datadog\.site'
+PAT=$(bun -e "import { CONNECTOR_VAULT_SECRET_KEYS } from './packages/gateway/src/connectors/connector-secrets-manifest.ts'; console.log(Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat().map(k => k.replace(/\./g, '\\\\.')).join('|'))")
 rg -c "['\"\`]($PAT)['\"\`]" packages/gateway/src/ipc/connector-rpc-handlers.ts
 ```
 
@@ -417,7 +417,7 @@ Site-by-site list (each line is one Edit operation; format `LINE | BEFORE | AFTE
 - [ ] **Step 3: Verify zero residual manifest-shaped literals**
 
 ```bash
-PAT='slack\.oauth|github\.pat|gitlab\.pat|gitlab\.api_base|bitbucket\.username|bitbucket\.app_password|linear\.api_key|jira\.api_token|jira\.email|jira\.base_url|notion\.oauth|confluence\.api_token|confluence\.email|confluence\.base_url|discord\.bot_token|discord\.enabled|jenkins\.base_url|jenkins\.username|jenkins\.api_token|circleci\.api_token|pagerduty\.api_token|kubernetes\.kubeconfig|kubernetes\.context|aws\.access_key_id|aws\.secret_access_key|aws\.default_region|aws\.profile|azure\.tenant_id|azure\.client_id|azure\.client_secret|gcp\.credentials_json_path|gcp\.project_id|iac\.enabled|grafana\.url|grafana\.api_token|sentry\.auth_token|sentry\.org_slug|sentry\.url|newrelic\.api_key|newrelic\.account_id|datadog\.api_key|datadog\.app_key|datadog\.site'
+PAT=$(bun -e "import { CONNECTOR_VAULT_SECRET_KEYS } from './packages/gateway/src/connectors/connector-secrets-manifest.ts'; console.log(Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat().map(k => k.replace(/\./g, '\\\\.')).join('|'))")
 rg -c "['\"\`]($PAT)['\"\`]" packages/gateway/src/ipc/connector-rpc-handlers.ts
 ```
 
@@ -599,7 +599,7 @@ bun install
 - [ ] **Step 3: Confirm the discovery grep finds the expected number of manifest-shaped literals in lazy-mesh**
 
 ```bash
-PAT='slack\.oauth|github\.pat|gitlab\.pat|gitlab\.api_base|bitbucket\.username|bitbucket\.app_password|linear\.api_key|jira\.api_token|jira\.email|jira\.base_url|notion\.oauth|confluence\.api_token|confluence\.email|confluence\.base_url|discord\.bot_token|discord\.enabled|jenkins\.base_url|jenkins\.username|jenkins\.api_token|circleci\.api_token|pagerduty\.api_token|kubernetes\.kubeconfig|kubernetes\.context|aws\.access_key_id|aws\.secret_access_key|aws\.default_region|aws\.profile|azure\.tenant_id|azure\.client_id|azure\.client_secret|gcp\.credentials_json_path|gcp\.project_id|iac\.enabled|grafana\.url|grafana\.api_token|sentry\.auth_token|sentry\.org_slug|sentry\.url|newrelic\.api_key|newrelic\.account_id|datadog\.api_key|datadog\.app_key|datadog\.site'
+PAT=$(bun -e "import { CONNECTOR_VAULT_SECRET_KEYS } from './packages/gateway/src/connectors/connector-secrets-manifest.ts'; console.log(Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat().map(k => k.replace(/\./g, '\\\\.')).join('|'))")
 rg -n "['\"\`]($PAT)['\"\`]" packages/gateway/src/connectors/lazy-mesh.ts
 ```
 
@@ -696,7 +696,7 @@ The migration table below lists the sites grouped by `ensure*Running` / Phase 3 
 - [ ] **Step 3: Verify zero residual manifest-shaped literals in code (JSDoc references in `/** */` blocks remain — they're suppressed by `audit-ignore-next-line` markers and PR D's `stripComments` change will eventually make them invisible to the audit anyway)**
 
 ```bash
-PAT='slack\.oauth|github\.pat|gitlab\.pat|gitlab\.api_base|bitbucket\.username|bitbucket\.app_password|linear\.api_key|jira\.api_token|jira\.email|jira\.base_url|notion\.oauth|confluence\.api_token|confluence\.email|confluence\.base_url|discord\.bot_token|discord\.enabled|jenkins\.base_url|jenkins\.username|jenkins\.api_token|circleci\.api_token|pagerduty\.api_token|kubernetes\.kubeconfig|kubernetes\.context|aws\.access_key_id|aws\.secret_access_key|aws\.default_region|aws\.profile|azure\.tenant_id|azure\.client_id|azure\.client_secret|gcp\.credentials_json_path|gcp\.project_id|iac\.enabled|grafana\.url|grafana\.api_token|sentry\.auth_token|sentry\.org_slug|sentry\.url|newrelic\.api_key|newrelic\.account_id|datadog\.api_key|datadog\.app_key|datadog\.site'
+PAT=$(bun -e "import { CONNECTOR_VAULT_SECRET_KEYS } from './packages/gateway/src/connectors/connector-secrets-manifest.ts'; console.log(Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat().map(k => k.replace(/\./g, '\\\\.')).join('|'))")
 rg -n "['\"\`]($PAT)['\"\`]" packages/gateway/src/connectors/lazy-mesh.ts | grep -v "^\s*\*\|^\s*//"
 ```
 
@@ -841,7 +841,7 @@ bun install
 - [ ] **Step 3: Confirm the discovery grep finds the expected hit count across the 14 sync files + shared + drift-hints**
 
 ```bash
-PAT='slack\.oauth|github\.pat|gitlab\.pat|gitlab\.api_base|bitbucket\.username|bitbucket\.app_password|linear\.api_key|jira\.api_token|jira\.email|jira\.base_url|notion\.oauth|confluence\.api_token|confluence\.email|confluence\.base_url|discord\.bot_token|discord\.enabled|jenkins\.base_url|jenkins\.username|jenkins\.api_token|circleci\.api_token|pagerduty\.api_token|kubernetes\.kubeconfig|kubernetes\.context|aws\.access_key_id|aws\.secret_access_key|aws\.default_region|aws\.profile|azure\.tenant_id|azure\.client_id|azure\.client_secret|gcp\.credentials_json_path|gcp\.project_id|iac\.enabled|grafana\.url|grafana\.api_token|sentry\.auth_token|sentry\.org_slug|sentry\.url|newrelic\.api_key|newrelic\.account_id|datadog\.api_key|datadog\.app_key|datadog\.site'
+PAT=$(bun -e "import { CONNECTOR_VAULT_SECRET_KEYS } from './packages/gateway/src/connectors/connector-secrets-manifest.ts'; console.log(Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat().map(k => k.replace(/\./g, '\\\\.')).join('|'))")
 for f in packages/gateway/src/connectors/{aws,azure,bitbucket,circleci,confluence,discord,gcp,grafana,iac,jenkins,jira,kubernetes,pagerduty,sentry}-sync.ts packages/gateway/src/ipc/connector-rpc-shared.ts packages/gateway/src/index/drift-hints.ts; do
   count=$(rg -c "['\"\`]($PAT)['\"\`]" "$f" 2>/dev/null)
   echo "$f: ${count:-0}"
@@ -980,7 +980,7 @@ Expected: `0`.
 - [ ] **Step 2: Per-file discovery greps all return empty**
 
 ```bash
-PAT='slack\.oauth|github\.pat|gitlab\.pat|gitlab\.api_base|bitbucket\.username|bitbucket\.app_password|linear\.api_key|jira\.api_token|jira\.email|jira\.base_url|notion\.oauth|confluence\.api_token|confluence\.email|confluence\.base_url|discord\.bot_token|discord\.enabled|jenkins\.base_url|jenkins\.username|jenkins\.api_token|circleci\.api_token|pagerduty\.api_token|kubernetes\.kubeconfig|kubernetes\.context|aws\.access_key_id|aws\.secret_access_key|aws\.default_region|aws\.profile|azure\.tenant_id|azure\.client_id|azure\.client_secret|gcp\.credentials_json_path|gcp\.project_id|iac\.enabled|grafana\.url|grafana\.api_token|sentry\.auth_token|sentry\.org_slug|sentry\.url|newrelic\.api_key|newrelic\.account_id|datadog\.api_key|datadog\.app_key|datadog\.site'
+PAT=$(bun -e "import { CONNECTOR_VAULT_SECRET_KEYS } from './packages/gateway/src/connectors/connector-secrets-manifest.ts'; console.log(Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat().map(k => k.replace(/\./g, '\\\\.')).join('|'))")
 for f in packages/gateway/src/connectors/{aws,azure,bitbucket,circleci,confluence,discord,gcp,grafana,iac,jenkins,jira,kubernetes,pagerduty,sentry}-sync.ts; do
   count=$(rg -c "['\"\`]($PAT)['\"\`]" "$f" 2>/dev/null)
   if [ -n "$count" ] && [ "$count" != "0" ]; then echo "REMAINING: $f: $count"; fi
@@ -1107,7 +1107,7 @@ git pull --ff-only origin main
 git grep -n "export async function deleteConnectorSecret" packages/gateway/src/connectors/connector-vault.ts
 
 # PRs A + B + C: discovery grep returns zero across all production code
-PAT='slack\.oauth|github\.pat|gitlab\.pat|gitlab\.api_base|bitbucket\.username|bitbucket\.app_password|linear\.api_key|jira\.api_token|jira\.email|jira\.base_url|notion\.oauth|confluence\.api_token|confluence\.email|confluence\.base_url|discord\.bot_token|discord\.enabled|jenkins\.base_url|jenkins\.username|jenkins\.api_token|circleci\.api_token|pagerduty\.api_token|kubernetes\.kubeconfig|kubernetes\.context|aws\.access_key_id|aws\.secret_access_key|aws\.default_region|aws\.profile|azure\.tenant_id|azure\.client_id|azure\.client_secret|gcp\.credentials_json_path|gcp\.project_id|iac\.enabled|grafana\.url|grafana\.api_token|sentry\.auth_token|sentry\.org_slug|sentry\.url|newrelic\.api_key|newrelic\.account_id|datadog\.api_key|datadog\.app_key|datadog\.site'
+PAT=$(bun -e "import { CONNECTOR_VAULT_SECRET_KEYS } from './packages/gateway/src/connectors/connector-secrets-manifest.ts'; console.log(Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat().map(k => k.replace(/\./g, '\\\\.')).join('|'))")
 rg "['\"\`]($PAT)['\"\`]" packages/gateway/src/ packages/cli/src/ --glob '!*.test.ts' --glob '!connector-secrets-manifest.ts' --glob '!connector-vault.ts' --glob '!connector-vault.test.ts' --glob '!pkce.ts' --glob '!google-access-token.ts' --glob '!oauth-vault-tokens.ts' --glob '!create-embedding-runtime.ts'
 ```
 
@@ -1494,6 +1494,16 @@ EOF
 After merge: D11 is fully closed under the manifest-derived pattern. The next sub-project (D4 splits of `lazy-mesh.ts` and `connector-rpc-handlers.ts`) can begin on a baseline where every vault-key construction is centralized.
 
 ---
+
+## Review dispositions (2026-05-02 Gemini CLI review)
+
+Recorded for traceability. Source: [`2026-05-02-d11-manifest-derived-audit-review.md`](./2026-05-02-d11-manifest-derived-audit-review.md).
+
+- **§ 2.1 — Add `readSharedOAuth` / `writeSharedOAuth` wrapper helpers (3rd repeat) → DEFER (decline).** Third proposal across reviews (Bucket C plan, manifest-derived spec, this plan). Both prior dispositions declined for the same reason: Bucket C spec § 2 + manifest-derived spec § 2 explicitly reject these wrappers as YAGNI ("would be one-line passthroughs"). Plus the migration scope of this plan is per-service keys — the 3 already-shipped `sharedOAuthKey(...)` sites in `connector-rpc-handlers.ts` (from Bucket C PR-2) are not being touched. Rewriting them to wrapped helpers would be pure scope creep beyond the spec's mission. Re-open if a future caller surfaces a shape these wrappers would simplify; none currently exists.
+- **§ 2.2 — Manifest-derived discovery `PAT` (generated via `bun -e`) → ACCEPT.** Applied to all 7 instances of the hard-coded `PAT='...'` line in the plan. Replacing with `PAT=$(bun -e "...")` eliminates copy-paste-error risk and stays correct as the manifest evolves (one less thing to update if a connector adds a key).
+- **§ 2.3 — Verify alphabetical import in `connector-rpc-shared.ts` → NOTE (already covered).** Task C.3 Step 1 already says "Use `Read` to confirm the existing import shape, then `Edit` to add the helper" — implies the engineer respects the file's existing ordering. No change.
+- **§ 2.4 — PR D baseline-row exact text → NOTE (already matches).** Task D.6 Step 1 already contains the exact replacement string the reviewer suggests. No change.
+- **§ 3 Q&A — `deleteConnectorSecret` in `lazy-mesh.ts` → MOOT.** The reviewer answers their own question. The plan already states (Task B.2 Step 1) that lazy-mesh has no delete sites; if discovery surfaces one, the helper is on main from PR A. No action.
 
 ## Self-review notes
 
