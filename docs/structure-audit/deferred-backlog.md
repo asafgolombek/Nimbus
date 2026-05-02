@@ -28,7 +28,7 @@ prioritisation.
 | `packages/gateway/src/connectors/lazy-mesh.ts` | 1401 | 37 (p80+) | Refactor candidate: split MCP-spawn-config from server-record state machine — by-concern preserves single export surface; own design spec | High |
 | `packages/gateway/src/ipc/server.ts` | 1239 | 56 (p80+) | Refactor candidate: extract per-namespace handler registries; dispatcher stays thin — own design spec | High |
 | `packages/cli/src/commands/connector.ts` | 1238 | 32 (p80+) | Refactor candidate: split per-subcommand modules under `cli/commands/connector/` — own design spec | High |
-| `packages/gateway/src/ipc/connector-rpc-handlers.ts` | 1103 | 30 (p80+) | Refactor candidate: split by namespace (status / config / oauth / removal) — own design spec | High |
+| ~~`packages/gateway/src/ipc/connector-rpc-handlers.ts`~~ | ~~1103~~ | ~~30 (p80+)~~ | ✅ **Landed in PR #160 (2026-05-02)** — split into `connector-rpc-handlers/` directory with 7 sibling files (auth/config/context/index/lifecycle/removal/status). Largest resulting file: `auth.ts` at 676 LOC. | — |
 | `packages/gateway/src/index/local-index.ts` | 987 | 45 (p80+) | Refactor candidate: extract write/read/migration concerns into sibling modules — own design spec | High |
 | `packages/gateway/src/auth/pkce.ts` | 886 | 12 (p80+) | Refactor candidate: split by OAuth provider flow (Google / Microsoft / generic core) — own design spec | High |
 
