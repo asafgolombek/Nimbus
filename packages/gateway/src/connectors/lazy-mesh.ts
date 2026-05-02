@@ -374,10 +374,10 @@ export class LazyConnectorMesh {
   private async phase3AddAwsMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const ak = (await this.vault.get("aws.access_key_id"))?.trim() ?? "";
-    const sk = (await this.vault.get("aws.secret_access_key"))?.trim() ?? "";
-    const reg = (await this.vault.get("aws.default_region"))?.trim() ?? "";
-    const prof = (await this.vault.get("aws.profile"))?.trim() ?? "";
+    const ak = (await readConnectorSecret(this.vault, "aws", "access_key_id"))?.trim() ?? "";
+    const sk = (await readConnectorSecret(this.vault, "aws", "secret_access_key"))?.trim() ?? "";
+    const reg = (await readConnectorSecret(this.vault, "aws", "default_region"))?.trim() ?? "";
+    const prof = (await readConnectorSecret(this.vault, "aws", "profile"))?.trim() ?? "";
     const awsOk =
       (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
     if (!awsOk) {
@@ -406,9 +406,9 @@ export class LazyConnectorMesh {
   private async phase3AddAzureMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const azT = (await this.vault.get("azure.tenant_id"))?.trim() ?? "";
-    const azC = (await this.vault.get("azure.client_id"))?.trim() ?? "";
-    const azS = (await this.vault.get("azure.client_secret"))?.trim() ?? "";
+    const azT = (await readConnectorSecret(this.vault, "azure", "tenant_id"))?.trim() ?? "";
+    const azC = (await readConnectorSecret(this.vault, "azure", "client_id"))?.trim() ?? "";
+    const azS = (await readConnectorSecret(this.vault, "azure", "client_secret"))?.trim() ?? "";
     if (azT === "" || azC === "" || azS === "") {
       return;
     }
@@ -426,7 +426,8 @@ export class LazyConnectorMesh {
   private async phase3AddGcpMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const gcpPath = (await this.vault.get("gcp.credentials_json_path"))?.trim() ?? "";
+    const gcpPath =
+      (await readConnectorSecret(this.vault, "gcp", "credentials_json_path"))?.trim() ?? "";
     if (gcpPath === "") {
       return;
     }
@@ -440,7 +441,7 @@ export class LazyConnectorMesh {
   private async phase3AddIacMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const iacEn = await this.vault.get("iac.enabled");
+    const iacEn = await readConnectorSecret(this.vault, "iac", "enabled");
     if (iacEn !== "1") {
       return;
     }
@@ -454,8 +455,8 @@ export class LazyConnectorMesh {
   private async phase3AddGrafanaMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const gfu = (await this.vault.get("grafana.url"))?.trim() ?? "";
-    const gtk = (await this.vault.get("grafana.api_token"))?.trim() ?? "";
+    const gfu = (await readConnectorSecret(this.vault, "grafana", "url"))?.trim() ?? "";
+    const gtk = (await readConnectorSecret(this.vault, "grafana", "api_token"))?.trim() ?? "";
     if (gfu === "" || gtk === "") {
       return;
     }
@@ -469,8 +470,8 @@ export class LazyConnectorMesh {
   private async phase3AddSentryMcp(
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
-    const sentTok = (await this.vault.get("sentry.auth_token"))?.trim() ?? "";
-    const sentOrg = (await this.vault.get("sentry.org_slug"))?.trim() ?? "";
+    const sentTok = (await readConnectorSecret(this.vault, "sentry", "auth_token"))?.trim() ?? "";
+    const sentOrg = (await readConnectorSecret(this.vault, "sentry", "org_slug"))?.trim() ?? "";
     if (sentTok === "" || sentOrg === "") {
       return;
     }
@@ -478,7 +479,7 @@ export class LazyConnectorMesh {
       SENTRY_AUTH_TOKEN: sentTok,
       SENTRY_ORG_SLUG: sentOrg,
     };
-    const surl = (await this.vault.get("sentry.url"))?.trim() ?? "";
+    const surl = (await readConnectorSecret(this.vault, "sentry", "url"))?.trim() ?? "";
     if (surl !== "") {
       extra["SENTRY_URL"] = surl;
     }
@@ -507,7 +508,7 @@ export class LazyConnectorMesh {
     servers: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<void> {
     const ddKey = (await readConnectorSecret(this.vault, "datadog", "api_key"))?.trim() ?? "";
-    const ddApp = (await this.vault.get("datadog.app_key"))?.trim() ?? "";
+    const ddApp = (await readConnectorSecret(this.vault, "datadog", "app_key"))?.trim() ?? "";
     if (ddKey === "" || ddApp === "") {
       return;
     }
@@ -515,7 +516,7 @@ export class LazyConnectorMesh {
       DD_API_KEY: ddKey,
       DD_APP_KEY: ddApp,
     };
-    const site = (await this.vault.get("datadog.site"))?.trim() ?? "";
+    const site = (await readConnectorSecret(this.vault, "datadog", "site"))?.trim() ?? "";
     if (site !== "") {
       extra["DD_SITE"] = site;
     }
@@ -722,7 +723,7 @@ export class LazyConnectorMesh {
     if (pat === null || pat === "") {
       return;
     }
-    const apiBase = await this.vault.get("gitlab.api_base");
+    const apiBase = await readConnectorSecret(this.vault, "gitlab", "api_base");
     const trimmedBase =
       apiBase !== null && apiBase.trim() !== "" ? stripTrailingSlashes(apiBase) : null;
     const gitlabServerEnv = extensionProcessEnv(
@@ -757,8 +758,8 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const user = await this.vault.get("bitbucket.username");
-    const pass = await this.vault.get("bitbucket.app_password");
+    const user = await readConnectorSecret(this.vault, "bitbucket", "username");
+    const pass = await readConnectorSecret(this.vault, "bitbucket", "app_password");
     if (user === null || user === "" || pass === null || pass === "") {
       return;
     }
@@ -861,9 +862,9 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const token = await this.vault.get("jira.api_token");
-    const email = await this.vault.get("jira.email");
-    const baseUrl = await this.vault.get("jira.base_url");
+    const token = await readConnectorSecret(this.vault, "jira", "api_token");
+    const email = await readConnectorSecret(this.vault, "jira", "email");
+    const baseUrl = await readConnectorSecret(this.vault, "jira", "base_url");
     if (
       token === null ||
       token === "" ||
@@ -946,9 +947,9 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const token = await this.vault.get("confluence.api_token");
-    const em = await this.vault.get("confluence.email");
-    const baseUrl = await this.vault.get("confluence.base_url");
+    const token = await readConnectorSecret(this.vault, "confluence", "api_token");
+    const em = await readConnectorSecret(this.vault, "confluence", "email");
+    const baseUrl = await readConnectorSecret(this.vault, "confluence", "base_url");
     if (
       token === null ||
       token === "" ||
@@ -990,8 +991,8 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const enabled = await this.vault.get("discord.enabled");
-    const token = await this.vault.get("discord.bot_token");
+    const enabled = await readConnectorSecret(this.vault, "discord", "enabled");
+    const token = await readConnectorSecret(this.vault, "discord", "bot_token");
     if (enabled !== "1" || token === null || token === "") {
       return;
     }
@@ -1022,9 +1023,9 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const baseRaw = await this.vault.get("jenkins.base_url");
-    const user = await this.vault.get("jenkins.username");
-    const token = await this.vault.get("jenkins.api_token");
+    const baseRaw = await readConnectorSecret(this.vault, "jenkins", "base_url");
+    const user = await readConnectorSecret(this.vault, "jenkins", "username");
+    const token = await readConnectorSecret(this.vault, "jenkins", "api_token");
     if (
       baseRaw === null ||
       baseRaw.trim() === "" ||
@@ -1067,7 +1068,7 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const tok = await this.vault.get("circleci.api_token");
+    const tok = await readConnectorSecret(this.vault, "circleci", "api_token");
     if (tok === null || tok.trim() === "") {
       return;
     }
@@ -1098,7 +1099,7 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const tok = await this.vault.get("pagerduty.api_token");
+    const tok = await readConnectorSecret(this.vault, "pagerduty", "api_token");
     if (tok === null || tok.trim() === "") {
       return;
     }
@@ -1129,11 +1130,11 @@ export class LazyConnectorMesh {
       this.scheduleLazyDisconnect(slotKey);
       return;
     }
-    const kc = await this.vault.get("kubernetes.kubeconfig");
+    const kc = await readConnectorSecret(this.vault, "kubernetes", "kubeconfig");
     if (kc === null || kc.trim() === "") {
       return;
     }
-    const ctxRaw = await this.vault.get("kubernetes.context");
+    const ctxRaw = await readConnectorSecret(this.vault, "kubernetes", "context");
     const kubeExtra: Record<string, string> = { KUBECONFIG: kc.trim() };
     if (ctxRaw !== null && ctxRaw.trim() !== "") {
       kubeExtra["KUBE_CONTEXT"] = ctxRaw.trim();
@@ -1183,43 +1184,43 @@ export class LazyConnectorMesh {
   }
 
   private async ensureBitbucketIfVaultCreds(): Promise<void> {
-    const bbUser = await this.vault.get("bitbucket.username");
-    const bbPass = await this.vault.get("bitbucket.app_password");
+    const bbUser = await readConnectorSecret(this.vault, "bitbucket", "username");
+    const bbPass = await readConnectorSecret(this.vault, "bitbucket", "app_password");
     if (bbUser !== null && bbUser !== "" && bbPass !== null && bbPass !== "") {
       await this.ensureBitbucketRunning();
     }
   }
 
   private async ensureJiraIfVaultCreds(): Promise<void> {
-    const jt = await this.vault.get("jira.api_token");
-    const je = await this.vault.get("jira.email");
-    const jb = await this.vault.get("jira.base_url");
+    const jt = await readConnectorSecret(this.vault, "jira", "api_token");
+    const je = await readConnectorSecret(this.vault, "jira", "email");
+    const jb = await readConnectorSecret(this.vault, "jira", "base_url");
     if (jt !== null && jt !== "" && je !== null && je !== "" && jb !== null && jb !== "") {
       await this.ensureJiraRunning();
     }
   }
 
   private async ensureConfluenceIfVaultCreds(): Promise<void> {
-    const ct = await this.vault.get("confluence.api_token");
-    const ce = await this.vault.get("confluence.email");
-    const cb = await this.vault.get("confluence.base_url");
+    const ct = await readConnectorSecret(this.vault, "confluence", "api_token");
+    const ce = await readConnectorSecret(this.vault, "confluence", "email");
+    const cb = await readConnectorSecret(this.vault, "confluence", "base_url");
     if (ct !== null && ct !== "" && ce !== null && ce !== "" && cb !== null && cb !== "") {
       await this.ensureConfluenceRunning();
     }
   }
 
   private async ensureDiscordIfOptIn(): Promise<void> {
-    const en = await this.vault.get("discord.enabled");
-    const tok = await this.vault.get("discord.bot_token");
+    const en = await readConnectorSecret(this.vault, "discord", "enabled");
+    const tok = await readConnectorSecret(this.vault, "discord", "bot_token");
     if (en === "1" && tok !== null && tok !== "") {
       await this.ensureDiscordRunning();
     }
   }
 
   private async ensureJenkinsIfVaultCreds(): Promise<void> {
-    const jb = await this.vault.get("jenkins.base_url");
-    const ju = await this.vault.get("jenkins.username");
-    const jt = await this.vault.get("jenkins.api_token");
+    const jb = await readConnectorSecret(this.vault, "jenkins", "base_url");
+    const ju = await readConnectorSecret(this.vault, "jenkins", "username");
+    const jt = await readConnectorSecret(this.vault, "jenkins", "api_token");
     if (
       jb !== null &&
       jb.trim() !== "" &&
@@ -1233,21 +1234,21 @@ export class LazyConnectorMesh {
   }
 
   private async ensureCircleciIfVaultCreds(): Promise<void> {
-    const t = await this.vault.get("circleci.api_token");
+    const t = await readConnectorSecret(this.vault, "circleci", "api_token");
     if (t !== null && t.trim() !== "") {
       await this.ensureCircleciRunning();
     }
   }
 
   private async ensurePagerdutyIfVaultCreds(): Promise<void> {
-    const t = await this.vault.get("pagerduty.api_token");
+    const t = await readConnectorSecret(this.vault, "pagerduty", "api_token");
     if (t !== null && t.trim() !== "") {
       await this.ensurePagerdutyRunning();
     }
   }
 
   private async ensureKubernetesIfVaultCreds(): Promise<void> {
-    const k = await this.vault.get("kubernetes.kubeconfig");
+    const k = await readConnectorSecret(this.vault, "kubernetes", "kubeconfig");
     if (k !== null && k.trim() !== "") {
       await this.ensureKubernetesRunning();
     }
