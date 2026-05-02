@@ -8,7 +8,8 @@
 //   --binary-only       runs spawn + vault-key only (CI mode)
 //   (no flag)           runs everything; binary-violation exit code on D10/D11
 
-import { auditOutputPath, iterateSourceFiles } from "./lib.ts";
+import { CONNECTOR_VAULT_SECRET_KEYS } from "../../packages/gateway/src/connectors/connector-secrets-manifest.ts";
+import { auditOutputPath, iterateSourceFiles, stripComments } from "./lib.ts";
 
 export type FileEntry = { relPath: string; contents: string };
 export type Violation = { rule: string; file: string; line: number; snippet: string };
@@ -21,6 +22,9 @@ export const VAULT_KEY_ALLOW_LIST = [
   "packages/gateway/src/auth/oauth-vault-tokens.ts",
   // OpenAI embedding provider — not a Nimbus connector; no ConnectorServiceId.
   "packages/gateway/src/embedding/create-embedding-runtime.ts",
+  // Canonical declaration of per-connector vault keys; structurally equivalent
+  // to connector-vault.ts (declaration site, not runtime construction).
+  "packages/gateway/src/connectors/connector-secrets-manifest.ts",
 ];
 
 // Match a Bun.spawn or child_process spawn call.
@@ -48,11 +52,23 @@ export function checkSpawnInvariant(files: readonly FileEntry[]): Violation[] {
   return out;
 }
 
-// Heuristic: vault-key construction is a string-literal containing `.oauth`
-// or any template literal mixing service/provider with `.oauth`/`.token`/`.pat`.
+// Heuristic: vault-key construction is a string-literal containing a manifest
+// key (e.g. `"slack.oauth"`) or any template literal mixing service/provider
+// with a known suffix (e.g. `\`${s}.oauth\``).
 // Files in the allow-list are exempt. Test files are exempt (handled by iterateSourceFiles).
-const VAULT_KEY_RE =
-  /['"`][a-z0-9_]*\.(oauth|token|pat|api_key)['"`]|\$\{[^}]+\}\.(oauth|token|pat|api_key)/;
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildVaultKeyRegex(): RegExp {
+  const keys = Object.values(CONNECTOR_VAULT_SECRET_KEYS).flat();
+  const suffixes = Array.from(new Set(keys.map((k) => k.split(".")[1] ?? "")));
+  const literalAlt = keys.map(escapeRegex).join("|");
+  const suffixAlt = suffixes.map(escapeRegex).join("|");
+  return new RegExp(`['"\`](${literalAlt})['"\`]|\\$\\{[^}]+\\}\\.(${suffixAlt})`);
+}
+
+const VAULT_KEY_RE = buildVaultKeyRegex();
 
 export function checkVaultKeyAllowList(
   files: readonly FileEntry[],
@@ -61,10 +77,15 @@ export function checkVaultKeyAllowList(
   const out: Violation[] = [];
   for (const f of files) {
     if (allowList.includes(f.relPath)) continue;
-    const lines = f.contents.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] as string;
-      const prevLine = lines[i - 1] ?? "";
+    // Strip comments so JSDoc references (e.g. `* when \`X.Y\` is present`) do
+    // not trigger the heuristic. Newlines are preserved so line numbers stay
+    // correct. The opt-out sentinel check uses the ORIGINAL lines because
+    // stripComments removes the `//` line that carries the marker.
+    const strippedLines = stripComments(f.contents).split("\n");
+    const originalLines = f.contents.split("\n");
+    for (let i = 0; i < strippedLines.length; i++) {
+      const line = strippedLines[i] as string;
+      const prevLine = originalLines[i - 1] ?? "";
       if (prevLine.includes("audit-ignore-next-line D11-vault-key")) continue;
       if (!VAULT_KEY_RE.test(line)) continue;
       out.push({
