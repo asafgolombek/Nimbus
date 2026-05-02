@@ -20,6 +20,7 @@ import { clearConnectorVaultSecretKeys } from "../connectors/connector-secrets-m
 import {
   ALL_GOOGLE_OAUTH_VAULT_KEYS,
   clearOAuthVaultIfProviderUnused,
+  deleteConnectorSecret,
   sharedOAuthKey,
   writeConnectorSecret,
   writePerServiceOAuthKey,
@@ -531,9 +532,9 @@ async function connectorAuthGitlab(
   await writeConnectorSecret(vault, "gitlab", "pat", token);
   const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["api_base"];
   if (typeof baseRaw === "string" && baseRaw.trim() !== "") {
-    await vault.set("gitlab.api_base", stripTrailingSlashes(baseRaw.trim()));
+    await writeConnectorSecret(vault, "gitlab", "api_base", stripTrailingSlashes(baseRaw.trim()));
   } else {
-    await vault.delete("gitlab.api_base");
+    await deleteConnectorSecret(vault, "gitlab", "api_base");
   }
   const interval = defaultSyncIntervalMsForService("gitlab");
   localIndex.ensureConnectorSchedulerRegistration("gitlab", interval, Date.now());
@@ -576,8 +577,8 @@ async function connectorAuthDiscord(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Missing bot token for discord");
   }
-  await vault.set("discord.bot_token", token);
-  await vault.set("discord.enabled", "1");
+  await writeConnectorSecret(vault, "discord", "bot_token", token);
+  await writeConnectorSecret(vault, "discord", "enabled", "1");
   const interval = defaultSyncIntervalMsForService("discord");
   localIndex.ensureConnectorSchedulerRegistration("discord", interval, Date.now());
   return authSuccess("discord");
@@ -593,7 +594,7 @@ async function connectorAuthCircleci(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Missing API token for circleci");
   }
-  await vault.set("circleci.api_token", token);
+  await writeConnectorSecret(vault, "circleci", "api_token", token);
   const interval = defaultSyncIntervalMsForService("circleci");
   localIndex.ensureConnectorSchedulerRegistration("circleci", interval, Date.now());
   return authSuccess("circleci");
@@ -612,25 +613,25 @@ async function persistAwsAccessKeyPair(
       "AWS key pair requires a default region or profile (connector.auth aws --region … or --profile …)",
     );
   }
-  await vault.set("aws.access_key_id", ak);
-  await vault.set("aws.secret_access_key", sk);
+  await writeConnectorSecret(vault, "aws", "access_key_id", ak);
+  await writeConnectorSecret(vault, "aws", "secret_access_key", sk);
   if (reg === "") {
-    await vault.delete("aws.default_region");
+    await deleteConnectorSecret(vault, "aws", "default_region");
   } else {
-    await vault.set("aws.default_region", reg);
+    await writeConnectorSecret(vault, "aws", "default_region", reg);
   }
   if (prof === "") {
-    await vault.delete("aws.profile");
+    await deleteConnectorSecret(vault, "aws", "profile");
   } else {
-    await vault.set("aws.profile", prof);
+    await writeConnectorSecret(vault, "aws", "profile", prof);
   }
 }
 
 async function persistAwsProfileOnly(vault: NimbusVault, prof: string): Promise<void> {
-  await vault.delete("aws.access_key_id");
-  await vault.delete("aws.secret_access_key");
-  await vault.delete("aws.default_region");
-  await vault.set("aws.profile", prof);
+  await deleteConnectorSecret(vault, "aws", "access_key_id");
+  await deleteConnectorSecret(vault, "aws", "secret_access_key");
+  await deleteConnectorSecret(vault, "aws", "default_region");
+  await writeConnectorSecret(vault, "aws", "profile", prof);
 }
 
 async function connectorAuthAws(
@@ -681,9 +682,9 @@ async function connectorAuthAzure(
       "Azure requires tenant id, client id, and client secret (connector.auth azure …)",
     );
   }
-  await vault.set("azure.tenant_id", tenant);
-  await vault.set("azure.client_id", clientId);
-  await vault.set("azure.client_secret", secret);
+  await writeConnectorSecret(vault, "azure", "tenant_id", tenant);
+  await writeConnectorSecret(vault, "azure", "client_id", clientId);
+  await writeConnectorSecret(vault, "azure", "client_secret", secret);
   const interval = defaultSyncIntervalMsForService("azure");
   localIndex.ensureConnectorSchedulerRegistration("azure", interval, Date.now());
   return authSuccess("azure");
@@ -702,13 +703,13 @@ async function connectorAuthGcp(
       "GCP requires a service account JSON key path (connector.auth gcp --credentials-json <path>)",
     );
   }
-  await vault.set("gcp.credentials_json_path", path);
+  await writeConnectorSecret(vault, "gcp", "credentials_json_path", path);
   const projRaw = rec?.["gcpProjectId"] ?? rec?.["projectId"];
   const proj = typeof projRaw === "string" && projRaw.trim() !== "" ? projRaw.trim() : "";
   if (proj === "") {
-    await vault.delete("gcp.project_id");
+    await deleteConnectorSecret(vault, "gcp", "project_id");
   } else {
-    await vault.set("gcp.project_id", proj);
+    await writeConnectorSecret(vault, "gcp", "project_id", proj);
   }
   const interval = defaultSyncIntervalMsForService("gcp");
   localIndex.ensureConnectorSchedulerRegistration("gcp", interval, Date.now());
@@ -728,7 +729,7 @@ async function connectorAuthIac(
       "IaC connector is opt-in: nimbus connector auth iac --enable",
     );
   }
-  await vault.set("iac.enabled", "1");
+  await writeConnectorSecret(vault, "iac", "enabled", "1");
   const interval = defaultSyncIntervalMsForService("iac");
   localIndex.ensureConnectorSchedulerRegistration("iac", interval, Date.now());
   return authSuccess("iac");
@@ -758,8 +759,8 @@ async function connectorAuthGrafana(
       "Grafana requires an API token (connector.auth grafana --token …)",
     );
   }
-  await vault.set("grafana.url", base);
-  await vault.set("grafana.api_token", token);
+  await writeConnectorSecret(vault, "grafana", "url", base);
+  await writeConnectorSecret(vault, "grafana", "api_token", token);
   const interval = defaultSyncIntervalMsForService("grafana");
   localIndex.ensureConnectorSchedulerRegistration("grafana", interval, Date.now());
   return authSuccess("grafana");
@@ -780,15 +781,15 @@ async function connectorAuthSentry(
       "Sentry requires auth token and org slug (connector.auth sentry --token … --org …)",
     );
   }
-  await vault.set("sentry.auth_token", token);
-  await vault.set("sentry.org_slug", org);
+  await writeConnectorSecret(vault, "sentry", "auth_token", token);
+  await writeConnectorSecret(vault, "sentry", "org_slug", org);
   const urlRaw = rec?.["sentryUrl"] ?? rec?.["apiBaseUrl"];
   const surl =
     typeof urlRaw === "string" && urlRaw.trim() !== "" ? stripTrailingSlashes(urlRaw.trim()) : "";
   if (surl === "") {
-    await vault.delete("sentry.url");
+    await deleteConnectorSecret(vault, "sentry", "url");
   } else {
-    await vault.set("sentry.url", surl);
+    await writeConnectorSecret(vault, "sentry", "url", surl);
   }
   const interval = defaultSyncIntervalMsForService("sentry");
   localIndex.ensureConnectorSchedulerRegistration("sentry", interval, Date.now());
@@ -812,9 +813,9 @@ async function connectorAuthNewrelic(
   const acctRaw = rec?.["newrelicAccountId"] ?? rec?.["accountId"];
   const acct = typeof acctRaw === "string" && acctRaw.trim() !== "" ? acctRaw.trim() : "";
   if (acct === "") {
-    await vault.delete("newrelic.account_id");
+    await deleteConnectorSecret(vault, "newrelic", "account_id");
   } else {
-    await vault.set("newrelic.account_id", acct);
+    await writeConnectorSecret(vault, "newrelic", "account_id", acct);
   }
   const interval = defaultSyncIntervalMsForService("newrelic");
   localIndex.ensureConnectorSchedulerRegistration("newrelic", interval, Date.now());
@@ -837,13 +838,13 @@ async function connectorAuthDatadog(
     );
   }
   await writeConnectorSecret(vault, "datadog", "api_key", api);
-  await vault.set("datadog.app_key", app);
+  await writeConnectorSecret(vault, "datadog", "app_key", app);
   const siteRaw = rec?.["datadogSite"] ?? rec?.["site"];
   const site = typeof siteRaw === "string" && siteRaw.trim() !== "" ? siteRaw.trim() : "";
   if (site === "") {
-    await vault.delete("datadog.site");
+    await deleteConnectorSecret(vault, "datadog", "site");
   } else {
-    await vault.set("datadog.site", site);
+    await writeConnectorSecret(vault, "datadog", "site", site);
   }
   const interval = defaultSyncIntervalMsForService("datadog");
   localIndex.ensureConnectorSchedulerRegistration("datadog", interval, Date.now());
@@ -863,12 +864,12 @@ async function connectorAuthKubernetes(
       "Kubernetes requires kubeconfig path: connector.auth kubernetes --kubeconfig <path>",
     );
   }
-  await vault.set("kubernetes.kubeconfig", kubePath);
+  await writeConnectorSecret(vault, "kubernetes", "kubeconfig", kubePath);
   const ctxRaw = rec?.["context"];
   if (typeof ctxRaw === "string" && ctxRaw.trim() !== "") {
-    await vault.set("kubernetes.context", ctxRaw.trim());
+    await writeConnectorSecret(vault, "kubernetes", "context", ctxRaw.trim());
   } else {
-    await vault.delete("kubernetes.context");
+    await deleteConnectorSecret(vault, "kubernetes", "context");
   }
   const interval = defaultSyncIntervalMsForService("kubernetes");
   localIndex.ensureConnectorSchedulerRegistration("kubernetes", interval, Date.now());
@@ -885,7 +886,7 @@ async function connectorAuthPagerduty(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Missing API token for pagerduty");
   }
-  await vault.set("pagerduty.api_token", token);
+  await writeConnectorSecret(vault, "pagerduty", "api_token", token);
   const interval = defaultSyncIntervalMsForService("pagerduty");
   localIndex.ensureConnectorSchedulerRegistration("pagerduty", interval, Date.now());
   return authSuccess("pagerduty");
@@ -917,9 +918,9 @@ async function connectorAuthJenkins(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Jenkins requires --token <api_token>");
   }
-  await vault.set("jenkins.base_url", base);
-  await vault.set("jenkins.username", user);
-  await vault.set("jenkins.api_token", token);
+  await writeConnectorSecret(vault, "jenkins", "base_url", base);
+  await writeConnectorSecret(vault, "jenkins", "username", user);
+  await writeConnectorSecret(vault, "jenkins", "api_token", token);
   const interval = defaultSyncIntervalMsForService("jenkins");
   localIndex.ensureConnectorSchedulerRegistration("jenkins", interval, Date.now());
   return authSuccess("jenkins");
@@ -940,8 +941,8 @@ async function connectorAuthBitbucket(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Missing app password for bitbucket (use token field)");
   }
-  await vault.set("bitbucket.username", user);
-  await vault.set("bitbucket.app_password", token);
+  await writeConnectorSecret(vault, "bitbucket", "username", user);
+  await writeConnectorSecret(vault, "bitbucket", "app_password", token);
   const interval = defaultSyncIntervalMsForService("bitbucket");
   localIndex.ensureConnectorSchedulerRegistration("bitbucket", interval, Date.now());
   return authSuccess("bitbucket");

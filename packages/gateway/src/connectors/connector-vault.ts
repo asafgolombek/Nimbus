@@ -170,6 +170,21 @@ export async function writeConnectorSecret<S extends ConnectorServiceId>(
   return vault.set(fullKey, value);
 }
 
+/**
+ * Deletes a connector's secret from the Vault by structural key name.
+ * Mirrors `readConnectorSecret`/`writeConnectorSecret` typing — `keyName` is
+ * constrained to `ConnectorSecretKeyOf<S>`, so misspelled or non-manifested
+ * keys fail at compile time. Returns `void` (mirrors `vault.delete`).
+ */
+export async function deleteConnectorSecret<S extends ConnectorServiceId>(
+  vault: NimbusVault,
+  serviceId: S,
+  keyName: ConnectorSecretKeyOf<S>,
+): Promise<void> {
+  const fullKey = `${serviceId}.${keyName}`;
+  return vault.delete(fullKey);
+}
+
 // ─── Bucket-C helper: provider-shared OAuth key constructor ──────────────────
 
 export type SharedOAuthProvider = "google" | "microsoft";
