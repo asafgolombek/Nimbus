@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { AgentInvokeHandler } from "./agent-invoke.ts";
-import type { CreateIpcServerOptions } from "./server.ts";
-import { createIpcServer } from "./server.ts";
+import type { CreateIpcServerOptions } from "./server/index.ts";
+import { createIpcServer } from "./server/index.ts";
 
 let tmpDir: string;
 

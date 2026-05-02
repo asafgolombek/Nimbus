@@ -16,7 +16,7 @@ import {
   NdjsonLineReader,
   parseJsonRpcLine,
 } from "./jsonrpc.ts";
-import { type CreateIpcServerOptions, createIpcServer } from "./server.ts";
+import { type CreateIpcServerOptions, createIpcServer } from "./server/index.ts";
 import type { IPCServer } from "./types.ts";
 
 /** Accumulate UTF-8 chunks and return the first complete line (excluding `\n`) when present. */
