@@ -2,6 +2,7 @@ import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { syncPassCursorParseEmpty } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -132,12 +133,12 @@ export function createKubernetesSyncable(options: KubernetesSyncableOptions): Sy
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureKubernetesMcpRunning();
-      const kubePath = await ctx.vault.get("kubernetes.kubeconfig");
+      const kubePath = await readConnectorSecret(ctx.vault, "kubernetes", "kubeconfig");
       if (kubePath === null || kubePath.trim() === "") {
         return syncNoopResult(cursor, t0);
       }
       const kc = kubePath.trim();
-      const ctxNameRaw = await ctx.vault.get("kubernetes.context");
+      const ctxNameRaw = await readConnectorSecret(ctx.vault, "kubernetes", "context");
       const kctx = ctxNameRaw !== null && ctxNameRaw.trim() !== "" ? ctxNameRaw.trim() : null;
 
       await ctx.rateLimiter.acquire("kubernetes");

@@ -7,6 +7,7 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -36,12 +37,12 @@ export function createSentrySyncable(options: SentrySyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureSentryMcpRunning();
-      const token = (await ctx.vault.get("sentry.auth_token"))?.trim() ?? "";
-      const org = (await ctx.vault.get("sentry.org_slug"))?.trim() ?? "";
+      const token = (await readConnectorSecret(ctx.vault, "sentry", "auth_token"))?.trim() ?? "";
+      const org = (await readConnectorSecret(ctx.vault, "sentry", "org_slug"))?.trim() ?? "";
       if (token === "" || org === "") {
         return syncNoopResult(cursor, t0);
       }
-      const baseRaw = await ctx.vault.get("sentry.url");
+      const baseRaw = await readConnectorSecret(ctx.vault, "sentry", "url");
       const apiRoot =
         baseRaw !== null && baseRaw.trim() !== ""
           ? `${stripTrailingSlashes(baseRaw.trim())}/api/0`

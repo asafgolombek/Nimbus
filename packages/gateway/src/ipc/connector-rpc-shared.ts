@@ -3,6 +3,7 @@ import {
   defaultSyncIntervalMsForService,
   normalizeConnectorServiceId,
 } from "../connectors/connector-catalog.ts";
+import { writeConnectorSecret } from "../connectors/connector-vault.ts";
 import { USER_MCP_SERVICE_ID_PATTERN } from "../connectors/user-mcp-store.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
@@ -134,9 +135,9 @@ export async function registerAtlassianApiConnectorAuth(options: {
   creds: { email: string; apiToken: string; baseNormalized: string };
 }): Promise<{ ok: true; serviceId: ConnectorServiceId; scopesGranted: string[] }> {
   const { vault, localIndex, serviceId, creds } = options;
-  await vault.set(`${serviceId}.email`, creds.email);
-  await vault.set(`${serviceId}.api_token`, creds.apiToken);
-  await vault.set(`${serviceId}.base_url`, creds.baseNormalized);
+  await writeConnectorSecret(vault, serviceId, "email", creds.email);
+  await writeConnectorSecret(vault, serviceId, "api_token", creds.apiToken);
+  await writeConnectorSecret(vault, serviceId, "base_url", creds.baseNormalized);
   const interval = defaultSyncIntervalMsForService(serviceId);
   localIndex.ensureConnectorSchedulerRegistration(serviceId, interval, Date.now());
   return {

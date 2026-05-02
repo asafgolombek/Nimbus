@@ -2,6 +2,7 @@ import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { plainTextPreviewFromHtml } from "../string/html-plain-text.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -218,8 +219,8 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureBitbucketMcpRunning();
-      const user = await ctx.vault.get("bitbucket.username");
-      const pass = await ctx.vault.get("bitbucket.app_password");
+      const user = await readConnectorSecret(ctx.vault, "bitbucket", "username");
+      const pass = await readConnectorSecret(ctx.vault, "bitbucket", "app_password");
       if (user === null || user === "" || pass === null || pass === "") {
         return syncNoopResult(cursor, t0);
       }

@@ -54,6 +54,7 @@ export function driftHintsFromIndex(db: Database): string[] {
 
   if (hb === undefined || hb === null) {
     lines.push(
+      // audit-ignore-next-line D11-vault-key (diagnostic prose, not vault-key construction)
       "IaC heartbeat: not yet written (enable `iac.enabled` in Vault and run an IaC sync to snapshot indexed cloud counts).",
     );
   } else {

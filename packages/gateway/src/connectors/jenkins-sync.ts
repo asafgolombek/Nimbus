@@ -2,6 +2,7 @@ import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { clampSyncTitle } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import {
   flattenJenkinsApiJobs,
   JENKINS_JOBS_API_TREE,
@@ -259,9 +260,9 @@ export function createJenkinsSyncable(options: JenkinsSyncableOptions): Syncable
       const t0 = performance.now();
       await options.ensureJenkinsMcpRunning();
 
-      const baseRaw = await ctx.vault.get("jenkins.base_url");
-      const user = await ctx.vault.get("jenkins.username");
-      const token = await ctx.vault.get("jenkins.api_token");
+      const baseRaw = await readConnectorSecret(ctx.vault, "jenkins", "base_url");
+      const user = await readConnectorSecret(ctx.vault, "jenkins", "username");
+      const token = await readConnectorSecret(ctx.vault, "jenkins", "api_token");
       if (
         baseRaw === null ||
         baseRaw.trim() === "" ||
