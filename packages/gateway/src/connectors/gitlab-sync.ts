@@ -2,6 +2,7 @@ import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -590,12 +591,12 @@ export function createGitlabSyncable(options: GitlabSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureGitlabMcpRunning();
-      const pat = await ctx.vault.get("gitlab.pat");
+      const pat = await readConnectorSecret(ctx.vault, "gitlab", "pat");
       if (pat === null || pat === "") {
         return syncNoopResult(cursor, t0);
       }
 
-      const apiBase = normalisedApiBase(await ctx.vault.get("gitlab.api_base"));
+      const apiBase = normalisedApiBase(await readConnectorSecret(ctx.vault, "gitlab", "api_base"));
       const webOrigin = webOriginFromApiBase(apiBase);
 
       const prev = decodeCursor(cursor);
