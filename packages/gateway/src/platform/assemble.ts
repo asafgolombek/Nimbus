@@ -19,7 +19,7 @@ import {
   readConnectorSecret,
 } from "../connectors/connector-vault.ts";
 import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
-import { createLazyConnectorMesh, type LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import { createLazyConnectorMesh, type LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { startLatencyFlushScheduler } from "../db/latency-ring-buffer.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";

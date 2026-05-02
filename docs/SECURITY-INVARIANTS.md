@@ -15,7 +15,7 @@ Companion files:
 
 **Defense:** `extensionProcessEnv()` in `packages/gateway/src/extensions/spawn-env.ts` returns a curated, audited set of env vars; gateway-private secrets (LLM provider API keys, OAuth client secrets, updater overrides) are stripped before any child process inherits them.
 
-**Wired at:** all 30+ MCP / extension spawn sites in `packages/gateway/src/connectors/lazy-mesh.ts` (every `spawn()` call sets `env: extensionProcessEnv(...)`).
+**Wired at:** all 30+ MCP / extension spawn sites in `packages/gateway/src/connectors/lazy-mesh/` (every `spawn()` call sets `env: extensionProcessEnv(...)`). Spawn sites are distributed across `mesh.ts` (filesystem MCP in the constructor), `connector-spawns.ts` (16 per-connector spawns), `phase3-config.ts` (8 phase-3 server-config builders), and `user-mcp.ts` (`ensureUserMcpClient`).
 
 **Anti-pattern:** `spawn(..., { env: { ...process.env, EXTRA: ... } })`. Any literal `{ ...process.env }` spread inside `packages/gateway/src/connectors/` re-introduces the S2-F1 / S7-F1 / S8-F1 leak that powered chains C1, C2, and C3.
 

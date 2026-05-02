@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 
-import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { createUserMcpSyncable } from "../connectors/user-mcp-sync.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";

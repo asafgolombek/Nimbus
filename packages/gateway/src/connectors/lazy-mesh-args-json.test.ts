@@ -5,14 +5,14 @@
  */
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalIndex } from "../index/local-index.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { getConnectorHealth } from "./health.ts";
-import { LazyConnectorMesh, type MeshLogger } from "./lazy-mesh.ts";
+import { LazyConnectorMesh, type MeshLogger } from "./lazy-mesh/index.ts";
 
 function makePaths(): PlatformPaths {
   const root = mkdtempSync(join(tmpdir(), "nimbus-lazy-mesh-test-"));
@@ -101,7 +101,9 @@ describe("LazyConnectorMesh — args_json failure (S8-F9)", () => {
 
 describe("LazyConnectorMesh — UUID ids (S8-F8)", () => {
   test("source has no Date.now() in MCPClient id literals", () => {
-    const src = readFileSync(join(import.meta.dir, "lazy-mesh.ts"), "utf8");
+    const dir = join(import.meta.dir, "lazy-mesh");
+    const files = readdirSync(dir).filter((f) => f.endsWith(".ts"));
+    const src = files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
     // Every `id:` template literal that previously used Date.now() should now use randomUUID().
     expect(src.includes("Date.now()")).toBe(false);
     // randomUUID is imported and used.

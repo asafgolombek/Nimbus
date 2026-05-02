@@ -3,14 +3,14 @@ import pino from "pino";
 import type { ConnectorDispatcher, PlannedAction } from "../engine/types.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
-import { createLazyConnectorMesh, type LazyConnectorMesh } from "./lazy-mesh.ts";
+import { createLazyConnectorMesh, type LazyConnectorMesh } from "./lazy-mesh/index.ts";
 
 const registryLog = pino({
   name: "connector-registry",
   level: process.env["NIMBUS_LOG_LEVEL"] ?? "info",
 });
 
-export { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh.ts";
+export { createLazyConnectorMesh, LazyConnectorMesh } from "./lazy-mesh/index.ts";
 
 /**
  * Filesystem MCP (always) + lazy Google bundle (Drive, Gmail, Photos) when any Google OAuth vault key exists +
