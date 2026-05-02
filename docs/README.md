@@ -41,6 +41,18 @@ nimbus ask "What Terraform drift has been detected since last week's deployment?
 # Data lineage — answered from the local index, no warehouse query
 nimbus ask "The Q1 revenue dashboard shows zeroes — which upstream model broke?"
 
+# Expert routing — find who has the most context on a topic
+nimbus ask "who has the most context on the payment retry logic?"
+
+# Blast radius — answered from the relationship graph before you push
+nimbus impact src/billing/retry.ts
+
+# Personal standup — assembled from your activity across all connected services
+nimbus standup
+
+# Catch up after time away — prioritized by what you care about
+nimbus catchup --since 3d
+
 # Consent-gated automation — full plan preview before anything executes
 nimbus run ./incident-response.yml
 ```
@@ -107,6 +119,7 @@ Nimbus is built for engineers and operators who run systems in production. If yo
 | **Platform Engineer** | Drift detection, multi-cloud infra state, deployment correlation, consent-gated IaC apply and rollback |
 | **Security Engineer** | Alert-to-commit tracing, CVE-to-PR correlation, full audit log for every agent action, compliance posture queries |
 | **Senior Developer** | Cross-repo PR intelligence, release readiness checks, pipeline context, local-only credential storage |
+| **Team Lead / Engineering Manager** | Cross-service activity digest, changelog generation, expert routing, blast radius analysis — without asking anyone |
 | **Analytics Engineer / Data Scientist** | Cross-stack lineage from dashboard to dbt model to warehouse table to orchestration DAG — one local query instead of five consoles; metadata-only ingestion keeps row data on the warehouse |
 
 This is not a tool for everyone. There is no managed cloud service, no Nimbus account, and no relay server. If that's what you need, look elsewhere.

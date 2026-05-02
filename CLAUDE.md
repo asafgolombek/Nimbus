@@ -472,3 +472,12 @@ Verify the result before proposing the install. **Do not propose `bun add`** if 
 - The author/maintainer is unfamiliar for a name that resembles a well-known package (e.g. `expresss`, `lodahs`, `react-domm`)
 
 When all three checks pass, include the package's published age and maintainer in your suggestion so the user can confirm before installing.
+
+---
+
+## Skill References
+
+@.claude/commands/nimbus-agent-patterns.md
+@.claude/commands/nimbus-connector-authoring.md
+@.claude/commands/nimbus-db-migrations.md
+@.claude/commands/nimbus-security-invariants.md

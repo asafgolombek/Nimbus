@@ -1,0 +1,131 @@
+---
+name: nimbus-connector-authoring
+description: >
+  Complete reference for authoring first-party MCP connectors in the Nimbus monorepo:
+  package layout, mandatory tool surface, manifest structure, credential injection,
+  the sync handler contract, item ID format, HITL declaration, contract tests, and
+  coverage gates. Use this skill whenever the user is creating a new connector,
+  modifying an existing one, asking what tools must be exposed, debugging a contract
+  test failure, or wiring a new MCP server into the connector registry. Also trigger
+  for questions like "where does the connector go?", "do I need a write tool here?",
+  "how do credentials get into the connector process?", or "what does my sync handler
+  need to return?". Consult before writing any connector code.
+---
+
+# Nimbus Connector Authoring
+
+## Package Location
+
+First-party connectors live in `packages/mcp-connectors/<name>/`. Each is a Bun workspace package with its own:
+
+- `package.json`
+- `src/server.ts` entry point
+- `nimbus.extension.json` manifest
+
+## Mandatory Tool Surface
+
+Every connector must expose **at minimum**:
+
+- `list` (no HITL)
+- `get` (no HITL)
+- `search` (no HITL)
+
+Write tools (`create`, `update`, `move`, `delete`) are conditional or always-HITL per the table in `docs/architecture.md`. **`move` and `delete` are always HITL.** Never omit a read tool to save time — the contract test will fail.
+
+## Manifest Structure
+
+`nimbus.extension.json` must include:
+
+| Field | Format | Notes |
+|---|---|---|
+| `id` | reverse-domain (e.g. `com.nimbus.github`) | stable across versions |
+| `displayName` | string | UI-facing |
+| `version` | semver | bumps on every release |
+| `entrypoint` | path | usually `dist/server.js` |
+| `runtime` | `"bun"` | only supported runtime today |
+| `permissions` | string array | enumerates capabilities |
+| `hitlRequired` | string array | every write permission listed here |
+| `syncInterval` | seconds | default sync cadence |
+| `minNimbusVersion` | semver | gating |
+
+The `hitlRequired` field is what causes the Gateway to gate those tools — **omitting it means write tools run without consent**.
+
+## Credential Injection Pattern
+
+**Credentials are never fetched from the Vault inside the connector.** They arrive as environment variables injected at spawn time by the Gateway. The connector reads them from `process.env` at startup. **Never call any Vault API from connector code** — the connector process has no Vault access by design.
+
+```typescript
+const token = process.env.GITHUB_TOKEN;
+if (!token) throw new Error("GITHUB_TOKEN not set");
+```
+
+## Sync Handler Contract
+
+Implement `ConnectorSyncHandler`:
+
+```typescript
+interface ConnectorSyncHandler {
+  connectorId: string;
+  syncInterval: number;
+  sync(db: Database, lastSyncToken: string | null): Promise<SyncResult>;
+}
+
+interface SyncResult {
+  upserted: IndexedItem[];
+  deleted: string[];
+  nextSyncToken: string;
+  hasMore?: boolean;
+}
+```
+
+- `hasMore: true` causes the scheduler to re-queue immediately.
+- Always return a `nextSyncToken` even on first sync — use a timestamp string if the API has no native token.
+
+## Item ID Format
+
+Always `"<service>:<native_id>"` — e.g. `"github:pr_12345"`.
+
+**Never use a UUID.** IDs must be stable across syncs so upserts work correctly.
+
+## HITL Tool Declaration
+
+Write tools in the MCP server must call `server.assertHitlRequired()` at the **top of their handler**. The Gateway enforces HITL regardless, but the assertion makes intent explicit and the contract test checks for it.
+
+## Contract Tests
+
+Run `nimbus test` from the connector directory before submitting. This executes `runContractTests()` from `@nimbus-dev/sdk` which checks:
+
+- Manifest schema validity.
+- Mandatory tool surface presence (`list`, `get`, `search`).
+- HITL declaration on write tools.
+- Item ID format on returned items.
+- `SyncResult` shape.
+
+**All must pass** before a PR is ready for review.
+
+## Coverage Gate
+
+MCP connectors: **≥ 70% line coverage**. Integration tests use a fresh temp dir and real SQLite — no mocking the DB layer.
+
+## Scaffold
+
+Always start from:
+
+```bash
+nimbus scaffold extension --name <name> --output ./packages/mcp-connectors/<name>
+```
+
+Then add the sync handler and register in the connector registry at `packages/gateway/src/connectors/registry.ts`.
+
+## Authoring Checklist
+
+- [ ] Package created under `packages/mcp-connectors/<name>/` via `nimbus scaffold extension`.
+- [ ] `nimbus.extension.json` populated with `id`, `displayName`, `version`, `entrypoint`, `runtime: "bun"`, `permissions`, `hitlRequired`, `syncInterval`, `minNimbusVersion`.
+- [ ] Mandatory `list`, `get`, `search` tools exposed.
+- [ ] Every write tool listed in `hitlRequired` and calls `server.assertHitlRequired()` at the top of its handler.
+- [ ] Credentials read from `process.env` only; no Vault API calls.
+- [ ] `ConnectorSyncHandler` implemented; `SyncResult.nextSyncToken` always populated.
+- [ ] Item IDs follow `"<service>:<native_id>"` — no UUIDs.
+- [ ] `nimbus test` passes (contract tests green).
+- [ ] Connector registered in `packages/gateway/src/connectors/registry.ts`.
+- [ ] Line coverage ≥ 70%.
