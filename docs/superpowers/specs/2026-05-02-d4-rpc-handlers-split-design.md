@@ -39,7 +39,7 @@ Delete `packages/gateway/src/ipc/connector-rpc-handlers.ts`. Create `packages/ga
 
 | File | Responsibility | LOC est. |
 |---|---|---|
-| `context.ts` | Defines `ConnectorRpcHandlerContext` type (hoisted from old file). All 5 sibling files import from here. Re-exported by `index.ts`. | ~25 |
+| `context.ts` | Defines `ConnectorRpcHandlerContext` and `ConnectorRpcHit` types (both hoisted from old file). All 5 sibling files import from here. `ConnectorRpcHandlerContext` is re-exported by `index.ts` for the test file. | ~30 |
 | `status.ts` | Read-only state introspection: `handleConnectorListStatus`, `handleConnectorStatus`, `handleConnectorHealthHistory`. | ~80 |
 | `lifecycle.ts` | Per-connector state changes that don't mutate config: `handleConnectorPause`, `handleConnectorResume`, `handleConnectorSync`. **Owns** the shared internal helpers `resumeConnector`, `pauseConnector`, `emitConfigChanged` (also imported by `config.ts`). | ~110 |
 | `config.ts` | Config edits + connector-add: `handleConnectorAddMcp`, `handleConnectorSetInterval`, `handleConnectorSetConfig`. Imports `resumeConnector` / `pauseConnector` / `emitConfigChanged` from `./lifecycle.ts`. | ~150 |
@@ -47,11 +47,15 @@ Delete `packages/gateway/src/ipc/connector-rpc-handlers.ts`. Create `packages/ga
 | `auth.ts` | Auth dispatcher + 18 per-connector flows + OAuth helpers: `handleConnectorAuth`, `oauthScopesFromConnectorRequest`, `oauthRedirectPortFromRec`, `oauthClientConfigForProvider`, `authSuccess`, `connectorAuth{Github,Gitlab,Linear,Discord,Circleci,Aws,Azure,Gcp,Iac,Grafana,Sentry,Newrelic,Datadog,Kubernetes,Pagerduty,Jenkins,Bitbucket,OAuthPkce}`, `persistAwsAccessKeyPair`, `persistAwsProfileOnly`. | ~530 |
 | `index.ts` | Pure re-export shim. Re-exports all 12 public handlers + `resumePendingRemovals` + the `ConnectorRpcHandlerContext` type from the 5 sibling files. | ~25 |
 
-### 3.2 `ConnectorRpcHandlerContext` lives in `context.ts`
+### 3.2 Handler-scoped types live in `context.ts`
 
-Currently defined inline in `connector-rpc-handlers.ts:92-100`:
+Currently defined inline in `connector-rpc-handlers.ts`:
 
 ```ts
+// Line 90
+export type ConnectorRpcHit = { kind: "hit"; value: unknown };
+
+// Lines 92-100
 export type ConnectorRpcHandlerContext = {
   rec: Record<string, unknown> | undefined;
   vault: NimbusVault;
@@ -63,7 +67,15 @@ export type ConnectorRpcHandlerContext = {
 };
 ```
 
-Hoist verbatim into a dedicated `context.ts` file in the new directory. The 5 sibling files import via `import type { ConnectorRpcHandlerContext } from "./context.ts";`. The `index.ts` re-exports the type for the test file. (Alternative considered: hoist into `connector-rpc-shared.ts`. Rejected — the type is specific to the handlers' control surface, not the shared utilities, so a dedicated file is structurally cleaner.)
+Hoist both types verbatim into a dedicated `context.ts` file in the new directory. Every public handler returns `ConnectorRpcHit` and accepts `ConnectorRpcHandlerContext`, so all 5 sibling files import both via:
+
+```ts
+import type { ConnectorRpcHandlerContext, ConnectorRpcHit } from "./context.ts";
+```
+
+`index.ts` re-exports `ConnectorRpcHandlerContext` for the test file. `ConnectorRpcHit` has no external consumers (verified) — it stays internal to the directory and isn't re-exported.
+
+(Alternative considered: hoist into `connector-rpc-shared.ts`. Rejected — both types are specific to the handlers' control surface, not the shared utilities, so a dedicated file is structurally cleaner.)
 
 ### 3.3 Shared lifecycle helpers location
 
@@ -150,7 +162,17 @@ Single atomic PR. Branch: `dev/asafgolombek/d4-rpc-handlers-split`. Title: `refa
 - **D4 split of `lazy-mesh.ts` (1408 LOC).** The next sub-project after this spec ships. Will follow the same brainstorm → spec → plan → execute pattern.
 - **Cleanup of comment-only TODO's, unused parameters, etc.** Strict mechanical move; cosmetic improvements live in their own follow-up.
 
-## 9 — Provenance
+## 9 — Review dispositions (2026-05-02 Gemini CLI review)
+
+Recorded for traceability. Source: [`2026-05-02-d4-rpc-handlers-split-review.md`](./2026-05-02-d4-rpc-handlers-split-review.md).
+
+- **§ 3.1 — Move `ConnectorRpcHit` to `context.ts` → ACCEPT.** Applied to spec § 3.1 and § 3.2. `ConnectorRpcHit` is the return type for every public handler (verified at `connector-rpc-handlers.ts:90`); every sibling file will need it. Co-locating with `ConnectorRpcHandlerContext` in `context.ts` is the clean call. No external consumers (verified), so it stays internal to the directory and isn't re-exported by `index.ts`.
+- **§ 3.2 — `VALID_DEPTHS` Location → NOTE (already implicitly covered).** Spec § 4 already states "imports trimmed to per-file scope"; the `VALID_DEPTHS` constant (used only in `handleConnectorSetConfig`) moves naturally with that function to `config.ts`. No spec edit.
+- **§ 3.3 — Internal helpers location → NOTE (already covered).** Spec § 3.3 already designates `lifecycle.ts` as the owner of `resumeConnector` / `pauseConnector` / `emitConfigChanged`, with `config.ts` importing them via sibling import. No change.
+- **§ 3.4 — Consumer edits consistency → NOTE (already covered).** Spec § 3.5 already addresses the 3 consumer files; the implementation plan will detect Bun's resolution behavior and apply consistent edits across all three if needed. No change.
+- **§ 4 Q&A — Don't split `auth.ts` further → AGREE.** Spec § 2 (Non-goals) and § 8 (Out of scope) already document this disposition. No change.
+
+## 10 — Provenance
 
 - Phase 2 deferred-backlog: [`docs/structure-audit/deferred-backlog.md`](../../structure-audit/deferred-backlog.md) "D4 — large files" / `connector-rpc-handlers.ts:1103 churn 30 (p80+) Refactor candidate: split by namespace (status / config / oauth / removal) — own design spec".
 - Current file: `packages/gateway/src/ipc/connector-rpc-handlers.ts` (1106 LOC after D11 widening across PRs #154, #156).
