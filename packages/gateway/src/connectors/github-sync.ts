@@ -12,6 +12,7 @@ import {
   syncNoopResult,
   UnauthenticatedError,
 } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -330,7 +331,7 @@ export function createGithubSyncable(options: GithubSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureGithubMcpRunning();
-      const pat = await ctx.vault.get("github.pat");
+      const pat = await readConnectorSecret(ctx.vault, "github", "pat");
       if (pat === null || pat === "") {
         return syncNoopResult(cursor, t0);
       }
