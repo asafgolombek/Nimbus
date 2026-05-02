@@ -15,7 +15,7 @@ import {
   handleConnectorSetInterval,
   handleConnectorStatus,
   handleConnectorSync,
-} from "./connector-rpc-handlers.ts";
+} from "./connector-rpc-handlers/index.ts";
 import { asRecord, ConnectorRpcError } from "./connector-rpc-shared.ts";
 
 export { ConnectorRpcError } from "./connector-rpc-shared.ts";

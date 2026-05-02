@@ -30,7 +30,7 @@ import {
   type SemanticSearchDeps,
 } from "../index/local-index.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
-import { resumePendingRemovals } from "../ipc/connector-rpc-handlers.ts";
+import { resumePendingRemovals } from "../ipc/connector-rpc-handlers/index.ts";
 import { startReadOnlyHttpServer } from "../ipc/http-server.ts";
 import { createIpcServer } from "../ipc/index.ts";
 import { startMetricsServer } from "../ipc/metrics-server.ts";

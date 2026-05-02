@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { LocalIndex } from "../index/local-index.ts";
-import type { ConnectorRpcHandlerContext } from "./connector-rpc-handlers.ts";
+import type { ConnectorRpcHandlerContext } from "./connector-rpc-handlers/index.ts";
 import {
   handleConnectorPause,
   handleConnectorResume,
   handleConnectorSetConfig,
   handleConnectorSetInterval,
-} from "./connector-rpc-handlers.ts";
+} from "./connector-rpc-handlers/index.ts";
 import { ConnectorRpcError } from "./connector-rpc-shared.ts";
 
 function makeIndex(): { db: Database; idx: LocalIndex } {
