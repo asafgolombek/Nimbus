@@ -51,7 +51,13 @@ function buildVaultKeyRegex(): RegExp {
 const VAULT_KEY_RE = buildVaultKeyRegex();
 ```
 
-(Plus a small `escapeRegex` helper that handles `.` and other meta-chars; trivial.)
+Where `escapeRegex` is the standard meta-char escaper:
+
+```ts
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+```
 
 ### 3.2 Allow-list
 
@@ -200,11 +206,14 @@ The negative-rejection test uses `await deleteConnectorSecret(...)` (not `void d
 
 ### 6.2 PR A: type-pin extension
 
-Extend the existing `ConnectorSecretKeyOf — type pins` block with a parameter pin for `deleteConnectorSecret`:
+Extend the existing `ConnectorSecretKeyOf — type pins` block with a parameter pin and a return-type pin for `deleteConnectorSecret`:
 
 ```ts
 assertEq<Parameters<typeof deleteConnectorSecret<"github">>[2], "pat">(true);
+assertEq<ReturnType<typeof deleteConnectorSecret>, Promise<void>>(true);
 ```
+
+The return-type pin defends against accidental signature changes (e.g., someone refactoring the helper to return the deleted value). The same pattern was used for `sharedOAuthKey` in Bucket C PR-2; adding it for `read/writeConnectorSecret` is out of scope here (those helpers landed in earlier PRs).
 
 ### 6.3 PRs B, C: regression checks
 
@@ -274,7 +283,15 @@ Each PR is single-commit (atomic acceptance state) plus a follow-up baseline-ref
 - **Manifest-coverage CI check.** A static check that every `vault.get/set/delete` literal in production code has its key in `CONNECTOR_VAULT_SECRET_KEYS` would close the manifest-drift gap noted in § 2. Lands as its own spec if drift becomes observable.
 - **D4 splits of `lazy-mesh.ts` and `connector-rpc-handlers.ts`.** Both still flagged in `deferred-backlog.md`. The next sub-projects after this spec ships, per the user's prioritisation. The migration in this spec creates the cleanest possible state for those splits — no vault-key literals to relocate.
 
-## 10 — Provenance
+## 10 — Review dispositions (2026-05-02 Gemini CLI review)
+
+Recorded for traceability. Source: [`2026-05-02-d11-manifest-derived-audit-review.md`](./2026-05-02-d11-manifest-derived-audit-review.md).
+
+- **§ 3.1 — Add `readSharedOAuth` / `writeSharedOAuth` wrapper helpers → DEFER (decline).** Verbatim repeat of the Bucket C review's § 2.1 suggestion, which was declined for the same reason: Bucket C's spec § 2 explicitly rejected these wrappers as YAGNI ("would be one-line passthroughs to `vault.get(sharedOAuthKey(provider))` / `vault.set(sharedOAuthKey(provider), value)`"). This spec inherits that disposition. The migration in PRs A/B/C does not add new shared-OAuth call sites — Bucket C already routed them through `sharedOAuthKey`. Adding wrappers would not reduce any call-site noise. Re-open if a future caller surfaces a shape these wrappers would simplify.
+- **§ 3.2 — `assertEq<ReturnType<typeof deleteConnectorSecret>, Promise<void>>(true)` → ACCEPT.** Added to § 6.2. Trivial cost; defends against silent return-type drift. Pattern matches the existing `sharedOAuthKey` ReturnType pin from Bucket C PR-2. Adding ReturnType pins for `read/writeConnectorSecret` was considered but rejected as scope-creep (those helpers landed in earlier PRs; their pin extensions belong in their own follow-up if desired).
+- **§ 3.3 — Concrete `escapeRegex` snippet → ACCEPT.** Replaced the prior "trivial" footnote in § 3.1 with the standard meta-char escaper. No design change; spec precision improvement.
+
+## 11 — Provenance
 
 - Bucket C spec § 2 (Non-goals): "Widening `VAULT_KEY_RE` or making it manifest-derived. Deferred to its own follow-up spec after Bucket C closes." — fulfilled by this spec.
 - Bucket C spec § 8 (Out of scope): enumerated the open design dimensions (which suffixes count as "secret"; manifest-derived vs enumerated; should non-secret keys gate at all). Resolved here.
