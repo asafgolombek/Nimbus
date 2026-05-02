@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
-  VAULT_KEY_ALLOW_LIST,
   checkSpawnInvariant,
   checkVaultKeyAllowList,
   collectDbRunCensus,
+  VAULT_KEY_ALLOW_LIST,
 } from "./check-nimbus-invariants.ts";
 
 describe("D10 — checkSpawnInvariant (under connectors/)", () => {
