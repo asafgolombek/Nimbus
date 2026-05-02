@@ -7,9 +7,7 @@ import { type ConnectorSecretKeyOf, readConnectorSecret } from "./connector-vaul
 // assignable in both directions when wrapped in identity-typed arrow functions.
 // Used below to pin `ConnectorSecretKeyOf<S>` to specific union literals so
 // that any silent widening (e.g. to `string`) fails compile, not just runtime.
-type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-  ? true
-  : false;
+type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 function assertEq<_A, _B>(_: Eq<_A, _B>): void {}
 
