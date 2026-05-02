@@ -100,28 +100,48 @@ afterEach(() => {
   if (work) rmSync(work, { recursive: true, force: true });
 });
 
-test.skipIf(!HAS_PWSH)("ps1: exits 0 for valid chain with -NoFetch", () => {
-  const r = run(["-NoFetch"]);
-  expect(r.status).toBe(0);
-  expect(r.stdout).toContain("✅");
-});
+// Per-test timeout: pwsh cold-start + GPG chain verification can take 6–10s on
+// Windows GHA runners; the 5000ms default produced flakes.
+const PWSH_TEST_TIMEOUT_MS = 30000;
 
-test.skipIf(!HAS_PWSH)("ps1: exits 1 for tampered manifest", () => {
-  const manifest = readFileSync(join(cwd, "SHA256SUMS"), "utf8");
-  const tampered = manifest.replace(/^[0-9a-f]/, (c) => (c === "a" ? "b" : "a"));
-  writeFileSync(join(cwd, "SHA256SUMS"), tampered, "utf8");
-  const r = run(["-NoFetch"]);
-  expect(r.status).toBe(1);
-});
+test.skipIf(!HAS_PWSH)(
+  "ps1: exits 0 for valid chain with -NoFetch",
+  () => {
+    const r = run(["-NoFetch"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("✅");
+  },
+  PWSH_TEST_TIMEOUT_MS,
+);
 
-test.skipIf(!HAS_PWSH)("ps1: exits 2 when SHA256SUMS missing with -NoFetch", () => {
-  rmSync(join(cwd, "SHA256SUMS"));
-  const r = run(["-NoFetch"]);
-  expect(r.status).toBe(2);
-});
+test.skipIf(!HAS_PWSH)(
+  "ps1: exits 1 for tampered manifest",
+  () => {
+    const manifest = readFileSync(join(cwd, "SHA256SUMS"), "utf8");
+    const tampered = manifest.replace(/^[0-9a-f]/, (c) => (c === "a" ? "b" : "a"));
+    writeFileSync(join(cwd, "SHA256SUMS"), tampered, "utf8");
+    const r = run(["-NoFetch"]);
+    expect(r.status).toBe(1);
+  },
+  PWSH_TEST_TIMEOUT_MS,
+);
 
-test.skipIf(!HAS_PWSH)("ps1: prints imported fingerprint for bootstrap trust", () => {
-  const r = run(["-NoFetch"]);
-  expect(r.status).toBe(0);
-  expect(r.stdout).toContain(fingerprint);
-});
+test.skipIf(!HAS_PWSH)(
+  "ps1: exits 2 when SHA256SUMS missing with -NoFetch",
+  () => {
+    rmSync(join(cwd, "SHA256SUMS"));
+    const r = run(["-NoFetch"]);
+    expect(r.status).toBe(2);
+  },
+  PWSH_TEST_TIMEOUT_MS,
+);
+
+test.skipIf(!HAS_PWSH)(
+  "ps1: prints imported fingerprint for bootstrap trust",
+  () => {
+    const r = run(["-NoFetch"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(fingerprint);
+  },
+  PWSH_TEST_TIMEOUT_MS,
+);
