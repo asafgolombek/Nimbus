@@ -39,8 +39,8 @@ Delete `packages/gateway/src/connectors/lazy-mesh.ts`. Create `packages/gateway/
 |---|---|---|
 | `drain.ts` | `LazyDrainTracker` class — verbatim move. Standalone, no internal deps. | ~30 |
 | `keys.ts` | Module-level constants and key helpers: `LAZY_MESH`, `USER_MESH_PREFIX`, `MCP_CONNECTORS_ROOT`, `_LAZY_MESH_DIR`, `mcpConnectorServerScript()`, `userMcpMeshKey()`. **Note:** `_LAZY_MESH_DIR` is now one directory deeper than the original `lazy-mesh.ts`, so `MCP_CONNECTORS_ROOT` must change `join(_LAZY_MESH_DIR, "..", "..", "..", "mcp-connectors")` → `join(_LAZY_MESH_DIR, "..", "..", "..", "..", "mcp-connectors")` (one extra `..`) so it still resolves to `packages/mcp-connectors`. This is the **only non-verbatim line** in the file move; the path-correctness check is a hard test gate (§ 4) — if it regresses, every Phase-3 / per-connector spawn loads the wrong server script. | ~35 |
-| `tool-map.ts` | Tool-listing types and helpers: `LazyMeshToolMap` type, `MeshLogger` interface, `listLazyMeshClientTools()`, `mergeToolMapsOrThrow()`. | ~50 |
-| `slot.ts` | `LazyMcpSlot` type + `MeshSpawnContext` interface (§ 3.3) + `ServerSpec` type (the `{ command, args, env }` shape used by `phase3-config.ts` and `connector-spawns.ts` — hoisted here once instead of repeated inline). | ~50 |
+| `tool-map.ts` | Tool-listing types and helpers: `LazyMeshToolMap` type, `listLazyMeshClientTools()`, `mergeToolMapsOrThrow()`. | ~45 |
+| `slot.ts` | `LazyMcpSlot` type + `ServerSpec` type (the `{ command, args, env }` shape used by `phase3-config.ts` and `connector-spawns.ts` — hoisted here once instead of repeated inline) + `MeshLogger` interface (co-located with its primary consumer `MeshSpawnContext` per spec-review § 2.2) + `MeshSpawnContext` interface (§ 3.3). | ~55 |
 | `phase3-config.ts` | All 8 `phase3AddXxxMcp` functions (AWS, Azure, GCP, IaC, Grafana, Sentry, NewRelic, Datadog) lifted to module-level functions taking `(vault, servers)`, plus `buildPhase3Servers(vault)`. Pure server-config builders — no slot state, no MCPClient instantiation. | ~220 |
 | `connector-spawns.ts` | All 16 per-connector spawn ensure functions lifted to free functions taking `MeshSpawnContext`: `ensureGoogleDriveMcp`, `ensureMicrosoftBundleMcp`, `ensureGithubMcp`, `ensureGitlabMcp`, `ensureBitbucketMcp`, `ensureSlackMcp`, `ensureLinearMcp`, `ensureJiraMcp`, `ensureNotionMcp`, `ensureConfluenceMcp`, `ensureDiscordMcp`, `ensureJenkinsMcp`, `ensureCircleciMcp`, `ensurePagerdutyMcp`, `ensureKubernetesMcp`, `ensurePhase3BundleMcp`. | ~550 |
 | `user-mcp.ts` | User-MCP-specific helpers: `mcpServerKeyForUserConnector()`, `recordArgsJsonFailure()`, `ensureUserMcpClient()`, `ensureUserMcpConnectorsRunning()`, all as free functions. They take the wider `MeshSpawnContext` (which carries `logger?` and `healthDb?` — see § 3.3) plus a `listUserMcpConnectors` reader callback. | ~110 |
@@ -59,7 +59,8 @@ The `lazy-mesh/index.ts` shim re-exports everything currently imported across th
 
 export { createLazyConnectorMesh, LazyConnectorMesh } from "./mesh.ts";
 export { LazyDrainTracker } from "./drain.ts";
-export { type MeshLogger, mergeToolMapsOrThrow } from "./tool-map.ts";
+export type { MeshLogger } from "./slot.ts";
+export { mergeToolMapsOrThrow } from "./tool-map.ts";
 ```
 
 (Order grouped by source file. Final ordering may shift if Biome reformats.)
@@ -84,6 +85,11 @@ export type ServerSpec = {
   args: string[];
   env: Record<string, string>;
 };
+
+/** Minimal logger shape — accepts the pino `(bindings, msg)` form. */
+export interface MeshLogger {
+  warn(bindings: Record<string, unknown>, msg?: string): void;
+}
 
 /**
  * Internal collaborator interface — wraps the slot state-machine on
@@ -282,7 +288,19 @@ Spec → review → plan → review → impl follows the predecessor sibling pat
 - **D4 splits of the 4 remaining large files.** `ipc/server.ts`, `cli/commands/connector.ts`, `index/local-index.ts`, `auth/pkce.ts` each get their own design spec.
 - **Cleanup of comment-only TODO's, unused parameters, etc.** Strict mechanical move; cosmetic improvements live in their own follow-up.
 
-## 9 — Provenance
+## 9 — Review dispositions (2026-05-02 Gemini CLI review)
+
+Recorded for traceability. Source: [`2026-05-02-d4-lazy-mesh-split-feedback.md`](./2026-05-02-d4-lazy-mesh-split-feedback.md).
+
+- **§ 1.1 — `MCP_CONNECTORS_ROOT` `..`-count adjustment → ACCEPT (already in spec).** Spec § 3.1's `keys.ts` row already documents the path-count change from 3 to 4 and flags it as the only non-verbatim line. Plan Task 4 Step 2 has a runtime `existsSync` gate. No change.
+- **§ 1.2 — Add `logger?` + `healthDb?` to `MeshSpawnContext` → ACCEPT (already in spec).** Spec § 3.3's interface block already carries both as optional readonly fields. No change.
+- **§ 1.3 — Add `listUserMcpConnectors` to `MeshSpawnContext` → DECLINE.** The only consumer of `listUserMcpConnectors` is `ensureUserMcpConnectorsRunning`, which we kept on the class (Option A in plan Task 8) because it iterates `this.lazySlots.keys()` directly. Adding `listUserMcpConnectors` to the context would widen the interface surface for no caller benefit. The class still owns this callback and uses it through `this.listUserMcpConnectors`.
+- **§ 2.1 — Hoist `ServerSpec` to `slot.ts` → ACCEPT (already in spec).** Spec § 3.3 + § 3.5 already place `ServerSpec` in `slot.ts` as a single named export. No change.
+- **§ 2.2 — Move `MeshLogger` from `tool-map.ts` to `slot.ts` → ACCEPT.** Applied to spec § 3.1 (file table now lists `MeshLogger` under `slot.ts`, no longer under `tool-map.ts`), § 3.2 (re-export shim now sources `MeshLogger` from `./slot.ts`), and § 3.3 (interface block now defines `MeshLogger` directly above `MeshSpawnContext`). Co-locates the logger interface with its primary consumer; eliminates the `slot.ts → tool-map.ts` import edge; keeps `tool-map.ts` purely about tool maps.
+- **§ 2.3 — `LazyMeshToolMap` exported from `tool-map.ts` → ACCEPT (in plan).** Plan Task 3 already directs adding `export` to `LazyMeshToolMap` when moving (the original is unexported). Spec § 3.2 already documents that it stays internal — i.e. exported from `tool-map.ts` for sibling consumption but not re-exported by `index.ts`. No spec change.
+- **§ 2.4 — Auth/utility imports distribution → ACCEPT (in plan).** Plan's "Per-file external import sets" section enumerates each file's required imports explicitly. No change.
+
+## 10 — Provenance
 
 - Phase 2 deferred-backlog: [`docs/structure-audit/deferred-backlog.md`](../../structure-audit/deferred-backlog.md) "D4 — large files" / `lazy-mesh.ts:1401 churn 37 (p80+) Refactor candidate: split MCP-spawn-config from server-record state machine — by-concern preserves single export surface; own design spec`.
 - Current file: `packages/gateway/src/connectors/lazy-mesh.ts` (1428 LOC after D11 widening across PRs #149, #155).

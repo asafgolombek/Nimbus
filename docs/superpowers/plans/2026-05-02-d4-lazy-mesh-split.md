@@ -33,7 +33,7 @@ The current file has **6 type/interface declarations + 30 functions / methods** 
 | `userMcpMeshKey` | 126–128 | `keys.ts` |
 | `LazyMeshToolMap` (type) | 130–133 | `tool-map.ts` |
 | `listLazyMeshClientTools` | 135–140 | `tool-map.ts` |
-| `MeshLogger` (interface) | 146–148 | `tool-map.ts` |
+| `MeshLogger` (interface) | 146–148 | `slot.ts` (per spec-review § 2.2 — co-located with `MeshSpawnContext`) |
 | `LazyConnectorMesh` (class) — fields + ctor | 150–186 | `mesh.ts` |
 | `LazyConnectorMesh.getToolsEpoch` | 188–190 | `mesh.ts` (kept) |
 | `LazyConnectorMesh.bumpToolsEpoch` (private) | 192–194 | `mesh.ts` (kept) |
@@ -106,12 +106,12 @@ To determine what each new file needs:
 - **`drain.ts`** — zero external imports (standalone class).
 - **`keys.ts`** — `dirname` from `node:path`, `fileURLToPath` from `node:url`, `join` from `node:path`. **No** application-level imports.
 - **`tool-map.ts`** — `MCPClient` from `@mastra/mcp` (for type signature in `listLazyMeshClientTools`). No relative imports.
-- **`slot.ts`** — `MCPClient` from `@mastra/mcp`, `NimbusVault` from `../../vault/nimbus-vault.ts`, `LazyDrainTracker` from `./drain.ts`, `MeshLogger` from `./tool-map.ts`. Plus `Database` from `bun:sqlite` for the optional `healthDb` field on `MeshSpawnContext`.
+- **`slot.ts`** — `MCPClient` from `@mastra/mcp`, `NimbusVault` from `../../vault/nimbus-vault.ts`, `LazyDrainTracker` from `./drain.ts`. Plus `Database` from `bun:sqlite` for the optional `healthDb` field on `MeshSpawnContext`. **`MeshLogger` is defined inline here** (not imported) per spec-review § 2.2.
 - **`phase3-config.ts`** — `NimbusVault` from `../../vault/nimbus-vault.ts`, `readConnectorSecret` from `../connector-vault.ts`, `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `mcpConnectorServerScript` from `./keys.ts`, `ServerSpec` from `./slot.ts`.
 - **`connector-spawns.ts`** — `randomUUID` from `node:crypto`, `MCPClient` from `@mastra/mcp`, all 4 access-token resolvers (`anyGoogleOAuthVaultPresent`, `GoogleConnectorOAuthServiceId`, `getValidGoogleAccessToken`, `resolveGoogleOAuthVaultKey` from `../../auth/google-access-token.ts`; `getValidMicrosoftAccessToken` from `../../auth/microsoft-access-token.ts`; `getValidNotionAccessToken` from `../../auth/notion-access-token.ts`; `readMicrosoftOAuthScopesForOutlookEnv` from `../../auth/oauth-vault-tokens.ts`; `getValidSlackAccessToken` from `../../auth/slack-access-token.ts`), `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `stripTrailingSlashes` from `../../string/strip-trailing-slashes.ts`, `readConnectorSecret` from `../connector-vault.ts`, `LAZY_MESH` + `mcpConnectorServerScript` from `./keys.ts`, `MeshSpawnContext` + `ServerSpec` from `./slot.ts`, `buildPhase3Servers` from `./phase3-config.ts`.
 - **`user-mcp.ts`** — `randomUUID` from `node:crypto`, `MCPClient` from `@mastra/mcp`, `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `transitionHealth` from `../health.ts`, `UserMcpConnectorRow` from `../user-mcp-store.ts`, `USER_MESH_PREFIX` + `userMcpMeshKey` from `./keys.ts`, `MeshSpawnContext` from `./slot.ts`.
 - **`credential-orchestration.ts`** — `ConnectorServiceId` from `../connector-catalog.ts`, `ConnectorSecretKeyOf` + `readConnectorSecret` + `SharedOAuthProvider` + `sharedOAuthKey` from `../connector-vault.ts`, `anyGoogleOAuthVaultPresent` from `../../auth/google-access-token.ts`, `MeshSpawnContext` from `./slot.ts`, plus the 16 `ensureXxxMcp` free functions from `./connector-spawns.ts`.
-- **`mesh.ts`** — `MCPClient` from `@mastra/mcp`, `wrapToolOutput` from `../../engine/tool-output-envelope.ts`, `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `PlatformPaths` from `../../platform/paths.ts`, `NimbusVault` from `../../vault/nimbus-vault.ts`, `UserMcpConnectorRow` from `../user-mcp-store.ts`, `LazyDrainTracker` from `./drain.ts`, `LAZY_MESH` + `USER_MESH_PREFIX` from `./keys.ts`, `LazyMeshToolMap` + `MeshLogger` + `listLazyMeshClientTools` + `mergeToolMapsOrThrow` from `./tool-map.ts`, `LazyMcpSlot` + `MeshSpawnContext` from `./slot.ts`, all 16 `ensureXxxMcp` free functions from `./connector-spawns.ts`, `ensureCredentialConnectorsRunning` from `./credential-orchestration.ts`, `ensureUserMcpClient` from `./user-mcp.ts` (note: only `ensureUserMcpClient` — `ensureUserMcpConnectorsRunning` stays as a private method on the class because it needs `this.lazySlots.keys()` access). Plus optional `Database` from `bun:sqlite`.
+- **`mesh.ts`** — `MCPClient` from `@mastra/mcp`, `wrapToolOutput` from `../../engine/tool-output-envelope.ts`, `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `PlatformPaths` from `../../platform/paths.ts`, `NimbusVault` from `../../vault/nimbus-vault.ts`, `UserMcpConnectorRow` from `../user-mcp-store.ts`, `LazyDrainTracker` from `./drain.ts`, `LAZY_MESH` + `USER_MESH_PREFIX` from `./keys.ts`, `LazyMeshToolMap` + `listLazyMeshClientTools` + `mergeToolMapsOrThrow` from `./tool-map.ts`, `LazyMcpSlot` + `MeshLogger` + `MeshSpawnContext` from `./slot.ts`, all 16 `ensureXxxMcp` free functions from `./connector-spawns.ts`, `ensureCredentialConnectorsRunning` from `./credential-orchestration.ts`, `ensureUserMcpClient` from `./user-mcp.ts` (note: only `ensureUserMcpClient` — `ensureUserMcpConnectorsRunning` stays as a private method on the class because it needs `this.lazySlots.keys()` access). Plus optional `Database` from `bun:sqlite`.
 - **`index.ts`** — zero external imports; only re-exports from siblings.
 
 The lists above are guidance, not exhaustive. The authoritative process: copy a function, see what symbol names appear in its body, find the matching import line in the original, copy that import too — adjusted for one extra `..`. Then typecheck.
@@ -219,16 +219,13 @@ import type { MCPClient } from "@mastra/mcp";
 [paste LazyMeshToolMap type from lazy-mesh.ts:130-133 verbatim — add `export` (currently unexported; will be imported by mesh.ts)]
 
 [paste listLazyMeshClientTools from lazy-mesh.ts:135-140 verbatim — add `export` if not present]
-
-/** Minimal logger shape — accepts the pino `(bindings, msg)` form. */
-export interface MeshLogger {
-  warn(bindings: Record<string, unknown>, msg?: string): void;
-}
 ```
 
 The order doesn't matter; group by what the file currently has.
 
-Both `LazyMeshToolMap` (originally `type LazyMeshToolMap = Record<...>`) and `listLazyMeshClientTools` (originally `async function listLazyMeshClientTools(...)`) are currently unexported. Add `export` to both when moving — `mesh.ts` and `slot.ts` will import them.
+Both `LazyMeshToolMap` (originally `type LazyMeshToolMap = Record<...>`) and `listLazyMeshClientTools` (originally `async function listLazyMeshClientTools(...)`) are currently unexported. Add `export` to both when moving — `mesh.ts` will import them.
+
+`MeshLogger` is **not** in this file (per spec-review § 2.2 disposition) — it's defined in `slot.ts` instead, co-located with its primary consumer `MeshSpawnContext`.
 
 - [ ] **Step 2: Typecheck**
 
@@ -331,7 +328,6 @@ import type { MCPClient } from "@mastra/mcp";
 
 import type { NimbusVault } from "../../vault/nimbus-vault.ts";
 import type { LazyDrainTracker } from "./drain.ts";
-import type { MeshLogger } from "./tool-map.ts";
 
 export type LazyMcpSlot = {
   client: MCPClient | undefined;
@@ -345,6 +341,11 @@ export type ServerSpec = {
   env: Record<string, string>;
 };
 
+/** Minimal logger shape — accepts the pino `(bindings, msg)` form. */
+export interface MeshLogger {
+  warn(bindings: Record<string, unknown>, msg?: string): void;
+}
+
 /**
  * Internal collaborator interface — wraps the slot state-machine on
  * `LazyConnectorMesh` so per-connector spawn functions can live in sibling
@@ -355,8 +356,8 @@ export type ServerSpec = {
  */
 export interface MeshSpawnContext {
   readonly vault: NimbusVault;
-  readonly logger?: MeshLogger;
-  readonly healthDb?: import("bun:sqlite").Database;
+  readonly logger?: MeshLogger | undefined;
+  readonly healthDb?: import("bun:sqlite").Database | undefined;
   clearLazyIdle(key: string): void;
   getLazyClient(key: string): MCPClient | undefined;
   setLazyClient(key: string, client: MCPClient): void;
@@ -746,11 +747,10 @@ import { LazyDrainTracker } from "./drain.ts";
 import { LAZY_MESH, USER_MESH_PREFIX } from "./keys.ts";
 import {
   type LazyMeshToolMap,
-  type MeshLogger,
   listLazyMeshClientTools,
   mergeToolMapsOrThrow,
 } from "./tool-map.ts";
-import type { LazyMcpSlot, MeshSpawnContext } from "./slot.ts";
+import type { LazyMcpSlot, MeshLogger, MeshSpawnContext } from "./slot.ts";
 import {
   ensureBitbucketMcp,
   ensureCircleciMcp,
@@ -984,7 +984,8 @@ Expected: clean. The original file is still present, so the workspace still has 
 ```ts
 export { LazyDrainTracker } from "./drain.ts";
 export { createLazyConnectorMesh, LazyConnectorMesh } from "./mesh.ts";
-export { type MeshLogger, mergeToolMapsOrThrow } from "./tool-map.ts";
+export type { MeshLogger } from "./slot.ts";
+export { mergeToolMapsOrThrow } from "./tool-map.ts";
 ```
 
 Order: alphabetical by source file (drain → mesh → tool-map). Symbols within each block: alphabetical, with `type` prefix kept adjacent to its symbol per Biome's default sort.
@@ -1193,8 +1194,9 @@ a directory of concern-focused sibling files:
 - keys.ts                     — LAZY_MESH constants + path helpers
                                 (MCP_CONNECTORS_ROOT path adjusted: extra
                                  ".." to compensate for new directory depth)
-- tool-map.ts                 — LazyMeshToolMap, MeshLogger, helpers
+- tool-map.ts                 — LazyMeshToolMap, helpers
 - slot.ts                     — LazyMcpSlot type + ServerSpec type +
+                                MeshLogger interface +
                                 MeshSpawnContext interface (internal)
 - phase3-config.ts            — 8 phase3AddXxxMcp helpers + buildPhase3Servers
 - connector-spawns.ts         — 16 ensureXxxMcp free fns taking MeshSpawnContext
@@ -1246,8 +1248,8 @@ Replaces the 1428-LOC \`lazy-mesh.ts\` with a directory of concern-focused sibli
 |---|---|---|
 | \`drain.ts\` | LazyDrainTracker class | ~30 |
 | \`keys.ts\` | LAZY_MESH + path helpers (with one extra \`..\` in MCP_CONNECTORS_ROOT) | ~50 |
-| \`tool-map.ts\` | LazyMeshToolMap, MeshLogger, helpers | ~50 |
-| \`slot.ts\` | LazyMcpSlot + ServerSpec + MeshSpawnContext (internal) | ~50 |
+| \`tool-map.ts\` | LazyMeshToolMap, helpers | ~45 |
+| \`slot.ts\` | LazyMcpSlot + ServerSpec + MeshLogger + MeshSpawnContext (internal) | ~55 |
 | \`phase3-config.ts\` | 8 phase-3 helpers + buildPhase3Servers | ~220 |
 | \`connector-spawns.ts\` | 16 ensureXxxMcp free fns | ~550 |
 | \`user-mcp.ts\` | recordArgsJsonFailure + ensureUserMcpClient | ~100 |
