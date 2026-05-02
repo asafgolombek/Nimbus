@@ -22,7 +22,7 @@ ranks deviations from these baselines.
 | D8 | D | `any` count | 2 (frozen in `any-baseline.json`) | `bun run audit:any` |
 | D9 | D | Risky type assertions (informational) | 399 | `docs/structure-audit/risky-assertions.json` |
 | D10 | F | Spawn under connectors/ not via `extensionProcessEnv()` | 5 violations | `bun run audit:invariants` (binary) |
-| D11 | F | Vault-key construction outside allow-list | 56 violations | `bun run audit:invariants` (binary) |
+| D11 | F | Vault-key construction outside allow-list | 0 violations (D11 closed 2026-05-02) | `bun run audit:invariants` (binary) |
 | D12 | F | `db.run()` outside `db/write.ts` (census) | 94 sites | `docs/structure-audit/db-run-census.json` |
 
 ## Phase 2 follow-up — post Bucket B (2026-05-01)
@@ -32,6 +32,14 @@ D11 violations reduced from the Phase 1 baseline of 56 to **21** (Bucket C only)
 - Bucket A (20 false positives) — suppressed by `audit-ignore-next-line` markers (PR #135).
 - Bucket B (15 sites) — routed through `readConnectorSecret` helper or added to the now-frozen 5-entry allow-list (this PR).
 - Bucket C (21 sites in `lazy-mesh.ts` + `connector-rpc-handlers.ts`) — deferred; tracked in [`deferred-backlog.md`](./deferred-backlog.md).
+
+## Phase 2 follow-up — post Bucket C (2026-05-02)
+
+D11 violations reduced from the post-Bucket-B count of 21 to **0**. **D11 closed.**
+
+- Bucket C — 12 read sites in `lazy-mesh.ts` migrated through `readConnectorSecret` + `sharedOAuthKey` (PR #149); 9 sites in `connector-rpc-handlers.ts` (6 writes + 1 read + 2 sharedKey assignments) migrated through `writeConnectorSecret` + `sharedOAuthKey` (PR <PR-2-number>).
+
+The frozen 5-entry `VAULT_KEY_ALLOW_LIST` was unchanged across Buckets B and C.
 
 ## Provenance
 

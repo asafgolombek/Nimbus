@@ -154,6 +154,22 @@ export async function readConnectorSecret<S extends ConnectorServiceId>(
   return vault.get(fullKey);
 }
 
+/**
+ * Writes a connector's secret to the Vault by structural key name. Mirrors
+ * `readConnectorSecret`'s typing — `keyName` is constrained to
+ * `ConnectorSecretKeyOf<S>`, so misspelled or non-manifested keys fail at
+ * compile time. Returns `void` (mirrors `vault.set`).
+ */
+export async function writeConnectorSecret<S extends ConnectorServiceId>(
+  vault: NimbusVault,
+  serviceId: S,
+  keyName: ConnectorSecretKeyOf<S>,
+  value: string,
+): Promise<void> {
+  const fullKey = `${serviceId}.${keyName}`;
+  return vault.set(fullKey, value);
+}
+
 // ─── Bucket-C helper: provider-shared OAuth key constructor ──────────────────
 
 export type SharedOAuthProvider = "google" | "microsoft";

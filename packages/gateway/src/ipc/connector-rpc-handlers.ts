@@ -20,6 +20,8 @@ import { clearConnectorVaultSecretKeys } from "../connectors/connector-secrets-m
 import {
   ALL_GOOGLE_OAUTH_VAULT_KEYS,
   clearOAuthVaultIfProviderUnused,
+  sharedOAuthKey,
+  writeConnectorSecret,
   writePerServiceOAuthKey,
 } from "../connectors/connector-vault.ts";
 import { getConnectorHealthHistory } from "../connectors/health.ts";
@@ -362,7 +364,7 @@ async function snapshotMicrosoftOAuthIfLastFamilyMember(
   ) {
     return null;
   }
-  return await vault.get("microsoft.oauth");
+  return await vault.get(sharedOAuthKey("microsoft"));
 }
 
 function unregisterConnectorFromSyncScheduler(
@@ -398,7 +400,7 @@ async function restoreGoogleAndMicrosoftOAuthBackups(
     }
   }
   if (microsoftOAuthBackup !== null) {
-    await vault.set("microsoft.oauth", microsoftOAuthBackup);
+    await vault.set(sharedOAuthKey("microsoft"), microsoftOAuthBackup);
   }
 }
 
@@ -507,7 +509,7 @@ async function connectorAuthGithub(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Missing personalAccessToken for github");
   }
-  await vault.set("github.pat", token);
+  await writeConnectorSecret(vault, "github", "pat", token);
   const now = Date.now();
   const interval = defaultSyncIntervalMsForService("github");
   localIndex.ensureConnectorSchedulerRegistration("github", interval, now);
@@ -526,7 +528,7 @@ async function connectorAuthGitlab(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Missing personalAccessToken for gitlab");
   }
-  await vault.set("gitlab.pat", token);
+  await writeConnectorSecret(vault, "gitlab", "pat", token);
   const baseRaw = rec?.["apiBaseUrl"] ?? rec?.["api_base"];
   if (typeof baseRaw === "string" && baseRaw.trim() !== "") {
     await vault.set("gitlab.api_base", stripTrailingSlashes(baseRaw.trim()));
@@ -548,7 +550,7 @@ async function connectorAuthLinear(
   if (token === "") {
     throw new ConnectorRpcError(-32602, "Missing API key for linear");
   }
-  await vault.set("linear.api_key", token);
+  await writeConnectorSecret(vault, "linear", "api_key", token);
   const interval = defaultSyncIntervalMsForService("linear");
   localIndex.ensureConnectorSchedulerRegistration("linear", interval, Date.now());
   return authSuccess("linear");
@@ -806,7 +808,7 @@ async function connectorAuthNewrelic(
       "New Relic requires a user API key (connector.auth newrelic --token …)",
     );
   }
-  await vault.set("newrelic.api_key", token);
+  await writeConnectorSecret(vault, "newrelic", "api_key", token);
   const acctRaw = rec?.["newrelicAccountId"] ?? rec?.["accountId"];
   const acct = typeof acctRaw === "string" && acctRaw.trim() !== "" ? acctRaw.trim() : "";
   if (acct === "") {
@@ -834,7 +836,7 @@ async function connectorAuthDatadog(
       "Datadog requires API key and application key (connector.auth datadog …)",
     );
   }
-  await vault.set("datadog.api_key", api);
+  await writeConnectorSecret(vault, "datadog", "api_key", api);
   await vault.set("datadog.app_key", app);
   const siteRaw = rec?.["datadogSite"] ?? rec?.["site"];
   const site = typeof siteRaw === "string" && siteRaw.trim() !== "" ? siteRaw.trim() : "";
@@ -1017,9 +1019,9 @@ async function connectorAuthOAuthPkce(
   // only its own key (Phase 4 A.3 — scope isolation groundwork).
   let sharedKey: string | undefined;
   if (profile.provider === "google") {
-    sharedKey = "google.oauth";
+    sharedKey = sharedOAuthKey("google");
   } else if (profile.provider === "microsoft") {
-    sharedKey = "microsoft.oauth";
+    sharedKey = sharedOAuthKey("microsoft");
   }
   if (sharedKey !== undefined) {
     await writePerServiceOAuthKey(vault, id, sharedKey);
