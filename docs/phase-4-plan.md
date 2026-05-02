@@ -378,7 +378,7 @@ Existing `engine.ask` returns a complete string result. The voice query flow and
 
 `engine.askStream` is a JSON-RPC method that streams token notifications:
 - Returns immediately with `{ streamId: string }`
-- Emits `engine.streamToken { streamId, token, meta }` notifications as the LLM produces tokens
+- Emits `engine.streamToken { streamId, text, meta }` notifications as the LLM produces tokens
 - Emits `engine.streamDone { streamId, result, meta }` when the stream is complete
 - Emits `engine.streamError { streamId, error }` on failure
 
@@ -1849,7 +1849,7 @@ Use `[x] code` when the implementation exists. Use `[x] verified` only after man
 
 ## WS5-D — Marketplace, Watchers & Workflows (Implementation Tasks)
 
-> **Status (2026-04-22):** WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅
+> **Status (2026-04-26):** WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅
 
 **Goal:** Replace the three `*Stub.tsx` placeholder pages with fully-tested implementations that talk to the existing Gateway `automation-rpc` handlers.
 

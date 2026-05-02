@@ -344,6 +344,9 @@ nimbus diag slow-queries --limit 10
 # Connector health history
 nimbus connector history github
 
+# Re-ingest a connector at a specified depth (prunes existing body/embeddings; writes audit entry)
+nimbus connector reindex github --depth metadata_only
+
 # Database integrity
 nimbus db verify
 nimbus db repair          # --yes to skip confirmation
@@ -430,7 +433,7 @@ nimbus extension list
 
 ## Cross-Platform Support
 
-| | Windows 10+ | macOS 13+ | Ubuntu 22.04+ |
+| | Windows 10+ | macOS 13+ | Ubuntu 22.04+ † |
 |---|---|---|---|
 | **Gateway IPC** | Named Pipe | Unix Socket | Unix Socket |
 | **Secrets** | DPAPI | Keychain | libsecret |
@@ -440,6 +443,8 @@ nimbus extension list
 | **Desktop UI** | WebView2 | WKWebView | WebKitGTK |
 | **CI runner** | `windows-2025` | `macos-15` | `ubuntu-24.04` |
 | **Release** | `.exe` (signed) | `.dmg` (notarized) | `.deb` + AppImage |
+
+† **Ubuntu 22.04 is supported for source builds only.** Pre-built Linux binaries are compiled on Ubuntu 24.04 and require **glibc ≥ 2.39** at runtime — Ubuntu 22.04 LTS, Debian 12, and RHEL 9 (and derivatives) will fail with `GLIBC_2.39 not found`. See [SECURITY.md](./SECURITY.md#linux-runtime-support--glibc-floor).
 
 ---
 
