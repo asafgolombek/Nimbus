@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ToolExecutor } from "../engine/executor.ts";
 import type { PlannedAction } from "../engine/types.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
-import { dispatchVaultGated } from "./server.ts";
+import { dispatchVaultGated } from "./server/index.ts";
 
 type GateOutcome = "proceed" | { status: "rejected"; reason: string };
 
