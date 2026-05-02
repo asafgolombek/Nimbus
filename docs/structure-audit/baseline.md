@@ -46,7 +46,7 @@ The frozen 5-entry `VAULT_KEY_ALLOW_LIST` was unchanged across Buckets B and C.
 D11 stays at **0** violations under the broader manifest-derived regex.
 
 The audit script now derives `VAULT_KEY_RE` from `CONNECTOR_VAULT_SECRET_KEYS`
-at startup, so every entry across all 27 connectors (43 keys total) is
+at startup, so every entry across all 28 connectors (43 keys total) is
 gated — not just the original 4-suffix subset (`oauth | token | pat | api_key`).
 
 - PR #154 migrated 42 sites in `connector-rpc-handlers.ts` and added the `deleteConnectorSecret<S>` helper.
