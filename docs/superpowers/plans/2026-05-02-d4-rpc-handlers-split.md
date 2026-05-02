@@ -489,12 +489,13 @@ Expected: clean. If a missing import surfaces (likely 1–2 helpers not in the l
 - [ ] **Step 1: Write the re-export shim**
 
 ```ts
-export type { ConnectorRpcHandlerContext } from "./context.ts";
+export { handleConnectorAuth } from "./auth.ts";
 export {
   handleConnectorAddMcp,
   handleConnectorSetConfig,
   handleConnectorSetInterval,
 } from "./config.ts";
+export type { ConnectorRpcHandlerContext } from "./context.ts";
 export {
   handleConnectorPause,
   handleConnectorResume,
@@ -506,8 +507,9 @@ export {
   handleConnectorListStatus,
   handleConnectorStatus,
 } from "./status.ts";
-export { handleConnectorAuth } from "./auth.ts";
 ```
+
+Order: pure alphabetical by source file (auth → config → context → lifecycle → removal → status). Symbols within each block are alphabetical. This matches Biome's `useSortedImports` defaults so Task 11 Step 2's `bun run lint` doesn't fire on the new file.
 
 `ConnectorRpcHit` is intentionally not re-exported — it's an internal handler-return type with no consumers outside the new directory.
 
@@ -791,6 +793,14 @@ After merge: D4 has one less violation (`connector-rpc-handlers.ts` is gone). Th
 - **The 7 new files together must equal the original file's behavior.** A reviewer should be able to read each function body in the new files and verify it matches the original byte-for-byte (modulo the `export` keyword added to the 3 lifecycle helpers in Task 4).
 
 ---
+
+## Review dispositions (2026-05-02 Gemini CLI review)
+
+Recorded for traceability. Source: [`2026-05-02-d4-rpc-handlers-split-review.md`](./2026-05-02-d4-rpc-handlers-split-review.md).
+
+- **§ 3.1 — `ConnectorRpcHit` Location → NOTE (already done).** The design review's accepted disposition (hoist to `context.ts` alongside `ConnectorRpcHandlerContext`) is reflected in the plan's Task 2 Step 2. Reviewer confirms.
+- **§ 3.2 — Alphabetical ordering in `index.ts` → ACCEPT.** Reordered Task 8 Step 1's index.ts content to pure alphabetical-by-source-file (auth → config → context → lifecycle → removal → status). Preempts a possible Biome `useSortedImports` lint failure in Task 11 Step 2.
+- **§ 3.3 — Drop `.ts` extension in test imports → DEFER (decline).** The reviewer suggested dropping `.ts` from the migrated test paths. This conflicts with the codebase's explicit-`.ts`-suffix convention (visible across all current imports). Task 10 Step 3's path change (`./connector-rpc-handlers.ts` → `./connector-rpc-handlers/index.ts`) keeps the explicit suffix, which is the right call for consistency. No change.
 
 ## Self-review notes
 
