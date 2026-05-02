@@ -1,0 +1,121 @@
+import { asRecord } from "../../connectors/unknown-record.ts";
+import { bindConsentChannel, ToolExecutor } from "../../engine/executor.ts";
+import type { ConnectorDispatcher } from "../../engine/types.ts";
+import { validateVaultKeyOrThrow } from "../../vault/key-format.ts";
+import type { NimbusVault } from "../../vault/nimbus-vault.ts";
+import type { ServerCtx } from "./context.ts";
+import { RpcMethodError } from "./rpc-error.ts";
+
+function assertWellFormedVaultKey(key: string): void {
+  try {
+    validateVaultKeyOrThrow(key);
+  } catch {
+    throw new RpcMethodError(-32602, "Invalid vault key format");
+  }
+}
+
+type VaultDispatchHit = { readonly kind: "hit"; readonly value: unknown };
+type VaultDispatchMiss = { readonly kind: "miss" };
+type VaultDispatchOutcome = VaultDispatchHit | VaultDispatchMiss;
+
+/**
+ * S2-F8 — wrap `dispatchVaultIfPresent` with a HITL gate for writes
+ * (`vault.set`, `vault.delete`). Reads (`vault.get`, `vault.listKeys`) stay
+ * ungated — connector auth flows must read tokens without a prompt.
+ *
+ * Internal callers (auth/OAuth flows holding a typed `NimbusVault` reference
+ * directly) bypass this gate by design; they never traverse the IPC surface.
+ *
+ * The gate payload includes only the key, never the value — the consent UI
+ * must not echo a credential even though the renderer-side redactor would
+ * catch it.
+ */
+export async function dispatchVaultGated(
+  vault: NimbusVault,
+  toolExecutor: ToolExecutor | undefined,
+  method: string,
+  params: unknown,
+): Promise<VaultDispatchOutcome> {
+  if ((method === "vault.set" || method === "vault.delete") && toolExecutor !== undefined) {
+    const rec = asRecord(params);
+    const key = rec !== undefined && typeof rec["key"] === "string" ? rec["key"] : "";
+    const gateResult = await toolExecutor.gate({ type: method, payload: { key } });
+    if (gateResult !== "proceed" && gateResult.status === "rejected") {
+      throw new RpcMethodError(-32000, gateResult.reason);
+    }
+  }
+  return dispatchVaultIfPresent(vault, method, params);
+}
+
+async function dispatchVaultIfPresent(
+  vault: NimbusVault,
+  method: string,
+  params: unknown,
+): Promise<VaultDispatchOutcome> {
+  switch (method) {
+    case "vault.set": {
+      const rec = asRecord(params);
+      if (rec === undefined || typeof rec["key"] !== "string" || typeof rec["value"] !== "string") {
+        throw new RpcMethodError(-32602, "Invalid params");
+      }
+      assertWellFormedVaultKey(rec["key"]);
+      await vault.set(rec["key"], rec["value"]);
+      return { kind: "hit", value: { ok: true } };
+    }
+    case "vault.get": {
+      const rec = asRecord(params);
+      if (rec === undefined || typeof rec["key"] !== "string") {
+        throw new RpcMethodError(-32602, "Invalid params");
+      }
+      assertWellFormedVaultKey(rec["key"]);
+      return { kind: "hit", value: await vault.get(rec["key"]) };
+    }
+    case "vault.delete": {
+      const rec = asRecord(params);
+      if (rec === undefined || typeof rec["key"] !== "string") {
+        throw new RpcMethodError(-32602, "Invalid params");
+      }
+      assertWellFormedVaultKey(rec["key"]);
+      await vault.delete(rec["key"]);
+      return { kind: "hit", value: { ok: true } };
+    }
+    case "vault.listKeys": {
+      const rec = asRecord(params);
+      const prefix =
+        rec !== undefined && typeof rec["prefix"] === "string" ? rec["prefix"] : undefined;
+      return { kind: "hit", value: await vault.listKeys(prefix) };
+    }
+    default:
+      return { kind: "miss" };
+  }
+}
+
+/** Final fallback in dispatchMethod: try vault.* gated dispatch, else throw -32601. */
+export async function rpcVaultOrMethodNotFound(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+  clientId: string,
+): Promise<unknown> {
+  // S2-F8 — bind a per-client `ToolExecutor` so vault writes route through
+  // the HITL consent gate. The dispatcher used here is a stub: the gate
+  // never calls dispatch().
+  const stubDispatcher: ConnectorDispatcher = {
+    dispatch(): Promise<unknown> {
+      return Promise.reject(new Error("IPC-native gate does not dispatch to MCP"));
+    },
+  };
+  const toolExecutor =
+    ctx.options.localIndex === undefined
+      ? undefined
+      : new ToolExecutor(
+          bindConsentChannel(ctx.consentImpl, clientId),
+          ctx.options.localIndex,
+          stubDispatcher,
+        );
+  const vaultOutcome = await dispatchVaultGated(ctx.options.vault, toolExecutor, method, params);
+  if (vaultOutcome.kind === "hit") {
+    return vaultOutcome.value;
+  }
+  throw new RpcMethodError(-32601, `Method not found: ${method}`);
+}
