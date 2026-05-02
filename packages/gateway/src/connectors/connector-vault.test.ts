@@ -1,7 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
 import { createMemoryVault } from "../testing/bun-test-support.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
+import { type ConnectorSecretKeyOf, readConnectorSecret } from "./connector-vault.ts";
+
+// Type-equality probe (Hilger). Two type parameters are equal iff both are
+// assignable in both directions when wrapped in identity-typed arrow functions.
+// Used below to pin `ConnectorSecretKeyOf<S>` to specific union literals so
+// that any silent widening (e.g. to `string`) fails compile, not just runtime.
+type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+  ? true
+  : false;
+
+function assertEq<_A, _B>(_: Eq<_A, _B>): void {}
 
 describe("readConnectorSecret", () => {
   test("returns the stored value when the key is set", async () => {
@@ -50,6 +60,42 @@ describe("readConnectorSecret", () => {
 
     // The runtime expectation is irrelevant for these checks; the assertion
     // is that the file typechecks only with the @ts-expect-error directives.
+    expect(true).toBe(true);
+  });
+});
+
+describe("ConnectorSecretKeyOf — type pins", () => {
+  // These pins fail at compile time if `ConnectorSecretKeyOf<S>` ever silently
+  // widens to `string` or drifts from the manifest's bare-key suffix union.
+  // The earlier `@ts-expect-error` directives only assert that bad inputs are
+  // rejected; they would still pass if the type were `string` (which accepts
+  // every literal including the misspelled ones, plus everything else).
+  test("pins to manifest-derived bare-key suffixes (compile-time)", () => {
+    assertEq<ConnectorSecretKeyOf<"github">, "pat">(true);
+    assertEq<ConnectorSecretKeyOf<"slack">, "oauth">(true);
+    assertEq<ConnectorSecretKeyOf<"linear">, "api_key">(true);
+    assertEq<ConnectorSecretKeyOf<"gitlab">, "pat" | "api_base">(true);
+    assertEq<ConnectorSecretKeyOf<"datadog">, "api_key" | "app_key" | "site">(true);
+    assertEq<ConnectorSecretKeyOf<"bitbucket">, "username" | "app_password">(true);
+
+    // Empty-manifest services must resolve to `never`, not `string`. This is
+    // the main defence the `[T] extends [never]` non-distributive guard in
+    // ConnectorSecretKeyOf was added for.
+    assertEq<ConnectorSecretKeyOf<"google_drive">, never>(true);
+    assertEq<ConnectorSecretKeyOf<"gmail">, never>(true);
+    assertEq<ConnectorSecretKeyOf<"google_photos">, never>(true);
+    assertEq<ConnectorSecretKeyOf<"onedrive">, never>(true);
+    assertEq<ConnectorSecretKeyOf<"outlook">, never>(true);
+    assertEq<ConnectorSecretKeyOf<"teams">, never>(true);
+    assertEq<ConnectorSecretKeyOf<"github_actions">, never>(true);
+
+    // Negative pins prove the equality probe distinguishes the cases above
+    // from the most plausible regression (silent widening to `string`).
+    // @ts-expect-error — `ConnectorSecretKeyOf<"github">` is `"pat"`, not `string`.
+    assertEq<ConnectorSecretKeyOf<"github">, string>(true);
+    // @ts-expect-error — `ConnectorSecretKeyOf<"google_drive">` is `never`, not `string`.
+    assertEq<ConnectorSecretKeyOf<"google_drive">, string>(true);
+
     expect(true).toBe(true);
   });
 });
