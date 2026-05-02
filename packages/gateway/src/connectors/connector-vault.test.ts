@@ -5,6 +5,7 @@ import {
   type ConnectorSecretKeyOf,
   readConnectorSecret,
   sharedOAuthKey,
+  writeConnectorSecret,
 } from "./connector-vault.ts";
 
 // Type-equality probe (Hilger). Two type parameters are equal iff both are
@@ -100,6 +101,16 @@ describe("ConnectorSecretKeyOf — type pins", () => {
     // @ts-expect-error — `ConnectorSecretKeyOf<"google_drive">` is `never`, not `string`.
     assertEq<ConnectorSecretKeyOf<"google_drive">, string>(true);
 
+    // writeConnectorSecret keyName must accept the same union as readConnectorSecret.
+    assertEq<Parameters<typeof writeConnectorSecret<"github">>[2], "pat">(true);
+    assertEq<Parameters<typeof writeConnectorSecret<"datadog">>[2], "api_key" | "app_key" | "site">(
+      true,
+    );
+
+    // sharedOAuthKey signature pins.
+    assertEq<Parameters<typeof sharedOAuthKey>[0], "google" | "microsoft">(true);
+    assertEq<ReturnType<typeof sharedOAuthKey>, "google.oauth" | "microsoft.oauth">(true);
+
     expect(true).toBe(true);
   });
 });
@@ -116,6 +127,46 @@ describe("sharedOAuthKey", () => {
   test("compile-time: rejects non-provider strings", () => {
     // @ts-expect-error — SharedOAuthProvider is "google" | "microsoft" only.
     assertEq<Parameters<typeof sharedOAuthKey>[0], "github">(true);
+    expect(true).toBe(true);
+  });
+});
+
+describe("writeConnectorSecret", () => {
+  test("writes the value under the constructed key", async () => {
+    const vault = createMemoryVault();
+    await writeConnectorSecret(vault, "github", "pat", "ghp_test");
+    expect(await vault.get("github.pat")).toBe("ghp_test");
+  });
+
+  test("overwrites an existing value at the same key", async () => {
+    const vault = createMemoryVault();
+    await vault.set("github.pat", "old");
+    await writeConnectorSecret(vault, "github", "pat", "new");
+    expect(await vault.get("github.pat")).toBe("new");
+  });
+
+  test("stores empty string and whitespace verbatim (no validation)", async () => {
+    const vault = createMemoryVault();
+    await writeConnectorSecret(vault, "slack", "oauth", "");
+    expect(await vault.get("slack.oauth")).toBe("");
+    await writeConnectorSecret(vault, "slack", "oauth", "  raw  ");
+    expect(await vault.get("slack.oauth")).toBe("  raw  ");
+  });
+
+  test("multi-key services write to distinct vault keys", async () => {
+    const vault = createMemoryVault();
+    await writeConnectorSecret(vault, "datadog", "api_key", "API");
+    await writeConnectorSecret(vault, "datadog", "app_key", "APP");
+    expect(await vault.get("datadog.api_key")).toBe("API");
+    expect(await vault.get("datadog.app_key")).toBe("APP");
+  });
+
+  test("compile-time: rejects non-manifested keys", async () => {
+    const vault = createMemoryVault();
+    // @ts-expect-error — github manifest is ["github.pat"].
+    await writeConnectorSecret(vault, "github", "oauth", "x");
+    // @ts-expect-error — google_drive manifest is empty; ConnectorSecretKeyOf resolves to never.
+    await writeConnectorSecret(vault, "google_drive", "oauth", "x");
     expect(true).toBe(true);
   });
 });
