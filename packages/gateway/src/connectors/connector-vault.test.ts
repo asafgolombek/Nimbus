@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { createMemoryVault } from "../testing/bun-test-support.ts";
-import { type ConnectorSecretKeyOf, readConnectorSecret } from "./connector-vault.ts";
+import {
+  type ConnectorSecretKeyOf,
+  readConnectorSecret,
+  sharedOAuthKey,
+} from "./connector-vault.ts";
 
 // Type-equality probe (Hilger). Two type parameters are equal iff both are
 // assignable in both directions when wrapped in identity-typed arrow functions.
@@ -96,6 +100,22 @@ describe("ConnectorSecretKeyOf — type pins", () => {
     // @ts-expect-error — `ConnectorSecretKeyOf<"google_drive">` is `never`, not `string`.
     assertEq<ConnectorSecretKeyOf<"google_drive">, string>(true);
 
+    expect(true).toBe(true);
+  });
+});
+
+describe("sharedOAuthKey", () => {
+  test("returns google.oauth for google", () => {
+    expect(sharedOAuthKey("google")).toBe("google.oauth");
+  });
+
+  test("returns microsoft.oauth for microsoft", () => {
+    expect(sharedOAuthKey("microsoft")).toBe("microsoft.oauth");
+  });
+
+  test("compile-time: rejects non-provider strings", () => {
+    // @ts-expect-error — SharedOAuthProvider is "google" | "microsoft" only.
+    void sharedOAuthKey("github");
     expect(true).toBe(true);
   });
 });

@@ -153,3 +153,21 @@ export async function readConnectorSecret<S extends ConnectorServiceId>(
   const fullKey = `${serviceId}.${keyName}`;
   return vault.get(fullKey);
 }
+
+// ─── Bucket-C helper: provider-shared OAuth key constructor ──────────────────
+
+export type SharedOAuthProvider = "google" | "microsoft";
+
+/**
+ * Returns the provider-shared OAuth vault key (`google.oauth` or `microsoft.oauth`).
+ * Used when the caller is operating on the provider-wide token rather than a
+ * per-service token. The literal lives inside this allow-listed file, so D11
+ * does not fire at the call site.
+ *
+ * Return type is the literal union `"google.oauth" | "microsoft.oauth"` (resolved
+ * by TS template-literal inference) — implicitly assignable to `string` at the
+ * `vault.get`/`vault.set` boundary, so no widening cast is required at any caller.
+ */
+export function sharedOAuthKey(provider: SharedOAuthProvider): `${SharedOAuthProvider}.oauth` {
+  return `${provider}.oauth`;
+}
