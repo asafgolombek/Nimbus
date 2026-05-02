@@ -15,6 +15,7 @@ import {
   normalizeAtlassianSiteBaseUrl,
   stringField,
 } from "./atlassian-api-sync-helpers.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
 const SERVICE_ID = "jira";
@@ -92,9 +93,9 @@ type SearchEnvelope = {
 type JiraVaultCreds = { token: string; email: string; baseUrl: string };
 
 async function loadJiraVaultCreds(ctx: SyncContext): Promise<JiraVaultCreds | null> {
-  const token = await ctx.vault.get("jira.api_token");
-  const email = await ctx.vault.get("jira.email");
-  const baseRaw = await ctx.vault.get("jira.base_url");
+  const token = await readConnectorSecret(ctx.vault, "jira", "api_token");
+  const email = await readConnectorSecret(ctx.vault, "jira", "email");
+  const baseRaw = await readConnectorSecret(ctx.vault, "jira", "base_url");
   if (
     token === null ||
     token === "" ||

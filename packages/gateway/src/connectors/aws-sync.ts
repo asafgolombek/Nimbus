@@ -2,6 +2,7 @@ import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { clampSyncTitle, syncPassCursorParseEmpty } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -35,10 +36,10 @@ function decodeCursor(raw: string | null): AwsCursorV1 | null {
 }
 
 async function awsCredentialsExtra(ctx: SyncContext): Promise<Record<string, string> | null> {
-  const ak = (await ctx.vault.get("aws.access_key_id"))?.trim() ?? "";
-  const sk = (await ctx.vault.get("aws.secret_access_key"))?.trim() ?? "";
-  const reg = (await ctx.vault.get("aws.default_region"))?.trim() ?? "";
-  const prof = (await ctx.vault.get("aws.profile"))?.trim() ?? "";
+  const ak = (await readConnectorSecret(ctx.vault, "aws", "access_key_id"))?.trim() ?? "";
+  const sk = (await readConnectorSecret(ctx.vault, "aws", "secret_access_key"))?.trim() ?? "";
+  const reg = (await readConnectorSecret(ctx.vault, "aws", "default_region"))?.trim() ?? "";
+  const prof = (await readConnectorSecret(ctx.vault, "aws", "profile"))?.trim() ?? "";
   const ok = (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
   if (!ok) {
     return null;
