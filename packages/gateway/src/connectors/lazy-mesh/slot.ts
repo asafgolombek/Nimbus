@@ -2,7 +2,6 @@ import type { MCPClient } from "@mastra/mcp";
 
 import type { NimbusVault } from "../../vault/nimbus-vault.ts";
 import type { LazyDrainTracker } from "./drain.ts";
-import type { MeshLogger } from "./tool-map.ts";
 
 export type LazyMcpSlot = {
   client: MCPClient | undefined;
@@ -16,6 +15,11 @@ export type ServerSpec = {
   args: string[];
   env: Record<string, string>;
 };
+
+/** Minimal logger shape — accepts the pino `(bindings, msg)` form. */
+export interface MeshLogger {
+  warn(bindings: Record<string, unknown>, msg?: string): void;
+}
 
 /**
  * Internal collaborator interface — wraps the slot state-machine on
