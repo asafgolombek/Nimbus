@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createMemoryVault } from "../testing/bun-test-support.ts";
 import {
   type ConnectorSecretKeyOf,
+  deleteConnectorSecret,
   readConnectorSecret,
   sharedOAuthKey,
   writeConnectorSecret,
@@ -111,6 +112,10 @@ describe("ConnectorSecretKeyOf — type pins", () => {
     assertEq<Parameters<typeof sharedOAuthKey>[0], "google" | "microsoft">(true);
     assertEq<ReturnType<typeof sharedOAuthKey>, "google.oauth" | "microsoft.oauth">(true);
 
+    // deleteConnectorSecret signature pins (parameter + return type).
+    assertEq<Parameters<typeof deleteConnectorSecret<"github">>[2], "pat">(true);
+    assertEq<ReturnType<typeof deleteConnectorSecret>, Promise<void>>(true);
+
     expect(true).toBe(true);
   });
 });
@@ -167,6 +172,48 @@ describe("writeConnectorSecret", () => {
     await writeConnectorSecret(vault, "github", "oauth", "x");
     // @ts-expect-error — google_drive manifest is empty; ConnectorSecretKeyOf resolves to never.
     await writeConnectorSecret(vault, "google_drive", "oauth", "x");
+    expect(true).toBe(true);
+  });
+});
+
+describe("deleteConnectorSecret", () => {
+  test("deletes the value at the constructed key", async () => {
+    const vault = createMemoryVault();
+    await vault.set("github.pat", "ghp_test");
+    await deleteConnectorSecret(vault, "github", "pat");
+    expect(await vault.get("github.pat")).toBeNull();
+  });
+
+  test("is a no-op when the key is absent", async () => {
+    const vault = createMemoryVault();
+    await deleteConnectorSecret(vault, "github", "pat");
+    expect(await vault.get("github.pat")).toBeNull();
+  });
+
+  test("does not affect sibling keys on the same service", async () => {
+    const vault = createMemoryVault();
+    await vault.set("datadog.api_key", "API");
+    await vault.set("datadog.app_key", "APP");
+    await deleteConnectorSecret(vault, "datadog", "api_key");
+    expect(await vault.get("datadog.api_key")).toBeNull();
+    expect(await vault.get("datadog.app_key")).toBe("APP");
+  });
+
+  test("does not affect other services' keys", async () => {
+    const vault = createMemoryVault();
+    await vault.set("github.pat", "ghp");
+    await vault.set("gitlab.pat", "glpat");
+    await deleteConnectorSecret(vault, "github", "pat");
+    expect(await vault.get("github.pat")).toBeNull();
+    expect(await vault.get("gitlab.pat")).toBe("glpat");
+  });
+
+  test("compile-time: rejects non-manifested keys", async () => {
+    const vault = createMemoryVault();
+    // @ts-expect-error — github manifest is ["github.pat"].
+    await deleteConnectorSecret(vault, "github", "oauth");
+    // @ts-expect-error — google_drive manifest is empty; ConnectorSecretKeyOf resolves to never.
+    await deleteConnectorSecret(vault, "google_drive", "oauth");
     expect(true).toBe(true);
   });
 });
