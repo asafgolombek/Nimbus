@@ -48,7 +48,7 @@ The current file has **6 type/interface declarations + 30 functions / methods** 
 | `LazyConnectorMesh.recordArgsJsonFailure` (private) | 290–303 | `user-mcp.ts` (lifted as free fn) |
 | `LazyConnectorMesh.mcpServerKeyForUserConnector` (private) | 305–307 | `user-mcp.ts` (lifted) |
 | `LazyConnectorMesh.ensureUserMcpClient` (private) | 309–345 | `user-mcp.ts` (lifted) |
-| `LazyConnectorMesh.ensureUserMcpConnectorsRunning` (private) | 347–362 | `user-mcp.ts` (lifted) |
+| `LazyConnectorMesh.ensureUserMcpConnectorsRunning` (private) | 347–362 | `mesh.ts` (kept — needs `this.lazySlots.keys()`; calls extracted `ensureUserMcpClient` per row) |
 | `LazyConnectorMesh.ensureUserMcpRunning` (public) | 365–372 | `mesh.ts` (kept as thin shell calling the user-mcp helpers) |
 | `LazyConnectorMesh.phase3AddAwsMcp` (private) | 374–404 | `phase3-config.ts` (lifted, takes `vault`) |
 | `LazyConnectorMesh.phase3AddAzureMcp` (private) | 406–424 | `phase3-config.ts` |
@@ -91,7 +91,7 @@ The current file has **6 type/interface declarations + 30 functions / methods** 
 | `LazyConnectorMesh.collectUserMcpToolMap` (private) | 1306–1315 | `mesh.ts` (kept) |
 | `LazyConnectorMesh.buildSlotForToolMap` (private) | 1318–1332 | `mesh.ts` (kept) |
 | `LazyConnectorMesh.wrapMergedToolsWithRefcount` (private) | 1339–1359 | `mesh.ts` (kept) |
-| `LazyConnectorMesh.listToolsForDispatcher` (public) | 1366–1378 | `mesh.ts` (kept; calls `ensureCredentialConnectorsRunning(this.spawnContext)` from credential-orchestration.ts + `ensureUserMcpConnectorsRunning(this.spawnContext, this.listUserMcpConnectors)` from user-mcp.ts) |
+| `LazyConnectorMesh.listToolsForDispatcher` (public) | 1366–1378 | `mesh.ts` (kept; calls `ensureCredentialConnectorsRunning(this.spawnContext)` from credential-orchestration.ts + `this.ensureUserMcpConnectorsRunning()` private method on the class) |
 | `LazyConnectorMesh.listTools` (public) | 1385–1403 | `mesh.ts` (kept) |
 | `LazyConnectorMesh.disconnect` (public) | 1405–1414 | `mesh.ts` (kept) |
 | `createLazyConnectorMesh` (factory) | 1417–1428 | `mesh.ts` (kept) |
@@ -111,7 +111,7 @@ To determine what each new file needs:
 - **`connector-spawns.ts`** — `randomUUID` from `node:crypto`, `MCPClient` from `@mastra/mcp`, all 4 access-token resolvers (`anyGoogleOAuthVaultPresent`, `GoogleConnectorOAuthServiceId`, `getValidGoogleAccessToken`, `resolveGoogleOAuthVaultKey` from `../../auth/google-access-token.ts`; `getValidMicrosoftAccessToken` from `../../auth/microsoft-access-token.ts`; `getValidNotionAccessToken` from `../../auth/notion-access-token.ts`; `readMicrosoftOAuthScopesForOutlookEnv` from `../../auth/oauth-vault-tokens.ts`; `getValidSlackAccessToken` from `../../auth/slack-access-token.ts`), `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `stripTrailingSlashes` from `../../string/strip-trailing-slashes.ts`, `readConnectorSecret` from `../connector-vault.ts`, `LAZY_MESH` + `mcpConnectorServerScript` from `./keys.ts`, `MeshSpawnContext` + `ServerSpec` from `./slot.ts`, `buildPhase3Servers` from `./phase3-config.ts`.
 - **`user-mcp.ts`** — `randomUUID` from `node:crypto`, `MCPClient` from `@mastra/mcp`, `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `transitionHealth` from `../health.ts`, `UserMcpConnectorRow` from `../user-mcp-store.ts`, `USER_MESH_PREFIX` + `userMcpMeshKey` from `./keys.ts`, `MeshSpawnContext` from `./slot.ts`.
 - **`credential-orchestration.ts`** — `ConnectorServiceId` from `../connector-catalog.ts`, `ConnectorSecretKeyOf` + `readConnectorSecret` + `SharedOAuthProvider` + `sharedOAuthKey` from `../connector-vault.ts`, `anyGoogleOAuthVaultPresent` from `../../auth/google-access-token.ts`, `MeshSpawnContext` from `./slot.ts`, plus the 16 `ensureXxxMcp` free functions from `./connector-spawns.ts`.
-- **`mesh.ts`** — `MCPClient` from `@mastra/mcp`, `wrapToolOutput` from `../../engine/tool-output-envelope.ts`, `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `PlatformPaths` from `../../platform/paths.ts`, `NimbusVault` from `../../vault/nimbus-vault.ts`, `UserMcpConnectorRow` from `../user-mcp-store.ts`, `LazyDrainTracker` from `./drain.ts`, `LAZY_MESH` + `USER_MESH_PREFIX` from `./keys.ts`, `LazyMeshToolMap` + `MeshLogger` + `listLazyMeshClientTools` + `mergeToolMapsOrThrow` from `./tool-map.ts`, `LazyMcpSlot` + `MeshSpawnContext` from `./slot.ts`, all 16 `ensureXxxMcp` free functions from `./connector-spawns.ts`, `ensureCredentialConnectorsRunning` from `./credential-orchestration.ts`, `ensureUserMcpClient` + `ensureUserMcpConnectorsRunning` from `./user-mcp.ts`. Plus optional `Database` from `bun:sqlite`.
+- **`mesh.ts`** — `MCPClient` from `@mastra/mcp`, `wrapToolOutput` from `../../engine/tool-output-envelope.ts`, `extensionProcessEnv` from `../../extensions/spawn-env.ts`, `PlatformPaths` from `../../platform/paths.ts`, `NimbusVault` from `../../vault/nimbus-vault.ts`, `UserMcpConnectorRow` from `../user-mcp-store.ts`, `LazyDrainTracker` from `./drain.ts`, `LAZY_MESH` + `USER_MESH_PREFIX` from `./keys.ts`, `LazyMeshToolMap` + `MeshLogger` + `listLazyMeshClientTools` + `mergeToolMapsOrThrow` from `./tool-map.ts`, `LazyMcpSlot` + `MeshSpawnContext` from `./slot.ts`, all 16 `ensureXxxMcp` free functions from `./connector-spawns.ts`, `ensureCredentialConnectorsRunning` from `./credential-orchestration.ts`, `ensureUserMcpClient` from `./user-mcp.ts` (note: only `ensureUserMcpClient` — `ensureUserMcpConnectorsRunning` stays as a private method on the class because it needs `this.lazySlots.keys()` access). Plus optional `Database` from `bun:sqlite`.
 - **`index.ts`** — zero external imports; only re-exports from siblings.
 
 The lists above are guidance, not exhaustive. The authoritative process: copy a function, see what symbol names appear in its body, find the matching import line in the original, copy that import too — adjusted for one extra `..`. Then typecheck.
@@ -216,7 +216,7 @@ import type { MCPClient } from "@mastra/mcp";
 
 [paste mergeToolMapsOrThrow from lazy-mesh.ts:73-96 verbatim, including the JSDoc block]
 
-[paste LazyMeshToolMap type from lazy-mesh.ts:130-133 verbatim]
+[paste LazyMeshToolMap type from lazy-mesh.ts:130-133 verbatim — add `export` (currently unexported; will be imported by mesh.ts)]
 
 [paste listLazyMeshClientTools from lazy-mesh.ts:135-140 verbatim — add `export` if not present]
 
@@ -228,7 +228,7 @@ export interface MeshLogger {
 
 The order doesn't matter; group by what the file currently has.
 
-`listLazyMeshClientTools` is currently `async function listLazyMeshClientTools(...)` (no `export`) — add `export` when moving since `mesh.ts` will need to import it.
+Both `LazyMeshToolMap` (originally `type LazyMeshToolMap = Record<...>`) and `listLazyMeshClientTools` (originally `async function listLazyMeshClientTools(...)`) are currently unexported. Add `export` to both when moving — `mesh.ts` and `slot.ts` will import them.
 
 - [ ] **Step 2: Typecheck**
 
@@ -528,13 +528,17 @@ diff <(sed -n '678,709p' packages/gateway/src/connectors/lazy-mesh.ts | sed 's/ 
 **Files:**
 - Create: `packages/gateway/src/connectors/lazy-mesh/user-mcp.ts`
 
+**Scope decision (resolved upfront):** `ensureUserMcpConnectorsRunning` from the original (lines 347–362) is **NOT** lifted to `user-mcp.ts`. It iterates `this.lazySlots.keys()` to find stale user-mcp slots, and `MeshSpawnContext` deliberately does not expose the slot map (would force a `forEachSlotKey` callback that adds plumbing without value). It stays as a private method on `LazyConnectorMesh` (kept in `mesh.ts`, see Task 11) that calls the extracted `ensureUserMcpClient(this.spawnContext, row)` per row.
+
+Only 3 symbols extract to `user-mcp.ts`: `recordArgsJsonFailure`, `mcpServerKeyForUserConnector`, `ensureUserMcpClient`. The function-to-file map at the top of this plan reflects this; the spec's § 3.1 (which mentioned `ensureUserMcpConnectorsRunning` in the `user-mcp.ts` row) is technically aspirational — this plan is the authoritative resolution.
+
 - [ ] **Step 1: Extract user-mcp bodies**
 
 ```bash
-sed -n '290,362p' packages/gateway/src/connectors/lazy-mesh.ts > /tmp/user-mcp-bodies.ts
+sed -n '290,345p' packages/gateway/src/connectors/lazy-mesh.ts > /tmp/user-mcp-bodies.ts
 ```
 
-(Lines 290–362 cover `recordArgsJsonFailure`, `mcpServerKeyForUserConnector`, `ensureUserMcpClient`, `ensureUserMcpConnectorsRunning`.)
+(Lines 290–345 cover `recordArgsJsonFailure`, `mcpServerKeyForUserConnector`, `ensureUserMcpClient` — the three symbols that move.)
 
 - [ ] **Step 2: Write `user-mcp.ts`**
 
@@ -546,7 +550,7 @@ import { MCPClient } from "@mastra/mcp";
 import { extensionProcessEnv } from "../../extensions/spawn-env.ts";
 import { transitionHealth } from "../health.ts";
 import type { UserMcpConnectorRow } from "../user-mcp-store.ts";
-import { USER_MESH_PREFIX, userMcpMeshKey } from "./keys.ts";
+import { userMcpMeshKey } from "./keys.ts";
 import type { MeshSpawnContext } from "./slot.ts";
 
 export function recordArgsJsonFailure(
@@ -554,9 +558,13 @@ export function recordArgsJsonFailure(
   serviceId: string,
   reason: string,
 ): void {
-  // [body from lazy-mesh.ts:290-303, this.logger → ctx.logger, this.healthDb → ctx.healthDb]
+  // [body from lazy-mesh.ts:290-303 with substitutions:
+  //   this.logger → ctx.logger
+  //   this.healthDb → ctx.healthDb
+  // ]
 }
 
+// File-private — only used by ensureUserMcpClient below. No `export`.
 function mcpServerKeyForUserConnector(serviceId: string): string {
   return serviceId.replaceAll(/[^a-zA-Z0-9_-]/g, "_");
 }
@@ -571,34 +579,13 @@ export async function ensureUserMcpClient(
   //   this.setLazyClient → ctx.setLazyClient
   //   this.bumpToolsEpoch → ctx.bumpToolsEpoch
   //   this.scheduleLazyDisconnect → ctx.scheduleLazyDisconnect
-  //   this.recordArgsJsonFailure(...) → recordArgsJsonFailure(ctx, ...)
-  //   this.mcpServerKeyForUserConnector(...) → mcpServerKeyForUserConnector(...)
-  // ]
-}
-
-export async function ensureUserMcpConnectorsRunning(
-  ctx: MeshSpawnContext,
-  listUserMcpConnectors: () => readonly UserMcpConnectorRow[],
-  stopUserMcpClient: (serviceId: string) => Promise<void>,
-): Promise<void> {
-  // [body from lazy-mesh.ts:347-362 with substitutions:
-  //   this.lazySlots.keys() → cannot be replicated through ctx — see note below
-  //   this.stopUserMcpClient(id) → stopUserMcpClient(id)
-  //   this.ensureUserMcpClient(row) → ensureUserMcpClient(ctx, row)
-  //   ...listUserMcpConnectors() is now a parameter
+  //   this.recordArgsJsonFailure(row.service_id, ...) → recordArgsJsonFailure(ctx, row.service_id, ...)
+  //   this.mcpServerKeyForUserConnector(row.service_id) → mcpServerKeyForUserConnector(row.service_id)
   // ]
 }
 ```
 
-**Note on `ensureUserMcpConnectorsRunning`:** the original method iterates `this.lazySlots.keys()` to find user-mcp slots that are no longer in the database (and stops them). The `MeshSpawnContext` interface deliberately does NOT expose the slot map directly. Two options:
-
-**Option A (recommended):** Keep the method on the class. `ensureUserMcpConnectorsRunning` stays as a private method on `LazyConnectorMesh` that calls `ensureUserMcpClient(this.spawnContext, row)` for the per-row work. Only `recordArgsJsonFailure`, `mcpServerKeyForUserConnector`, and `ensureUserMcpClient` extract.
-
-**Option B:** Add a `forEachSlotKey(cb: (key: string) => void)` method to `MeshSpawnContext`. More plumbing.
-
-**Pick Option A.** Update the table in the spec's § 3.1 if needed: `ensureUserMcpConnectorsRunning` stays on the class. Update the function-to-file map at the top of this plan accordingly. The `mesh.ts` file gets the `ensureUserMcpConnectorsRunning` method calling `ensureUserMcpClient(this.spawnContext, row)` per row.
-
-Update Task 8 Step 2 to drop `ensureUserMcpConnectorsRunning` from `user-mcp.ts`.
+`USER_MESH_PREFIX` from `keys.ts` is **not** imported here — it's only used by `ensureUserMcpConnectorsRunning`, which stays on the class.
 
 - [ ] **Step 3: Typecheck**
 
@@ -652,26 +639,52 @@ import {
 } from "./connector-spawns.ts";
 import type { MeshSpawnContext } from "./slot.ts";
 
-[paste 11 ensureIfXxx wrappers, with substitutions:
-  this.vault → ctx.vault (in vault reads)
-  this.ensureXxxRunning() → ensureXxxMcp(ctx)
-  Wrapper signature: (ctx: MeshSpawnContext) — no other params except for
-  ensureIfConnectorSecretSet which takes (ctx, serviceId, keyName, run) and
-  ensureIfProviderOAuthSet which takes (ctx, provider, run).
-]
+// All 11 wrappers below are file-private (no `export`) — their sole
+// caller is `ensureCredentialConnectorsRunning` in this same file.
+// Adding `export` to anything not used externally pollutes the module
+// surface for no benefit.
 
+async function ensureIfConnectorSecretSet<S extends ConnectorServiceId>(
+  ctx: MeshSpawnContext,
+  serviceId: S,
+  keyName: ConnectorSecretKeyOf<S>,
+  run: () => Promise<void>,
+): Promise<void> {
+  // [body from lazy-mesh.ts:1159-1168, this.vault → ctx.vault]
+}
+
+async function ensureIfProviderOAuthSet(
+  ctx: MeshSpawnContext,
+  provider: SharedOAuthProvider,
+  run: () => Promise<void>,
+): Promise<void> {
+  // [body from lazy-mesh.ts:1170-1178, this.vault → ctx.vault]
+}
+
+[paste the remaining 9 wrappers as file-private `async function ensureXxx(ctx: MeshSpawnContext)`:
+  ensureIfGoogleOAuthPresent, ensureBitbucketIfVaultCreds,
+  ensureJiraIfVaultCreds, ensureConfluenceIfVaultCreds,
+  ensureDiscordIfOptIn, ensureJenkinsIfVaultCreds,
+  ensureCircleciIfVaultCreds, ensurePagerdutyIfVaultCreds,
+  ensureKubernetesIfVaultCreds.
+ Substitutions:
+  this.vault → ctx.vault
+  this.ensureXxxRunning() → ensureXxxMcp(ctx)
+ ]
+
+// Public — called by mesh.ts's listToolsForDispatcher.
 export async function ensureCredentialConnectorsRunning(
   ctx: MeshSpawnContext,
 ): Promise<void> {
   // [body from lazy-mesh.ts:1258-1275 with substitutions:
-  //   this.ensureIfXxx → ensureIfXxx (now free fns)
-  //   this.ensureXxxRunning → ensureXxxMcp (the connector-spawns names)
+  //   this.ensureIfXxx(...) → ensureIfXxx(ctx, ...)
+  //   this.ensureXxxRunning() → ensureXxxMcp(ctx) (in callback shapes)
   //   the lambda forms (() => this.ensureXxxRunning()) become (() => ensureXxxMcp(ctx))
   // ]
 }
 ```
 
-The 11 wrappers in lines 1159–1255 originally don't have `export`. They get `export` when moving (for use by `ensureCredentialConnectorsRunning`). Or they stay unexported but defined in the same file as their sole caller — pick the simpler option (unexported, file-private).
+**Export surface:** `ensureCredentialConnectorsRunning` is the only `export` from this file. The 11 wrappers stay file-private — they have no consumers outside the orchestrator above them.
 
 - [ ] **Step 3: Typecheck**
 
