@@ -156,7 +156,7 @@
   },
   {
     "file": "packages/gateway/src/auth/oauth-vault-tokens.ts",
-    "line": 129,
+    "line": 130,
     "snippet": "const scopes = (parsed as Record<string, unknown>)[\"scopes\"];"
   },
   {
@@ -271,18 +271,8 @@
   },
   {
     "file": "packages/gateway/src/connectors/aws-sync.ts",
-    "line": 28,
+    "line": 29,
     "snippet": "const rec = parsed as Record<string, unknown>;"
-  },
-  {
-    "file": "packages/gateway/src/connectors/aws-sync.ts",
-    "line": 45,
-    "snippet": "const e = { ...process.env } as Record<string, string | undefined>;"
-  },
-  {
-    "file": "packages/gateway/src/connectors/azure-sync.ts",
-    "line": 40,
-    "snippet": "} as Record<string, string | undefined>;"
   },
   {
     "file": "packages/gateway/src/connectors/bitbucket-sync.ts",
@@ -331,62 +321,57 @@
   },
   {
     "file": "packages/gateway/src/connectors/filesystem-v2-sync.ts",
-    "line": 33,
+    "line": 34,
     "snippet": "const rec = parsed as Record<string, unknown>;"
   },
   {
     "file": "packages/gateway/src/connectors/filesystem-v2-sync.ts",
-    "line": 37,
+    "line": 38,
     "snippet": "for (const [k, v] of Object.entries(tipsRaw as Record<string, unknown>)) {"
   },
   {
     "file": "packages/gateway/src/connectors/filesystem-v2-sync.ts",
-    "line": 113,
+    "line": 116,
     "snippet": "entries = readdirSync(dir, { withFileTypes: true }) as Dirent[];"
   },
   {
     "file": "packages/gateway/src/connectors/filesystem-v2-sync.ts",
-    "line": 157,
+    "line": 160,
     "snippet": "const rec = j as Record<string, unknown>;"
   },
   {
     "file": "packages/gateway/src/connectors/filesystem-v2-sync.ts",
-    "line": 165,
+    "line": 168,
     "snippet": "for (const [k, v] of Object.entries(o as Record<string, unknown>)) {"
   },
   {
     "file": "packages/gateway/src/connectors/filesystem-v2-sync.ts",
-    "line": 315,
+    "line": 318,
     "snippet": "return readdirSync(dir, { withFileTypes: true }) as Dirent[];"
   },
   {
-    "file": "packages/gateway/src/connectors/gcp-sync.ts",
-    "line": 36,
-    "snippet": "} as Record<string, string | undefined>;"
-  },
-  {
     "file": "packages/gateway/src/connectors/github-actions-sync.ts",
-    "line": 27,
+    "line": 28,
     "snippet": "const rec = parsed as Record<string, unknown>;"
   },
   {
     "file": "packages/gateway/src/connectors/github-actions-sync.ts",
-    "line": 33,
+    "line": 34,
     "snippet": "for (const [k, v] of Object.entries(reposRaw as Record<string, unknown>)) {"
   },
   {
     "file": "packages/gateway/src/connectors/github-sync.ts",
-    "line": 39,
+    "line": 40,
     "snippet": "const rec = parsed as Record<string, unknown>;"
   },
   {
     "file": "packages/gateway/src/connectors/gitlab-sync.ts",
-    "line": 27,
+    "line": 28,
     "snippet": "for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {"
   },
   {
     "file": "packages/gateway/src/connectors/gitlab-sync.ts",
-    "line": 50,
+    "line": 51,
     "snippet": "const rec = parsed as Record<string, unknown>;"
   },
   {
@@ -521,22 +506,22 @@
   },
   {
     "file": "packages/gateway/src/connectors/lazy-mesh.ts",
-    "line": 1256,
+    "line": 1263,
     "snippet": "const fsTools = (await this.filesystem.listTools()) as LazyMeshToolMap;"
   },
   {
     "file": "packages/gateway/src/connectors/lazy-mesh.ts",
-    "line": 1296,
+    "line": 1303,
     "snippet": "const tools = (await slot.client.listTools()) as LazyMeshToolMap;"
   },
   {
     "file": "packages/gateway/src/connectors/linear-sync.ts",
-    "line": 53,
+    "line": 54,
     "snippet": "const rec = parsed as Record<string, unknown>;"
   },
   {
     "file": "packages/gateway/src/connectors/linear-sync.ts",
-    "line": 85,
+    "line": 86,
     "snippet": "json = JSON.parse(text) as GqlEnvelope;"
   },
   {
@@ -571,17 +556,17 @@
   },
   {
     "file": "packages/gateway/src/connectors/slack-sync.ts",
-    "line": 32,
+    "line": 33,
     "snippet": "for (const [k, v] of Object.entries(hw as Record<string, unknown>)) {"
   },
   {
     "file": "packages/gateway/src/connectors/slack-sync.ts",
-    "line": 53,
+    "line": 54,
     "snippet": "const rec = parsed as Record<string, unknown>;"
   },
   {
     "file": "packages/gateway/src/connectors/slack-sync.ts",
-    "line": 112,
+    "line": 113,
     "snippet": "? (parsed as Record<string, unknown>)"
   },
   {
@@ -1325,36 +1310,6 @@
     "snippet": "}) as unknown as ProcSubset;"
   },
   {
-    "file": "packages/gateway/src/perf/index.ts",
-    "line": 79,
-    "snippet": "type IpcCallFn as RssHeavySyncIpcCallFn,"
-  },
-  {
-    "file": "packages/gateway/src/perf/index.ts",
-    "line": 97,
-    "snippet": "type IpcCallFn as SyncThroughputDriveIpcCallFn,"
-  },
-  {
-    "file": "packages/gateway/src/perf/index.ts",
-    "line": 102,
-    "snippet": "type IpcCallFn as SyncThroughputGithubIpcCallFn,"
-  },
-  {
-    "file": "packages/gateway/src/perf/index.ts",
-    "line": 107,
-    "snippet": "type IpcCallFn as SyncThroughputGmailIpcCallFn,"
-  },
-  {
-    "file": "packages/gateway/src/perf/index.ts",
-    "line": 116,
-    "snippet": "type ParentMsg as SqliteWorkerParentMsg,"
-  },
-  {
-    "file": "packages/gateway/src/perf/index.ts",
-    "line": 120,
-    "snippet": "type WorkerMsg as SqliteWorkerWorkerMsg,"
-  },
-  {
     "file": "packages/gateway/src/perf/pr-comment-formatter.ts",
     "line": 36,
     "snippet": "const surface = line.surfaces[surfaceId as keyof HistoryLine[\"surfaces\"]];"
@@ -1461,7 +1416,7 @@
   },
   {
     "file": "packages/gateway/src/platform/gateway-log-file.ts",
-    "line": 110,
+    "line": 112,
     "snippet": "const eObj = { ...(e as Record<string, unknown>) };"
   },
   {
