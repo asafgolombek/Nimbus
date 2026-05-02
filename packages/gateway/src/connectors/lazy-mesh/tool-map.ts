@@ -38,8 +38,3 @@ export async function listLazyMeshClientTools(
   }
   return (await client.listTools()) as LazyMeshToolMap;
 }
-
-/** Minimal logger shape — accepts the pino `(bindings, msg)` form. */
-export interface MeshLogger {
-  warn(bindings: Record<string, unknown>, msg?: string): void;
-}

@@ -26,13 +26,8 @@ import {
 import { ensureCredentialConnectorsRunning } from "./credential-orchestration.ts";
 import { LazyDrainTracker } from "./drain.ts";
 import { LAZY_MESH, USER_MESH_PREFIX, userMcpMeshKey } from "./keys.ts";
-import type { LazyMcpSlot, MeshSpawnContext } from "./slot.ts";
-import {
-  type LazyMeshToolMap,
-  listLazyMeshClientTools,
-  type MeshLogger,
-  mergeToolMapsOrThrow,
-} from "./tool-map.ts";
+import type { LazyMcpSlot, MeshLogger, MeshSpawnContext } from "./slot.ts";
+import { type LazyMeshToolMap, listLazyMeshClientTools, mergeToolMapsOrThrow } from "./tool-map.ts";
 import { ensureUserMcpClient } from "./user-mcp.ts";
 
 /**
