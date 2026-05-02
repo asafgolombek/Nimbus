@@ -536,7 +536,7 @@ export async function buildConnectorMesh(vault: NimbusVault): Promise<MCPClient>
 }
 ```
 
-> **Implementation note:** The actual Gateway uses `packages/gateway/src/connectors/lazy-mesh.ts`, which spawns MCP servers on first use and shuts them down after 5 minutes of idle. Phase 3 groups AWS, Azure, GCP, IaC, Grafana, Sentry, New Relic, and Datadog into one multi-server MCP client when matching vault keys are present. Kubernetes and PagerDuty use dedicated clients. The `registry.ensureRunning()` call before each dispatch handles lazy initialization transparently.
+> **Implementation note:** The actual Gateway uses `packages/gateway/src/connectors/lazy-mesh/`, which spawns MCP servers on first use and shuts them down after 5 minutes of idle. Phase 3 groups AWS, Azure, GCP, IaC, Grafana, Sentry, New Relic, and Datadog into one multi-server MCP client when matching vault keys are present. Kubernetes and PagerDuty use dedicated clients. The `registry.ensureRunning()` call before each dispatch handles lazy initialization transparently.
 
 ### Connector Tool Contract
 

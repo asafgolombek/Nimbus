@@ -5,7 +5,7 @@ import net from "node:net";
 import { platform } from "node:os";
 import type { ProfileManager } from "../config/profiles.ts";
 import { Config } from "../config.ts";
-import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
 import { type AgentRequestContext, agentRequestContext } from "../engine/agent-request-context.ts";
 import { bindConsentChannel, ToolExecutor } from "../engine/executor.ts";

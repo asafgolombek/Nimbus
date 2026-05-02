@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const SRC_ROOT = import.meta.dir;
@@ -8,6 +8,14 @@ const REPO_ROOT = resolve(SRC_ROOT, "..", "..", "..");
 
 async function read(relPathFromRepoRoot: string): Promise<string> {
   return readFile(resolve(REPO_ROOT, relPathFromRepoRoot), "utf8");
+}
+
+async function readDirConcat(relDirFromRepoRoot: string): Promise<string> {
+  const dir = resolve(REPO_ROOT, relDirFromRepoRoot);
+  const entries = await readdir(dir);
+  const tsFiles = entries.filter((f) => f.endsWith(".ts"));
+  const contents = await Promise.all(tsFiles.map((f) => readFile(resolve(dir, f), "utf8")));
+  return contents.join("\n");
 }
 
 /**
@@ -25,13 +33,13 @@ async function read(relPathFromRepoRoot: string): Promise<string> {
  */
 
 describe("I1 — extensionProcessEnv is the only env source for spawned MCP children", () => {
-  test("lazy-mesh.ts contains no raw `{ ...process.env }` spread", async () => {
-    const src = await read("packages/gateway/src/connectors/lazy-mesh.ts");
+  test("lazy-mesh/ contains no raw `{ ...process.env }` spread", async () => {
+    const src = await readDirConcat("packages/gateway/src/connectors/lazy-mesh");
     expect(src).not.toMatch(/\{\s*\.\.\.process\.env\s*\}/);
   });
 
-  test("lazy-mesh.ts uses extensionProcessEnv() at every spawn site", async () => {
-    const src = await read("packages/gateway/src/connectors/lazy-mesh.ts");
+  test("lazy-mesh/ uses extensionProcessEnv() at every spawn site", async () => {
+    const src = await readDirConcat("packages/gateway/src/connectors/lazy-mesh");
     const callers = src.match(/extensionProcessEnv\(/g) ?? [];
     expect(callers.length).toBeGreaterThanOrEqual(20);
   });

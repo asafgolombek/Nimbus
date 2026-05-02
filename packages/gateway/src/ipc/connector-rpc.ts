@@ -1,4 +1,4 @@
-import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import type { ToolExecutor } from "../engine/executor.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";

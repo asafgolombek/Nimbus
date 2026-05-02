@@ -17,7 +17,7 @@ import { createIacSyncable } from "../connectors/iac-sync.ts";
 import { createJenkinsSyncable } from "../connectors/jenkins-sync.ts";
 import { createJiraSyncable } from "../connectors/jira-sync.ts";
 import { createKubernetesSyncable } from "../connectors/kubernetes-sync.ts";
-import type { LazyConnectorMesh } from "../connectors/lazy-mesh.ts";
+import type { LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import { createLinearSyncable } from "../connectors/linear-sync.ts";
 import { createNewrelicSyncable } from "../connectors/newrelic-sync.ts";
 import { createNotionSyncable } from "../connectors/notion-sync.ts";
