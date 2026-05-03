@@ -9,6 +9,8 @@ import { platform } from "node:os";
 
 import { NdjsonLineReader } from "@nimbus-dev/sdk/ipc";
 
+const HAS_BUN = (globalThis as { Bun?: unknown }).Bun !== undefined;
+
 type Pending = {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
@@ -70,15 +72,11 @@ export class IPCClient {
   private async connectWindows(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const sock = net.createConnection(this.socketPath);
-      this.attachWindowsSocket(sock, resolve, reject);
+      this.attachNetSocket(sock, resolve, reject);
     });
   }
 
-  private attachWindowsSocket(
-    sock: net.Socket,
-    resolve: () => void,
-    reject: (e: Error) => void,
-  ): void {
+  private attachNetSocket(sock: net.Socket, resolve: () => void, reject: (e: Error) => void): void {
     sock.on("connect", () => {
       this.netSocket = sock;
       this.connected = true;
@@ -91,11 +89,19 @@ export class IPCClient {
       this.onTransportData(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
     });
     sock.on("close", () => {
-      this.onWindowsClosed();
+      this.onNetSocketClosed();
     });
   }
 
   private async connectUnix(): Promise<void> {
+    if (HAS_BUN) {
+      await this.connectUnixBun();
+      return;
+    }
+    await this.connectUnixNode();
+  }
+
+  private async connectUnixBun(): Promise<void> {
     this.bunSocket = await Bun.connect({
       unix: this.socketPath,
       socket: {
@@ -113,6 +119,13 @@ export class IPCClient {
     this.connected = true;
   }
 
+  private async connectUnixNode(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const sock = net.createConnection({ path: this.socketPath });
+      this.attachNetSocket(sock, resolve, reject);
+    });
+  }
+
   private onTransportData(chunk: Uint8Array): void {
     try {
       this.ingest(chunk);
@@ -121,7 +134,7 @@ export class IPCClient {
     }
   }
 
-  private onWindowsClosed(): void {
+  private onNetSocketClosed(): void {
     this.connected = false;
     this.netSocket = null;
     this.failAll(new Error("IPC connection closed"));
