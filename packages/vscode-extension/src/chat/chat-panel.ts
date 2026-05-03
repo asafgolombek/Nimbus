@@ -48,7 +48,6 @@ export interface ChatPanelFactory {
 export function createNoopChatPanel(): ChatPanel {
   let disposed = false;
   const disposeListeners: Array<() => void> = [];
-  const messageListeners: Array<(msg: unknown) => void> = [];
   return {
     reveal: () => undefined,
     dispose: () => {
@@ -60,9 +59,8 @@ export function createNoopChatPanel(): ChatPanel {
     onDispose: (h) => {
       disposeListeners.push(h);
     },
-    onMessage: (h) => {
-      messageListeners.push(h);
-    },
+    // Noop fixture — never delivers messages, so no need to track handlers.
+    onMessage: () => undefined,
     postMessage: () => Promise.resolve(true),
     isVisible: () => false,
     isActive: () => false,

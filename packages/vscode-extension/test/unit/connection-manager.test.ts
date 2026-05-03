@@ -57,13 +57,12 @@ describe("ConnectionManager", () => {
   });
 
   test("transitions connecting → connected on success", async () => {
-    const { deps, events } = makeDeps({ openSequence: ["ok"] });
+    const { deps } = makeDeps({ openSequence: ["ok"] });
     const mgr = createConnectionManager(deps);
     const collected: ConnectionState[] = [];
     mgr.onState((s) => collected.push(s));
     await mgr.start();
     expect(collected.map((s) => s.kind)).toContain("connected");
-    void events;
     await mgr.dispose();
   });
 
@@ -82,7 +81,7 @@ describe("ConnectionManager", () => {
     const states: ConnectionState[] = [];
     mgr.onState((s) => states.push(s));
     await mgr.start();
-    const last = states[states.length - 1];
+    const last = states.at(-1);
     expect(last?.kind).toBe("permission-denied");
     if (last?.kind === "permission-denied") {
       expect(last.socketPath).toBe("/tmp/x.sock");

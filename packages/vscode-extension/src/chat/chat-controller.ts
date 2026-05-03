@@ -33,6 +33,43 @@ export interface ChatController {
   isStreaming(): boolean;
 }
 
+type StreamEvent =
+  Awaited<ReturnType<AskStreamHandle[typeof Symbol.asyncIterator]>["next"]> extends {
+    value: infer V;
+  }
+    ? V extends undefined
+      ? never
+      : V
+    : never;
+
+function buildAskStreamOptions(
+  sessionStore: SessionStore,
+  agent: (() => string) | undefined,
+): AskStreamOptions {
+  const opts: AskStreamOptions = {};
+  const sid = sessionStore.get();
+  if (sid !== undefined) opts.sessionId = sid;
+  const agentName = agent?.() ?? "";
+  if (agentName.length > 0) opts.agent = agentName;
+  return opts;
+}
+
+function buildSubTaskMessage(ev: {
+  subTaskId: string;
+  status: string;
+  progress?: number;
+}): ExtensionToWebview {
+  if (typeof ev.progress === "number") {
+    return {
+      type: "subTask",
+      subTaskId: ev.subTaskId,
+      status: ev.status,
+      progress: ev.progress,
+    };
+  }
+  return { type: "subTask", subTaskId: ev.subTaskId, status: ev.status };
+}
+
 export function createChatController(deps: ChatControllerDeps): ChatController {
   let active: AskStreamHandle | undefined;
 
@@ -40,16 +77,46 @@ export function createChatController(deps: ChatControllerDeps): ChatController {
     void deps.panel.postMessage(m);
   };
 
+  // Returns true if the iterator should break.
+  const handleEvent = async (ev: StreamEvent): Promise<boolean> => {
+    if (ev.type === "token") {
+      post({ type: "token", text: ev.text });
+      return false;
+    }
+    if (ev.type === "subTaskProgress") {
+      post(buildSubTaskMessage(ev));
+      return false;
+    }
+    if (ev.type === "hitlBatch") {
+      post({
+        type: "hitlInline",
+        requestId: ev.requestId,
+        prompt: ev.prompt,
+        details: ev.details,
+      });
+      return false;
+    }
+    if (ev.type === "done") {
+      post({ type: "done", reply: ev.reply, sessionId: ev.sessionId });
+      if (ev.sessionId.length > 0) {
+        await deps.sessionStore.set(ev.sessionId);
+      }
+      return true;
+    }
+    if (ev.type === "error") {
+      post({ type: "error", message: ev.message });
+      deps.log.error(`Stream error: ${ev.code}: ${ev.message}`);
+      return true;
+    }
+    return false;
+  };
+
   return {
     async start(input): Promise<void> {
       if (active !== undefined) {
         throw new Error("Stream in progress; click Stop or wait for it to finish.");
       }
-      const opts: AskStreamOptions = {};
-      const sid = deps.sessionStore.get();
-      if (sid !== undefined) opts.sessionId = sid;
-      const agent = deps.agent?.() ?? "";
-      if (agent.length > 0) opts.agent = agent;
+      const opts = buildAskStreamOptions(deps.sessionStore, deps.agent);
       const handle = deps.client.askStream(input, opts);
       active = handle;
       post({ type: "userMessage", text: input });
@@ -60,44 +127,7 @@ export function createChatController(deps: ChatControllerDeps): ChatController {
             deps.registerStreamWithHitl(handle.streamId);
             registered = true;
           }
-          if (ev.type === "token") {
-            post({ type: "token", text: ev.text });
-            continue;
-          }
-          if (ev.type === "subTaskProgress") {
-            const m: ExtensionToWebview =
-              typeof ev.progress === "number"
-                ? {
-                    type: "subTask",
-                    subTaskId: ev.subTaskId,
-                    status: ev.status,
-                    progress: ev.progress,
-                  }
-                : { type: "subTask", subTaskId: ev.subTaskId, status: ev.status };
-            post(m);
-            continue;
-          }
-          if (ev.type === "hitlBatch") {
-            post({
-              type: "hitlInline",
-              requestId: ev.requestId,
-              prompt: ev.prompt,
-              details: ev.details,
-            });
-            continue;
-          }
-          if (ev.type === "done") {
-            post({ type: "done", reply: ev.reply, sessionId: ev.sessionId });
-            if (ev.sessionId.length > 0) {
-              await deps.sessionStore.set(ev.sessionId);
-            }
-            break;
-          }
-          if (ev.type === "error") {
-            post({ type: "error", message: ev.message });
-            deps.log.error(`Stream error: ${ev.code}: ${ev.message}`);
-            break;
-          }
+          if (await handleEvent(ev)) break;
         }
       } finally {
         if (handle.streamId.length > 0) {

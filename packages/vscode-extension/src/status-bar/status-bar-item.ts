@@ -22,28 +22,22 @@ export type StatusBarRender = {
 const COLOR_WARN = { id: "statusBarItem.warningBackground" };
 const COLOR_ERR = { id: "statusBarItem.errorBackground" };
 
-export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
-  const {
-    connection,
-    profile,
-    degradedConnectorCount,
-    degradedConnectorNames,
-    pendingHitlCount,
-    autoStartGateway,
-  } = inp;
-
+function formatNonConnected(
+  connection: Exclude<ConnectionState, { kind: "connected" }>,
+  autoStartGateway: boolean,
+): StatusBarRender | undefined {
   if (connection.kind === "connecting" || connection.kind === "idle") {
+    const tooltip =
+      connection.kind === "connecting"
+        ? `Connecting to Gateway socket: ${connection.socketPath}`
+        : "Initializing";
     return {
       text: "Nimbus: $(sync~spin) connecting…",
-      tooltip:
-        connection.kind === "connecting"
-          ? `Connecting to Gateway socket: ${connection.socketPath}`
-          : "Initializing",
+      tooltip,
       command: undefined,
       backgroundColor: undefined,
     };
   }
-
   if (connection.kind === "permission-denied") {
     return {
       text: "Nimbus: $(error) Socket permission denied",
@@ -52,7 +46,6 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
       backgroundColor: COLOR_ERR,
     };
   }
-
   if (connection.kind === "disconnected") {
     if (autoStartGateway) {
       return {
@@ -69,7 +62,6 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
       backgroundColor: COLOR_WARN,
     };
   }
-
   if (connection.kind === "starting-gateway") {
     return {
       text: "Nimbus: $(sync~spin) starting Gateway…",
@@ -78,8 +70,17 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
       backgroundColor: undefined,
     };
   }
+  return undefined;
+}
 
-  // connected
+function formatDegradedSummary(count: number, names: readonly string[]): string {
+  if (count === 0) return "0 connectors degraded";
+  if (names.length > 0) return `${count} degraded: ${names.join(", ")}`;
+  return `${count} connectors degraded`;
+}
+
+function formatConnected(inp: StatusBarInputs): StatusBarRender {
+  const { profile, degradedConnectorCount, degradedConnectorNames, pendingHitlCount } = inp;
   const tags: string[] = [];
   if (degradedConnectorCount > 0) tags.push(`${degradedConnectorCount} degraded`);
   if (pendingHitlCount > 0) tags.push(`${pendingHitlCount} pending`);
@@ -96,22 +97,30 @@ export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
   const tagSegment = tags.length > 0 ? ` · ${tags.join(" · ")}` : "";
   const text = `Nimbus: ${icon} ${profileSegment}${tagSegment}`;
 
-  let command = "nimbus.ask";
-  const degradedSummary =
-    degradedConnectorCount === 0
-      ? "0 connectors degraded"
-      : degradedConnectorNames.length > 0
-        ? `${degradedConnectorCount} degraded: ${degradedConnectorNames.join(", ")}`
-        : `${degradedConnectorCount} connectors degraded`;
-  let tooltip = `Connected · profile=${profileSegment} · ${degradedSummary}`;
+  const degradedSummary = formatDegradedSummary(degradedConnectorCount, degradedConnectorNames);
   if (pendingHitlCount > 0) {
-    command = "nimbus.showPendingHitl";
-    tooltip = `${pendingHitlCount} consent request(s) waiting${
-      degradedConnectorCount > 0 ? ` · ${degradedSummary}` : ""
-    }`;
+    const extra = degradedConnectorCount > 0 ? ` · ${degradedSummary}` : "";
+    return {
+      text,
+      tooltip: `${pendingHitlCount} consent request(s) waiting${extra}`,
+      command: "nimbus.showPendingHitl",
+      backgroundColor: bg,
+    };
   }
+  return {
+    text,
+    tooltip: `Connected · profile=${profileSegment} · ${degradedSummary}`,
+    command: "nimbus.ask",
+    backgroundColor: bg,
+  };
+}
 
-  return { text, tooltip, command, backgroundColor: bg };
+export function formatStatusBar(inp: StatusBarInputs): StatusBarRender {
+  if (inp.connection.kind !== "connected") {
+    const r = formatNonConnected(inp.connection, inp.autoStartGateway);
+    if (r !== undefined) return r;
+  }
+  return formatConnected(inp);
 }
 
 export interface StatusBarController {

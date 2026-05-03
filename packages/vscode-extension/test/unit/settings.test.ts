@@ -8,7 +8,7 @@ function makeWorkspace(values: Record<string, unknown>): WorkspaceApi {
     getConfiguration: () => ({
       get: <T>(key: string, dflt: T): T => {
         if (key in values) {
-          return (values as Record<string, unknown>)[key] as T;
+          return values[key] as T;
         }
         return dflt;
       },

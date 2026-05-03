@@ -57,13 +57,16 @@ document.getElementById("reject").addEventListener("click", () =>
 </html>`;
 }
 
+const HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return s.replaceAll(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c);
 }
 
 export type DetailsDecisionMessage = {
