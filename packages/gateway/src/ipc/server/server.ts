@@ -6,6 +6,7 @@ import { platform } from "node:os";
 import type { AgentInvokeHandler } from "../agent-invoke.ts";
 import { ConsentCoordinatorImpl } from "../consent.ts";
 import { createStreamRegistry } from "../engine-ask-stream.ts";
+import { createCancelStreamHandler } from "../engine-cancel-stream.ts";
 import {
   errorResponse,
   isRequest,
@@ -176,6 +177,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         return rpcAuditList(ctx, params);
       case "engine.askStream":
         return dispatchEngineAskStream(ctx, session, clientId, params);
+      case "engine.cancelStream":
+        return createCancelStreamHandler(ctx.streamRegistry)(params);
       default:
         return await rpcVaultOrMethodNotFound(ctx, method, params, clientId);
     }
