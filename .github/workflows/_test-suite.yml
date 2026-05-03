@@ -367,13 +367,15 @@ jobs:
 
       - name: Run node-compat tests — Linux
         if: runner.os == 'Linux'
+        working-directory: packages/client
         env:
           NIMBUS_GATEWAY_BIN: ${{ format('{0}/dist/nimbus-gateway', github.workspace) }}
           NIMBUS_SKIP_EMBEDDING_RUNTIME: "1"
         # Wrap node with the dbus shim so libsecret can talk to a session keyring.
         # Node 20 cannot execute .ts files directly — tsx/esm strips the TS types.
+        # Run from packages/client so node resolves tsx via the local node_modules.
         shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh node --import tsx/esm --test packages/client/test/node-compat.test.ts
+        run: bash ../../scripts/ci/run-with-optional-dbus.sh node --import tsx/esm --test test/node-compat.test.ts
 
       - name: Run node-compat tests — macOS / Windows
         if: runner.os != 'Linux'
