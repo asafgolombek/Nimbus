@@ -1,7 +1,20 @@
+import { createAskStream } from "./ask-stream.js";
 import { IPCClient } from "./ipc-transport.js";
+import type { AskStreamHandle, AskStreamOptions, HitlRequest } from "./stream-events.js";
 
 export type NimbusClientOptions = {
   socketPath: string;
+};
+
+export type SessionTranscript = {
+  sessionId: string;
+  turns: Array<{
+    role: "user" | "assistant";
+    text: string;
+    timestamp: number;
+    auditLogId?: number;
+  }>;
+  hasMore: boolean;
 };
 
 /**
@@ -30,6 +43,45 @@ export class NimbusClient {
       ...(options?.sessionId === undefined ? {} : { sessionId: options.sessionId }),
       ...(options?.agent === undefined ? {} : { agent: options.agent }),
     });
+  }
+
+  askStream(input: string, opts?: AskStreamOptions): AskStreamHandle {
+    return createAskStream(this.ipc, input, opts);
+  }
+
+  subscribeHitl(handler: (req: HitlRequest) => void): { dispose(): void } {
+    const onBatch = (params: unknown): void => {
+      if (typeof params !== "object" || params === null) return;
+      const p = params as Record<string, unknown>;
+      if (typeof p["requestId"] !== "string" || typeof p["prompt"] !== "string") return;
+      const req: HitlRequest =
+        typeof p["streamId"] === "string"
+          ? {
+              requestId: p["requestId"],
+              prompt: p["prompt"],
+              details: p["details"],
+              streamId: p["streamId"],
+            }
+          : { requestId: p["requestId"], prompt: p["prompt"], details: p["details"] };
+      handler(req);
+    };
+    this.ipc.onNotification("agent.hitlBatch", onBatch);
+    return {
+      dispose: () => {
+        // IPCClient has no off(); guarded by handler-side dedupe in HitlRouter
+      },
+    };
+  }
+
+  async getSessionTranscript(params: {
+    sessionId: string;
+    limit?: number;
+  }): Promise<SessionTranscript> {
+    return await this.ipc.call<SessionTranscript>("engine.getSessionTranscript", params);
+  }
+
+  async cancelStream(streamId: string): Promise<{ ok: boolean }> {
+    return await this.ipc.call<{ ok: boolean }>("engine.cancelStream", { streamId });
   }
 
   async queryItems(params: {
