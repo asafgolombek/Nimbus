@@ -339,7 +339,9 @@ jobs:
 
       - name: Run node-compat tests
         env:
-          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && 'dist\nimbus-gateway.exe' || './dist/nimbus-gateway' }}
+          # Absolute path so the cwd we run from doesn't matter. The gateway binary
+          # is emitted by compile-gateway.ts to <repo-root>/dist, not packages/gateway/dist.
+          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && format('{0}\dist\nimbus-gateway.exe', github.workspace) || format('{0}/dist/nimbus-gateway', github.workspace) }}
           # Skip embedding worker init so the gateway opens its IPC socket within
           # the 15s node-compat startup timeout (otherwise waitUntilReady takes ~180s).
           NIMBUS_SKIP_EMBEDDING_RUNTIME: "1"
