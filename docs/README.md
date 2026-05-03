@@ -563,7 +563,7 @@ nimbus/
 │   ├── roadmap.md            # acceptance-criteria-driven roadmap
 │   ├── CONTRIBUTING.md       # contributor workflow and constraints
 │   ├── CODE_OF_CONDUCT.md    # community standards
-│   ├── phase-4-plan.md       # Phase 4 implementation plan
+│   ├── release/              # release runbooks + manual smoke checklist
 │   ├── templates/            # copy-paste CI (e.g. extension authors)
 │   └── contributors/         # author walkthroughs
 ├── .github/

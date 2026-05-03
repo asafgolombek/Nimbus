@@ -2,7 +2,7 @@
  * SIGTERM / SIGINT handler: writes an `incomplete: true` HistoryLine and
  * exits non-zero. Installed by the bench CLI before the surface loop begins.
  *
- * See docs/superpowers/specs/2026-04-26-perf-audit-design.md §10 PR-B-1
+ * See the B2 perf audit design §10 PR-B-1
  * deliverables — SIGTERM behaviour.
  */
 

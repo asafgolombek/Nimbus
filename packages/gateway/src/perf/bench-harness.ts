@@ -2,7 +2,7 @@
  * Bench harness — runs a surface fn N times, captures samples per run,
  * computes per-run aggregates and the across-runs median (median-of-medians).
  *
- * See docs/superpowers/specs/2026-04-26-perf-audit-design.md §4.5 for the
+ * See the B2 perf audit design §4.5 for the
  * aggregation contract.
  */
 

@@ -2,7 +2,7 @@
  * Synthetic SQLite snapshot generator for perf fixtures.
  * Deterministic from a fixed PRNG seed; lazy-cached under cacheDir.
  *
- * See docs/superpowers/specs/2026-04-26-perf-audit-design.md §3.5 for the
+ * See the B2 perf audit design §3.5 for the
  * corpus rationale.
  */
 

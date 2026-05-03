@@ -2,7 +2,7 @@
 
 > **Status:** PR-C-1 — UX surfaces published with concrete thresholds; workload surfaces (S6, S7, S8 cells, S9, S10) are flagged `TBD (Phase 2)` and will be filled in once PR-C-2's M1 Air reference run lands.
 >
-> **Spec source:** [`docs/superpowers/specs/2026-04-26-perf-audit-design.md`](../superpowers/specs/2026-04-26-perf-audit-design.md) §3.
+> **Source spec:** Phase 4 perf audit design (B2), §3.
 
 ## Reference hardware caveat
 

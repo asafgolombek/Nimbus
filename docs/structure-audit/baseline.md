@@ -2,7 +2,7 @@
 
 **Generated at commit:** `a3f327be871c810ff7c86690bb059fa381d85a6e`
 **Date:** 2026-04-30
-**Phase 1 of:** [`docs/superpowers/specs/2026-04-30-structure-audit-design.md`](../superpowers/specs/2026-04-30-structure-audit-design.md)
+**Phase 1 of:** B3 structure audit (2026-04-30)
 
 This file is the measured starting state of the structure-audit dimensions on
 the `dev/asafgolombek/structure-audit-design` branch. Phase 2's `missed.md`

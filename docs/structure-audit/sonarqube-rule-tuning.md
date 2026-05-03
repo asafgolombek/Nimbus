@@ -40,4 +40,4 @@ Format:
 If Phase 2 does not need to disable any rule, this file remains empty and is
 removed at B3 close.
 
-Spec reference: `docs/superpowers/specs/2026-04-30-structure-audit-design.md` § 4.1
+Source spec: B3 structure audit design § 4.1.

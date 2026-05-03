@@ -6,7 +6,7 @@
  *
  * Subsumes scripts/capture-benchmarks.ts — same SQL builder, same warm DB,
  * same tier. The capture-benchmarks.ts script is retired in PR-C per
- * docs/superpowers/specs/2026-04-26-perf-audit-design.md §4.7.
+ * the B2 perf audit design §4.7.
  */
 
 import { Database } from "bun:sqlite";

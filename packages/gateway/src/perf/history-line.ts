@@ -1,6 +1,6 @@
 /**
  * docs/perf/history.jsonl line schema + append-only writer.
- * See docs/superpowers/specs/2026-04-26-perf-audit-design.md §4.4 for the
+ * See the B2 perf audit design §4.4 for the
  * canonical schema and storage policy.
  */
 

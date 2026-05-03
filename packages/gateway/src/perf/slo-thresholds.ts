@@ -11,7 +11,7 @@
  * hand-edited. CI runs `bun scripts/regen-slo.ts --check` to fail the
  * build on drift.
  *
- * Spec source: docs/superpowers/specs/2026-04-26-perf-audit-design.md § 3.2.
+ * Spec source: the B2 perf audit design § 3.2.
  */
 
 import { type BenchSurfaceId, S8_BATCHES, S8_LENGTHS } from "./types.ts";

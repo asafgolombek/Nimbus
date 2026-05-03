@@ -2,7 +2,7 @@
  * `nimbus bench` orchestrator. Parses flags, routes to surface drivers,
  * appends a HistoryLine, prints a human summary.
  *
- * See docs/superpowers/specs/2026-04-26-perf-audit-design.md §3.2 (surface
+ * See the B2 perf audit design §3.2 (surface
  * table), §4.1 (reference protocol), §4.5 (aggregation).
  */
 

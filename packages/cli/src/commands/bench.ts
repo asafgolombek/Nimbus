@@ -40,7 +40,7 @@ Flags:
   --fixture-cache <p> fixture cache dir override
   --help              this message
 
-See docs/superpowers/specs/2026-04-26-perf-audit-design.md for the surface table.
+See the B2 perf audit design for the surface table.
 `;
 
 /**

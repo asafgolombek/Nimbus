@@ -22,7 +22,7 @@ async function readDirConcat(relDirFromRepoRoot: string): Promise<string> {
  * Enforcement tests for {@link ../../docs/SECURITY-INVARIANTS.md SECURITY-INVARIANTS.md}.
  *
  * These tests pin structural defenses to the production source. The B1 audit
- * (docs/superpowers/specs/2026-04-25-security-audit-results.md) found that
+ * (B1 internal audit, 2026-04-25) found that
  * several defenses (extensionProcessEnv, checkLanMethodAllowed, the
  * <tool_output> envelope) existed in the codebase but had zero production
  * callers. Each test below fails if the corresponding defense is removed,

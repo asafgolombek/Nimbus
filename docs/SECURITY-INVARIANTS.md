@@ -1,6 +1,6 @@
 # Nimbus Security Invariants
 
-Canonical list of structural defenses Nimbus relies on. Each invariant names the defense, points to the production wiring that makes it active (not just defined), and lists the anti-pattern that would regress it. The B1 audit ([`superpowers/specs/2026-04-25-security-audit-results.md`](./superpowers/specs/2026-04-25-security-audit-results.md)) found that several of these defenses *existed* in the codebase but had **zero production callers** — the most common root cause of High-severity findings. This file exists so that gap is impossible to re-introduce silently.
+Canonical list of structural defenses Nimbus relies on. Each invariant names the defense, points to the production wiring that makes it active (not just defined), and lists the anti-pattern that would regress it. The B1 internal audit (Phase 4, 2026-04-25) found that several of these defenses *existed* in the codebase but had **zero production callers** — the most common root cause of High-severity findings. This file exists so that gap is impossible to re-introduce silently.
 
 **The rule:** every invariant below has at least one enforcement test in [`packages/gateway/src/security-invariants.test.ts`](../packages/gateway/src/security-invariants.test.ts). If you change the wiring, the test must be updated in the same commit; if you remove the defense, the test must fail.
 

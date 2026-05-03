@@ -2,7 +2,7 @@
 
 > **Status:** PR-C-2a — skeleton. Populated by PR-C-2b after the M1 Air reference run.
 
-Misses ranked by `user_felt_impact_score / engineering_cost_estimate` per spec [§3.4](../superpowers/specs/2026-04-26-perf-audit-design.md). Top 5 → fix plans (PR-D-1 … PR-D-N). Misses 6–N → [`deferred-backlog.md`](./deferred-backlog.md).
+Misses ranked by `user_felt_impact_score / engineering_cost_estimate` per Phase 4 perf audit design §3.4. Top 5 → fix plans (PR-D-1 … PR-D-N). Misses 6–N → [`deferred-backlog.md`](./deferred-backlog.md).
 
 Each row carries `Confidence: High | Medium | Low` (mirrors the B1 audit's `results.md` schema) so retained-Low items are visibly flagged.
 
