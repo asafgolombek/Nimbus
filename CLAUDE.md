@@ -363,6 +363,11 @@ cd packages/docs && bunx astro dev     # local dev server
 
 # Publish @nimbus-dev/client (triggered by git tag client-v*)
 # git tag client-v0.1.0 && git push origin client-v0.1.0
+
+# Publish Nimbus VS Code extension (triggered by git tag vscode-v*)
+# Pushes to VS Code Marketplace + Open VSX + GitHub Release.
+# Requires repo secrets VSCE_PAT (Marketplace) + OVSX_PAT (Open VSX).
+# git tag vscode-v0.1.0 && git push origin vscode-v0.1.0
 ```
 
 ---
