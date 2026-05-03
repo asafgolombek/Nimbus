@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { redactAuditPayload } from "../audit/format-audit-payload.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
 import { ConsentDisconnectedError } from "../ipc/consent.ts";
+import { getAgentRequestSessionId } from "./agent-request-context.ts";
 import type {
   ActionResult,
   AuditSink,
@@ -233,11 +234,13 @@ export class ToolExecutor {
     }
 
     // ALWAYS write audit record BEFORE any execution
+    const sessionId = getAgentRequestSessionId();
     this.audit.recordAudit({
       actionType: action.type,
       hitlStatus,
       actionJson: auditPayload(action, auditExtras),
       timestamp: Date.now(),
+      ...(sessionId !== undefined ? { sessionId } : {}),
     });
 
     if (hitlStatus === "rejected") {

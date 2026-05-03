@@ -264,7 +264,7 @@ export interface LanPeerRow {
 }
 
 /** Current indexed DB schema version — also accessible as `LocalIndex.SCHEMA_VERSION`. */
-export const CURRENT_SCHEMA_VERSION = 23;
+export const CURRENT_SCHEMA_VERSION = 24;
 
 /**
  * S4-F1 — explicit allowlist for `LocalIndex.getMeta` / `setMeta`. The `_meta`
@@ -764,6 +764,7 @@ export class LocalIndex {
     hitlStatus: AuditEntry["hitlStatus"];
     actionJson: string;
     timestamp: number;
+    sessionId?: string;
   }): void {
     appendAuditEntry(this.db, entry);
   }

@@ -26,6 +26,8 @@ export interface AuditSink {
     hitlStatus: "approved" | "rejected" | "not_required";
     actionJson: string;
     timestamp: number;
+    /** Non-hashed session identifier for transcript rehydration (Task 10). */
+    sessionId?: string;
   }): void;
 }
 
