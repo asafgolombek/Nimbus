@@ -9,6 +9,8 @@ import { platform } from "node:os";
 
 import { NdjsonLineReader } from "@nimbus-dev/sdk/ipc";
 
+const HAS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
+
 type Pending = {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
@@ -96,6 +98,14 @@ export class IPCClient {
   }
 
   private async connectUnix(): Promise<void> {
+    if (HAS_BUN) {
+      await this.connectUnixBun();
+      return;
+    }
+    await this.connectUnixNode();
+  }
+
+  private async connectUnixBun(): Promise<void> {
     this.bunSocket = await Bun.connect({
       unix: this.socketPath,
       socket: {
@@ -111,6 +121,26 @@ export class IPCClient {
       },
     });
     this.connected = true;
+  }
+
+  private async connectUnixNode(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const sock = net.createConnection({ path: this.socketPath });
+      sock.on("connect", () => {
+        this.netSocket = sock;
+        this.connected = true;
+        resolve();
+      });
+      sock.on("error", (err) => {
+        reject(err);
+      });
+      sock.on("data", (buf: Buffer) => {
+        this.onTransportData(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+      });
+      sock.on("close", () => {
+        this.onWindowsClosed();
+      });
+    });
   }
 
   private onTransportData(chunk: Uint8Array): void {
