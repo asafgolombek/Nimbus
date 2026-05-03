@@ -157,7 +157,7 @@
   "dependencies": {
     "@nimbus-dev/client": "workspace:*",
     "dompurify": "^3.2.0",
-    "marked": "^14.0.0"
+    "marked": "^18.0.3"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.0",
