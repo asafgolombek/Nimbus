@@ -5,6 +5,7 @@ import { platform } from "node:os";
 
 import type { AgentInvokeHandler } from "../agent-invoke.ts";
 import { ConsentCoordinatorImpl } from "../consent.ts";
+import { createStreamRegistry } from "../engine-ask-stream.ts";
 import {
   errorResponse,
   isRequest,
@@ -60,6 +61,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return session === undefined ? undefined : (n) => session.writeNotification(n);
   });
 
+  const streamRegistry = createStreamRegistry();
+
   let bunListener: ReturnType<typeof Bun.listen<BunSessionData>> | undefined;
   let netServer: net.Server | undefined;
   let winSockets: Set<net.Socket> = new Set();
@@ -82,6 +85,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     options,
     consentImpl,
     startedAtMs,
+    streamRegistry,
     broadcastNotification,
     getAgentInvokeHandler: () => agentInvokeHandler,
     getWorkflowRunHandler: () => workflowRunHandler,
