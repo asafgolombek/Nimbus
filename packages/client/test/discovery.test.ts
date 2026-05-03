@@ -56,6 +56,14 @@ describe("readGatewayState", () => {
     expect(r).toBeUndefined();
     rmSync(paths.dataDir, { recursive: true, force: true });
   });
+
+  test("returns undefined when socketPath is empty string", async () => {
+    const paths = makeTempPaths();
+    writeFileSync(join(paths.dataDir, "gateway.json"), JSON.stringify({ pid: 1, socketPath: "" }));
+    const r = await readGatewayState(paths);
+    expect(r).toBeUndefined();
+    rmSync(paths.dataDir, { recursive: true, force: true });
+  });
 });
 
 describe("discoverSocketPath precedence", () => {

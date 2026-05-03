@@ -5,22 +5,22 @@ import type { NimbusPaths } from "./paths.js";
 import { getNimbusPaths } from "./paths.js";
 
 export type GatewayStateFile = {
-  pid: number;
-  socketPath: string;
-  logPath?: string;
+  readonly pid: number;
+  readonly socketPath: string;
+  readonly logPath?: string;
 };
 
 export type SocketDiscoveryResult = {
-  socketPath: string;
-  source: "override" | "stateFile" | "default";
-  pid?: number;
+  readonly socketPath: string;
+  readonly source: "override" | "stateFile" | "default";
+  readonly pid?: number;
 };
 
 function isGatewayState(raw: unknown): raw is GatewayStateFile {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return false;
   const o = raw as Record<string, unknown>;
   if (typeof o["pid"] !== "number" || !Number.isFinite(o["pid"])) return false;
-  if (typeof o["socketPath"] !== "string") return false;
+  if (typeof o["socketPath"] !== "string" || o["socketPath"].length === 0) return false;
   if (o["logPath"] !== undefined && typeof o["logPath"] !== "string") return false;
   return true;
 }
@@ -35,9 +35,8 @@ export async function readGatewayState(paths: NimbusPaths): Promise<GatewayState
   try {
     const raw = JSON.parse(await readFile(p, "utf8")) as unknown;
     if (!isGatewayState(raw)) return undefined;
-    const out: GatewayStateFile = { pid: raw.pid, socketPath: raw.socketPath };
-    if (typeof raw.logPath === "string" && raw.logPath !== "") out.logPath = raw.logPath;
-    return out;
+    const logPath = typeof raw.logPath === "string" && raw.logPath !== "" ? raw.logPath : undefined;
+    return { pid: raw.pid, socketPath: raw.socketPath, ...(logPath !== undefined && { logPath }) };
   } catch {
     return undefined;
   }
