@@ -150,6 +150,7 @@ export function createAskStream(
   });
 
   const handle: AskStreamHandle = {
+    /** Empty string until engine.askStream resolves; safe to read after the first awaited event. */
     get streamId(): string {
       return streamIdResolved ?? "";
     },
