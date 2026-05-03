@@ -22,6 +22,8 @@ import { test } from "node:test";
 
 const GATEWAY_BIN = process.env.NIMBUS_GATEWAY_BIN;
 const STARTUP_TIMEOUT_MS = 15000;
+const STREAM_TIMEOUT_MS = 30000;
+const NODE_TEST_TIMEOUT_MS = 60000;
 
 if (GATEWAY_BIN === undefined) {
   await test("node-compat (skipped — NIMBUS_GATEWAY_BIN not set)", { skip: true }, () => undefined);
@@ -66,7 +68,11 @@ if (GATEWAY_BIN === undefined) {
 
   const spawnGateway = async (
     dataDir: string,
-  ): Promise<{ proc: ChildProcessWithoutNullStreams; socketPath: string }> => {
+  ): Promise<{
+    proc: ChildProcessWithoutNullStreams;
+    socketPath: string;
+    diag: () => ProcDiagnostics;
+  }> => {
     const env = { ...process.env, NIMBUS_DATA_DIR: dataDir };
     const proc = spawn(GATEWAY_BIN, [], { env });
     let stdout = "";
@@ -94,21 +100,61 @@ if (GATEWAY_BIN === undefined) {
       proc.kill("SIGTERM");
       throw err;
     }
-    return { proc, socketPath: r.socketPath };
+    return { proc, socketPath: r.socketPath, diag };
   };
 
-  await test("connects, askStream yields tokens + done", async () => {
+  // Race a promise against a per-stream deadline. On timeout, throw an error
+  // that includes the gateway's captured stdout+stderr so we can see what the
+  // gateway was doing while the stream hung (e.g. blocked on an unconfigured
+  // LLM, model download, connector init, etc.) instead of staring at a bare
+  // wall-clock timeout.
+  const withStreamTimeout = async <T>(
+    label: string,
+    p: Promise<T>,
+    diag: () => ProcDiagnostics,
+  ): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const d = diag();
+        reject(
+          new Error(
+            `${label} did not complete within ${STREAM_TIMEOUT_MS}ms\n` +
+              `  exitCode=${d.exitCode} exitSignal=${d.exitSignal}\n` +
+              `  --- gateway stdout ---\n${tail(d.stdout) || "(empty)"}\n` +
+              `  --- gateway stderr ---\n${tail(d.stderr) || "(empty)"}\n` +
+              `  ----------------------`,
+          ),
+        );
+      }, STREAM_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([p, timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
+
+  await test("connects, askStream yields tokens + done", {
+    timeout: NODE_TEST_TIMEOUT_MS,
+  }, async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "nimbus-nodecompat-"));
-    const { proc, socketPath } = await spawnGateway(dataDir);
+    const { proc, socketPath, diag } = await spawnGateway(dataDir);
     try {
       const client = await NimbusClient.open({ socketPath });
       const handle = client.askStream("hello");
-      const events: string[] = [];
-      for await (const ev of handle) {
-        events.push(ev.type);
-        if (ev.type === "done" || ev.type === "error") break;
-      }
-      assert.ok(events.includes("done") || events.includes("error"));
+      await withStreamTimeout(
+        'askStream("hello") iteration',
+        (async () => {
+          const events: string[] = [];
+          for await (const ev of handle) {
+            events.push(ev.type);
+            if (ev.type === "done" || ev.type === "error") break;
+          }
+          assert.ok(events.includes("done") || events.includes("error"));
+        })(),
+        diag,
+      );
       await client.close();
     } finally {
       proc.kill("SIGTERM");
@@ -116,7 +162,9 @@ if (GATEWAY_BIN === undefined) {
     }
   });
 
-  await test("subscribeHitl receives synthetic agent.hitlBatch", async () => {
+  await test("subscribeHitl receives synthetic agent.hitlBatch", {
+    timeout: NODE_TEST_TIMEOUT_MS,
+  }, async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "nimbus-nodecompat-"));
     const { proc, socketPath } = await spawnGateway(dataDir);
     try {
@@ -137,23 +185,31 @@ if (GATEWAY_BIN === undefined) {
     }
   });
 
-  await test("cancel() mid-stream terminates iterator", async () => {
+  await test("cancel() mid-stream terminates iterator", {
+    timeout: NODE_TEST_TIMEOUT_MS,
+  }, async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "nimbus-nodecompat-"));
-    const { proc, socketPath } = await spawnGateway(dataDir);
+    const { proc, socketPath, diag } = await spawnGateway(dataDir);
     try {
       const client = await NimbusClient.open({ socketPath });
       const handle = client.askStream("long-running");
       setTimeout(() => {
         handle.cancel().catch(() => undefined);
       }, 50);
-      const events: string[] = [];
-      for await (const ev of handle) {
-        events.push(ev.type);
-        if (events.length > 100) break;
-      }
-      // Cancellation should terminate the iterator gracefully — well under
-      // the 100-event manual safety break.
-      assert.ok(events.length <= 100);
+      await withStreamTimeout(
+        "cancel() stream iteration",
+        (async () => {
+          const events: string[] = [];
+          for await (const ev of handle) {
+            events.push(ev.type);
+            if (events.length > 100) break;
+          }
+          // Cancellation should terminate the iterator gracefully — well
+          // under the 100-event manual safety break.
+          assert.ok(events.length <= 100);
+        })(),
+        diag,
+      );
       await client.close();
     } finally {
       proc.kill("SIGTERM");
@@ -161,7 +217,9 @@ if (GATEWAY_BIN === undefined) {
     }
   });
 
-  await test("disconnect closes socket without leaking handles", async () => {
+  await test("disconnect closes socket without leaking handles", {
+    timeout: NODE_TEST_TIMEOUT_MS,
+  }, async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "nimbus-nodecompat-"));
     const { proc, socketPath } = await spawnGateway(dataDir);
     try {
