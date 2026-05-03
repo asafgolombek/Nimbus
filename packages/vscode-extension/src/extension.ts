@@ -26,7 +26,6 @@ import type { ChatPanel, ChatPanelFactory, WebviewPanelLike } from "./chat/chat-
 import { createSessionStore } from "./chat/session-store.js";
 import { createAutoStarter } from "./connection/auto-start.js";
 import { type ConnectionState, createConnectionManager } from "./connection/connection-manager.js";
-import { renderDetailsHtml } from "./hitl/hitl-details-webview.js";
 import { createModalSurface } from "./hitl/hitl-modal.js";
 import { createHitlRouter, type HitlDecision } from "./hitl/hitl-router.js";
 import { createToastSurface } from "./hitl/hitl-toast.js";
@@ -233,12 +232,14 @@ export function activateWithDeps(
       })();
     }
   });
-  ctx.subscriptions.push({ dispose: () => stateSub.dispose() });
-  ctx.subscriptions.push({
-    dispose: () => {
-      if (hitlSubscription !== undefined) hitlSubscription.dispose();
+  ctx.subscriptions.push(
+    { dispose: () => stateSub.dispose() },
+    {
+      dispose: () => {
+        if (hitlSubscription !== undefined) hitlSubscription.dispose();
+      },
     },
-  });
+  );
 
   // -----------------------------------------------------------------------
   // Settings observer — repaint status bar on any nimbus.* config change
@@ -385,7 +386,7 @@ export function deactivate(): void {
 }
 
 // Exposed for the follow-up PR that wires the rich HITL Webview surface.
-export { renderDetailsHtml };
+export { renderDetailsHtml } from "./hitl/hitl-details-webview.js";
 
 // ---------------------------------------------------------------------------
 // Helpers (private to this module)

@@ -35,7 +35,7 @@ export interface QuickPickItemLike {
 
 export interface TextEditorLike {
   document: { getText(range?: unknown): string };
-  selection: { isEmpty: boolean } & unknown;
+  selection: { isEmpty: boolean };
 }
 
 export interface WindowApi {

@@ -14,13 +14,15 @@
  *   7. Disposing every subscription tears everything down without throwing.
  */
 
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test, vi } from "vitest";
 
 import { activateWithDeps } from "../../src/extension.js";
 import type {
   CommandsApi,
   ConfigurationChangeEventLike,
-  DisposableLike,
   ExtensionContextLike,
   MementoLike,
   StatusBarItemHandle,
@@ -32,7 +34,7 @@ import type {
 // Test fixtures
 
 class FakeMemento implements MementoLike {
-  private store = new Map<string, unknown>();
+  private readonly store = new Map<string, unknown>();
   get<T>(key: string, defaultValue?: T): T | undefined {
     return (this.store.get(key) as T | undefined) ?? defaultValue;
   }
@@ -42,24 +44,46 @@ class FakeMemento implements MementoLike {
   }
 }
 
+type ActivateDeps = Parameters<typeof activateWithDeps>[1];
+type ClientLike = Awaited<ReturnType<NonNullable<ActivateDeps["openClient"]>>>;
+
+/**
+ * Build a stub `NimbusClient`-shaped object accepted by `ActivateDeps.openClient`.
+ * Tests pass `overrides` to swap a single method (typically `askStream`) without
+ * having to repeat the full surface.
+ */
+function makeFakeClient(overrides: Partial<ClientLike> = {}): () => Promise<ClientLike> {
+  const base: ClientLike = {
+    close: async () => undefined,
+    subscribeHitl: () => ({ dispose: () => undefined }),
+    askStream: () => ({}),
+    cancelStream: async () => ({ ok: true }),
+    getSessionTranscript: async () => ({ sessionId: "", turns: [], hasMore: false }),
+  } as unknown as ClientLike;
+  const merged = { ...base, ...overrides } as ClientLike;
+  return async () => merged;
+}
+
 interface Captured {
   ctx: ExtensionContextLike;
   commandHandlers: Map<string, (...args: unknown[]) => unknown>;
   statusItem: StatusBarItemHandle;
   outputAppendLines: string[];
-  outputShown: number;
+  outputShownGetter: number;
   errorMessages: string[];
   infoMessages: string[];
   configChangeHandlers: Array<(e: ConfigurationChangeEventLike) => void>;
   cfgValues: Record<string, unknown>;
 }
 
+const TEST_SOCKET_PATH = join(tmpdir(), `nimbus-test-${process.pid}.sock`);
+
 function makeFixture(opts: {
   cfg?: Record<string, unknown>;
   inputBoxAnswers?: Array<string | undefined>;
-  openClient?: () => Promise<unknown>;
+  openClient?: () => Promise<ClientLike>;
   discoverSocket?: () => Promise<{ socketPath: string; source: string }>;
-}): Captured & { deps: Parameters<typeof activateWithDeps>[1] } {
+}): Captured & { deps: ActivateDeps } {
   const ctx: ExtensionContextLike = {
     subscriptions: [],
     workspaceState: new FakeMemento(),
@@ -130,29 +154,14 @@ function makeFixture(opts: {
     },
   };
 
-  const deps: Parameters<typeof activateWithDeps>[1] = {
+  const deps: ActivateDeps = {
     window,
     workspace,
     commands,
     discoverSocket:
-      (opts.discoverSocket as Parameters<typeof activateWithDeps>[1]["discoverSocket"]) ??
-      (async () => ({ socketPath: "/tmp/nimbus-test.sock", source: "default" }) as never),
-    openClient:
-      (opts.openClient as Parameters<typeof activateWithDeps>[1]["openClient"]) ??
-      (async () =>
-        ({
-          close: async () => undefined,
-          subscribeHitl: () => ({ dispose: () => undefined }),
-          askStream: () => ({}),
-          cancelStream: async () => ({ ok: true }),
-          getSessionTranscript: async () => ({
-            sessionId: "",
-            turns: [],
-            hasMore: false,
-          }),
-        }) as unknown as Awaited<
-          ReturnType<NonNullable<Parameters<typeof activateWithDeps>[1]["openClient"]>>
-        >),
+      (opts.discoverSocket as ActivateDeps["discoverSocket"]) ??
+      (async () => ({ socketPath: TEST_SOCKET_PATH, source: "default" }) as never),
+    openClient: opts.openClient ?? makeFakeClient(),
     chatPanelFactory: () => {
       let revealed = 0;
       const disposeListeners: Array<() => void> = [];
@@ -184,7 +193,6 @@ function makeFixture(opts: {
     commandHandlers,
     statusItem,
     outputAppendLines,
-    outputShown,
     get outputShownGetter(): number {
       return outputShown;
     },
@@ -193,7 +201,7 @@ function makeFixture(opts: {
     configChangeHandlers,
     cfgValues,
     deps,
-  } as Captured & { deps: Parameters<typeof activateWithDeps>[1] };
+  } as Captured & { deps: ActivateDeps };
 }
 
 // Wait for the connection manager's `void connection.start()` to settle.
@@ -241,18 +249,7 @@ describe("activateWithDeps", () => {
     }));
     const f = makeFixture({
       inputBoxAnswers: ["what's up?"],
-      openClient: async () =>
-        ({
-          close: async () => undefined,
-          subscribeHitl: () => ({ dispose: () => undefined }),
-          askStream,
-          cancelStream: async () => ({ ok: true }),
-          getSessionTranscript: async () => ({
-            sessionId: "",
-            turns: [],
-            hasMore: false,
-          }),
-        }) as never,
+      openClient: makeFakeClient({ askStream } as Partial<ClientLike>),
     });
     activateWithDeps(f.ctx, f.deps);
     await waitForConnect();
@@ -270,18 +267,7 @@ describe("activateWithDeps", () => {
     const askStream = vi.fn();
     const f = makeFixture({
       inputBoxAnswers: [undefined],
-      openClient: async () =>
-        ({
-          close: async () => undefined,
-          subscribeHitl: () => ({ dispose: () => undefined }),
-          askStream,
-          cancelStream: async () => ({ ok: true }),
-          getSessionTranscript: async () => ({
-            sessionId: "",
-            turns: [],
-            hasMore: false,
-          }),
-        }) as never,
+      openClient: makeFakeClient({ askStream } as Partial<ClientLike>),
     });
     activateWithDeps(f.ctx, f.deps);
     await waitForConnect();
@@ -296,12 +282,11 @@ describe("activateWithDeps", () => {
     const f = makeFixture({});
     activateWithDeps(f.ctx, f.deps);
     await waitForConnect();
-    const before = (f as unknown as { outputShownGetter: number }).outputShownGetter;
+    const before = f.outputShownGetter;
     const handler = f.commandHandlers.get("nimbus.openLogs");
     if (handler === undefined) throw new Error("openLogs handler not registered");
     handler();
-    const after = (f as unknown as { outputShownGetter: number }).outputShownGetter;
-    expect(after).toBeGreaterThan(before);
+    expect(f.outputShownGetter).toBeGreaterThan(before);
   });
 
   test("connecting paints the status bar with the connected text", async () => {
@@ -332,22 +317,17 @@ describe("activateWithDeps", () => {
     }).not.toThrow();
   });
 
-  test("nimbus.startGateway error path surfaces showErrorMessage", async () => {
-    // Make pingSocket never succeed by aiming spawn at a path that won't resolve.
-    // The real auto-starter swallows errors via deps.spawn — for this test we
-    // just verify the error-message branch when spawn returns a 'spawn-error'.
+  test("nimbus.startGateway exercises the auto-starter without throwing", async () => {
+    // The auto-starter spawns `nimbus start`; in the test environment the
+    // command is unlikely to exist, so we expect either timeout or
+    // spawn-error. We only assert the handler resolves cleanly and the
+    // extension's subscriptions stay intact.
     const f = makeFixture({});
     activateWithDeps(f.ctx, f.deps);
     await waitForConnect();
     const handler = f.commandHandlers.get("nimbus.startGateway");
     if (handler === undefined) throw new Error("startGateway handler not registered");
-    // Drive the handler — exercises the auto-starter path. We don't assert
-    // the specific outcome (timeout vs spawn-error depends on host), only
-    // that the handler resolves cleanly without throwing.
     await expect(handler()).resolves.toBeUndefined();
-    // Subscriptions still alive.
     expect(f.ctx.subscriptions.length).toBeGreaterThan(0);
-    // Helper used elsewhere — silence unused-var lint.
-    void ((_d: DisposableLike) => undefined);
   });
 });
