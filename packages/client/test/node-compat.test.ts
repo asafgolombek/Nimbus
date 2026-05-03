@@ -6,7 +6,11 @@
  *
  * This file is inert when NIMBUS_GATEWAY_BIN is not set, so `bun test`
  * (which runs without the env var) discovers it without side effects;
- * CI invokes it explicitly via `node --test` with the env var set.
+ * CI invokes it explicitly via `node --import tsx/esm --test` with
+ * the env var set.
+ *
+ * The import of `../dist/index.js` is dynamic and guarded so `bun test`
+ * does not fail with module-not-found when no build artefacts exist.
  */
 
 import assert from "node:assert/strict";
@@ -16,47 +20,43 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { discoverSocketPath, NimbusClient } from "../dist/index.js";
-
 const GATEWAY_BIN = process.env.NIMBUS_GATEWAY_BIN;
 const STARTUP_TIMEOUT_MS = 15000;
-
-async function waitForSocket(socketPath: string, timeoutMs: number): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const c = await NimbusClient.open({ socketPath });
-      await c.close();
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  }
-  throw new Error(`Gateway socket did not appear within ${timeoutMs}ms: ${socketPath}`);
-}
-
-async function spawnGateway(dataDir: string): Promise<{
-  proc: ChildProcessWithoutNullStreams;
-  socketPath: string;
-}> {
-  if (GATEWAY_BIN === undefined) {
-    throw new Error(
-      "NIMBUS_GATEWAY_BIN env var must point to a built gateway binary or 'bun run packages/gateway/src/index.ts'",
-    );
-  }
-  const env = { ...process.env, NIMBUS_DATA_DIR: dataDir };
-  const proc = spawn(GATEWAY_BIN, [], { env });
-  proc.stdout.on("data", () => undefined);
-  proc.stderr.on("data", () => undefined);
-  // Discover the socket path the gateway will write to its state file
-  const r = await discoverSocketPath();
-  await waitForSocket(r.socketPath, STARTUP_TIMEOUT_MS);
-  return { proc, socketPath: r.socketPath };
-}
 
 if (GATEWAY_BIN === undefined) {
   await test("node-compat (skipped — NIMBUS_GATEWAY_BIN not set)", { skip: true }, () => undefined);
 } else {
+  const { discoverSocketPath, NimbusClient } = (await import(
+    "../dist/index.js"
+  )) as typeof import("../dist/index.js");
+
+  const waitForSocket = async (socketPath: string, timeoutMs: number): Promise<void> => {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const c = await NimbusClient.open({ socketPath });
+        await c.close();
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+    throw new Error(`Gateway socket did not appear within ${timeoutMs}ms: ${socketPath}`);
+  };
+
+  const spawnGateway = async (
+    dataDir: string,
+  ): Promise<{ proc: ChildProcessWithoutNullStreams; socketPath: string }> => {
+    const env = { ...process.env, NIMBUS_DATA_DIR: dataDir };
+    const proc = spawn(GATEWAY_BIN, [], { env });
+    proc.stdout.on("data", () => undefined);
+    proc.stderr.on("data", () => undefined);
+    // Discover the socket path the gateway will write to its state file
+    const r = await discoverSocketPath();
+    await waitForSocket(r.socketPath, STARTUP_TIMEOUT_MS);
+    return { proc, socketPath: r.socketPath };
+  };
+
   await test("connects, askStream yields tokens + done", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "nimbus-nodecompat-"));
     const { proc, socketPath } = await spawnGateway(dataDir);
