@@ -286,7 +286,14 @@ function bootstrap(): void {
   });
 
   window.addEventListener("message", (ev) => {
-    if (!isFromExtensionHost(ev)) return;
+    // Origin verification (Sonar S2819 / CodeQL js/missing-origin-check):
+    // VS Code webviews receive messages from the extension host frame
+    // embedding this iframe. The host sets `event.source === window.parent`
+    // and uses a `vscode-webview://` origin scheme. Reject anything else.
+    // Empty origins are still accepted so legitimate webview test harnesses
+    // (jsdom, etc.) keep working.
+    if (ev.source !== window.parent) return;
+    if (ev.origin.length > 0 && !ev.origin.startsWith("vscode-webview")) return;
     const data = ev.data as ExtensionToWebview;
     if (data === null || typeof data !== "object" || typeof data.type !== "string") return;
     applyMessage(r, data);
@@ -334,21 +341,6 @@ function handleEmptyStateActionClick(target: HTMLElement): void {
   } else if (action === "startGateway") {
     vscode.postMessage({ type: "startGateway" });
   }
-}
-
-/**
- * VS Code webviews receive postMessage events from the extension host frame
- * embedding this iframe. The host sets `event.source === window.parent` and
- * uses an `vscode-webview://` origin (or a webview-prefixed scheme on web).
- * Any message that doesn't satisfy both is from a hostile injected frame
- * and must be dropped before its `data` is applied.
- */
-function isFromExtensionHost(ev: MessageEvent): boolean {
-  if (ev.source !== window.parent) return false;
-  // `event.origin` may be empty in test/sandbox environments; only reject
-  // explicit non-vscode origins so legitimate webview test harnesses still work.
-  if (ev.origin.length > 0 && !ev.origin.startsWith("vscode-webview")) return false;
-  return true;
 }
 
 if (document.readyState === "loading") {
