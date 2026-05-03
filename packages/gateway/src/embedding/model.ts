@@ -1,7 +1,11 @@
-import { env, pipeline } from "@xenova/transformers";
-
 import { processEnvGet } from "../platform/env-access.ts";
 import type { Embedder } from "./types.ts";
+
+// `@xenova/transformers` is loaded lazily inside `createLocalEmbedder` so the
+// onnxruntime-node native addon (libonnxruntime.so) is not dlopen'd at gateway
+// boot — only when an embedder is actually constructed. This lets the gateway
+// start on hosts that lack libonnxruntime when embeddings are disabled
+// (NIMBUS_SKIP_EMBEDDING_RUNTIME=1, [embedding].enabled=false, or no provider).
 
 /**
  * Bumped when the bundled Xenova export or pooling contract changes and old cached ONNX weights must be refreshed.
@@ -40,6 +44,7 @@ function tensorToRowVectors(tensor: {
  * In-process embedder via `@xenova/transformers` (ONNX). First call may download weights into `cacheDir`.
  */
 export async function createLocalEmbedder(options: CreateLocalEmbedderOptions): Promise<Embedder> {
+  const { env, pipeline } = await import("@xenova/transformers");
   const override = processEnvGet("NIMBUS_EMBEDDING_MODEL_DIR");
   env.cacheDir = override !== undefined && override !== "" ? override : options.cacheDir;
 
