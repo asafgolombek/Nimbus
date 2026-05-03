@@ -179,9 +179,7 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
 | `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |
 | `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
-| `docs/manual-smoke-ws5a.md` | WS5-A manual smoke checklist |
-| `docs/manual-smoke-ws5b.md` | WS5-B manual smoke checklist |
-| `docs/manual-smoke-ws5c.md` | WS5-C manual smoke checklist |
+| `docs/release/manual-smoke-v0.1.0.md` | Consolidated pre-`v0.1.0` manual smoke checklist (WS5-A / WS5-B / WS5-C / WS5-D / WS6 / WS7); per-platform results matrix |
 | `packages/ui/src/pages/settings/DataPanel.tsx` | Data panel — Export/Import/Delete wizard launcher with preflight stats |
 | `packages/ui/src/components/settings/data/ExportWizard.tsx` | Export wizard — passphrase gate, zxcvbn, overwrite confirm, progress, seed display |
 | `packages/ui/src/components/settings/data/ImportWizard.tsx` | Import wizard — passphrase + recovery-seed auth, version-compat error handling |
