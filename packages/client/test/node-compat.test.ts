@@ -135,7 +135,14 @@ if (GATEWAY_BIN === undefined) {
     }
   };
 
-  await test("connects, askStream yields tokens + done", {
+  // The CI gateway has no LLM provider configured, so a real askStream call
+  // never produces a `streamDone` on its own — the underlying agent invocation
+  // hangs waiting on an LLM. This test fires `cancel()` after 1 s as a forced
+  // upper bound; it validates the IPC streaming pipe end-to-end (askStream
+  // returns a streamId, the subscription wires up, and a stream-terminating
+  // event flows back through the socket / named pipe). It accepts either
+  // `done` (a real LLM happened to finish) or `error` (cancel-triggered).
+  await test("askStream stream lifecycle (call + cancel + terminal event)", {
     timeout: NODE_TEST_TIMEOUT_MS,
   }, async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "nimbus-nodecompat-"));
@@ -143,18 +150,25 @@ if (GATEWAY_BIN === undefined) {
     try {
       const client = await NimbusClient.open({ socketPath });
       const handle = client.askStream("hello");
-      await withStreamTimeout(
-        'askStream("hello") iteration',
-        (async () => {
-          const events: string[] = [];
-          for await (const ev of handle) {
-            events.push(ev.type);
-            if (ev.type === "done" || ev.type === "error") break;
-          }
-          assert.ok(events.includes("done") || events.includes("error"));
-        })(),
-        diag,
-      );
+      const cancelTimer = setTimeout(() => {
+        handle.cancel().catch(() => undefined);
+      }, 1000);
+      try {
+        await withStreamTimeout(
+          'askStream("hello") iteration',
+          (async () => {
+            const events: string[] = [];
+            for await (const ev of handle) {
+              events.push(ev.type);
+              if (ev.type === "done" || ev.type === "error") break;
+            }
+            assert.ok(events.includes("done") || events.includes("error"));
+          })(),
+          diag,
+        );
+      } finally {
+        clearTimeout(cancelTimer);
+      }
       await client.close();
     } finally {
       proc.kill("SIGTERM");
