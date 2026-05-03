@@ -106,6 +106,23 @@ On Windows, every `CryptProtectData` / `CryptUnprotectData` call passes a per-in
 
 **KDF allowlist procedure.** The importer validates the manifest's KDF parameters against a hardcoded `ACCEPTED_KDF_PROFILES` allowlist before decryption. When tightening the KDF (e.g. raising Argon2id memory or iterations), the **new** profile must be added to the allowlist and shipped in a release **before** any client begins generating exports under it — otherwise older clients fail to import their own backups. Removing an old profile follows the same migration window: ship a release that accepts both, wait one release, then drop the old profile.
 
+#### Vault threat model
+
+The OS-native keystore is **not a barrier against malware running at the user's UID** — it is a barrier against off-host attackers, separate user accounts on a shared machine, and stolen-disk scenarios. Concretely, what each attacker class can do:
+
+| Attacker | Vault access |
+|---|---|
+| Off-host (stolen disk, copied `<configDir>` directory) | None. Linux libsecret blobs are unreadable without the user session; macOS Keychain blobs require the user account; Windows DPAPI blobs are bound to the user-SID + machine-key (the per-installation entropy at `<configDir>/vault/.entropy` raises the bar further — see DPAPI subsection above). |
+| Other UID on the same machine | Cannot read libsecret entries (D-Bus per-session isolation), cannot read macOS Keychain entries (ACL-protected), cannot read DPAPI blobs (key bound to the originating user). |
+| Same UID, separate process (malware, untrusted CLI tool) | Can call `secret-tool lookup` (Linux) or `security find-generic-password` (macOS) directly, bypassing the gateway entirely. The vault is a **soft barrier** at this level. |
+| Frontend renderer (Tauri webview) | Cannot reach the vault — `vault.*` IPC methods are absent from the compile-time `ALLOWED_METHODS` allowlist (invariant `I7`). |
+| Paired LAN peer | Cannot reach the vault — `vault.*` is in the LAN forbidden-method set (invariant `I5`). |
+
+**Acknowledged residual risks within the boundary:**
+
+- Decrypted vault values transit JavaScript strings on the way to the connector subprocess. JS string immutability and the V8 GC schedule mean plaintext lingers in the heap for an unspecified window after use; out of Nimbus's control.
+- A connector child process reads its OAuth access-token from its `process.env` at startup. After Nimbus refreshes the token and writes the new value back to the vault, the **child's** copy in memory is stale until it next re-reads. This is a library-level concern and not unique to Nimbus, but it does mean that token rotation has a per-connector lag.
+
 ---
 
 ### Human-in-the-Loop (HITL) Consent Gate
@@ -144,6 +161,31 @@ When an extension's hash check fails (`verifyExtensionsBestEffort` at startup) o
 The Gateway listens only on a local domain socket (Unix) or named pipe (Windows), created with owner-only permissions (`chmod 0600` on Unix; DACL owner-only on Windows). There is no TCP listener. No Nimbus Gateway port is opened on any network interface.
 
 The optional LAN server (`nimbus lan enable`) and auto-updater (`nimbus update`) are guarded by the structural defenses listed in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md) — the LAN method allowlist (`I5`), loopback bind default (`I6`), and updater signature/version checks. The B1 audit ([`superpowers/specs/2026-04-25-security-audit-results.md`](./superpowers/specs/2026-04-25-security-audit-results.md)) closed the High and Medium findings on these subsystems; remaining Low items are tracked in the [Phase 4 / Phase 7 roadmap entries](./roadmap.md). Production wiring of both features lands once GA prerequisites (signing certs, manifest server, LAN forward-secrecy redesign) are signed off.
+
+#### LAN remote access — trust model
+
+When `nimbus lan enable` is on, the LAN server accepts length-framed TCP connections protected by NaCl box (X25519 ECDH + XSalsa20-Poly1305). The trust establishment model is **explicit pairing**, not transparent discovery:
+
+- Pairing opens a **5-minute window**, gated by a 120-bit base58 pairing code (`randomBytes(15)` → 20 chars). The code is single-use and constant-time-compared. After the window closes, only previously-paired peers can connect.
+- Per-IP rate limiter (`lan-rate-limit.ts`) tracks failed pairing attempts in a sliding window; lockout is automatic after the configured threshold. The limiter is in-memory only — restarting the gateway clears lockouts. Plan a one-time grace if you cycle the gateway during an active attack.
+- A peer's identity is its X25519 public key, persisted in `lan_peers` after successful pairing. **There is no out-of-band binding to the host's identity** beyond the pairing code; a network attacker between peer and gateway during pairing could substitute their own keypair. Mitigation: transmit the pairing code out-of-band (read it aloud, send via SMS, etc.) — never in the same network channel that's being paired.
+- The X25519 keypairs are **long-term per host** with no per-session ephemeral DH layer. There is no forward secrecy: a future compromise of the host's secret key allows decryption of all past LAN sessions captured on the wire. Closing this gap is on the Phase 7 roadmap.
+
+**Attacker capabilities:**
+
+| Attacker | LAN capability |
+|---|---|
+| Network observer (passive) | Cannot decrypt sealed frames; sees only TCP framing and ciphertext sizes. |
+| Network attacker (active, mid-pairing) | Can intercept the pairing handshake and substitute their own pubkey if the pairing code is delivered through the same channel. Out-of-band code transmission is required. |
+| Paired peer without write grant | Read-side methods only (`engine.ask`, `connector.list`, `index.queryItems`, etc.). The forbidden namespaces — `vault.*`, `updater.*`, `lan.*`, `profile.*` — remain blocked regardless of grant. |
+| Paired peer with write grant (`nimbus lan grant-write`) | Can additionally call HITL-gated write methods. The HITL gate still fires on the **host**, so the host user remains the consent authority. |
+| Host running behind NAT / proxy | The rate limiter sees the proxy IP, not the originating peer. A single misbehaving peer behind a shared egress can lock out other legitimate peers. |
+
+**Acknowledged residual risks:**
+
+- No forward secrecy across sessions (Phase 7 redesign).
+- Cross-network pairing relies on out-of-band code transmission.
+- The host identity is implicit (host pubkey is announced post-handshake) — peer-side host pinning is the user's responsibility for now.
 
 #### Updater temp directory cleanup
 
