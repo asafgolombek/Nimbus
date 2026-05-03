@@ -343,4 +343,6 @@ jobs:
           # Skip embedding worker init so the gateway opens its IPC socket within
           # the 15s node-compat startup timeout (otherwise waitUntilReady takes ~180s).
           NIMBUS_SKIP_EMBEDDING_RUNTIME: "1"
-        run: cd packages/client && node --test test/node-compat.test.ts
+        # Node 20 cannot execute .ts files directly. Use `node --import tsx/esm` so the
+        # test runs under the real Node runtime (not Bun) while tsx strips the TS types.
+        run: cd packages/client && node --import tsx/esm --test test/node-compat.test.ts
