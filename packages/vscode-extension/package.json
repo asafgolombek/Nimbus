@@ -3,7 +3,7 @@
   "displayName": "Nimbus",
   "description": "Local-first AI agent for the editor. Ask, search, and run workflows against your private Nimbus index.",
   "version": "0.1.0",
-  "publisher": "nimbus-dev",
+  "publisher": "nimbus-agent",
   "license": "MIT",
   "private": false,
   "engines": {
@@ -29,10 +29,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nimbus-dev/Nimbus"
+    "url": "https://github.com/asafgolombek/Nimbus"
   },
   "bugs": {
-    "url": "https://github.com/nimbus-dev/Nimbus/issues"
+    "url": "https://github.com/asafgolombek/Nimbus/issues"
   },
   "homepage": "https://nimbus.dev/vscode",
   "activationEvents": [

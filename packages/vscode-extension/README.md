@@ -10,8 +10,8 @@ Local-first AI agent for the editor. Ask, search, and run workflows against your
 
 ## Install
 
-VS Code Marketplace: `ext install nimbus-dev.nimbus`
-Open VSX (Cursor, VSCodium): `ext install nimbus-dev.nimbus`
+VS Code Marketplace: `ext install nimbus-agent.nimbus`
+Open VSX (Cursor, VSCodium): `ext install nimbus-agent.nimbus`
 Manual: download the `.vsix` from the GitHub Release and run `code --install-extension nimbus-<ver>.vsix`.
 
 ## Requires
