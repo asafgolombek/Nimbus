@@ -1,5 +1,6 @@
 import type { AgentInvokeHandler } from "../agent-invoke.ts";
 import type { ConsentCoordinatorImpl } from "../consent.ts";
+import type { StreamRegistry } from "../engine-ask-stream.ts";
 import type { WorkflowRunHandler } from "../workflow-invoke.ts";
 import type { CreateIpcServerOptions } from "./options.ts";
 
@@ -18,6 +19,7 @@ export interface ServerCtx {
   readonly options: CreateIpcServerOptions;
   readonly consentImpl: ConsentCoordinatorImpl;
   readonly startedAtMs: number;
+  readonly streamRegistry: StreamRegistry;
   broadcastNotification(method: string, params: Record<string, unknown>): void;
   getAgentInvokeHandler(): AgentInvokeHandler | undefined;
   getWorkflowRunHandler(): WorkflowRunHandler | undefined;

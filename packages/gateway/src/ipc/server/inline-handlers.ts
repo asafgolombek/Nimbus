@@ -10,6 +10,7 @@ import { GatewayAgentUnavailableError } from "../../engine/gateway-agent-error.t
 import { driftHintsFromIndex } from "../../index/drift-hints.ts";
 import type { IndexSearchQuery } from "../../index/local-index.ts";
 import type { AgentInvokeContext } from "../agent-invoke.ts";
+import { type AgentInvokeContextLike, createAskStreamHandler } from "../engine-ask-stream.ts";
 import type { ClientSession } from "../session.ts";
 import type { WorkflowRunContext } from "../workflow-invoke.ts";
 import type { ServerCtx } from "./context.ts";
@@ -263,7 +264,7 @@ export function dispatchEngineAskStream(
   session: ClientSession,
   clientId: string,
   params: unknown,
-): { streamId: string } {
+): Promise<{ streamId: string }> {
   const rec = asRecord(params);
   const input = rec !== undefined && typeof rec["input"] === "string" ? rec["input"] : "";
   const sessionIdRaw = rec?.["sessionId"];
@@ -271,54 +272,42 @@ export function dispatchEngineAskStream(
     typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== ""
       ? sessionIdRaw.trim()
       : undefined;
-  const streamId = randomUUID();
 
-  // Capture-once (same rationale as dispatchAgentInvoke). The async IIFE below
-  // uses this captured local; never re-read the getter inside the IIFE.
+  // Capture-once (same rationale as dispatchAgentInvoke). The factory's
+  // agentInvokeHandler callback uses this captured local; never re-read the
+  // getter inside the async IIFE.
   const handler = ctx.getAgentInvokeHandler();
   if (handler === undefined) {
     throw new RpcMethodError(-32603, "No agent handler configured for engine.askStream");
   }
 
-  // Return streamId immediately so caller can track this stream
-  const sendChunk = (text: string) => {
-    session.writeNotification({
-      jsonrpc: "2.0",
-      method: "engine.streamToken",
-      params: { streamId, text },
-    });
-  };
-  void (async () => {
-    try {
+  const dispatch = createAskStreamHandler({
+    registry: ctx.streamRegistry,
+    randomId: () => randomUUID(),
+    sessionWriteNotification: (n) => session.writeNotification(n),
+    runWithRequestContext: (rc, fn) => {
       const requestStore: AgentRequestContext = {};
-      if (sessionId !== undefined) requestStore.sessionId = sessionId;
-      await agentRequestContext.run(requestStore, async () => {
-        const payload: AgentInvokeContext = {
-          clientId,
-          input,
-          stream: true,
-          sendChunk,
-        };
-        if (sessionId !== undefined) payload.sessionId = sessionId;
-        await handler(payload);
-      });
-      session.writeNotification({
-        jsonrpc: "2.0",
-        method: "engine.streamDone",
-        params: {
-          streamId,
-          meta: { modelUsed: "default", isLocal: false, provider: "remote" },
-        },
-      });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Stream error";
-      session.writeNotification({
-        jsonrpc: "2.0",
-        method: "engine.streamError",
-        params: { streamId, error: message },
-      });
-    }
-  })();
+      if (rc.sessionId !== undefined) requestStore.sessionId = rc.sessionId;
+      return agentRequestContext.run(requestStore, fn);
+    },
+    agentInvokeHandler: async (innerCtx: AgentInvokeContextLike) => {
+      const payload: AgentInvokeContext = {
+        clientId: innerCtx.clientId,
+        input: innerCtx.input,
+        stream: innerCtx.stream,
+        sendChunk: innerCtx.sendChunk ?? (() => undefined),
+      };
+      if (innerCtx.sessionId !== undefined) payload.sessionId = innerCtx.sessionId;
+      // NOTE: signal is intentionally NOT plumbed into AgentInvokeContext yet because
+      // the existing AgentInvokeContext type doesn't support it. That plumbing is a
+      // future task; for now the AbortController only short-circuits sendChunk and
+      // the post-completion done/error notification, which is enough for cancelStream
+      // (Task 9) to terminate observable behaviour.
+      return await handler(payload);
+    },
+  });
 
-  return { streamId };
+  const askParams: { input: string; sessionId?: string } = { input };
+  if (sessionId !== undefined) askParams.sessionId = sessionId;
+  return dispatch(clientId, askParams);
 }

@@ -5,6 +5,9 @@ import { platform } from "node:os";
 
 import type { AgentInvokeHandler } from "../agent-invoke.ts";
 import { ConsentCoordinatorImpl } from "../consent.ts";
+import { createStreamRegistry } from "../engine-ask-stream.ts";
+import { createCancelStreamHandler } from "../engine-cancel-stream.ts";
+import { createGetSessionTranscriptHandler } from "../engine-get-session-transcript.ts";
 import {
   errorResponse,
   isRequest,
@@ -60,6 +63,8 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     return session === undefined ? undefined : (n) => session.writeNotification(n);
   });
 
+  const streamRegistry = createStreamRegistry();
+
   let bunListener: ReturnType<typeof Bun.listen<BunSessionData>> | undefined;
   let netServer: net.Server | undefined;
   let winSockets: Set<net.Socket> = new Set();
@@ -82,6 +87,7 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     options,
     consentImpl,
     startedAtMs,
+    streamRegistry,
     broadcastNotification,
     getAgentInvokeHandler: () => agentInvokeHandler,
     getWorkflowRunHandler: () => workflowRunHandler,
@@ -172,6 +178,18 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
         return rpcAuditList(ctx, params);
       case "engine.askStream":
         return dispatchEngineAskStream(ctx, session, clientId, params);
+      case "engine.cancelStream":
+        return createCancelStreamHandler(ctx.streamRegistry)(params);
+      case "engine.getSessionTranscript": {
+        const li = ctx.options.localIndex;
+        if (li === undefined) {
+          throw new RpcMethodError(
+            -32603,
+            "engine.getSessionTranscript requires a configured local index",
+          );
+        }
+        return await createGetSessionTranscriptHandler(li.rawDb)(params);
+      }
       default:
         return await rpcVaultOrMethodNotFound(ctx, method, params, clientId);
     }
