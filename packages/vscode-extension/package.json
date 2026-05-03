@@ -167,7 +167,7 @@
     "@vscode/test-electron": "^2.4.0",
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.23.0",
-    "jsdom": "^25.0.0",
+    "jsdom": "^29.1.1",
     "ovsx": "^0.10.0",
     "typescript": "^6.0.3",
     "vitest": "^2.0.0"
