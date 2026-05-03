@@ -4,11 +4,11 @@ import { join as joinPosix } from "node:path/posix";
 
 /** Per-platform Nimbus paths. Pure node:* + process.env — no Bun-only APIs. */
 export type NimbusPaths = {
-  configDir: string;
-  dataDir: string;
-  logDir: string;
-  socketPath: string;
-  extensionsDir: string;
+  readonly configDir: string;
+  readonly dataDir: string;
+  readonly logDir: string;
+  readonly socketPath: string;
+  readonly extensionsDir: string;
 };
 
 function envOrEmpty(key: string): string {

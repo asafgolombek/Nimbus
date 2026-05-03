@@ -40,6 +40,13 @@ describe("getNimbusPaths per platform", () => {
     expect(() => getNimbusPaths()).toThrow(/APPDATA/);
   });
 
+  test("win32 throws when LOCALAPPDATA missing", () => {
+    setPlatform("win32");
+    process.env.APPDATA = "C:\\Users\\u\\AppData\\Roaming";
+    delete process.env.LOCALAPPDATA;
+    expect(() => getNimbusPaths()).toThrow(/LOCALAPPDATA/);
+  });
+
   test("win32 returns named pipe socketPath", () => {
     setPlatform("win32");
     process.env.APPDATA = "C:\\Users\\u\\AppData\\Roaming";
@@ -52,7 +59,7 @@ describe("getNimbusPaths per platform", () => {
     setPlatform("darwin");
     process.env.TMPDIR = "/var/folders/xx/T/";
     const p = getNimbusPaths();
-    expect(p.socketPath.endsWith("nimbus-gateway.sock")).toBe(true);
+    expect(p.socketPath).toBe("/var/folders/xx/T/nimbus-gateway.sock");
   });
 
   test("linux honors XDG_RUNTIME_DIR", () => {
