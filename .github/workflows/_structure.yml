@@ -6,7 +6,7 @@ name: Structure audit
 #
 # Ubuntu-only by design: every gate is static analysis with zero OS variance.
 # The platform-equality non-negotiable is a runtime property
-# (spec § 6.1, 2026-04-30-structure-audit-design.md).
+# (B3 structure audit design § 6.1).
 #
 # NOT YET wired into ci.yml — current main has 5 D10 + 56 D11 violations
 # (Phase 2 missed.md). The last top-5 fix PR (Phase 3) wires this once

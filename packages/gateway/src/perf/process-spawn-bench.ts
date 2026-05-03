@@ -10,7 +10,7 @@
  *
  * A timeout (default 30 s) protects against a hung child.
  *
- * See docs/superpowers/specs/2026-04-26-perf-audit-design.md §3.2 (S1, S4,
+ * See the B2 perf audit design §3.2 (S1, S4,
  * S11 surfaces) and the PR-B-2a plan for the call sites.
  */
 

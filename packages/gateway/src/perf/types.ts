@@ -1,6 +1,6 @@
 /**
  * Shared types for the perf bench harness (Phase 1A scaffolding).
- * See docs/superpowers/specs/2026-04-26-perf-audit-design.md §3 for the
+ * See the B2 perf audit design §3 for the
  * surface table this serves.
  */
 

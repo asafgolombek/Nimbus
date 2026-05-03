@@ -2,7 +2,7 @@
 
 **Generated at commit:** `4cc006544d7da49fd359f550e32e17a4c6dba82a`
 **Date:** 2026-05-01
-**Phase 2 of:** [`docs/superpowers/specs/2026-04-30-structure-audit-design.md`](../superpowers/specs/2026-04-30-structure-audit-design.md)
+**Phase 2 of:** B3 structure audit (2026-04-30)
 **Baseline:** [`docs/structure-audit/baseline.md`](./baseline.md)
 
 This file ranks every Phase 2 threshold violation against the Phase 1 baseline,
@@ -26,11 +26,11 @@ Slots 4 and 5 are intentionally unused — no other dimension produced a
 cost-≤-2 candidate. The 3-plan layout is the smaller blast radius: one plan
 per dimension keeps each PR's scope auditable.
 
-| Slot | Group | Score | Confidence | Fix plan |
+| Slot | Group | Score | Confidence | Status |
 |---|---|---|---|---|
-| 1 | D10 — sync-connector spawns (5 sites) | 5/1 = **5.0** | High | [`2026-05-01-structure-fixes-d10-sync-connector-spawn.md`](../superpowers/plans/2026-05-01-structure-fixes-d10-sync-connector-spawn.md) |
-| 2 | D11 Bucket A — comment-based opt-out (20 false-positive sites) | 5/1 = **5.0** | High | [`2026-05-01-structure-fixes-d11-bucket-a-fp-suppression.md`](../superpowers/plans/2026-05-01-structure-fixes-d11-bucket-a-fp-suppression.md) |
-| 3 | D7 Bucket A — 6-file orphan deletion | 1/1 = **1.0** | Medium | [`2026-05-01-structure-fixes-d7-orphan-deletion.md`](../superpowers/plans/2026-05-01-structure-fixes-d7-orphan-deletion.md) |
+| 1 | D10 — sync-connector spawns (5 sites) | 5/1 = **5.0** | High | ✅ shipped (structure-fixes-d10) |
+| 2 | D11 Bucket A — comment-based opt-out (20 false-positive sites) | 5/1 = **5.0** | High | ✅ shipped (structure-fixes-d11-bucket-a) |
+| 3 | D7 Bucket A — 6-file orphan deletion | 1/1 = **1.0** | Medium | ✅ shipped (structure-fixes-d7-orphan-deletion) |
 | 4 | _(unused — no cost-≤-2 candidate available)_ | — | — | — |
 | 5 | _(unused — no cost-≤-2 candidate available)_ | — | — | — |
 

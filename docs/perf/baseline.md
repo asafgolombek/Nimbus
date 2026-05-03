@@ -5,7 +5,7 @@
 > - **Reference-machine runs** (M1 Air) → committed to [`docs/perf/history.jsonl`](./history.jsonl).
 > - **GHA runs** (Ubuntu / macOS / Windows) → workflow artifacts on the [Performance Benchmarks workflow](https://github.com/asafgolombek/Nimbus/actions/workflows/_perf.yml) (90-day retention).
 >
-> Spec source: [`docs/superpowers/specs/2026-04-26-perf-audit-design.md`](../superpowers/specs/2026-04-26-perf-audit-design.md) §4.7.
+> Source spec: Phase 4 perf audit design (B2), §4.7.
 
 ## Reference baseline (M1 Air)
 

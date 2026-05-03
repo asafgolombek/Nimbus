@@ -1219,7 +1219,7 @@ Every structural defense Nimbus relies on is documented as a **security invarian
 
 This pairing exists because the B1 audit (Phase 4 internal audit, 2026-04-25) found that several defenses (`extensionProcessEnv`, `checkLanMethodAllowed`, the `<tool_output>` envelope) were **defined in code but had zero production callers** — orphaned helpers that documentation continued to claim as active. The invariants file + enforcement test are how that gap is prevented from recurring: if a defense has no caller, the test fails.
 
-B1 produced 78 unique findings (no Critical) across 8 trust surfaces; all High and Medium items have been closed. Three Low findings remain scoped to Phase 4 as pre-`v0.1.0` blockers — Tauri-native file picker for `data.import` (S4-F6), profile-switch broadcast refactor (S4-F8), and updater production wiring (S6-F1) — and are tracked in [`docs/roadmap.md`](./roadmap.md#security-audit-follow-ups-b1). The summary, threat model, and full per-surface findings live under [`docs/SECURITY.md`](./SECURITY.md#security-audits) and `docs/superpowers/specs/2026-04-25-security-audit-{results,threat-model}.md`.
+B1 produced 78 unique findings (no Critical) across 8 trust surfaces; all High and Medium items have been closed. Three Low findings remain scoped to Phase 4 as pre-`v0.1.0` blockers — Tauri-native file picker for `data.import` (S4-F6), profile-switch broadcast refactor (S4-F8), and updater production wiring (S6-F1) — and are tracked in [`docs/roadmap.md`](./roadmap.md#security-audit-follow-ups-b1). The audit summary, Vault threat surface, LAN trust model, and acknowledged residual risks live in [`docs/SECURITY.md`](./SECURITY.md#security-audits).
 
 A new structural defense lands as a *triple*: the production wiring, an entry in the invariants file, and an assertion in the test. If any of the three is missing, the defense is not yet real.
 
@@ -1357,8 +1357,7 @@ nimbus/
 │   ├── SECURITY.md
 │   ├── roadmap.md
 │   ├── CONTRIBUTING.md
-│   ├── CODE_OF_CONDUCT.md
-│   └── phase-4-plan.md         ← Phase 4 implementation plan
+│   └── CODE_OF_CONDUCT.md
 │
 ├── bunfig.toml
 └── package.json                ← Bun workspace root

@@ -1022,7 +1022,7 @@ nimbus bench --all --gha --corpus medium             # Every registered surface
 | `--history <path>` | `history.jsonl` override — defaults to `packages/gateway/src/perf/history.jsonl` |
 | `--fixture-cache <p>` | Fixture cache directory override |
 
-The harness writes a structured `HistoryLine` per surface/run to `history.jsonl`. Surface implementations live under `packages/gateway/src/perf/surfaces/`; the bench runner is `packages/gateway/src/perf/bench-runner.ts`. See [`docs/superpowers/specs/2026-04-26-perf-audit-design.md`](./superpowers/specs/2026-04-26-perf-audit-design.md) for the surface table and acceptance protocol.
+The harness writes a structured `HistoryLine` per surface/run to `history.jsonl`. Surface implementations live under `packages/gateway/src/perf/surfaces/`; the bench runner is `packages/gateway/src/perf/bench-runner.ts`. The surface table and SLO thresholds live in [`docs/perf/slo.md`](./perf/slo.md) + [`docs/perf/baseline.md`](./perf/baseline.md).
 
 ---
 

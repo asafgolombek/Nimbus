@@ -285,9 +285,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 **Goal:** Give Nimbus a face, a local AI backbone that requires no cloud API key, and the trust foundations needed for a public `v0.1.0` release.
 
-> Full implementation plan with task breakdown, file locations, and per-workstream acceptance criteria: [`docs/phase-4-plan.md`](./phase-4-plan.md)
-
-> **Release gate:** `v0.1.0` is tagged only after all Phase 4 acceptance criteria pass on all three platforms. This phase owns the `v0.1.0` milestone.
+> **Release gate:** `v0.1.0` is tagged only after all Phase 4 acceptance criteria pass on all three platforms. This phase owns the `v0.1.0` milestone. The end-to-end pre-release manual smoke checklist lives at [`docs/release/manual-smoke-v0.1.0.md`](./release/manual-smoke-v0.1.0.md).
 
 ### Dependencies
 
@@ -385,7 +383,7 @@ These items resolve deferred decisions from Phase 3.
 
 ### Security audit follow-ups (B1)
 
-Items deferred from the [Phase 4 security audit (B1)](./superpowers/specs/2026-04-25-security-audit-results.md). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain scoped to Phase 4 because they are pre-`v0.1.0` blockers.
+Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain scoped to Phase 4 because they are pre-`v0.1.0` blockers.
 
 - [ ] **Tauri-native file picker for `data.import` (S4-F6)** — replace the renderer-supplied `path` string with a Rust-side native dialog so the gateway never trusts a caller-controlled filesystem path; folds into the same UI-rebuild PR as the existing `extension.install` path-validation work (S4-F5 / S7-F7)
 - [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6
@@ -578,7 +576,7 @@ These items resolve deferred decisions from Phase 3.
 
 ### Security audit follow-ups (B1)
 
-Items deferred from the [Phase 4 security audit (B1)](./superpowers/specs/2026-04-25-security-audit-results.md) that fit naturally with Phase 5's hardening pass.
+Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fit naturally with Phase 5's hardening pass.
 
 - [ ] **Typed `dbRun` / `dbExec` migration (S5-F4)** — convert the 79 production `db.run()` call sites to the centralised typed wrapper used by `db/write.ts` so every SQL execution path goes through the `SQLITE_FULL` / `DiskFullError` translation layer; tracked separately from the high-throughput refactor work because the change touches every package
 - [ ] **Structured tool-call result auditing (S8-F10)** — capture each MCP tool call's full `output` (subject to `redactPayloadForConsentDisplay`) into a new `tool_call_log` table so post-incident forensics can reconstruct the exact data that flowed back to the LLM; complements the Phase 4 `<tool_output>` envelope by recording the envelope's contents at audit time
@@ -726,7 +724,7 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 
 ### Core — LAN Hardening (deferred from Phase 4 B1 audit)
 
-- [ ] **LAN forward secrecy (S3-F8)** — replace the static X25519 pairing identity with per-session ephemeral DH so a future pairing-key compromise cannot decrypt past LAN sessions; multi-PR handshake redesign incompatible with the v0.1.0 LAN protocol — gated on a versioned LAN handshake bump; tracked from the [Phase 4 security audit (B1)](./superpowers/specs/2026-04-25-security-audit-results.md)
+- [ ] **LAN forward secrecy (S3-F8)** — replace the static X25519 pairing identity with per-session ephemeral DH so a future pairing-key compromise cannot decrypt past LAN sessions; multi-PR handshake redesign incompatible with the v0.1.0 LAN protocol — gated on a versioned LAN handshake bump; tracked from the Phase 4 internal security audit (B1, 2026-04-25)
 
 ### Stretch — Local Model Fine-Tuning
 

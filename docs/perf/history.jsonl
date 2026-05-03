@@ -1,1 +1,1 @@
-{"schema_version":1,"_comment":"Perf bench history. Schema in packages/gateway/src/perf/history-line.ts. Reference-machine runs only; GHA runs upload artifacts. See docs/superpowers/specs/2026-04-26-perf-audit-design.md §4.4."}
+{"schema_version":1,"_comment":"Perf bench history. Schema in packages/gateway/src/perf/history-line.ts. Reference-machine runs only; GHA runs upload artifacts."}
