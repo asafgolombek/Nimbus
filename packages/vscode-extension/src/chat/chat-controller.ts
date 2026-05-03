@@ -1,4 +1,4 @@
-import type { AskStreamHandle, AskStreamOptions } from "@nimbus-dev/client";
+import type { AskStreamHandle, AskStreamOptions, StreamEvent } from "@nimbus-dev/client";
 
 import type { Logger } from "../logging.js";
 import type { ChatPanel } from "./chat-panel.js";
@@ -32,15 +32,6 @@ export interface ChatController {
   rehydrateIfNeeded(limit: number): Promise<void>;
   isStreaming(): boolean;
 }
-
-type StreamEvent =
-  Awaited<ReturnType<AskStreamHandle[typeof Symbol.asyncIterator]>["next"]> extends {
-    value: infer V;
-  }
-    ? V extends undefined
-      ? never
-      : V
-    : never;
 
 function buildAskStreamOptions(
   sessionStore: SessionStore,
