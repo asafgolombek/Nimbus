@@ -30,7 +30,20 @@ if (GATEWAY_BIN === undefined) {
     "../dist/index.js"
   )) as typeof import("../dist/index.js");
 
-  const waitForSocket = async (socketPath: string, timeoutMs: number): Promise<void> => {
+  type ProcDiagnostics = {
+    stdout: string;
+    stderr: string;
+    exitCode: number | null;
+    exitSignal: NodeJS.Signals | null;
+  };
+
+  const tail = (s: string): string => (s.length > 4000 ? `${s.slice(-4000)}\n[…truncated]` : s);
+
+  const waitForSocket = async (
+    socketPath: string,
+    timeoutMs: number,
+    diag: () => ProcDiagnostics,
+  ): Promise<void> => {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       try {
@@ -41,7 +54,14 @@ if (GATEWAY_BIN === undefined) {
         await new Promise((r) => setTimeout(r, 200));
       }
     }
-    throw new Error(`Gateway socket did not appear within ${timeoutMs}ms: ${socketPath}`);
+    const d = diag();
+    throw new Error(
+      `Gateway socket did not appear within ${timeoutMs}ms: ${socketPath}\n` +
+        `  exitCode=${d.exitCode} exitSignal=${d.exitSignal}\n` +
+        `  --- gateway stdout ---\n${tail(d.stdout) || "(empty)"}\n` +
+        `  --- gateway stderr ---\n${tail(d.stderr) || "(empty)"}\n` +
+        `  ----------------------`,
+    );
   };
 
   const spawnGateway = async (
@@ -49,11 +69,31 @@ if (GATEWAY_BIN === undefined) {
   ): Promise<{ proc: ChildProcessWithoutNullStreams; socketPath: string }> => {
     const env = { ...process.env, NIMBUS_DATA_DIR: dataDir };
     const proc = spawn(GATEWAY_BIN, [], { env });
-    proc.stdout.on("data", () => undefined);
-    proc.stderr.on("data", () => undefined);
+    let stdout = "";
+    let stderr = "";
+    let exitCode: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
+    proc.stdout.setEncoding("utf8");
+    proc.stderr.setEncoding("utf8");
+    proc.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    proc.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    proc.on("exit", (code, signal) => {
+      exitCode = code;
+      exitSignal = signal;
+    });
+    const diag = (): ProcDiagnostics => ({ stdout, stderr, exitCode, exitSignal });
     // Discover the socket path the gateway will write to its state file
     const r = await discoverSocketPath();
-    await waitForSocket(r.socketPath, STARTUP_TIMEOUT_MS);
+    try {
+      await waitForSocket(r.socketPath, STARTUP_TIMEOUT_MS, diag);
+    } catch (err) {
+      proc.kill("SIGTERM");
+      throw err;
+    }
     return { proc, socketPath: r.socketPath };
   };
 
