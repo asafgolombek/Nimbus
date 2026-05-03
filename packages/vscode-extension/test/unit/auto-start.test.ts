@@ -36,21 +36,21 @@ describe("AutoStarter.spawn", () => {
   test("returns success when socket appears within timeout", async () => {
     const deps = makeDeps({ socketAppearsAfterMs: 20 });
     const starter = createAutoStarter(deps);
-    const r = await starter.spawn("/tmp/x.sock");
+    const r = await starter.spawn("/run/nimbus-test/x.sock");
     expect(r.kind).toBe("ok");
   });
 
   test("returns timeout when socket never appears", async () => {
     const deps = makeDeps({ socketAppearsAfterMs: 99999 });
     const starter = createAutoStarter(deps);
-    const r = await starter.spawn("/tmp/x.sock");
+    const r = await starter.spawn("/run/nimbus-test/x.sock");
     expect(r.kind).toBe("timeout");
   });
 
   test("returns spawn-error when binary not found", async () => {
     const deps = makeDeps({ spawnFails: true });
     const starter = createAutoStarter(deps);
-    const r = await starter.spawn("/tmp/x.sock");
+    const r = await starter.spawn("/run/nimbus-test/x.sock");
     expect(r.kind).toBe("spawn-error");
   });
 });

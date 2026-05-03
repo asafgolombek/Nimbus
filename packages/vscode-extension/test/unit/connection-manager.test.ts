@@ -37,7 +37,7 @@ function makeDeps(opts: { openSequence: Array<"ok" | "eacces" | "enoent"> }): {
       return new FakeClient() as unknown as never;
     },
     discoverSocket: async () => ({
-      socketPath: "/tmp/test.sock",
+      socketPath: "/run/nimbus-test/test.sock",
       source: "default" as const,
     }),
     log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -73,7 +73,10 @@ describe("ConnectionManager", () => {
         err.code = "EACCES";
         throw err;
       },
-      discoverSocket: async () => ({ socketPath: "/tmp/x.sock", source: "default" as const }),
+      discoverSocket: async () => ({
+        socketPath: "/run/nimbus-test/x.sock",
+        source: "default" as const,
+      }),
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
       reconnectDelayMs: 1000,
     };
@@ -84,7 +87,7 @@ describe("ConnectionManager", () => {
     const last = states.at(-1);
     expect(last?.kind).toBe("permission-denied");
     if (last?.kind === "permission-denied") {
-      expect(last.socketPath).toBe("/tmp/x.sock");
+      expect(last.socketPath).toBe("/run/nimbus-test/x.sock");
     }
     await mgr.dispose();
   });
@@ -102,7 +105,10 @@ describe("ConnectionManager", () => {
           }
           return new FakeClient() as unknown as never;
         },
-        discoverSocket: async () => ({ socketPath: "/tmp/y.sock", source: "default" as const }),
+        discoverSocket: async () => ({
+          socketPath: "/run/nimbus-test/y.sock",
+          source: "default" as const,
+        }),
         log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
         reconnectDelayMs: 1,
       };

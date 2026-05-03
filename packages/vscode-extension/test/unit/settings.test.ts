@@ -31,7 +31,7 @@ describe("Settings", () => {
   test("returns user-set values", () => {
     const s = createSettings(
       makeWorkspace({
-        socketPath: "/tmp/custom.sock",
+        socketPath: "/run/nimbus-test/custom.sock",
         autoStartGateway: true,
         statusBarPollMs: 5000,
         transcriptHistoryLimit: 200,
@@ -40,7 +40,7 @@ describe("Settings", () => {
         logLevel: "debug",
       }),
     );
-    expect(s.socketPath()).toBe("/tmp/custom.sock");
+    expect(s.socketPath()).toBe("/run/nimbus-test/custom.sock");
     expect(s.autoStartGateway()).toBe(true);
     expect(s.statusBarPollMs()).toBe(5000);
     expect(s.transcriptHistoryLimit()).toBe(200);

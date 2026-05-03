@@ -4,7 +4,7 @@ import { formatStatusBar, type StatusBarInputs } from "../../src/status-bar/stat
 
 function inputs(p: Partial<StatusBarInputs> = {}): StatusBarInputs {
   return {
-    connection: { kind: "connected", socketPath: "/tmp/s" },
+    connection: { kind: "connected", socketPath: "/run/nimbus-test/s" },
     profile: "work",
     degradedConnectorCount: 0,
     degradedConnectorNames: [],
