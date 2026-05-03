@@ -36,16 +36,29 @@ beforeEach(() => {
   ipc = new FakeIpc();
 });
 
+/**
+ * Start an askStream and begin draining events. Awaits two microtasks so the
+ * `engine.askStream` call resolves and the notification handlers are wired up
+ * before the caller starts emitting notifications.
+ */
+async function startAndDrain(ipcInstance: FakeIpc): Promise<{
+  handle: ReturnType<typeof createAskStream>;
+  events: StreamEvent[];
+  drain: Promise<void>;
+}> {
+  const handle = createAskStream(ipcInstance as never, "hello");
+  const events: StreamEvent[] = [];
+  const drain = (async () => {
+    for await (const ev of handle) events.push(ev);
+  })();
+  await Promise.resolve();
+  await Promise.resolve();
+  return { handle, events, drain };
+}
+
 describe("askStream", () => {
   test("yields token then done events in order", async () => {
-    const handle = createAskStream(ipc as never, "hello");
-    const events: StreamEvent[] = [];
-    const drain = (async () => {
-      for await (const ev of handle) events.push(ev);
-    })();
-    // Wait one microtask so engine.askStream resolves
-    await Promise.resolve();
-    await Promise.resolve();
+    const { events, drain } = await startAndDrain(ipc);
     ipc.emit("engine.streamToken", { streamId: "stream-1", text: "hi" });
     ipc.emit("engine.streamToken", { streamId: "stream-1", text: " there" });
     ipc.emit("engine.streamDone", {
@@ -59,13 +72,7 @@ describe("askStream", () => {
   });
 
   test("ignores notifications for a different streamId", async () => {
-    const handle = createAskStream(ipc as never, "hello");
-    const events: StreamEvent[] = [];
-    const drain = (async () => {
-      for await (const ev of handle) events.push(ev);
-    })();
-    await Promise.resolve();
-    await Promise.resolve();
+    const { events, drain } = await startAndDrain(ipc);
     ipc.emit("engine.streamToken", { streamId: "stream-OTHER", text: "nope" });
     ipc.emit("engine.streamToken", { streamId: "stream-1", text: "yes" });
     ipc.emit("engine.streamDone", { streamId: "stream-1" });
@@ -75,13 +82,7 @@ describe("askStream", () => {
   });
 
   test("error event terminates iterator", async () => {
-    const handle = createAskStream(ipc as never, "hello");
-    const events: StreamEvent[] = [];
-    const drain = (async () => {
-      for await (const ev of handle) events.push(ev);
-    })();
-    await Promise.resolve();
-    await Promise.resolve();
+    const { events, drain } = await startAndDrain(ipc);
     ipc.emit("engine.streamError", {
       streamId: "stream-1",
       code: "boom",
@@ -92,13 +93,7 @@ describe("askStream", () => {
   });
 
   test("cancel() calls engine.cancelStream and terminates iterator", async () => {
-    const handle = createAskStream(ipc as never, "hello");
-    const events: StreamEvent[] = [];
-    const drain = (async () => {
-      for await (const ev of handle) events.push(ev);
-    })();
-    await Promise.resolve();
-    await Promise.resolve();
+    const { handle, drain } = await startAndDrain(ipc);
     await handle.cancel();
     await drain;
     const cancelCall = ipc.calls.find((c) => c.method === "engine.cancelStream");
@@ -107,13 +102,7 @@ describe("askStream", () => {
   });
 
   test("subTaskProgress and hitlBatch events flow through", async () => {
-    const handle = createAskStream(ipc as never, "hello");
-    const events: StreamEvent[] = [];
-    const drain = (async () => {
-      for await (const ev of handle) events.push(ev);
-    })();
-    await Promise.resolve();
-    await Promise.resolve();
+    const { events, drain } = await startAndDrain(ipc);
     ipc.emit("agent.subTaskProgress", {
       streamId: "stream-1",
       subTaskId: "st1",

@@ -104,15 +104,16 @@ if (GATEWAY_BIN === undefined) {
       const client = await NimbusClient.open({ socketPath });
       const handle = client.askStream("long-running");
       setTimeout(() => {
-        void handle.cancel();
+        handle.cancel().catch(() => undefined);
       }, 50);
       const events: string[] = [];
       for await (const ev of handle) {
         events.push(ev.type);
         if (events.length > 100) break;
       }
-      // Either we got an explicit error (cancelled) or done before timeout
-      assert.ok(events.length >= 0);
+      // Cancellation should terminate the iterator gracefully — well under
+      // the 100-event manual safety break.
+      assert.ok(events.length <= 100);
       await client.close();
     } finally {
       proc.kill("SIGTERM");

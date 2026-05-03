@@ -115,7 +115,7 @@ export function createAskStream(
     const params: Record<string, unknown> = { input };
     if (opts.sessionId !== undefined) params["sessionId"] = opts.sessionId;
     if (opts.agent !== undefined) params["agent"] = opts.agent;
-    const result = (await ipc.call("engine.askStream", params)) as { streamId?: string };
+    const result = await ipc.call<{ streamId?: string }>("engine.askStream", params);
     const sid = result?.streamId;
     if (typeof sid !== "string") {
       push({ type: "error", code: "no_stream_id", message: "Gateway returned no streamId" });
