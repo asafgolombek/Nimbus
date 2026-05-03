@@ -17,6 +17,7 @@
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { connect as netConnect } from "node:net";
 
 import { discoverSocketPath, type HitlRequest, NimbusClient } from "@nimbus-dev/client";
@@ -155,22 +156,116 @@ export function activateWithDeps(
       log,
       agent: () => settings.askAgent(),
     });
+    // Webview-to-extension router. The webview posts WebviewToExtension messages
+    // (chat-protocol.ts); we dispatch each to the right surface. Unknown shapes
+    // are dropped silently — the webview can never make the extension panic.
+    panel.onMessage((msg) => {
+      if (msg === null || typeof msg !== "object") return;
+      const m = msg as Record<string, unknown>;
+      const t = m["type"];
+      if (typeof t !== "string") return;
+      void handleWebviewMessage(t, m);
+    });
     panel.onDispose(() => {
       chatController = undefined;
+      // Resolve any in-flight inline-HITL promises so the router doesn't hang.
+      for (const [, resolve] of pendingInlineHitl) resolve(undefined);
+      pendingInlineHitl.clear();
     });
     return chatController;
   };
 
+  // Per-message handlers. Each is small and self-contained so the dispatch
+  // function below stays under Sonar's cognitive-complexity gate.
+  const onReady = (): void => {
+    void chatController?.rehydrateIfNeeded(settings.transcriptHistoryLimit());
+  };
+
+  const onSubmitAsk = async (msg: Record<string, unknown>): Promise<void> => {
+    const text = m_str(msg, "text").trim();
+    if (text.length === 0) return;
+    const ctl = ensureChatController();
+    if (ctl === undefined) return;
+    try {
+      await ctl.start(text);
+    } catch (e) {
+      log.error(`submitAsk failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const onStopStream = async (): Promise<void> => {
+    try {
+      await chatController?.stop();
+    } catch (e) {
+      log.warn(`stopStream failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const onHitlResponse = (msg: Record<string, unknown>): void => {
+    const requestId = m_str(msg, "requestId");
+    const decision = m_str(msg, "decision");
+    if (requestId.length === 0) return;
+    const resolver = pendingInlineHitl.get(requestId);
+    if (resolver === undefined) return;
+    pendingInlineHitl.delete(requestId);
+    const valid = decision === "approve" || decision === "reject";
+    resolver(valid ? decision : undefined);
+  };
+
+  const onOpenExternal = async (msg: Record<string, unknown>): Promise<void> => {
+    const url = m_str(msg, "url");
+    if (url.length === 0) return;
+    try {
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    } catch (e) {
+      log.warn(`openExternal failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // Dispatch table — keeps the typeof-string switch out of the if/else
+  // hot path Sonar measures. Unknown types are silently ignored.
+  const messageHandlers: Record<string, (msg: Record<string, unknown>) => unknown> = {
+    ready: onReady,
+    requestRehydrate: onReady,
+    submitAsk: onSubmitAsk,
+    stopStream: onStopStream,
+    hitlResponse: onHitlResponse,
+    openLogs: () => out.show(true),
+    startGateway: () => deps.commands.executeCommand("nimbus.startGateway"),
+    openExternal: onOpenExternal,
+  };
+
+  const handleWebviewMessage = async (
+    type: string,
+    msg: Record<string, unknown>,
+  ): Promise<void> => {
+    const handler = messageHandlers[type];
+    if (handler === undefined) return;
+    await handler(msg);
+  };
+
   // -----------------------------------------------------------------------
-  // HITL router. The inline rich surface depends on the chat webview UI
-  // landing in a follow-up; until then inline degrades to the toast surface.
+  // Inline-HITL surface. When the chat panel is visible and focused the
+  // router calls `showInline` instead of falling through to the toast/modal.
+  // The pending-resolvers map is shared with `handleWebviewMessage` (above)
+  // so a `hitlResponse` from the webview resolves the right promise.
+  const pendingInlineHitl = new Map<string, (d: HitlDecision | undefined) => void>();
+  const showInlineInWebview = createInlineHitlSurface({
+    getPanel: () => chatPanelFactory.current(),
+    pending: pendingInlineHitl,
+    fallback: createToastSurface(deps.window),
+  });
+
+  // -----------------------------------------------------------------------
+  // HITL router — inline surface routes through the webview when the chat
+  // panel is up; toast/modal otherwise.
   const hitlRouter = createHitlRouter({
     chatPanelVisibleAndFocused: () => {
       const p = chatPanelFactory.current();
       return p?.isVisible() === true && p.isActive();
     },
     streamRegistered: (streamId) => registeredHitlStreams.has(streamId),
-    showInline: createToastSurface(deps.window),
+    showInline: showInlineInWebview,
     showToast: createToastSurface(deps.window),
     showModal: createModalSurface(deps.window),
     sendResponse: async (requestId, decision) => {
@@ -410,6 +505,50 @@ async function sendConsentResponse(
   await ipc.call("consent.respond", { requestId, decision });
 }
 
+/** Read a string field off an unknown-shaped record; "" when absent or wrong type. */
+function m_str(msg: Record<string, unknown>, key: string): string {
+  const v = msg[key];
+  return typeof v === "string" ? v : "";
+}
+
+/**
+ * Webview-routed HITL surface. The returned function posts a `hitlInline`
+ * message to the chat panel and resolves the promise once the matching
+ * `hitlResponse` arrives — the resolver is parked in the shared `pending`
+ * map keyed by requestId so the panel's onMessage handler (in
+ * `handleWebviewMessage`) can find it. When no panel is mounted the
+ * surface delegates to `fallback` so HITL never goes silent.
+ *
+ * Exported so the round-trip is unit-testable without driving the full
+ * `activateWithDeps` flow.
+ */
+export interface InlineHitlReq {
+  requestId: string;
+  prompt: string;
+  details?: unknown;
+}
+
+export function createInlineHitlSurface(args: {
+  getPanel: () => ChatPanel | undefined;
+  pending: Map<string, (d: HitlDecision | undefined) => void>;
+  fallback: (req: InlineHitlReq) => Promise<HitlDecision | undefined>;
+}): (req: InlineHitlReq) => Promise<HitlDecision | undefined> {
+  return async (req) => {
+    const panel = args.getPanel();
+    if (panel === undefined) return await args.fallback(req);
+    return await new Promise<HitlDecision | undefined>((resolve) => {
+      args.pending.set(req.requestId, resolve);
+      const payload: Record<string, unknown> = {
+        type: "hitlInline",
+        requestId: req.requestId,
+        prompt: req.prompt,
+      };
+      if (req.details !== undefined) payload["details"] = req.details;
+      void panel.postMessage(payload);
+    });
+  };
+}
+
 /** Best-effort socket reachability probe used by the auto-starter. */
 async function pingSocket(socketPath: string): Promise<boolean> {
   if (socketPath.length === 0) return false;
@@ -440,6 +579,11 @@ async function pingSocket(socketPath: string): Promise<boolean> {
  */
 function createRealChatPanelFactory(log: Logger): ChatPanelFactory {
   let current: ChatPanel | undefined;
+  // The bundle layout produced by esbuild + .vscodeignore is:
+  //   <ext>/dist/extension.js   ← __dirname here
+  //   <ext>/media/webview.{js,css}
+  // so the media root is one level above __dirname.
+  const mediaRoot = vscode.Uri.joinPath(vscode.Uri.file(__dirname), "..", "media");
 
   return {
     createOrReveal(): ChatPanel {
@@ -451,9 +595,13 @@ function createRealChatPanelFactory(log: Logger): ChatPanelFactory {
         "nimbus.chat",
         "Nimbus",
         vscode.ViewColumn.Beside,
-        { enableScripts: true, retainContextWhenHidden: true },
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [mediaRoot],
+        },
       );
-      panel.webview.html = renderPlaceholderHtml(panel.webview.cspSource);
+      panel.webview.html = renderChatHtml(panel.webview, mediaRoot);
       const wrapper = wrapWebviewPanel(panel, log, () => {
         current = undefined;
       });
@@ -521,11 +669,47 @@ function wrapWebviewPanel(
   };
 }
 
-function renderPlaceholderHtml(cspSource: string): string {
-  const csp = `default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src ${cspSource};`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
-<meta http-equiv="Content-Security-Policy" content="${csp}"/>
+/**
+ * Build the chat webview HTML shell. Loads `media/webview.css` + `media/webview.js`
+ * via `asWebviewUri` and constrains the page with a strict CSP (no inline
+ * script, per-load nonce, only the cspSource origin permitted for styles).
+ * The DOM scaffold here matches the selectors `webview/main.ts` queries.
+ */
+function renderChatHtml(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
+  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, "webview.js"));
+  const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, "webview.css"));
+  const nonce = randomUUID().replaceAll("-", "");
+  const csp =
+    `default-src 'none'; ` +
+    `style-src ${webview.cspSource} 'unsafe-inline'; ` +
+    `font-src ${webview.cspSource}; ` +
+    `script-src 'nonce-${nonce}';`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="${csp}" />
 <title>Nimbus</title>
-<style>body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:1em}</style>
-</head><body><h2>Nimbus</h2><p>Streaming chat UI lands in a follow-up release. Output is currently posted to the "Nimbus" output channel.</p></body></html>`;
+<link rel="stylesheet" href="${styleUri.toString()}" />
+</head>
+<body>
+<main id="root">
+  <section id="empty-mount" aria-live="polite"></section>
+  <section id="transcript" aria-live="polite" aria-relevant="additions"></section>
+  <section id="hitl-mount" aria-live="assertive"></section>
+  <footer id="footer">
+    <div id="status-row">
+      <ul id="subtask-list"></ul>
+      <span id="status"></span>
+    </div>
+    <form id="input-form">
+      <textarea id="input-text" rows="2" placeholder="Ask Nimbus… (Cmd/Ctrl+Enter to send)"></textarea>
+      <button type="submit" id="input-send">Send</button>
+      <button type="button" id="input-stop" disabled>Stop</button>
+    </form>
+  </footer>
+</main>
+<script nonce="${nonce}" src="${scriptUri.toString()}"></script>
+</body>
+</html>`;
 }
