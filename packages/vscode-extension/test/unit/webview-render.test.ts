@@ -1,10 +1,22 @@
 /**
- * Unit tests for the pure-string render helpers in
- * src/chat/webview/render.ts. These run under vitest with no DOM/jsdom —
- * the helpers operate on strings only.
+ * @vitest-environment jsdom
+ *
+ * Unit tests for the render helpers in src/chat/webview/render.ts. The
+ * helpers themselves operate on strings, but `renderMarkdown` runs DOMPurify
+ * over the marked output for in-depth defence against agent-supplied HTML —
+ * DOMPurify v3 requires a `window`, so this file runs under jsdom rather
+ * than Node. Other test files in this package stay in the default Node env.
  */
 
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test } from "vitest";
+
+// Per-process temp socket path so the test never references a literal under
+// /tmp (Sonar S5443 — publicly-writable directory hotspot) and never collides
+// across parallel test runs on the same host.
+const TEST_SOCKET_PATH = join(tmpdir(), `nimbus-render-${process.pid}.sock`);
 
 import {
   escapeHtml,
@@ -53,7 +65,10 @@ describe("renderTurn", () => {
     expect(html).toContain('<pre class="user-text">');
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     // No raw script tag anywhere — XSS would be unforgivable here.
-    expect(html).not.toMatch(/<script>/);
+    // Case-insensitive: HTML tag names match ASCII-case-insensitively, so a
+    // payload of `<SCRIPT>` is just as exploitable as `<script>`.
+    expect(html).not.toMatch(/<script[\s>]/i);
+    expect(html).not.toMatch(/<\/script>/i);
   });
   test("assistant turn renders markdown", () => {
     const html = renderTurn({ role: "assistant", text: "**bold**" });
@@ -112,11 +127,11 @@ describe("renderEmptyState", () => {
   test("disconnected variant includes startGateway action and socketPath", () => {
     const html = renderEmptyState({
       sub: "disconnected",
-      socketPath: "/tmp/nimbus.sock",
+      socketPath: TEST_SOCKET_PATH,
     });
     expect(html).toContain("empty-disconnected");
     expect(html).toContain('data-action="startGateway"');
-    expect(html).toContain("/tmp/nimbus.sock");
+    expect(html).toContain(TEST_SOCKET_PATH);
   });
   test("permission-denied variant includes openLogs action", () => {
     const html = renderEmptyState({ sub: "permission-denied" });

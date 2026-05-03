@@ -14,24 +14,32 @@
  * size of replies the webview shows.
  */
 
+import DOMPurify from "dompurify";
 import { marked } from "marked";
 
 /**
- * Render a markdown string to safe HTML. Uses marked's GFM defaults; no
- * raw HTML passes through because we set `marked` options conservatively
- * and the CSP blocks inline script attributes anyway.
+ * Render a markdown string to safe HTML. Two-stage:
+ *   1. `marked.parse(...)` produces HTML from the markdown source.
+ *   2. `DOMPurify.sanitize(...)` strips any raw `<script>`, `<iframe>`, event
+ *      handlers, `javascript:` URLs, etc. that a hostile LLM (or a piece of
+ *      indexed content the agent quotes back) might smuggle in.
+ *
+ * The CSP set by extension.ts already blocks inline script execution, but
+ * sanitisation here is the second line of defence — a webview that ever
+ * relaxes CSP for `unsafe-eval` (e.g. for a future code highlighter) would
+ * otherwise be exposed.
  */
 export function renderMarkdown(src: string): string {
   if (src.length === 0) return "";
   // marked.parse can return a Promise depending on options; with the
   // synchronous options below (no async tokenizer / walkTokens / extensions),
   // it returns a string. The cast keeps the call site simple.
-  const html = marked.parse(src, {
+  const raw = marked.parse(src, {
     async: false,
     breaks: true,
     gfm: true,
   }) as string;
-  return html;
+  return DOMPurify.sanitize(raw);
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -119,10 +127,11 @@ export interface SubTaskRowInput {
 export function renderSubTaskRow(row: SubTaskRowInput): string {
   const id = escapeHtml(row.subTaskId);
   const status = escapeHtml(row.status);
-  const pct =
-    typeof row.progress === "number"
-      ? ` <span class="subtask-pct">${escapeHtml(`${Math.round(row.progress * 100)}%`)}</span>`
-      : "";
+  let pct = "";
+  if (typeof row.progress === "number") {
+    const percent = `${Math.round(row.progress * 100)}%`;
+    pct = ` <span class="subtask-pct">${escapeHtml(percent)}</span>`;
+  }
   return `<li class="subtask-row" data-subtask-id="${id}"><span class="subtask-id">${id}</span><span class="subtask-status">${status}</span>${pct}</li>`;
 }
 

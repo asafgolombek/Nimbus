@@ -143,10 +143,10 @@ function applyMessage(r: Refs, msg: ExtensionToWebview): void {
       const existing = r.subTaskList.querySelector(
         `li.subtask-row[data-subtask-id="${cssEscape(msg.subTaskId)}"]`,
       );
-      if (existing !== null) {
-        existing.outerHTML = row;
-      } else {
+      if (existing === null) {
         r.subTaskList.insertAdjacentHTML("beforeend", row);
+      } else {
+        existing.outerHTML = row;
       }
       return;
     }
@@ -168,10 +168,18 @@ function applyMessage(r: Refs, msg: ExtensionToWebview): void {
       return;
     case "error":
       finalizeStreamingTurn(r);
-      r.transcript.insertAdjacentHTML(
-        "beforeend",
-        `<article class="turn turn-error" role="alert">Error: ${escapeForAttr(msg.message)}</article>`,
-      );
+      // Build the error article via DOM APIs (textContent) instead of
+      // insertAdjacentHTML so the agent-supplied error message can never be
+      // interpreted as HTML — the strict CSP plus DOMPurify on the markdown
+      // path already block script execution, but `textContent` makes the
+      // intent unambiguous to static analysis (and to readers).
+      {
+        const article = document.createElement("article");
+        article.className = "turn turn-error";
+        article.setAttribute("role", "alert");
+        article.textContent = `Error: ${msg.message}`;
+        r.transcript.append(article);
+      }
       setStreaming(r, false);
       return;
     case "emptyState":
@@ -192,9 +200,9 @@ function applyMessage(r: Refs, msg: ExtensionToWebview): void {
 }
 
 function finalizeStreamingTurn(r: Refs): void {
-  const target = r.transcript.querySelector('div.markdown[data-streaming="1"]');
+  const target = r.transcript.querySelector<HTMLElement>('div.markdown[data-streaming="1"]');
   if (target !== null) {
-    target.removeAttribute("data-streaming");
+    delete target.dataset["streaming"];
     // One last full re-render so the final markdown is well-formed.
     target.innerHTML = renderTurnBodyHtml(state.streamingText);
     target.parentElement?.classList.remove("turn-streaming");
@@ -234,10 +242,6 @@ function cssEscape(s: string): string {
   return s.replaceAll(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
 }
 
-function escapeForAttr(s: string): string {
-  return s.replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
-
 // ---------------------------------------------------------------------------
 // Bootstrap
 
@@ -260,8 +264,7 @@ function bootstrap(): void {
 
   // Cmd/Ctrl+Enter submits even when textarea is multi-line.
   r.input.addEventListener("keydown", (e) => {
-    const k = e as KeyboardEvent;
-    if (k.key === "Enter" && (k.metaKey || k.ctrlKey)) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       r.form.dispatchEvent(new Event("submit", { cancelable: true }));
     }
@@ -273,41 +276,18 @@ function bootstrap(): void {
     vscode.postMessage({ type: "stopStream" });
   });
 
-  // Delegated listener for HITL card actions + empty-state buttons.
+  // Delegated listener — split into per-target handlers so each branch stays
+  // simple (Sonar's cognitive-complexity gate caps a single handler at 15).
   document.addEventListener("click", (e) => {
     const target = e.target as HTMLElement | null;
     if (target === null) return;
-    const decisionBtn = target.closest<HTMLButtonElement>("button.hitl-btn[data-decision]");
-    if (decisionBtn !== null) {
-      const requestId = decisionBtn.dataset["requestId"];
-      const decision = decisionBtn.dataset["decision"];
-      if (typeof requestId === "string" && (decision === "approve" || decision === "reject")) {
-        vscode.postMessage({ type: "hitlResponse", requestId, decision });
-        // Optimistic UI: replace the card with a status stub so the user
-        // sees the decision was received even if the gateway round-trip
-        // takes a beat.
-        const card = decisionBtn.closest<HTMLElement>(".hitl-card");
-        if (card !== null) {
-          card.replaceWith(
-            mkStub(`Decision recorded: ${decision === "approve" ? "approved" : "rejected"}`),
-          );
-        }
-      }
-      return;
-    }
-    const emptyAction = target.closest<HTMLButtonElement>("button[data-action]");
-    if (emptyAction !== null) {
-      const action = emptyAction.dataset["action"];
-      if (action === "openLogs") {
-        vscode.postMessage({ type: "openLogs" });
-      } else if (action === "startGateway") {
-        vscode.postMessage({ type: "startGateway" });
-      }
-    }
+    if (handleHitlButtonClick(target)) return;
+    handleEmptyStateActionClick(target);
   });
 
   window.addEventListener("message", (ev) => {
-    const data = (ev as MessageEvent).data as ExtensionToWebview;
+    if (!isFromExtensionHost(ev)) return;
+    const data = ev.data as ExtensionToWebview;
     if (data === null || typeof data !== "object" || typeof data.type !== "string") return;
     applyMessage(r, data);
   });
@@ -321,6 +301,54 @@ function mkStub(text: string): HTMLElement {
   el.className = "hitl-stub";
   el.textContent = text;
   return el;
+}
+
+/**
+ * HITL Approve/Reject button click — returns true when the click was handled
+ * so the caller can short-circuit. Posts the decision back to the extension
+ * and replaces the card with an "decision recorded" stub for instant feedback.
+ */
+function handleHitlButtonClick(target: HTMLElement): boolean {
+  const decisionBtn = target.closest<HTMLButtonElement>("button.hitl-btn[data-decision]");
+  if (decisionBtn === null) return false;
+  const requestId = decisionBtn.dataset["requestId"];
+  const decision = decisionBtn.dataset["decision"];
+  if (typeof requestId !== "string") return true;
+  if (decision !== "approve" && decision !== "reject") return true;
+  vscode.postMessage({ type: "hitlResponse", requestId, decision });
+  const card = decisionBtn.closest<HTMLElement>(".hitl-card");
+  if (card !== null) {
+    const verb = decision === "approve" ? "approved" : "rejected";
+    card.replaceWith(mkStub(`Decision recorded: ${verb}`));
+  }
+  return true;
+}
+
+/** Empty-state action buttons (Open Logs / Start Gateway). */
+function handleEmptyStateActionClick(target: HTMLElement): void {
+  const btn = target.closest<HTMLButtonElement>("button[data-action]");
+  if (btn === null) return;
+  const action = btn.dataset["action"];
+  if (action === "openLogs") {
+    vscode.postMessage({ type: "openLogs" });
+  } else if (action === "startGateway") {
+    vscode.postMessage({ type: "startGateway" });
+  }
+}
+
+/**
+ * VS Code webviews receive postMessage events from the extension host frame
+ * embedding this iframe. The host sets `event.source === window.parent` and
+ * uses an `vscode-webview://` origin (or a webview-prefixed scheme on web).
+ * Any message that doesn't satisfy both is from a hostile injected frame
+ * and must be dropped before its `data` is applied.
+ */
+function isFromExtensionHost(ev: MessageEvent): boolean {
+  if (ev.source !== window.parent) return false;
+  // `event.origin` may be empty in test/sandbox environments; only reject
+  // explicit non-vscode origins so legitimate webview test harnesses still work.
+  if (ev.origin.length > 0 && !ev.origin.startsWith("vscode-webview")) return false;
+  return true;
 }
 
 if (document.readyState === "loading") {

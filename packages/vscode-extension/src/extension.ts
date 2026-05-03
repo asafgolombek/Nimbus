@@ -175,70 +175,73 @@ export function activateWithDeps(
     return chatController;
   };
 
+  // Per-message handlers. Each is small and self-contained so the dispatch
+  // function below stays under Sonar's cognitive-complexity gate.
+  const onReady = (): void => {
+    void chatController?.rehydrateIfNeeded(settings.transcriptHistoryLimit());
+  };
+
+  const onSubmitAsk = async (msg: Record<string, unknown>): Promise<void> => {
+    const text = m_str(msg, "text").trim();
+    if (text.length === 0) return;
+    const ctl = ensureChatController();
+    if (ctl === undefined) return;
+    try {
+      await ctl.start(text);
+    } catch (e) {
+      log.error(`submitAsk failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const onStopStream = async (): Promise<void> => {
+    try {
+      await chatController?.stop();
+    } catch (e) {
+      log.warn(`stopStream failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const onHitlResponse = (msg: Record<string, unknown>): void => {
+    const requestId = m_str(msg, "requestId");
+    const decision = m_str(msg, "decision");
+    if (requestId.length === 0) return;
+    const resolver = pendingInlineHitl.get(requestId);
+    if (resolver === undefined) return;
+    pendingInlineHitl.delete(requestId);
+    const valid = decision === "approve" || decision === "reject";
+    resolver(valid ? decision : undefined);
+  };
+
+  const onOpenExternal = async (msg: Record<string, unknown>): Promise<void> => {
+    const url = m_str(msg, "url");
+    if (url.length === 0) return;
+    try {
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    } catch (e) {
+      log.warn(`openExternal failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // Dispatch table — keeps the typeof-string switch out of the if/else
+  // hot path Sonar measures. Unknown types are silently ignored.
+  const messageHandlers: Record<string, (msg: Record<string, unknown>) => unknown> = {
+    ready: onReady,
+    requestRehydrate: onReady,
+    submitAsk: onSubmitAsk,
+    stopStream: onStopStream,
+    hitlResponse: onHitlResponse,
+    openLogs: () => out.show(true),
+    startGateway: () => deps.commands.executeCommand("nimbus.startGateway"),
+    openExternal: onOpenExternal,
+  };
+
   const handleWebviewMessage = async (
     type: string,
     msg: Record<string, unknown>,
   ): Promise<void> => {
-    if (type === "ready") {
-      // Webview shell mounted — rehydrate the active session if there is one.
-      void chatController?.rehydrateIfNeeded(settings.transcriptHistoryLimit());
-      return;
-    }
-    if (type === "submitAsk") {
-      const text = m_str(msg, "text").trim();
-      if (text.length === 0) return;
-      const ctl = ensureChatController();
-      if (ctl === undefined) return;
-      try {
-        await ctl.start(text);
-      } catch (e) {
-        log.error(`submitAsk failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      return;
-    }
-    if (type === "stopStream") {
-      try {
-        await chatController?.stop();
-      } catch (e) {
-        log.warn(`stopStream failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      return;
-    }
-    if (type === "hitlResponse") {
-      const requestId = m_str(msg, "requestId");
-      const decision = m_str(msg, "decision");
-      if (requestId.length === 0) return;
-      const resolver = pendingInlineHitl.get(requestId);
-      if (resolver !== undefined) {
-        pendingInlineHitl.delete(requestId);
-        resolver(decision === "approve" || decision === "reject" ? decision : undefined);
-      }
-      return;
-    }
-    if (type === "openLogs") {
-      out.show(true);
-      return;
-    }
-    if (type === "startGateway") {
-      await deps.commands.executeCommand("nimbus.startGateway");
-      return;
-    }
-    if (type === "openExternal") {
-      const url = m_str(msg, "url");
-      if (url.length === 0) return;
-      try {
-        await vscode.env.openExternal(vscode.Uri.parse(url));
-      } catch (e) {
-        log.warn(`openExternal failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      return;
-    }
-    // requestRehydrate is reserved for the webview to ask the extension to
-    // re-fetch its transcript (e.g. after a reload). For now this is the
-    // same code path as `ready`.
-    if (type === "requestRehydrate") {
-      void chatController?.rehydrateIfNeeded(settings.transcriptHistoryLimit());
-    }
+    const handler = messageHandlers[type];
+    if (handler === undefined) return;
+    await handler(msg);
   };
 
   // -----------------------------------------------------------------------

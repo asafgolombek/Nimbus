@@ -156,9 +156,11 @@
   },
   "dependencies": {
     "@nimbus-dev/client": "workspace:*",
+    "dompurify": "^3.2.0",
     "marked": "^14.0.0"
   },
   "devDependencies": {
+    "@types/dompurify": "^3.0.0",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.90.0",
     "@vitest/coverage-v8": "^2.0.0",
