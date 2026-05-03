@@ -71,6 +71,12 @@ jobs:
           security unlock-keychain -p "" nimbus-ci.keychain
           security set-keychain-settings -lut 7200 nimbus-ci.keychain
 
+      # Required before Typecheck — vscode-extension imports @nimbus-dev/client
+      # whose exports field points at dist/index.d.ts. Without an explicit build
+      # the workspace symlink resolves but the type declarations don't exist.
+      - name: Build @nimbus-dev/client (for vscode-extension typecheck)
+        run: cd packages/client && bun run build
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -331,16 +337,53 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Vault services must initialise before the spawned gateway can open its socket.
+      # Without these the gateway crashes silently and the 15s socket-wait expires.
+      - name: Linux — libsecret + D-Bus (vault tests)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
+
+      - name: macOS — Strip quarantine from native SQLite extensions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: find node_modules -name "*.dylib" -print0 2>/dev/null | xargs -0 xattr -d com.apple.quarantine 2>/dev/null || true
+
+      - name: macOS — Create and unlock CI Keychain (vault tests)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          security create-keychain -p "" nimbus-ci.keychain
+          security list-keychains -d user -s nimbus-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s nimbus-ci.keychain
+          security unlock-keychain -p "" nimbus-ci.keychain
+          security set-keychain-settings -lut 7200 nimbus-ci.keychain
+
       - name: Build @nimbus-dev/client
         run: cd packages/client && bun run build
 
       - name: Build gateway binary
         run: bun run --filter @nimbus/gateway build
 
-      - name: Run node-compat tests
+      - name: Run node-compat tests — Linux
+        if: runner.os == 'Linux'
+        working-directory: packages/client
         env:
-          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && 'dist\nimbus-gateway.exe' || './dist/nimbus-gateway' }}
-          # Skip embedding worker init so the gateway opens its IPC socket within
-          # the 15s node-compat startup timeout (otherwise waitUntilReady takes ~180s).
+          NIMBUS_GATEWAY_BIN: ${{ format('{0}/dist/nimbus-gateway', github.workspace) }}
           NIMBUS_SKIP_EMBEDDING_RUNTIME: "1"
-        run: cd packages/client && node --test test/node-compat.test.ts
+        # Wrap node with the dbus shim so libsecret can talk to a session keyring.
+        # Node 20 cannot execute .ts files directly — tsx/esm strips the TS types.
+        # Run from packages/client so node resolves tsx via the local node_modules.
+        shell: bash
+        run: bash ../../scripts/ci/run-with-optional-dbus.sh node --import tsx/esm --test test/node-compat.test.ts
+
+      - name: Run node-compat tests — macOS / Windows
+        if: runner.os != 'Linux'
+        env:
+          # Absolute path so the cwd we run from doesn't matter. The gateway binary
+          # is emitted by compile-gateway.ts to <repo-root>/dist, not packages/gateway/dist.
+          NIMBUS_GATEWAY_BIN: ${{ runner.os == 'Windows' && format('{0}\dist\nimbus-gateway.exe', github.workspace) || format('{0}/dist/nimbus-gateway', github.workspace) }}
+          NIMBUS_SKIP_EMBEDDING_RUNTIME: "1"
+        # Node 20 cannot execute .ts files directly. Use `node --import tsx/esm` so the
+        # test runs under the real Node runtime (not Bun) while tsx strips the TS types.
+        run: cd packages/client && node --import tsx/esm --test test/node-compat.test.ts

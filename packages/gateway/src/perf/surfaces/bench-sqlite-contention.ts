@@ -48,7 +48,11 @@ export const S10_BUSY_RETRIES: { value: number } = { value: 0 };
 function workerUrl(name: string): URL {
   // pathToFileURL handles Windows drive letters + percent-encoding per the
   // Node URL spec, replacing the brittle `path.replace(/\\/g, "/")` shim.
-  return pathToFileURL(resolve(import.meta.dir, `${name}.ts`));
+  // Cast bridges the structural-but-incompatible split between node:url's URL
+  // and the global URL that @types/node exposes via the legacy "url" module —
+  // identical at runtime, but TS treats URLSearchParams.toJSON as missing in
+  // the node:url variant.
+  return pathToFileURL(resolve(import.meta.dir, `${name}.ts`)) as unknown as URL;
 }
 
 export async function runSqliteContentionOnce(
