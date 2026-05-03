@@ -135,14 +135,17 @@ if (GATEWAY_BIN === undefined) {
     }
   };
 
-  // The CI gateway has no LLM provider configured, so a real askStream call
-  // never produces a `streamDone` on its own — the underlying agent invocation
-  // hangs waiting on an LLM. This test fires `cancel()` after 1 s as a forced
-  // upper bound; it validates the IPC streaming pipe end-to-end (askStream
-  // returns a streamId, the subscription wires up, and a stream-terminating
-  // event flows back through the socket / named pipe). It accepts either
-  // `done` (a real LLM happened to finish) or `error` (cancel-triggered).
-  await test("askStream stream lifecycle (call + cancel + terminal event)", {
+  // The CI gateway has no LLM provider, so a real askStream("hello") call
+  // never produces `streamDone` on its own — the agent invocation hangs
+  // waiting on an LLM, and `handle.cancel()` tears down the iterator
+  // locally without yielding a synthetic event (see ask-stream.ts:`finish`).
+  // What this test *can* validate end-to-end without an LLM is:
+  //   1. `engine.askStream` JSON-RPC call returns a streamId
+  //      (proves the streaming method is registered and wired through IPC).
+  //   2. `cancel()` resolves and terminates the iterator cleanly within the
+  //      stream timeout (proves the AbortController + finish() path works
+  //      across the dual-runtime IPC transport).
+  await test("askStream returns a streamId and cancel terminates the iterator", {
     timeout: NODE_TEST_TIMEOUT_MS,
   }, async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "nimbus-nodecompat-"));
@@ -150,25 +153,30 @@ if (GATEWAY_BIN === undefined) {
     try {
       const client = await NimbusClient.open({ socketPath });
       const handle = client.askStream("hello");
-      const cancelTimer = setTimeout(() => {
-        handle.cancel().catch(() => undefined);
-      }, 1000);
-      try {
-        await withStreamTimeout(
-          'askStream("hello") iteration',
-          (async () => {
-            const events: string[] = [];
-            for await (const ev of handle) {
-              events.push(ev.type);
-              if (ev.type === "done" || ev.type === "error") break;
-            }
-            assert.ok(events.includes("done") || events.includes("error"));
-          })(),
-          diag,
-        );
-      } finally {
-        clearTimeout(cancelTimer);
-      }
+      // streamId is resolved asynchronously by the underlying engine.askStream
+      // RPC. Poll briefly until it lands so we can assert we got one.
+      const waitForStreamId = async (): Promise<string> => {
+        const start = Date.now();
+        while (Date.now() - start < 5000) {
+          if (handle.streamId !== "") return handle.streamId;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return "";
+      };
+      const streamId = await waitForStreamId();
+      assert.notStrictEqual(streamId, "", "askStream should return a streamId");
+      await withStreamTimeout(
+        "askStream cancel + iterator drain",
+        (async () => {
+          await handle.cancel();
+          // Drain the iterator; cancel() called finish() so this should exit
+          // immediately. The deadline is the upper bound on a stuck iterator.
+          for await (const _ev of handle) {
+            // Any events that arrived between RPC and cancel are fine.
+          }
+        })(),
+        diag,
+      );
       await client.close();
     } finally {
       proc.kill("SIGTERM");
