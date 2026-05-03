@@ -24,6 +24,8 @@ function fakeWindow(answer: string | undefined): WindowApi {
       showInformationMessage as unknown as WindowApi["showInformationMessage"],
     showErrorMessage: vi.fn() as unknown as WindowApi["showErrorMessage"],
     showInputBox: vi.fn() as unknown as WindowApi["showInputBox"],
+    showQuickPick: vi.fn() as unknown as WindowApi["showQuickPick"],
+    activeTextEditor: undefined,
   };
 }
 

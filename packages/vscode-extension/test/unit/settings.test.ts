@@ -13,6 +13,7 @@ function makeWorkspace(values: Record<string, unknown>): WorkspaceApi {
         return dflt;
       },
     }),
+    onDidChangeConfiguration: () => ({ dispose: () => undefined }),
   };
 }
 
