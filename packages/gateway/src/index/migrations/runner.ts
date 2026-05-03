@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
 import { computeAuditRowHash } from "../../db/audit-chain.ts";
 import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
+import { AUDIT_SESSION_V24_SCHEMA_SQL } from "../audit-session-v24-sql.ts";
 import { CONNECTOR_DEPTH_V21_SQL } from "../connector-depth-v21-sql.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
 import {
@@ -335,6 +336,14 @@ function migrateIndexedV22ToV23(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV23ToV24(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(AUDIT_SESSION_V24_SCHEMA_SQL);
+    db.exec("PRAGMA user_version = 24");
+    recordMigration(db, 24, "audit_log.session_id (transcript rehydration support)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -359,6 +368,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 20, toVersion: 21, apply: migrateIndexedV20ToV21 },
   { fromVersion: 21, toVersion: 22, apply: migrateIndexedV21ToV22 },
   { fromVersion: 22, toVersion: 23, apply: migrateIndexedV22ToV23 },
+  { fromVersion: 23, toVersion: 24, apply: migrateIndexedV23ToV24 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -385,6 +395,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "sync_state.depth (per-connector reindex depth) (backfilled)",
   "watcher.graph_predicate_json (graph-aware conditions) (backfilled)",
   "workflow_run.dry_run + workflow_run.params_override_json (WS5-D Polish) (backfilled)",
+  "audit_log.session_id (transcript rehydration support) (backfilled)",
 ];
 
 /**

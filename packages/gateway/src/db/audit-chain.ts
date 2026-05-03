@@ -34,6 +34,8 @@ export interface AppendAuditEntryFields {
   readonly hitlStatus: string;
   readonly actionJson: string;
   readonly timestamp: number;
+  /** Non-hashed metadata for transcript rehydration (Task 10). Not included in BLAKE3 chain. */
+  readonly sessionId?: string;
 }
 
 /**
@@ -56,8 +58,16 @@ export function appendAuditEntry(db: Database, fields: AppendAuditEntryFields): 
     timestamp: fields.timestamp,
   });
   db.run(
-    `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp, row_hash, prev_hash)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [fields.actionType, fields.hitlStatus, fields.actionJson, fields.timestamp, rowHash, prevHash],
+    `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp, row_hash, prev_hash, session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      fields.actionType,
+      fields.hitlStatus,
+      fields.actionJson,
+      fields.timestamp,
+      rowHash,
+      prevHash,
+      fields.sessionId ?? null,
+    ],
   );
 }
