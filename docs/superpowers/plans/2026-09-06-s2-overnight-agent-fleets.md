@@ -2878,12 +2878,12 @@ test("fleet.status reports the live probe and config without running anything", 
     hostActivity: { probe: async () => ({ power: "ac", idleMs: 1000, source: "measured" }) },
     config: { enabled: false },
   } as never);
-  expect(out).toMatchObject({ hit: true });
+  expect(out).toMatchObject({ kind: "hit" });
 });
 
 test("an unknown fleet method is a miss, not a throw", async () => {
   const out = await dispatchFleetRpc("fleet.nope", {}, {} as never);
-  expect(out).toMatchObject({ hit: false });
+  expect(out).toMatchObject({ kind: "miss" });
 });
 ```
 
