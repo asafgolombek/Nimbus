@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
@@ -107,6 +108,44 @@ describe("assembleFleetRuntime", () => {
     const scheduler = assembleFleetRuntime(deps(gate)).scheduler;
     expect(scheduler).toBeDefined();
     expect(stops.length).toBe(before + 1);
+  });
+
+  /**
+   * I38's audit trail. `FleetSchedulerDeps.remoteCallsMade` is optional, and this call site simply
+   * did not pass it — so `fleet_run.remote_calls_made` recorded `0` on every production run while
+   * the column purported to count remote model calls. A persisted field that is always wrong is a
+   * false record, not a missing feature, which is why this is asserted at the BOOT site rather than
+   * left to the scheduler's own tests: the scheduler was already correct, and nothing reached it.
+   *
+   * White-box (`deps` is `private` to TypeScript only) because there is no black-box way to see an
+   * optional dependency that was never supplied — a run row reading `0` is exactly what the bug
+   * produced, so observing the row cannot distinguish "no calls" from "not wired".
+   */
+  test("the scheduler is given a live remoteCallsMade getter, reading the budget the invoker caps against", () => {
+    writeToml(
+      `[fleet]\nenabled = true\nallow_remote = true\nremote_call_budget = 3\n\n[[fleet.job]]\nname = "nightly"\nagent = "catchup"\ninterval_seconds = 3600\n`,
+    );
+    const { gate } = stubGate(enforcedWith({}));
+    const scheduler = assembleFleetRuntime(deps(gate)).scheduler;
+    expect(scheduler).toBeDefined();
+    const wired = (scheduler as unknown as { deps: { remoteCallsMade?: () => number } }).deps;
+    expect(typeof wired.remoteCallsMade).toBe("function");
+    // Reads the REAL budget, which has spent nothing at boot. Not a constant: the assertion that
+    // makes it a budget rather than a literal `() => 0` is `fleet-scheduler.test.ts`'s pair of
+    // tests, which drive a real `createFleetRemoteBudget` through a real run.
+    expect(wired.remoteCallsMade?.()).toBe(0);
+  });
+
+  /**
+   * The failure mode the fix could reintroduce: two budgets. `remoteCallsMade` would then read an
+   * instance nothing ever spends against, and the column would go back to reporting `0` forever —
+   * the same false record wearing a getter. Exactly one construction in this module is what makes
+   * the scheduler's counter and the invoker's cap the same object.
+   */
+  test("exactly ONE FleetRemoteBudget is constructed in assemble.ts — the counter and the cap are one object", async () => {
+    const src = await readFile(join(import.meta.dir, "assemble.ts").replaceAll("\\", "/"), "utf8");
+    const calls = src.match(/createFleetRemoteBudget\s*\(/g) ?? [];
+    expect(calls.length).toBe(1);
   });
 
   test("enabled but with NO job constructs nothing — an empty fleet is not a running one", () => {

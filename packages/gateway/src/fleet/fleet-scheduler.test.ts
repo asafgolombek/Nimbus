@@ -8,6 +8,7 @@ import type { FleetInvoker, FleetJobOutcome } from "./fleet-invoker.ts";
 import type { FleetRunSummary } from "./fleet-scheduler.ts";
 import { DEFAULT_TICK_MS, FleetScheduler, isJobDue } from "./fleet-scheduler.ts";
 import { FleetStore } from "./fleet-store.ts";
+import { createFleetRemoteBudget, wrapFleetSynthesisRouter } from "./fleet-synthesis-router.ts";
 
 const AC_IDLE: HostActivityProbe = { power: "ac", idleMs: 3_600_000, source: "measured" };
 const ON_BATTERY: HostActivityProbe = { power: "battery", idleMs: 3_600_000, source: "measured" };
@@ -571,19 +572,86 @@ describe("FleetScheduler.runOnce", () => {
   });
 
   test("records the run's remote spend against its budget", async () => {
+    // A LIVE counter, not a constant. A constant getter reads the same value at the run's start and
+    // its end, so it passes for a scheduler that persists the raw cumulative value AND for one that
+    // persists the delta — it cannot tell the two apart, which is the whole question this column
+    // exists to answer.
+    let spent = 0;
     const s = build({
       probes: [AC_IDLE],
-      invoke: async (job) => done(job.name),
+      invoke: async (job) => {
+        spent += 1; // this job's brief synthesised through a granted remote provider
+        return done(job.name);
+      },
       config: { allowRemote: true, remoteCallBudget: 4 },
-      remoteCallsMade: () => 3,
+      remoteCallsMade: () => spent,
     });
     const summary = await s.runOnce();
     expect(summary.runId).not.toBeNull();
-    expect(runRow(requireRunId(summary)).remote_calls_made).toBe(3);
+    expect(runRow(requireRunId(summary)).remote_calls_made).toBe(2); // one per job in JOBS
     const budget = db
       .query(`SELECT remote_call_budget AS b FROM fleet_run WHERE id = ?`)
       .get(requireRunId(summary)) as { b: number };
     expect(budget.b).toBe(4);
+  });
+
+  test("a SECOND run records only ITS OWN remote calls, not the process total", async () => {
+    // The regression the obvious wiring ships. `platform/assemble.ts` builds ONE `FleetRemoteBudget`
+    // for the process, so `spent()` never resets; persisting it verbatim would make every run after
+    // the first report its predecessors' calls as its own. Two runs, one call each, is the smallest
+    // shape that can see the difference — run 2 must read 1, not 2.
+    let spent = 0;
+    const s = build({
+      probes: [AC_IDLE],
+      jobs: [JOBS[0] as NimbusFleetJobToml],
+      invoke: async (job) => {
+        spent += 1;
+        return done(job.name);
+      },
+      config: { allowRemote: true, remoteCallBudget: 10 },
+      remoteCallsMade: () => spent,
+    });
+    const first = await s.runOnce({ force: true });
+    const second = await s.runOnce({ force: true });
+    expect(spent).toBe(2); // the process total really did advance
+    expect(runRow(requireRunId(first)).remote_calls_made).toBe(1);
+    expect(runRow(requireRunId(second)).remote_calls_made).toBe(1);
+  });
+
+  test("allow_remote = false records 0 because the REAL gate refused, not because nothing is wired", async () => {
+    // "0" is the value a missing getter also produces, so the assertion is only worth anything with
+    // the real I38 pieces in the loop: a real `createFleetRemoteBudget`, a real
+    // `wrapFleetSynthesisRouter`, and a real non-local provider handed to it. The positive control
+    // below runs the IDENTICAL harness with `allow_remote = true` and must record 2 — without it,
+    // this test would pass for a scheduler that persists a hardcoded zero.
+    const remote = { providerId: "anthropic", modelName: "opus", isLocal: false };
+    const runWith = async (allowRemote: boolean, cap: number): Promise<number> => {
+      const budget = createFleetRemoteBudget(allowRemote, cap);
+      const router = wrapFleetSynthesisRouter(
+        {
+          resolveForSynthesis: async () => remote,
+          generateMarkdown: async () => "md",
+        },
+        budget,
+      );
+      const s = build({
+        probes: [AC_IDLE],
+        invoke: async (job) => {
+          // What a fleet job's synthesis does: resolve, then generate if anything was resolved.
+          const p = await router.resolveForSynthesis(true);
+          if (p !== undefined) await router.generateMarkdown("prompt", p);
+          return done(job.name);
+        },
+        config: { allowRemote, remoteCallBudget: cap },
+        remoteCallsMade: () => budget.spent(),
+      });
+      // `force` because both arms share the module-level store: the second call's jobs would
+      // otherwise be not-due from the first, attempt nothing, and make the positive control read
+      // 0 for a reason that has nothing to do with the budget.
+      return runRow(requireRunId(await s.runOnce({ force: true }))).remote_calls_made;
+    };
+    expect(await runWith(false, 0)).toBe(0);
+    expect(await runWith(true, 4)).toBe(2); // positive control: the same harness DOES count
   });
 });
 

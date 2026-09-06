@@ -3005,6 +3005,13 @@ export function assembleFleetRuntime(deps: FleetBootDeps): FleetRuntime {
     return { scheduler: undefined, store, config, jobs: fleet.jobs };
   }
 
+  // ONE budget instance, named so the scheduler's counter and the invoker's cap are the SAME
+  // object. Constructing it inline in `invoke:` (as this did) left `remoteCallsMade` with nothing
+  // to read, so `fleet_run.remote_calls_made` recorded 0 on every run — a column that purports to
+  // count remote model calls and always said none were made. Two instances would be the same bug
+  // wearing a getter: the scheduler would report a budget nothing ever spends against.
+  const remoteBudget = createFleetRemoteBudget(config.allowRemote, config.remoteCallBudget);
+
   const scheduler = new FleetScheduler({
     store,
     jobs: fleet.jobs,
@@ -3017,10 +3024,13 @@ export function assembleFleetRuntime(deps: FleetBootDeps): FleetRuntime {
       return deps.policyGate.enforced().capabilitiesDisabled.has(FLEET_CAPABILITY);
     },
     hostActivity: deps.hostActivity,
+    // Cumulative for the process, which is why `FleetScheduler` persists the DELTA across a run
+    // rather than this value verbatim — see its own comment.
+    remoteCallsMade: () => remoteBudget.spent(),
     invoke: buildFleetInvoker({
       db: deps.db,
       router: deps.llmRegistry.llmRouter,
-      budget: createFleetRemoteBudget(config.allowRemote, config.remoteCallBudget),
+      budget: remoteBudget,
       index: deps.localIndex,
       configDir: deps.paths.configDir,
     }),

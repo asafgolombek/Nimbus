@@ -70,6 +70,17 @@ export interface FleetSchedulerDeps {
   readonly hostActivity: HostActivity;
   readonly invoke: FleetInvoker;
   readonly now: () => number;
+  /**
+   * The fleet budget's CUMULATIVE remote-call count for this process — production passes
+   * `() => remoteBudget.spent()` on the SAME `FleetRemoteBudget` instance the invoker caps against
+   * (I38). `execute` persists the delta across a run, never this value verbatim.
+   *
+   * Optional because the scheduler is constructible without a budget (tests, and a fleet assembled
+   * before a router exists), NOT because production may omit it: it did, and
+   * `fleet_run.remote_calls_made` then recorded 0 on every run while the column claimed to count
+   * remote model calls. Omitting it means "this run made no remote calls I can account for", which
+   * is only honest when there is genuinely no budget to read.
+   */
   readonly remoteCallsMade?: (() => number) | undefined;
   /** Test seam only. Production leaves it at `DEFAULT_TICK_MS`. */
   readonly tickMs?: number | undefined;
@@ -200,6 +211,16 @@ export class FleetScheduler {
     // positional counters at four call sites is how one of them ends up stale on one path.
     const tally = { attempted: 0, completed: 0, skippedNotDue: 0 };
 
+    // `remoteCallsMade` is CUMULATIVE for the gateway process: `platform/assemble.ts` builds ONE
+    // `FleetRemoteBudget` at boot (the cap is a process-lifetime cap, which is what makes it a cap
+    // at all), so the getter's value at `close` includes every earlier run's spend. Persisting it
+    // verbatim would make run 2 report run 1's calls as its own — a false record on the one column
+    // whose job is to say what THIS run spent. So the DELTA either side of the run is what is
+    // written. This stays correct if the budget is ever made per-run: the opening read is then 0
+    // and the delta is the whole of it. Captured HERE, before the first job, and before `close` can
+    // be reached by any path including the deferred one (where the delta is 0, correctly).
+    const remoteCallsAtStart = this.deps.remoteCallsMade?.() ?? 0;
+
     const close = (outcome: FleetRunOutcome): FleetRunSummary => {
       this.deps.store.closeRun(runId, {
         endedAt: this.deps.now(),
@@ -211,7 +232,7 @@ export class FleetScheduler {
         jobsAttempted: tally.attempted,
         jobsCompleted: tally.completed,
         jobsSkippedNotDue: tally.skippedNotDue,
-        remoteCallsMade: this.deps.remoteCallsMade?.() ?? 0,
+        remoteCallsMade: (this.deps.remoteCallsMade?.() ?? 0) - remoteCallsAtStart,
       });
       return {
         runId,
