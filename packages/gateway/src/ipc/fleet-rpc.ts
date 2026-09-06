@@ -87,7 +87,7 @@ const DEFAULT_BRIEFS_LIMIT = 20;
  * and `brief_markdown` can be tens of KB per row, so an unbounded limit is an unbounded response
  * size from a single request.
  */
-const MAX_BRIEFS_LIMIT = 500;
+export const MAX_BRIEFS_LIMIT = 500;
 
 /**
  * `limit` must be a positive integer, never `0` or negative (a caller-supplied `0` would otherwise

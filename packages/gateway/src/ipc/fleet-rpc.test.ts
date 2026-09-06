@@ -9,7 +9,12 @@ import {
 } from "../fleet/fleet-scheduler.ts";
 import { FleetStore } from "../fleet/fleet-store.ts";
 import { FLEET_V60_SQL } from "../index/fleet-v60-sql.ts";
-import { dispatchFleetRpc, type FleetRpcCtx, FleetRpcError } from "./fleet-rpc.ts";
+import {
+  dispatchFleetRpc,
+  type FleetRpcCtx,
+  FleetRpcError,
+  MAX_BRIEFS_LIMIT,
+} from "./fleet-rpc.ts";
 
 // A minimal stand-in for `FleetScheduler` — only `runOnce` is ever called through this surface.
 interface FakeScheduler {
@@ -293,7 +298,12 @@ describe("fleet.list / fleet.briefs / fleet.show over a real store", () => {
     );
   });
 
-  test("fleet.briefs caps an oversized limit rather than trusting it through to the query", async () => {
+  test('fleet.briefs caps an oversized limit at MAX_BRIEFS_LIMIT, not just "does not throw"', async () => {
+    // Seeding only 3 rows and asserting 3 come back (the previous version of this test) passes
+    // identically whether or not the clamp exists — 3 rows is 3 rows either way, so that assertion
+    // could not have detected a removed clamp. Seeding MORE rows than MAX_BRIEFS_LIMIT and
+    // asserting the EXACT clamped count is what makes an absent clamp observable: without it, all
+    // MAX_BRIEFS_LIMIT + 50 rows would come back instead of exactly MAX_BRIEFS_LIMIT.
     const runId = store.openRun({
       startedAt: 0,
       hostPower: "ac",
@@ -301,7 +311,8 @@ describe("fleet.list / fleet.briefs / fleet.show over a real store", () => {
       hostSource: "measured",
       remoteCallBudget: 0,
     });
-    for (let i = 0; i < 3; i++) {
+    const seeded = MAX_BRIEFS_LIMIT + 50;
+    for (let i = 0; i < seeded; i++) {
       store.recordBrief({
         runId,
         jobId: `j${i}`,
@@ -313,10 +324,8 @@ describe("fleet.list / fleet.briefs / fleet.show over a real store", () => {
         expiresAt: 10_000,
       });
     }
-    // A limit far above MAX_BRIEFS_LIMIT must not throw and must not fail — it clamps, so 3 real
-    // rows still come back rather than the request being refused outright.
     const out = await dispatchFleetRpc("fleet.briefs", { limit: 1_000_000 }, ctx(0));
     if (out.kind !== "hit") throw new Error("expected a hit");
-    expect((out.value as { briefs: unknown[] }).briefs).toHaveLength(3);
+    expect((out.value as { briefs: unknown[] }).briefs).toHaveLength(MAX_BRIEFS_LIMIT);
   });
 });
