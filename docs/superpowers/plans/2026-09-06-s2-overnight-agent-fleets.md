@@ -19,6 +19,14 @@ Durable state lands in three V60 tables.
 — read it before Task 1. The review folded into it is
 [`…-design-review.md`](../specs/2026-09-06-s2-overnight-agent-fleets-design-review.md).
 
+**Reviewed 2026-09-06** — [`…-review.md`](./2026-09-06-s2-overnight-agent-fleets-review.md).
+Four real bugs in the first draft are fixed here: no due/interval check (every job would have run
+every 60 seconds), no re-entrancy guard (a run outlasting a tick would overlap itself), `getBrief`
+written as a 1,000-row scan, and no `jobName` targeting for `nimbus fleet run <job>`. Plus a
+profile-blind config loader, an unregistered teardown callback, a per-probe `dlopen` handle leak,
+and unbounded `fleet_run` growth. One recommendation was NOT taken as written — see Task 3 on
+`interval_seconds`.
+
 ## Global Constraints
 
 Every task's requirements implicitly include these.
@@ -355,31 +363,52 @@ export function powerFromAcLineStatus(status: number): HostPower {
   return "unknown"; // 255 = unknown, and anything else is not a documented value.
 }
 
+/**
+ * `dlopen` ONCE at construction, not per probe. The scheduler probes on a 60-second tick and again
+ * between every job, so a per-call `dlopen` would re-resolve the symbol tables thousands of times
+ * a night and — since nothing ever calls `.close()` on the returned library — accumulate handles
+ * for the life of the gateway. That makes it a leak, not just waste.
+ *
+ * A `dlopen` failure at construction is permanent and returns an always-unknown probe. That is the
+ * right shape: if kernel32 cannot be opened once it will not open on the next tick either, and a
+ * deterministic answer beats a per-call retry that re-throws forever.
+ */
 export function createWin32HostActivity(): HostActivity {
+  let k32: ReturnType<typeof dlopen> | undefined;
+  let u32: ReturnType<typeof dlopen> | undefined;
+  try {
+    k32 = dlopen("kernel32.dll", {
+      GetSystemPowerStatus: { args: [FFIType.ptr], returns: FFIType.i32 },
+      GetTickCount: { args: [], returns: FFIType.u32 },
+    });
+    u32 = dlopen("user32.dll", {
+      GetLastInputInfo: { args: [FFIType.ptr], returns: FFIType.i32 },
+    });
+  } catch {
+    return { probe: async (): Promise<HostActivityProbe> => UNKNOWN_PROBE };
+  }
+  const kernel = k32;
+  const user = u32;
+
+  // SYSTEM_POWER_STATUS: 4 BYTEs then 3 DWORDs. Only ACLineStatus (byte 0) is read.
+  const sps = new Uint8Array(16);
+  // LASTINPUTINFO: { cbSize: DWORD, dwTime: DWORD }. cbSize MUST be set before the call, and is
+  // set once here because it never changes. Reused across probes: single-threaded, one call at a
+  // time, and the kernel overwrites dwTime on every successful call.
+  const lii = new Uint32Array(2);
+  lii[0] = 8;
+
   return {
     probe: async (): Promise<HostActivityProbe> => {
       try {
-        const k32 = dlopen("kernel32.dll", {
-          GetSystemPowerStatus: { args: [FFIType.ptr], returns: FFIType.i32 },
-          GetTickCount: { args: [], returns: FFIType.u32 },
-        });
-        const u32 = dlopen("user32.dll", {
-          GetLastInputInfo: { args: [FFIType.ptr], returns: FFIType.i32 },
-        });
-
-        // SYSTEM_POWER_STATUS: 4 BYTEs then 3 DWORDs. Only ACLineStatus (byte 0) is read.
-        const sps = new Uint8Array(16);
         const power =
-          k32.symbols.GetSystemPowerStatus(ptr(sps)) === 0
+          kernel.symbols.GetSystemPowerStatus(ptr(sps)) === 0
             ? "unknown"
             : powerFromAcLineStatus(sps[0] ?? 255);
 
-        // LASTINPUTINFO: { cbSize: DWORD, dwTime: DWORD }. cbSize MUST be set before the call.
-        const lii = new Uint32Array(2);
-        lii[0] = 8;
         let idleMs: number | null = null;
-        if (u32.symbols.GetLastInputInfo(ptr(lii)) !== 0) {
-          idleMs = idleMsFromTicks(k32.symbols.GetTickCount(), lii[1] ?? 0);
+        if (user.symbols.GetLastInputInfo(ptr(lii)) !== 0) {
+          idleMs = idleMsFromTicks(kernel.symbols.GetTickCount(), lii[1] ?? 0);
         }
         return { power, idleMs, source: idleMs === null ? "power_only" : "measured" };
       } catch {
@@ -589,6 +618,57 @@ describe("FleetStore", () => {
     }
     expect(store.pruneBriefs(500)).toBe(1);
     expect(store.listBriefs({ limit: 10 })).toHaveLength(1);
+  });
+
+  test("getBrief is a point lookup that finds a brief beyond any list page", () => {
+    const runId = store.openRun({
+      startedAt: 0,
+      hostPower: "ac",
+      hostIdleMs: 0,
+      hostSource: "measured",
+      remoteCallBudget: 0,
+    });
+    let target = "";
+    // More than any plausible list limit: a scan-and-find implementation returns undefined here.
+    for (let i = 0; i < 1_200; i++) {
+      const id = store.recordBrief({
+        runId,
+        jobId: `j${i}`,
+        agentMethod: "agents.catchup",
+        briefMarkdown: "x",
+        findingsJson: "{}",
+        synthesisJson: null,
+        createdAt: i,
+        expiresAt: 10_000_000,
+      });
+      if (i === 0) target = id; // the OLDEST, so it sorts last by created_at DESC
+    }
+    expect(store.getBrief(target)?.jobId).toBe("j0");
+    expect(store.getBrief("no-such-id")).toBeUndefined();
+  });
+
+  test("pruning a run cascades its briefs away", () => {
+    const runId = store.openRun({
+      startedAt: 100,
+      hostPower: "ac",
+      hostIdleMs: 0,
+      hostSource: "measured",
+      remoteCallBudget: 0,
+    });
+    store.recordBrief({
+      runId,
+      jobId: "j",
+      agentMethod: "agents.catchup",
+      briefMarkdown: "x",
+      findingsJson: "{}",
+      synthesisJson: null,
+      createdAt: 100,
+      // Deliberately far in the future: the RUN's age is what retires it, and the cascade is
+      // what removes the brief. Without pruneRuns, fleet_run grows one row per tick forever.
+      expiresAt: 10_000_000,
+    });
+    expect(store.pruneRuns(500)).toBe(1);
+    expect(store.listBriefs({ limit: 10 })).toHaveLength(0);
   });
 });
 ```
@@ -877,8 +957,37 @@ export class FleetStore {
     }));
   }
 
+  /** A point lookup on the primary key — never a scan. `brief_markdown` can be tens of KB. */
   getBrief(id: string): FleetBriefRow | undefined {
-    return this.listBriefs({ limit: 1_000 }).find((b) => b.id === id);
+    const row = this.db
+      .query(
+        `SELECT id, run_id, job_id, agent_method, brief_markdown, findings_json,
+                synthesis_json, created_at
+           FROM fleet_brief WHERE id = ?`,
+      )
+      .get(id) as
+      | {
+          id: string;
+          run_id: string;
+          job_id: string;
+          agent_method: string;
+          brief_markdown: string | null;
+          findings_json: string;
+          synthesis_json: string | null;
+          created_at: number;
+        }
+      | null;
+    if (row === null) return undefined;
+    return {
+      id: row.id,
+      runId: row.run_id,
+      jobId: row.job_id,
+      agentMethod: row.agent_method,
+      briefMarkdown: row.brief_markdown,
+      findingsJson: row.findings_json,
+      synthesisJson: row.synthesis_json,
+      createdAt: row.created_at,
+    };
   }
 
   /** Deletes briefs whose `expires_at` is at or before `now`. Returns the count removed. */
@@ -886,6 +995,18 @@ export class FleetStore {
     const before = this.db.query(`SELECT COUNT(*) AS n FROM fleet_brief`).get() as { n: number };
     dbRun(this.db, `DELETE FROM fleet_brief WHERE expires_at <= ?`, [now]);
     const after = this.db.query(`SELECT COUNT(*) AS n FROM fleet_brief`).get() as { n: number };
+    return before.n - after.n;
+  }
+
+  /**
+   * Deletes runs started at or before `cutoff`. Their briefs go with them via the FK cascade —
+   * which is why this exists: pruning only `fleet_brief` would leave one `fleet_run` row per
+   * tick accumulating forever, and at a 60-second tick that is ~525k rows a year.
+   */
+  pruneRuns(cutoff: number): number {
+    const before = this.db.query(`SELECT COUNT(*) AS n FROM fleet_run`).get() as { n: number };
+    dbRun(this.db, `DELETE FROM fleet_run WHERE started_at <= ?`, [cutoff]);
+    const after = this.db.query(`SELECT COUNT(*) AS n FROM fleet_run`).get() as { n: number };
     return before.n - after.n;
   }
 }
@@ -921,7 +1042,9 @@ git commit -m "feat(fleet): add the V60 fleet tables and FleetStore"
 - Produces: `NimbusFleetToml`, `NimbusFleetJobToml`, `DEFAULT_FLEET_CONFIG`,
   `parseNimbusTomlFleet(source): NimbusFleetToml`,
   `parseNimbusTomlFleetJobs(source): NimbusFleetJobToml[]`,
-  `loadNimbusFleetFromConfigDir(configDir): { config: NimbusFleetToml; jobs: NimbusFleetJobToml[] }`,
+  `loadNimbusFleetFromPath(tomlPath): { config: NimbusFleetToml; jobs: NimbusFleetJobToml[] }`
+  (a PATH — there is deliberately no config-dir variant; see the doc comment in Step 4),
+  `FleetConfigError`,
   and `parseBool` re-exported from `toml-primitives.ts`.
 
 - [ ] **Step 1: Write the failing config test**
@@ -1000,8 +1123,20 @@ test("parses multiple [[fleet.job]] blocks with flat params", () => {
   expect(jobs[1]?.params).toEqual({});
 });
 
-test("a job missing name or agent is dropped rather than half-configured", () => {
-  expect(parseNimbusTomlFleetJobs(["[[fleet.job]]", "interval_seconds = 10"].join("\n"))).toEqual([]);
+test("a block with no name and no agent is not a job at all — ignored", () => {
+  expect(parseNimbusTomlFleetJobs(["[[fleet.job]]"].join("\n"))).toEqual([]);
+});
+
+test("a job missing a required key is REFUSED, never silently dropped or defaulted", () => {
+  // Dropping it leaves the owner believing a job is configured that will never run. Defaulting
+  // interval_seconds to a day guesses a schedule they did not choose. Both fail silently; a
+  // throw is the only outcome they can see.
+  expect(() =>
+    parseNimbusTomlFleetJobs(["[[fleet.job]]", 'name = "x"', 'agent = "catchup"'].join("\n")),
+  ).toThrow(/interval_seconds/);
+  expect(() =>
+    parseNimbusTomlFleetJobs(["[[fleet.job]]", 'name = "x"', "interval_seconds = 10"].join("\n")),
+  ).toThrow(/agent/);
 });
 
 test("duplicate job names are refused — the name is the job_id primary key", () => {
@@ -1146,7 +1281,15 @@ export function parseNimbusTomlFleetJobs(source: string): NimbusFleetJobToml[] {
     if (cur === undefined) return;
     const { name, agent, intervalSeconds, params } = cur;
     cur = undefined;
-    if (name === undefined || agent === undefined || intervalSeconds === undefined) return;
+    // A block with nothing in it is not a job; an INCOMPLETE one is a job the owner meant to
+    // configure. Refuse the second rather than dropping it (they would believe it runs) or
+    // defaulting it (a schedule they did not choose).
+    if (name === undefined && agent === undefined && intervalSeconds === undefined) return;
+    if (name === undefined) throw new FleetConfigError("[[fleet.job]] requires name");
+    if (agent === undefined) throw new FleetConfigError(`[[fleet.job]] ${name} requires agent`);
+    if (intervalSeconds === undefined || intervalSeconds <= 0) {
+      throw new FleetConfigError(`[[fleet.job]] ${name} requires interval_seconds > 0`);
+    }
     if (seen.has(name)) {
       throw new FleetConfigError(`[[fleet.job]] duplicate name: ${name}`);
     }
@@ -1177,15 +1320,28 @@ export function parseNimbusTomlFleetJobs(source: string): NimbusFleetJobToml[] {
   return jobs;
 }
 
-export function loadNimbusFleetFromConfigDir(configDir: string): {
+/**
+ * Takes a PATH, not a config dir — and there is deliberately no `…FromConfigDir` variant.
+ *
+ * `config/nimbus-toml.ts`'s `loadNimbusAgentsFromPath` carries the reason in its own comment: the
+ * former `loadNimbusAgentsFromConfigDir` hardcoded `nimbus.toml`, was therefore profile-BLIND, and
+ * silently discarded `[agents] synthesis` set in a profile TOML. That variant was DELETED rather
+ * than left exported beside the profile-aware one "for someone to reach for by accident". Exporting
+ * a config-dir loader here would be reaching for it.
+ *
+ * Callers pass `resolveNimbusTomlForProfile(configDir)`.
+ *
+ * A malformed block THROWS rather than falling back to defaults. The CALLER
+ * (`platform/assemble.ts`) catches, logs loudly and constructs no scheduler — so the gateway still
+ * boots and the fleet is off. Crashing boot over an optional, default-off feature is
+ * disproportionate; silently running a half-read config is worse.
+ */
+export function loadNimbusFleetFromPath(tomlPath: string): {
   config: NimbusFleetToml;
   jobs: NimbusFleetJobToml[];
 } {
-  const path = join(configDir, "nimbus.toml");
-  if (!existsSync(path)) return { config: DEFAULT_FLEET_CONFIG, jobs: [] };
-  const raw = readFileSync(path, "utf8");
-  // A malformed [fleet] block THROWS rather than falling back to defaults: silently disabling a
-  // fleet the owner configured is the failure they would never notice.
+  if (!existsSync(tomlPath)) return { config: DEFAULT_FLEET_CONFIG, jobs: [] };
+  const raw = readFileSync(tomlPath, "utf8");
   return { config: parseNimbusTomlFleet(raw), jobs: parseNimbusTomlFleetJobs(raw) };
 }
 ```
@@ -2173,6 +2329,74 @@ describe("FleetScheduler.runOnce", () => {
     expect(store.loadJobState("a")?.backoffUntil).toBeGreaterThan(1_000_000);
   });
 
+  test("a job that ran within its interval is NOT due", async () => {
+    // Without this check the 60-second tick reruns every job every minute: a daily job would
+    // produce 60 briefs an hour all night, and `interval_seconds` would be parsed and never read.
+    store.recordJobSuccess("a", 1_000_000 - 500); // 0.5 s ago; interval is 1 s
+    const ran: string[] = [];
+    const s = build({
+      probes: [AC_IDLE],
+      invoke: async (job) => {
+        ran.push(job.name);
+        return { status: "done" };
+      },
+    });
+    await s.runOnce();
+    expect(ran).toEqual(["b"]);
+  });
+
+  test("a job whose interval has elapsed is due again", async () => {
+    store.recordJobSuccess("a", 1_000_000 - 5_000); // 5 s ago; interval is 1 s
+    const ran: string[] = [];
+    const s = build({
+      probes: [AC_IDLE],
+      invoke: async (job) => {
+        ran.push(job.name);
+        return { status: "done" };
+      },
+    });
+    await s.runOnce();
+    expect(ran).toEqual(["a", "b"]);
+  });
+
+  test("a second tick while a run is in flight is refused, not run concurrently", async () => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    const s = build({
+      probes: [AC_IDLE],
+      invoke: async () => {
+        concurrent += 1;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        await new Promise((r) => setTimeout(r, 20));
+        concurrent -= 1;
+        return { status: "done" };
+      },
+    });
+    // A run can outlast the 60 s tick — a cold `ownership` + `impact` with synthesis easily does.
+    const [first, second] = await Promise.all([s.runOnce(), s.runOnce()]);
+    expect(maxConcurrent).toBe(1);
+    expect([first.outcome, second.outcome].sort()).toEqual(["completed", "deferred"]);
+    expect([first.runId, second.runId]).toContain(null); // the refused one opened no run row
+  });
+
+  test("runOnce({ jobName }) runs only that job", async () => {
+    const ran: string[] = [];
+    const s = build({
+      probes: [AC_IDLE],
+      invoke: async (job) => {
+        ran.push(job.name);
+        return { status: "done" };
+      },
+    });
+    await s.runOnce({ jobName: "b", force: true });
+    expect(ran).toEqual(["b"]);
+  });
+
+  test("an unknown jobName throws rather than running everything", async () => {
+    const s = build({ probes: [AC_IDLE], invoke: async () => ({ status: "done" }) });
+    await expect(s.runOnce({ jobName: "nope" })).rejects.toThrow(/no such fleet job/);
+  });
+
   test("a job inside its backoff window is skipped", async () => {
     store.recordJobFailure("a", 1_000_000, "boom"); // backoff ends 1h later
     const ran: string[] = [];
@@ -2274,8 +2498,32 @@ export interface FleetSchedulerDeps {
 
 const TICK_MS = 60_000;
 
+/**
+ * Whether a job is due: past its backoff, and at least `interval_seconds` since its last SUCCESS.
+ *
+ * Keyed on `lastSuccessAt`, not `lastAttemptAt`: a job that failed should be retried when its
+ * backoff expires, not held off for a full interval on top. A job that has never succeeded is due.
+ */
+export function isJobDue(
+  job: NimbusFleetJobToml,
+  state: FleetJobState | undefined,
+  now: number,
+): boolean {
+  if (state?.backoffUntil != null && state.backoffUntil > now) return false;
+  if (state?.lastSuccessAt == null) return true;
+  return now - state.lastSuccessAt >= job.intervalSeconds * 1000;
+}
+
 export class FleetScheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
+  /**
+   * Re-entrancy guard. `start()` ticks every 60 s, and a real run — a cold `ownership` plus an
+   * `impact` with synthesis — routinely takes minutes. Without this, tick N+1 opens a second
+   * `fleet_run`, interleaves its writes with the first, and puts two jobs on the local model at
+   * once: the exact concurrency the sequential invoker (Task 6) exists to prevent, reintroduced
+   * one level up.
+   */
+  private inFlight = false;
 
   constructor(private readonly deps: FleetSchedulerDeps) {}
 
@@ -2297,7 +2545,7 @@ export class FleetScheduler {
    * user's machine and which an owner typing the command is by definition present to override. It
    * never skips the config kill-switch, the org-policy lockoff, eligibility, or I38's budget.
    */
-  async runOnce(opts?: { force?: boolean }): Promise<FleetRunSummary> {
+  async runOnce(opts?: { force?: boolean; jobName?: string }): Promise<FleetRunSummary> {
     // Ordering mirrors I33: local kill-switch, then org policy, BOTH before any work — so a
     // disabled capability never advertises itself by probing hardware or opening a run row.
     if (!this.deps.config.enabled) {
@@ -2307,6 +2555,37 @@ export class FleetScheduler {
       throw new FleetDisabledError("fleet is disabled by org policy");
     }
 
+    const jobs =
+      opts?.jobName === undefined
+        ? this.deps.jobs
+        : this.deps.jobs.filter((j) => j.name === opts.jobName);
+    // Throws rather than running everything: `nimbus fleet run typo` must not become
+    // "run every configured job", which is the worst possible reading of a typo.
+    if (opts?.jobName !== undefined && jobs.length === 0) {
+      throw new FleetDisabledError(`no such fleet job: ${opts.jobName}`);
+    }
+
+    if (this.inFlight) {
+      return {
+        runId: null,
+        outcome: "deferred",
+        jobsAttempted: 0,
+        jobsCompleted: 0,
+        jobsUnattempted: jobs.length,
+      };
+    }
+    this.inFlight = true;
+    try {
+      return await this.execute(jobs, opts);
+    } finally {
+      this.inFlight = false;
+    }
+  }
+
+  private async execute(
+    jobs: readonly NimbusFleetJobToml[],
+    opts?: { force?: boolean; jobName?: string },
+  ): Promise<FleetRunSummary> {
     const probe = await this.deps.hostActivity.probe();
     const verdict = admitFleetRun(probe, {
       requireAcPower: this.deps.config.requireAcPower,
@@ -2335,7 +2614,7 @@ export class FleetScheduler {
         outcome,
         jobsAttempted: attempted,
         jobsCompleted: completed,
-        jobsUnattempted: this.deps.jobs.length - attempted,
+        jobsUnattempted: jobs.length - attempted,
       };
     };
 
@@ -2347,7 +2626,7 @@ export class FleetScheduler {
     let attempted = 0;
     let completed = 0;
 
-    for (const job of this.deps.jobs) {
+    for (const job of jobs) {
       // Re-probe BETWEEN jobs, not only at the start. Stopping at a boundary rather than mid-brief
       // is why the boundary exists: a half-written brief is worse than an absent one.
       if (attempted > 0 && opts?.force !== true) {
@@ -2359,8 +2638,10 @@ export class FleetScheduler {
         if (!stillOk.admitted) return close("yielded", attempted, completed);
       }
 
+      // Due check AND backoff, both inside `isJobDue`. `force` (an owner at a keyboard) overrides
+      // the schedule; it does not override the capability, eligibility or the I38 budget.
       const state = this.deps.store.loadJobState(job.name);
-      if (state?.backoffUntil != null && state.backoffUntil > this.deps.now()) continue;
+      if (opts?.force !== true && !isJobDue(job, state, this.deps.now())) continue;
 
       attempted += 1;
       const outcome = await this.deps.invoke(job);
@@ -2472,8 +2753,22 @@ Construct only when configured, so a gateway with no `[fleet]` block builds noth
 field is `private readonly` (`local-index.ts:283`) and will not typecheck. `assemble.ts` already
 threads this same `Database` into a dozen subsystems; follow the nearest one.
 
+**Resolve the profile TOML, and never crash boot on a bad `[fleet]` block.** The parser throws
+(Task 3); this is the caller that catches, logs loudly and leaves the fleet off — the gateway must
+still boot, because the fleet is an optional default-off feature and the index is not.
+
 ```ts
-  const fleet = loadNimbusFleetFromConfigDir(paths.configDir);
+  // A PATH, profile-resolved. `nimbus.work.toml`'s [fleet] must not be silently ignored the way
+  // `[agents] synthesis` once was — see `loadNimbusAgentsFromPath`'s comment for that history.
+  const fleetToml = resolveNimbusTomlForProfile(paths.configDir);
+  let fleet = { config: DEFAULT_FLEET_CONFIG, jobs: [] as NimbusFleetJobToml[] };
+  try {
+    fleet = loadNimbusFleetFromPath(fleetToml);
+  } catch (err) {
+    // Loud, and fail-closed: no scheduler rather than a half-read one.
+    logger.error(`[fleet] config error in ${fleetToml} — fleet disabled: ${String(err)}`);
+  }
+
   const fleetScheduler =
     fleet.config.enabled && fleet.jobs.length > 0
       ? new FleetScheduler({
@@ -2492,13 +2787,36 @@ threads this same `Database` into a dozen subsystems; follow the nearest one.
           now: () => Date.now(),
         })
       : undefined;
-  fleetScheduler?.start();
+
+  if (fleetScheduler !== undefined) {
+    fleetScheduler.start();
+    // `assemble.ts` already collects teardown callbacks here (see `openGatewaySqlite`, line 357).
+    // Without this the 60 s interval outlives `disposeSidecars()`; `.unref()` keeps it from
+    // holding the process open but does not stop it firing during a shutdown that is still
+    // draining.
+    sidecarStops.push(() => fleetScheduler.stop());
+  }
 ```
 
-Add `fleetScheduler?: FleetScheduler` to `PlatformServices` in `platform/types.ts`, and call
-`FleetStore.pruneBriefs` once at boot using
-`max(config.retentionDays, enforcedPolicy.retention.minDays)` days — a policy FLOOR, so an org that
-requires 30 days of evidence cannot have it deleted by a local `retention_days = 7`.
+Add `fleetScheduler?: FleetScheduler` to `PlatformServices` in `platform/types.ts`.
+
+**Prune at boot**, using a retention that is a policy FLOOR:
+
+```ts
+  const retentionDays = Math.max(
+    fleet.config.retentionDays,
+    policyHitl.enforced.retention?.minDays ?? 0,
+  );
+  // `pruneRuns` first: the FK cascade takes each run's briefs with it, which is what keeps
+  // `fleet_run` from growing one row per 60-second tick forever. `pruneBriefs` then catches any
+  // brief whose own expiry is earlier than its run's age.
+  const cutoff = Date.now() - retentionDays * 86_400_000;
+  new FleetStore(db).pruneRuns(cutoff);
+  new FleetStore(db).pruneBriefs(Date.now());
+```
+
+A floor, not an override: an org that requires 30 days of evidence cannot have it deleted by a
+local `retention_days = 7`.
 
 - [ ] **Step 5: Wire the dead `pause_on_battery` key**
 
@@ -2572,8 +2890,13 @@ test("an unknown fleet method is a miss, not a throw", async () => {
 - [ ] **Step 2: Run it, confirm failure, implement `fleet-rpc.ts`**
 
 Follow `ipc/egress-rpc.ts`'s shape exactly: a `dispatchByMethod` handler map returning
-`RpcMissOrHit`, `fleet.runNow` calling `scheduler.runOnce({ force: true })`, and every read
-returning plain JSON. Register it in `ipc/server/dispatchers.ts` beside the `exec.` branch:
+`RpcMissOrHit` and every read returning plain JSON.
+
+`fleet.runNow` takes `{ job?: string; force?: boolean }` and calls
+`scheduler.runOnce({ jobName: params.job, force: params.force === true })`. **`jobName` must be
+threaded through** — without it `nimbus fleet run morning_catchup` runs every configured job, and a
+mistyped job name would run all of them rather than erroring. Add a test asserting that a
+`fleet.runNow` with `{ job: "b" }` reaches `runOnce` with `jobName: "b"`. Register it in `ipc/server/dispatchers.ts` beside the `exec.` branch:
 
 ```ts
   if (method.startsWith("fleet.")) return await dispatchFleetRpc(method, params, fleetCtx);
@@ -2799,6 +3122,14 @@ Tasks 1, 7, 8. `FleetJobOutcome`'s `done` arm carries `briefMarkdown`/`findingsJ
 in Task 6 and is consumed with exactly those names in Task 7. `FleetStore.recordBrief` takes the same
 field names it is called with. `admitFleetRun` returns `{admitted}` in both its definition and both
 call sites.
+
+**Review divergence, recorded so it is not re-raised.** The review proposed defaulting a missing
+`interval_seconds` to 86,400. Not taken: that trades one silent failure for another — the owner gets
+a daily schedule they never chose, on a job they may have meant to run hourly. The original draft
+was worse (it dropped such a job silently, so the owner believed it was configured). Task 3 refuses
+instead, which is the only outcome the owner can actually see, and matches how `[fleet] allow_remote`
+without a budget is handled. Task 8 catches that throw so the gateway still boots with the fleet off,
+which is why refusing is affordable here.
 
 **Known gap, deliberately carried:** the CI-runner probe behaviour in spec § 12 is an expectation,
 not a measurement. Task 1's Step 8 test is written to assert the *contract* on whichever OS runs it
