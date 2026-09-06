@@ -290,6 +290,7 @@ import { openUrlInDefaultBrowser } from "./browser.ts";
 import { ensurePlatformDirectories } from "./dirs.ts";
 import { processEnvGet } from "./env-access.ts";
 import { createGatewayPinoLogger } from "./gateway-log-file.ts";
+import { createHostActivity } from "./host-activity.ts";
 import type { PlatformPaths } from "./paths.ts";
 import { registerUserMcpSyncablesFromDatabase } from "./register-user-mcp-sync.ts";
 import { createSandboxRunner } from "./sandbox/sandbox-runner.ts";
@@ -2898,6 +2899,7 @@ export async function assemblePlatformServices(
   // delete ever fails and leaves `nimbus-ext-probe` behind, the reaper that runs right after on
   // this same boot is what cleans it up, not a later restart.
   const sandboxRunner = await createSandboxRunner();
+  const hostActivity = await createHostActivity();
   const db = openGatewaySqlite(paths.dataDir, sidecarStops);
   // I29: record what THIS binary is built to observe, before anything can emit egress. Without a
   // covering marker `proveWindow` reports `indeterminate` rather than a false zero, so this append
@@ -3676,6 +3678,7 @@ export async function assemblePlatformServices(
     notifications,
     openUrl: openUrlInDefaultBrowser,
     sandboxRunner,
+    hostActivity,
     llmRegistry,
     ...(agentVendor === undefined ? {} : { agentVendor }),
     connectorWriteDeps,
