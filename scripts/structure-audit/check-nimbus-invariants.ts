@@ -930,6 +930,39 @@ export function checkRunConfinedConfinement(files: readonly FileEntry[]): Violat
   return out;
 }
 
+// D28 (I38): the `fleet` ClientKind literal — the attribution that marks a call as unattended,
+// owner-configured fleet work — may appear only where it is DEFINED, where its egress status is
+// DECIDED, and in the one invoker that legitimately wears it. A second file naming it would be a
+// second path able to file briefs under that attribution without passing the scheduler's config,
+// policy, admission and I38 budget checks. Mirrors D23's runConfined confinement. Tests exempt.
+const D28_FLEET_KIND_ALLOWED = [
+  "packages/gateway/src/ipc/server/client-kind.ts",
+  "packages/gateway/src/egress/egress-bearing-kinds.ts",
+  "packages/gateway/src/fleet/fleet-invoker.ts",
+];
+const D28_FLEET_KIND_RE = /kind:\s*"fleet"|"fleet"\s*:\s*(?:null|")/;
+
+export function checkFleetClientKindConfinement(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (D28_FLEET_KIND_ALLOWED.includes(f.relPath)) continue;
+    const stripped = stripComments(f.contents).split("\n");
+    const original = f.contents.split("\n");
+    for (let i = 0; i < stripped.length; i++) {
+      if (D28_FLEET_KIND_RE.test(stripped[i] ?? "")) {
+        out.push({
+          rule: "D28-fleet-client-kind",
+          file: f.relPath,
+          line: i + 1,
+          snippet: (original[i] ?? "").trim(),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 // D26(a) (I35): `performActuation` — the primitive that turns a model-proposed action into a real
 // interaction with the host — may be CALLED only from the computer-use gate (which performs the
 // config/policy checks, the sandbox assertion, the envelope check, the structural classification,
@@ -2068,6 +2101,13 @@ async function run(): Promise<void> {
       );
     }
     if (v.length > 0) exit = 1;
+    const fleetKindViolations = checkFleetClientKindConfinement(files);
+    for (const e of fleetKindViolations) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D28 fleet ClientKind breach — the unattended-fleet attribution is named outside client-kind.ts/egress-bearing-kinds.ts/fleet-invoker.ts, a second path able to file briefs as fleet work without the scheduler's checks (I38): ${e.snippet}`,
+      );
+    }
+    if (fleetKindViolations.length > 0) exit = 1;
   }
   if (mode === "binary-only" || mode === "all") {
     const actuationViolations = checkActuationConfinement(files);
