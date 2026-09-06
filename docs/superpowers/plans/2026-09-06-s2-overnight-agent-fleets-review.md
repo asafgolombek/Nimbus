@@ -292,13 +292,41 @@ This review identifies **4 critical implementation bugs / blockers** that must b
 
 ---
 
-## 4. Security & Invariant Verification Checklist
+## 4. Security & Invariant Coverage of the PLAN
 
-* [x] **I38 Local Pinning & Zero Egress:** Verified that `wrapFleetSynthesisRouter` intercepts `resolveForSynthesis` and `generateMarkdown` fail-closed when `allow_remote` is `false` or budget is `0`.
-* [x] **D28 Attribution Confinement:** Verified regex `/kind:\s*"fleet"|"fleet"\s*:\s*(?:null|")/` and file allowlist in `check-nimbus-invariants.ts`.
-* [x] **LAN Exposure Protection:** Verified that `fleet` namespace is added to `FORBIDDEN_OVER_LAN` in `ipc/lan-rpc.ts`.
-* [x] **Monotonic Policy Tightening (I22):** Verified that `agent_fleet` in `EnforcedPolicy.capabilitiesDisabled` immediately halts the scheduler without probing hardware.
-* [x] **Dead-Key Cleanup:** Verified that `[embedding] pause_on_battery` is wired to `HostActivity.probe()` in `create-embedding-runtime.ts`.
+**Read this section as what it was: a pre-implementation review of the plan document, written on
+2026-09-06 against `2026-09-06-s2-overnight-agent-fleets.md` before any code existed.** It was
+originally written as a `[x] Verified …` checklist, which read — wrongly — as verification of a
+running system. Nothing here was ever executed against shipped code; each row asserts only that
+the plan *specified* the defense named. The authoritative statements about the shipped code are
+the enforcement tests in `packages/gateway/src/security-invariants.test.ts`, the static rules in
+`scripts/structure-audit/check-nimbus-invariants.ts`, and the I38 row in `CLAUDE.md` — including
+its stated bound, that the two I38 doors are proved at the wrapper and the invoker is proved to
+use the wrapper, but the composed path is not exercised end to end.
+
+One row was also factually wrong and is corrected below.
+
+* **I38 local pinning & zero egress** — the plan specifies `wrapFleetSynthesisRouter` decorating
+  both `resolveForSynthesis` and `generateMarkdown`, fail-closed when `allow_remote` is `false` or
+  the run's remaining budget is `0`. Shipped as specified (`fleet/fleet-synthesis-router.ts`).
+* **D28 attribution confinement** — the plan specifies a `fleet` `ClientKind` assignment-shape
+  allow-list in `check-nimbus-invariants.ts`. Shipped, but **not with the regex quoted in the
+  original row**: that pattern was widened during implementation beyond object-literal syntax
+  (commit `30cba83f`). Read the rule, not this document.
+* **LAN exposure protection** — the plan specifies adding the `fleet` namespace to
+  `FORBIDDEN_OVER_LAN` in `ipc/lan-rpc.ts`. Shipped as specified.
+* **Monotonic policy tightening (I22)** — the plan specifies `agent_fleet` in
+  `EnforcedPolicy.capabilitiesDisabled` halting the scheduler before any hardware probe. Shipped
+  as specified; `agent_fleet` is the sixth `AI_V2_CAPABILITIES` member.
+* **Dead-key cleanup — CORRECTED.** The original row claimed `[embedding] pause_on_battery` is
+  wired to `HostActivity.probe()` **in `create-embedding-runtime.ts`**. It is not, and never was:
+  that file contains zero `probe()` calls — it only threads the flag through as a field. The probe
+  lives in `embedding/backfill-gate.ts` (`createBatteryBackfillGate`, the sole `probe()` caller),
+  which is constructed at two sites: `platform/assemble.ts` for the in-process pipeline and
+  `embedding/embedding-worker.ts` for the default worker leg. The correction matters beyond the
+  filename: the key now *changes behaviour* — a laptop on battery stops backfilling embeddings
+  (`unknown` power still proceeds) — so it is documented for users in
+  [`docs/cli-reference.md`](../../cli-reference.md), not only here.
 
 ---
 

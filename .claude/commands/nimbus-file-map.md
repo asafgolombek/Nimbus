@@ -330,7 +330,16 @@ Everything else follows the standard triple. These break from it in a way worth 
 | `packages/gateway/src/egress/vlm-egress.ts` | `wrapLedgeredVlm` — the `model`-class appender over `VlmProvider.describe` (`D22(g)`); `payload_summary` = model name + image byte COUNT, never the prompt or the bytes |
 | `packages/gateway/src/index/{computer-use-v57-sql,media-pass-v58-sql,media-grant-v59-sql}.ts` | V57 `cu_session`/`cu_action`, V58 `media_pass_cursor`, V59 `media_grant` migration SQL |
 | `packages/cli/src/commands/{exec,computer,media-cmd,media-grants-cmd}.ts` | `nimbus exec` / `nimbus computer` / `nimbus media understand` / `nimbus media allow-remote`+`grants` CLI |
-| `packages/gateway/src/ipc/{exec-rpc,computer-rpc,media-rpc}.ts` | `exec.*` / `computer.*` / `media.*` — all three LAN-forbidden (`I5`) and absent from the Tauri allowlist (`I7`) |
+| `packages/gateway/src/ipc/{exec-rpc,computer-rpc,media-rpc,fleet-rpc}.ts` | `exec.*` / `computer.*` / `media.*` / `fleet.*` — all four LAN-forbidden (`I5`) and absent from the Tauri allowlist (`I7`) |
+| `packages/gateway/src/platform/host-activity.ts` + `host-activity/{win32,darwin,linux}.ts` | `HostActivity.probe()` → `{power, idleMs, source}`; **Linux never measures idle** (power only, `source: "power_only"`) |
+| `packages/gateway/src/fleet/fleet-admission.ts` | `admitFleetRun` — blocks on `battery`, deliberately does NOT require `ac` (a desktop/VM answers `unknown`) |
+| `packages/gateway/src/fleet/fleet-scheduler.ts` | `FleetScheduler` — 60 s tick, single-flight `inFlight` guard over every entry path, per-job interval + exponential backoff, yields mid-run |
+| `packages/gateway/src/fleet/fleet-invoker.ts` | Dispatches a job via `dispatchAgentsRpc` under the `fleet` `ClientKind` (`D28`) and awaits the completion NOTIFICATION, not the call |
+| `packages/gateway/src/fleet/fleet-synthesis-router.ts` | `wrapFleetSynthesisRouter` — invariant `I38`; guards BOTH `resolveForSynthesis` and `generateMarkdown`, locality DERIVED from `provider.isLocal` (`I34`) |
+| `packages/gateway/src/fleet/fleet-store.ts` | The V60 tables' sole accessor; `expires_at` is filtered on the READ path, not only by the prune |
+| `packages/gateway/src/index/fleet-v60-sql.ts` | V60 `fleet_job_state` / `fleet_run` / `fleet_brief` migration SQL |
+| `packages/cli/src/commands/fleet.ts` | `nimbus fleet status\|list\|briefs\|show\|run` + its own exit-code vocabulary (`FLEET_EXIT_CODES`) |
+| `packages/gateway/src/ipc/agents-rpc.ts` `FLEET_ELIGIBILITY` | TOTAL over the served `agents.*` methods — 11 eligible; `negotiate` is `deferred`, NOT eligible |
 
 ## Top-level docs
 

@@ -8,6 +8,62 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-09-07 — Overnight sub-agent fleets, PR 1 of 2: standing agent jobs on idle local
+  hardware.** `nimbus fleet status | list | briefs | show <id> | run <job> [--force]` over the new
+  `fleet.*` IPC namespace, backed by schema **V60** (`fleet_job_state` / `fleet_run` /
+  `fleet_brief`, all `WITHOUT ROWID`), new invariant **I38**, and new static rule **D28**.
+  **DEFAULT OFF** — `[fleet] enabled` plus at least one `[[fleet.job]]` block are both required,
+  and `[policy.capabilities.ai_v2] agent_fleet = false` halts the scheduler before any hardware
+  probe (I22, tighten-only; `agent_fleet` is the **sixth** `AI_V2_CAPABILITIES` member).
+  **New PAL capability:** `HostActivity` (`platform/host-activity.ts` + `win32`/`darwin`/`linux`
+  backends) reports `{power, idleMs, source}`, and `source` — `measured` or `power_only` — is
+  persisted on every `fleet_run` row, so a run never implies a check it did not perform.
+  `fleet-admission.ts` blocks on `battery` and deliberately does **not** require `ac`: a desktop,
+  VM or server answers `unknown`, and a `power === "ac"` predicate would have made the feature
+  silently inert on exactly the always-on hardware it targets. `FleetScheduler` ticks every 60 s
+  behind a single-flight `inFlight` guard that serialises the tick, `--force` and a named run
+  alike, honours each job's `interval_seconds` against its last **success**, backs a failing job
+  off exponentially (1 h base, capped at 24 h), and **yields** mid-run the moment admission flips
+  — a distinct outcome from `failed`, and exit code `0`. Jobs dispatch through `dispatchAgentsRpc`
+  under a gateway-set `fleet` `ClientKind` (absent from `RECOGNISED`, so no socket client can
+  declare it) and the invoker awaits the completion **notification**, not the call, which returns
+  before the brief exists. `FLEET_ELIGIBILITY` is TOTAL over the served `agents.*` methods — 11
+  eligible; `preflight` and `premortem` excluded for side effects (a HITL prompt nobody is awake to
+  answer; durable watcher/tombstone writes), `whyPeek` for shape, `negotiate` **deferred** — so a
+  sixteenth agent does not compile until someone classifies it, where an exclusion `Set` would have
+  failed open. **Invariant I38** pins an unattended run's synthesis to a LOCAL model unless
+  `[fleet] allow_remote` is true AND the run's **per-run** budget covers the call; it is enforced as
+  a decorator over `SynthesisRouter` guarding BOTH `resolveForSynthesis` and `generateMarkdown`,
+  with locality DERIVED from `provider.isLocal` (I34) rather than a vendor id — a frontier key
+  configured under `[llm.remote.<vendor>]` for interactive use grants the fleet nothing on its own.
+  `allow_remote = true` with no budget is **refused** at config load: an unbounded overnight remote
+  grant must not be expressible. **Static D28** confines the `fleet` `ClientKind` assignment shapes
+  to three files and states its own residual bound. The whole `fleet` namespace is
+  `FORBIDDEN_OVER_LAN` and absent from the Tauri allowlist.
+  **Also in this delivery: `[embedding] pause_on_battery` stops lying.** The key had parsed and
+  defaulted to `true` since it was added and **nothing read it**; `embedding/backfill-gate.ts` is
+  the consumer it never had, using the same `HostActivity` probe. It now genuinely pauses embedding
+  **backfill** on battery — pauses rather than abandons, re-probing every 30 s, because nothing
+  re-triggers backfill after boot — and only on `battery`: `unknown` still proceeds, so a machine
+  with no battery does not silently lose semantic search. **This is a behaviour change for laptop
+  users** and is documented for them in
+  [`cli-reference.md` § Configuration File](./cli-reference.md#configuration-file), not only here.
+  **What did NOT ship, stated rather than left to be found:** subject enumeration (the owner names
+  each job's subject in config; nothing sweeps a service on its own), the change/threshold notion,
+  and the digest surface — all three are PR 2. `negotiate` is classified `deferred`, not eligible.
+  **Linux never measures user idle** (`/sys/class/power_supply` for power, `idleMs: null`,
+  `source: "power_only"`), so admission there is power-only and every run row discloses it. The
+  design's § 12 CI-runner probe expectations remain expectations until the cross-platform legs run.
+  And the I38 row's own stated bound holds: the two doors are proved at the wrapper and the invoker
+  is proved to USE the wrapper, but the composed path is not exercised end to end. Eleven `fix(...)`
+  commits plus one `test(...)` commit landed during implementation, and several closed a claim that
+  was not true rather than an ordinary bug: a migration that never ran because
+  `CURRENT_SCHEMA_VERSION` was not bumped with it; `fleet_run.remote_calls_made` recording 0 on
+  every run because the invoker spent against a different budget instance from the one the row
+  read; `remote_call_budget` documented as per-run while behaving as per-process; an I38 row and
+  test block that claimed more than they delivered; and assertions that could not fail. That is why
+  these bounds are written as narrowly as they are. Design:
+  [`2026-09-06-s2-overnight-agent-fleets-design.md`](./superpowers/specs/2026-09-06-s2-overnight-agent-fleets-design.md).
 - **2026-09-06 — the multimodal remote arm was answered by a real vendor for the first time.**
   Not a delivery — an acceptance run, recorded because it retires a claim the entry below could
   only state as open. PR 4's three vendor request shapes were written from each vendor's own

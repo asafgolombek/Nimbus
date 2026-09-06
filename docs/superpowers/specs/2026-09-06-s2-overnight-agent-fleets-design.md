@@ -1,8 +1,20 @@
 # S2 — Overnight Sub-Agent Fleets on Zero-Marginal Local Compute
 
-> **Status: DESIGN ONLY, 2026-09-06. Nothing in this document is implemented.** Schema **V60**,
-> invariant **I38**, static rule **D28**, the `fleet` `ClientKind` member and the
-> `agent_fleet` capability name are all RESERVED by this spec and do not exist in the code.
+> **Status: PR 1 of 2 IMPLEMENTED, 2026-09-07** (designed 2026-09-06). Schema **V60**
+> (`fleet_job_state` / `fleet_run` / `fleet_brief`), invariant **I38**, static rule **D28**, the
+> `fleet` `ClientKind` member and the `agent_fleet` `[policy.capabilities.ai_v2]` name are no
+> longer reserved — all five exist in the code. So do the `HostActivity` PAL capability, the
+> `[fleet]` + `[[fleet.job]]` config surface, the `fleet.*` IPC namespace (LAN-forbidden, absent
+> from the Tauri allowlist) and the five `nimbus fleet` subcommands.
+>
+> **What did NOT ship, and is not a gap in this document — it is PR 2:** subject enumeration per
+> agent, the change/threshold notion, and the digest surface (§ 3, § 7.3). Three PR-1 bounds are
+> narrower than the design text below reads, and the narrower reading is the true one: `negotiate`
+> is classified **`deferred`**, not eligible (§ 6.3 already says so; `FLEET_ELIGIBILITY` implements
+> it); **Linux never measures idle** — `host-activity/linux.ts` reads power from
+> `/sys/class/power_supply` only and returns `idleMs: null` with `source: "power_only"`, so
+> admission there is power-only and every run row discloses it (§ 4.3); and § 12's CI-runner probe
+> expectations remain expectations until the cross-platform legs run.
 >
 > **Slot:** [Spine S2 — Local Compute Fleet](../../roadmap.md#active), the row
 > *"[NEW] Overnight sub-agent fleets on zero-marginal local compute"*. Detail source:
@@ -554,7 +566,7 @@ Recorded explicitly, because the difference is where specs rot.
 - `EXTERNAL_EXCLUDED_AGENT_METHODS` holds exactly `preflight`, `premortem`, `whyPeek`, `negotiate`,
   with the recorded reasoning quoted in § 6.3.
 - `AgentRunController`'s TTL / concurrency / retention constants.
-- `AI_V2_CAPABILITIES` has five members; V59 is the schema head; `simpleStep` is the registration
+- `AI_V2_CAPABILITIES` had five members when this was written; V59 was the schema head; `simpleStep` is the registration
   form; `config/filesystem-toml.ts` is the array-of-tables precedent.
 
 **Added by the 2026-09-06 review pass, verified then:**
