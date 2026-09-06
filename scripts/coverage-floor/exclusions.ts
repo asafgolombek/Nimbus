@@ -24,6 +24,29 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/linux.ts" },
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/darwin.ts" },
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/sandbox-runner.ts" },
+  // ── host-activity (S2 overnight fleet, 2026-09-07) — added under the SAME rule, not a new one ──
+  // `host-activity.ts` is a five-line `switch (platform())` with three dynamic-import arms and a
+  // default. Precedent: `sandbox/sandbox-runner.ts` above (`createSandboxRunner`, byte-for-byte the
+  // same dispatcher shape) and `platform/index.ts` / `vault/factory.ts` below, both exempt as
+  // "async per-OS dispatcher; only one switch arm reachable per CI run". Exactly one arm can execute
+  // on any single OS, so the file reads 2/5 = 40% line on EVERY runner, Linux included — no test can
+  // lift it without injecting the platform, which would be a seam for the gate's benefit alone.
+  { kind: "exact", path: "packages/gateway/src/platform/host-activity.ts" },
+  // The two OS BODIES that cannot load on CI Linux: `darwin.ts` spawns `pmset`/`ioreg`, `win32.ts`
+  // `dlopen`s kernel32/user32 through `bun:ffi`. Same class as `sandbox/{linux,darwin}.ts` above.
+  //
+  // What makes this honest rather than a blanket per-OS pass — and the distinction the 2026-08-01
+  // retirement of `sandbox/win32.ts` drew: the TESTABLE logic in both files is EXTRACTED and IS
+  // covered. `parseDarwinPower`, `parseDarwinIdleMs`, `idleMsFromTicks` and `powerFromAcLineStatus`
+  // are exported pure functions with assertions in `platform/host-activity.test.ts` (including the
+  // 49.7-day tick wrap). Only the spawn/FFI shells around them are exempt. If either file ever grows
+  // pure logic that is NOT extracted, retire its entry rather than widening the rationale.
+  { kind: "exact", path: "packages/gateway/src/platform/host-activity/darwin.ts" },
+  { kind: "exact", path: "packages/gateway/src/platform/host-activity/win32.ts" },
+  // `host-activity/linux.ts` is deliberately NOT here. Its `root` is injectable (`createLinuxHost
+  // Activity(root)`), so its sysfs scan is fully testable on ANY OS and already has four tests; it
+  // is also the ACTIVE arm on the CI-Linux runner. Same reasoning that keeps `platform/linux.ts`
+  // out of this block. A floor failure there is a real gap to close with tests, never an exclusion.
 
   // ── Boot orchestrators / index barrels / factories / process entry points ──
   // `index.ts` is now a thin argv shim that dynamically imports one of three role modules; the

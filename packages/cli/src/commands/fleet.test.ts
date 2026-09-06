@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
 import { JsonRpcError } from "@nimbus-dev/client";
+import { BATCH_RPC_TIMEOUT_MS } from "../lib/rpc-timeouts.ts";
 import {
   FLEET_EXIT_CODES,
   type FleetIpc,
+  type OutcomeSink,
   type ParsedFleetArgs,
   parseFleetArgs,
+  type RunFleetDeps,
   runFleet,
   runFleetCommand,
 } from "./fleet.ts";
@@ -343,4 +346,221 @@ test("fleet.briefs also gets the shared translation for a -32000 (no store wired
   const { sink } = sinkSpy();
   const code = await runFleetCommand(client, { sub: "briefs", json: false }, sink);
   expect(code).toBe(FLEET_EXIT_CODES.disabled);
+});
+// ── Human-readable rendering. Every subcommand has a `--json` arm AND a text arm, and only the
+// JSON arm was exercised. That is the half a person actually reads, and it is where the empty-vs-
+// populated distinction lives: "no fleet briefs" and a list of briefs are different answers, and a
+// renderer that printed nothing for both would have passed every test above.
+
+test("fleet.list renders each configured job, including one that has never run", async () => {
+  const client: FleetIpc = {
+    call: async () => ({
+      jobs: [
+        {
+          name: "morning-catchup",
+          agent: "catchup",
+          intervalSeconds: 86400,
+          state: {
+            jobId: "morning-catchup",
+            lastAttemptAt: 1_757_200_000_000,
+            lastSuccessAt: 1_757_200_000_000,
+            consecutiveFailures: 0,
+            backoffUntil: null,
+            lastError: null,
+          },
+        },
+        // `state: null` is the never-run case — it must render "never"/0 rather than crashing on
+        // the optional chain or printing "undefined" at the user.
+        { name: "weekly-owners", agent: "ownership", intervalSeconds: 604800, state: null },
+      ],
+    }),
+  };
+  const s = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "list", json: false }, s.sink);
+  expect(code).toBe(FLEET_EXIT_CODES.ok);
+  const text = s.out.join("");
+  expect(text).toContain("morning-catchup  agent=catchup  interval=86400s");
+  expect(text).toContain("weekly-owners  agent=ownership  interval=604800s");
+  expect(text).toContain("last success=never");
+  expect(text).toContain("consecutive failures=0");
+  // The ISO timestamp is rendered from `lastSuccessAt`, not omitted, on the job that HAS run.
+  expect(text).toContain(new Date(1_757_200_000_000).toISOString());
+});
+
+test("fleet.list with nothing configured says so rather than printing an empty block", async () => {
+  const client: FleetIpc = { call: async () => ({ jobs: [] }) };
+  const s = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "list", json: false }, s.sink);
+  expect(code).toBe(FLEET_EXIT_CODES.ok);
+  expect(s.out.join("")).toBe("no fleet jobs configured\n");
+});
+
+test("fleet.briefs renders one line per brief, newest-first order preserved", async () => {
+  const client: FleetIpc = {
+    call: async () => ({
+      briefs: [
+        {
+          id: "b2",
+          runId: "r1",
+          jobId: "morning-catchup",
+          agentMethod: "agents.catchup",
+          briefMarkdown: "# later",
+          findingsJson: "[]",
+          synthesisJson: null,
+          createdAt: 1_757_200_000_000,
+        },
+        {
+          id: "b1",
+          runId: "r1",
+          jobId: "weekly-owners",
+          agentMethod: "agents.ownership",
+          briefMarkdown: null,
+          findingsJson: "[]",
+          synthesisJson: null,
+          createdAt: 1_757_100_000_000,
+        },
+      ],
+    }),
+  };
+  const s = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "briefs", json: false }, s.sink);
+  expect(code).toBe(FLEET_EXIT_CODES.ok);
+  expect(s.out).toEqual([
+    `b2  morning-catchup  agents.catchup  ${new Date(1_757_200_000_000).toISOString()}\n`,
+    `b1  weekly-owners  agents.ownership  ${new Date(1_757_100_000_000).toISOString()}\n`,
+  ]);
+});
+
+test("fleet.briefs with no rows says so rather than printing nothing", async () => {
+  const client: FleetIpc = { call: async () => ({ briefs: [] }) };
+  const s = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "briefs", json: false }, s.sink);
+  expect(code).toBe(FLEET_EXIT_CODES.ok);
+  expect(s.out.join("")).toBe("no fleet briefs\n");
+});
+
+test("fleet.show prints the markdown body to stdout", async () => {
+  const client: FleetIpc = {
+    call: async () => ({
+      brief: {
+        id: "b1",
+        runId: "r1",
+        jobId: "morning-catchup",
+        agentMethod: "agents.catchup",
+        briefMarkdown: "# Catchup\n\nnothing moved.",
+        findingsJson: "[]",
+        synthesisJson: null,
+        createdAt: 1_757_200_000_000,
+      },
+    }),
+  };
+  const s = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "show", id: "b1", json: false }, s.sink);
+  expect(code).toBe(FLEET_EXIT_CODES.ok);
+  expect(s.out.join("")).toBe("# Catchup\n\nnothing moved.\n");
+  expect(s.err).toEqual([]);
+});
+
+test("fleet.show on a brief with findings but no synthesised body says so, not 'null'", async () => {
+  // `brief_markdown` is nullable by design — a job can complete with findings and no synthesis
+  // (I38 refusing a remote model is exactly that case). Printing the literal "null" here would be
+  // the disclosure failure, on the surface a person reads.
+  const client: FleetIpc = {
+    call: async () => ({
+      brief: {
+        id: "b1",
+        runId: "r1",
+        jobId: "morning-catchup",
+        agentMethod: "agents.catchup",
+        briefMarkdown: null,
+        findingsJson: "[]",
+        synthesisJson: null,
+        createdAt: 1_757_200_000_000,
+      },
+    }),
+  };
+  const s = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "show", id: "b1", json: false }, s.sink);
+  expect(code).toBe(FLEET_EXIT_CODES.ok);
+  expect(s.out.join("")).toBe("(no markdown body)\n");
+});
+
+test("fleet.show reports an unresolvable id on STDERR with the notFound code", async () => {
+  const client: FleetIpc = { call: async () => ({ brief: null }) };
+  const s = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "show", id: "nope", json: false }, s.sink);
+  expect(code).toBe(FLEET_EXIT_CODES.notFound);
+  expect(s.out).toEqual([]);
+  expect(s.err.join("")).toBe("nimbus: no such brief, or it has expired: nope\n");
+});
+
+// ── `runFleet`'s own orchestration, through its injected deps — an arm no test entered. ──
+
+test("runFleet prints USAGE to stderr and exits 1 without opening a connection", async () => {
+  const s = sinkSpy();
+  const code = await runFleet(["frobnicate"], {
+    runWithClient: async () => {
+      throw new Error("must not connect to a gateway for a usage error");
+    },
+    sink: s.sink,
+  });
+  expect(code).toBe(FLEET_EXIT_CODES.usage);
+  expect(s.err.join("")).toContain("Usage: nimbus fleet");
+  expect(s.out).toEqual([]);
+});
+
+test("runFleet gives `run` the batch timeout and the other subcommands the default", async () => {
+  // `run` awaits a whole overnight job; the 30s default would abort a cold catchup mid-synthesis
+  // and report it as a failure. Asserted as the VALUE passed, not merely that a timeout was given.
+  const seen: (number | undefined)[] = [];
+  const mkDeps = (sink: OutcomeSink): RunFleetDeps => ({
+    runWithClient: async (fn, timeoutMs) => {
+      seen.push(timeoutMs);
+      return await fn({
+        call: async () => ({
+          runId: "r1",
+          outcome: "completed",
+          jobsAttempted: 1,
+          jobsCompleted: 1,
+          jobsUnattempted: 0,
+          jobsSkippedNotDue: 0,
+          jobs: [],
+        }),
+      });
+    },
+    sink,
+  });
+  const s = sinkSpy();
+  await runFleet(["run", "morning-catchup"], mkDeps(s.sink));
+  await runFleet(["list"], mkDeps(s.sink));
+  expect(seen).toEqual([BATCH_RPC_TIMEOUT_MS, undefined]);
+});
+
+test("runFleet turns a transport failure into one stderr line and the disabled code", async () => {
+  // The gateway not being up at all reaches `runFleet`'s OUTER catch rather than the per-command
+  // RPC translation, so it needs its own arm: a user with no gateway running must get one line,
+  // not a stack trace.
+  const s = sinkSpy();
+  const code = await runFleet(["status"], {
+    runWithClient: async () => {
+      throw new Error("connect ENOENT /tmp/nimbus.sock");
+    },
+    sink: s.sink,
+  });
+  expect(code).toBe(FLEET_EXIT_CODES.disabled);
+  expect(s.err.join("")).toBe("connect ENOENT /tmp/nimbus.sock\n");
+});
+
+test("a non-Error throw is still reported as one line, never as [object Object]", async () => {
+  const s = sinkSpy();
+  const code = await runFleet(["status"], {
+    runWithClient: async () => {
+      // A bare string throw, deliberately: `runFleet`'s catch has an `instanceof Error` ternary,
+      // and only a non-Error value reaches its other arm.
+      throw "socket closed";
+    },
+    sink: s.sink,
+  });
+  expect(code).toBe(FLEET_EXIT_CODES.disabled);
+  expect(s.err.join("")).toBe("socket closed\n");
 });
