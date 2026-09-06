@@ -21,6 +21,7 @@ import { canonicalizeUrl } from "../../util/url-canonical.ts";
 import { CURRENT_SCHEMA_VERSION } from "../local-index.ts";
 import {
   MigrationRollbackError,
+  maxRegisteredIndexedSchemaVersion,
   pruneOldBackups,
   RESOLVE_KEY_BACKFILL_CHUNK,
   readIndexedUserVersion,
@@ -781,10 +782,10 @@ test("V52 leaves resolve_key NULL for a row with neither url", () => {
   db.close();
 });
 
-test("CURRENT_SCHEMA_VERSION is 59, so the newest step runs in production", () => {
+test("CURRENT_SCHEMA_VERSION is 60, so the newest step runs in production", () => {
   // Without this bump the step exists but never executes: runIndexedSchemaMigrations early-returns
   // once user_version >= targetVersion, and every production caller passes CURRENT_SCHEMA_VERSION.
-  expect(CURRENT_SCHEMA_VERSION).toBe(59);
+  expect(CURRENT_SCHEMA_VERSION).toBe(60);
   const db = freshDb();
   runIndexedSchemaMigrations(db, 53);
   expect(tableNames(db)).toContain("item");
@@ -800,6 +801,22 @@ test("CURRENT_SCHEMA_VERSION is 59, so the newest step runs in production", () =
   };
   expect(row.metadata).toBe(JSON.stringify({ ownership: { ownerCount: 1 } }));
   db.close();
+});
+
+test("CURRENT_SCHEMA_VERSION tracks the highest registered migration step", () => {
+  // Derived from the step list, not hand-written on both sides — a hand-written constant here
+  // would just be the same unverified claim as CURRENT_SCHEMA_VERSION itself, twice. A step
+  // registered above CURRENT_SCHEMA_VERSION is inert in production (every real caller passes
+  // CURRENT_SCHEMA_VERSION as the migration target, so runIndexedSchemaMigrations never reaches
+  // it), while a CURRENT_SCHEMA_VERSION above the highest step points at a version nothing
+  // creates. Either drift is a real bug; this test exists so it fails loudly instead of shipping
+  // a database that is right in every test and wrong on a real machine.
+  const maxStep = maxRegisteredIndexedSchemaVersion();
+  expect(
+    CURRENT_SCHEMA_VERSION,
+    `registered steps reach V${String(maxStep)} but CURRENT_SCHEMA_VERSION is ` +
+      `${String(CURRENT_SCHEMA_VERSION)}; bump it or the migration is inert`,
+  ).toBe(maxStep);
 });
 
 test("V55 creates pr_changed_file and pr_files_state through the runner", () => {

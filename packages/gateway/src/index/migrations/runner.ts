@@ -567,6 +567,21 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   simpleStep(59, 60, "agent fleet scheduling", FLEET_V60_SQL),
 ];
 
+/**
+ * The highest `toVersion` across every registered step — i.e. the schema version a fresh
+ * database ends up at after every step runs. `local-index.ts`'s `CURRENT_SCHEMA_VERSION` must
+ * equal this: every production caller (`LocalIndex.ensureSchema`) passes
+ * `CURRENT_SCHEMA_VERSION` as the migration TARGET, and `runIndexedSchemaMigrations` stops once
+ * the database's `user_version` reaches that target — so a step registered above the constant is
+ * inert in production even though it runs fine in a test that passes an explicit target. Derived
+ * here (not hand-written) so the two can never silently drift apart again; see
+ * `runner.test.ts`'s drift-guard test. Does not expose `apply`, so a caller cannot use this to
+ * run steps out of band — it is read-only version bookkeeping.
+ */
+export function maxRegisteredIndexedSchemaVersion(): number {
+  return INDEXED_SCHEMA_STEPS.reduce((max, step) => Math.max(max, step.toVersion), 0);
+}
+
 const BACKFILL_LABELS: readonly string[] = [
   "initial filesystem schema (backfilled)",
   "scheduler_state + sync_telemetry (backfilled)",
