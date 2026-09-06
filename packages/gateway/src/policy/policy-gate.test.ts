@@ -68,6 +68,41 @@ describe("computeEnforced — monotonic stricter", () => {
     expect(e2.retentionDays).toBe(7);
   });
 
+  /**
+   * `retentionMinDays` is the ORG floor UNMERGED. A subsystem carrying its own local window (the
+   * fleet's `[fleet] retention_days`) takes `max()` against this; taking it against `retentionDays`
+   * instead would import whatever the audit log's local baseline happens to be — 90 days by
+   * default — and silently keep fleet briefs six times longer than the owner configured.
+   */
+  test("retentionMinDays carries the ORG floor alone, never merged with the local baseline", () => {
+    const governed = computeEnforced(
+      parsePolicyToml(`[policy]\nversion=1\norg="x"\n[policy.retention]\nmin_days=30\n`),
+      baseline,
+    );
+    expect(governed.retentionMinDays).toBe(30);
+
+    // Baseline 7 > policy 3: the MERGED number keeps 7, the floor is still 3.
+    const belowBaseline = computeEnforced(
+      parsePolicyToml(`[policy]\nversion=1\norg="x"\n[policy.retention]\nmin_days=3\n`),
+      baseline,
+    );
+    expect(belowBaseline.retentionDays).toBe(7);
+    expect(belowBaseline.retentionMinDays).toBe(3);
+
+    // A policy with no retention block at all imposes no floor.
+    const noBlock = computeEnforced(parsePolicyToml(`[policy]\nversion=1\norg="x"\n`), baseline);
+    expect(noBlock.retentionMinDays).toBe(0);
+  });
+
+  test("an UNGOVERNED gate reports a zero floor, not its local baseline", () => {
+    const db = new Database(":memory:");
+    runIndexedSchemaMigrations(db, 36);
+    const gate = new PolicyGate(new PolicyStore(db), baseline);
+    expect(gate.enforced().retentionDays).toBe(7);
+    expect(gate.enforced().retentionMinDays).toBe(0);
+    db.close();
+  });
+
   test("HITL required = union; policy cannot drop a local requirement", () => {
     const e = computeEnforced(
       parsePolicyToml(`[policy]\nversion=1\norg="x"\n[policy.hitl]\nrequire=["db.drop"]\n`),

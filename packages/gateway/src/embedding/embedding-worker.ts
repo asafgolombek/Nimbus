@@ -5,7 +5,9 @@ import { dbRun } from "../db/write.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { readIndexedUserVersion, runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { ensureSqliteVecForConnection } from "../index/sqlite-vec-load.ts";
+import { createHostActivity } from "../platform/host-activity.ts";
 import { isAcceptableWorkerOrigin } from "../platform/worker-security.ts";
+import { createBatteryBackfillGate } from "./backfill-gate.ts";
 import { EmbeddingWorkerCore, type InitMsg } from "./embedding-worker-core.ts";
 import { createLocalEmbedder } from "./model.ts";
 import { SqliteEmbeddingPipeline } from "./pipeline.ts";
@@ -50,9 +52,25 @@ const core = new EmbeddingWorkerCore({
           });
         },
       });
+      // `[embedding] pause_on_battery`. The worker builds its OWN `HostActivity` rather than
+      // receiving one: the gate is a function and functions do not survive `postMessage`, and a
+      // per-batch probe pushed from the main thread would be a second source of truth for the same
+      // fact. Absent on the wire means `true`, matching `DEFAULT_NIMBUS_EMBEDDING_TOML`.
+      //
+      // This leg matters more than the two in-process ones: `provider = "local"` is the DEFAULT, so
+      // on a stock install the worker IS the backfill. Gating only the lazy/hybrid runtimes would
+      // have left the key exactly as inert as it has always been for most users.
+      const pauseOnBattery = msg.toml.pauseOnBattery ?? true;
+      // Only the gate function is kept: nothing in the worker realm outlives the worker itself,
+      // and the worker is terminated with the gateway process, so there is no teardown to register.
+      const { gate: backfillGate } = createBatteryBackfillGate({
+        pauseOnBattery,
+        hostActivity: await createHostActivity(),
+      });
       const pipeline = new SqliteEmbeddingPipeline({
         db,
         embedder,
+        backfillGate,
         backfillBatchSize: msg.toml.backfillBatchSize,
         chunkOptions: {
           maxChunkTokens: msg.toml.chunkTokens,

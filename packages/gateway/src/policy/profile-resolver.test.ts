@@ -5,6 +5,7 @@ import { type ProfileConfig, resolveEffectiveConfig } from "./profile-resolver.t
 const policy: EnforcedPolicy = {
   connectorAllow: ["github", "slack", "jira"],
   retentionDays: 30,
+  retentionMinDays: 0,
   hitlRequired: new Set(["db.drop"]),
   quorum: new Map(),
   capabilitiesDisabled: new Set(),
@@ -29,6 +30,7 @@ describe("resolveEffectiveConfig", () => {
   test("policy.connectorAllow undefined => profile passes through unbounded", () => {
     const policyNoAllow: EnforcedPolicy = {
       retentionDays: 30,
+      retentionMinDays: 0,
       hitlRequired: new Set(["db.drop"]),
       quorum: new Map(),
       capabilitiesDisabled: new Set(),

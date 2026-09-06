@@ -5,6 +5,7 @@ import { isHitlRequiredByPolicy, resolveQuorumRule } from "./quorum-override.ts"
 
 const enforced: EnforcedPolicy = {
   retentionDays: 7,
+  retentionMinDays: 0,
   hitlRequired: new Set(["db.drop"]),
   quorum: new Map<string, QuorumRule>([
     ["terraform.destroy", { approvers: 2, windowSeconds: 3600 }],

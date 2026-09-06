@@ -5,6 +5,13 @@ import { admitFleetRun } from "./fleet-admission.ts";
 import type { FleetInvoker } from "./fleet-invoker.ts";
 import type { FleetJobState, FleetRunOutcome, FleetStore } from "./fleet-store.ts";
 
+/**
+ * The `AI_V2_CAPABILITIES` member (`policy/types.ts`) an org policy disables to turn the fleet off
+ * gateway-wide (I22). Exported so a test can pin it against that frozen list rather than repeating
+ * the string — a typo here would read as "never disabled", which is the direction that fails open.
+ */
+export const FLEET_CAPABILITY = "agent_fleet";
+
 /** The local `[fleet] enabled` kill-switch, or the org-policy lockoff (I22). */
 export class FleetDisabledError extends Error {}
 

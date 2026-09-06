@@ -9,6 +9,7 @@ import { ensureSqliteVecForConnection } from "../index/sqlite-vec-load.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import type { BackfillGate } from "./backfill-gate.ts";
 import type { EmbeddingReadiness } from "./embedding-readiness.ts";
 import type { EmbeddingRuntime } from "./embedding-runtime.ts";
 import { type CreateLocalEmbedderOptions, createLocalEmbedder } from "./model.ts";
@@ -35,6 +36,7 @@ export async function tryCreateRoutingEmbeddingRuntime(
   vault: NimbusVault,
   createEmbedder: (options: CreateLocalEmbedderOptions) => Promise<Embedder> = createLocalEmbedder,
   checkVec: (db: Database, uv: number) => boolean = ensureSqliteVecForConnection,
+  opts?: { backfillGate?: BackfillGate | undefined },
 ): Promise<EmbeddingRuntime | null> {
   const apiKey = await resolveOpenAIApiKey(vault);
   if (apiKey === "") {
@@ -71,9 +73,20 @@ export async function tryCreateRoutingEmbeddingRuntime(
     return null;
   }
 
+  // `[embedding] pause_on_battery`, wrapped so `terminate()` ends a PAUSED poll loop — same shape
+  // and same reason as `lazy-scheduler.ts`. BOTH pipelines get it: the hybrid backfill walks the
+  // OpenAI-routed keys first and the MiniLM-routed keys second, so gating only one would leave
+  // half of a hybrid install's backfill running on battery.
+  let stopped = false;
+  const outerGate = opts?.backfillGate;
+  const backfillGate: BackfillGate | undefined =
+    outerGate === undefined ? undefined : async () => (stopped ? false : outerGate());
+  const gateOpt = backfillGate === undefined ? {} : { backfillGate };
+
   const local = new SqliteEmbeddingPipeline({
     db,
     embedder: localEmbedder,
+    ...gateOpt,
     backfillBatchSize: toml.backfillBatchSize,
     chunkOptions: {
       maxChunkTokens: toml.chunkTokens,
@@ -84,6 +97,7 @@ export async function tryCreateRoutingEmbeddingRuntime(
   const openai = new SqliteEmbeddingPipeline({
     db,
     embedder: openaiEmbedder,
+    ...gateOpt,
     backfillBatchSize: toml.backfillBatchSize,
     chunkOptions: {
       maxChunkTokens: toml.chunkTokens,
@@ -169,7 +183,8 @@ export async function tryCreateRoutingEmbeddingRuntime(
     },
 
     terminate(): void {
-      /* in-process: nothing to tear down */
+      // Nothing to tear down except a backfill that may be PAUSED on battery.
+      stopped = true;
     },
   };
 }

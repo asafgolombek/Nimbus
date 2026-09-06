@@ -39,7 +39,10 @@ function resolveEmbeddingInitTimeoutMs(): number {
 export function tryCreateEmbeddingWorkerBridge(
   dbPath: string,
   dataDir: string,
-  toml: Pick<NimbusEmbeddingToml, "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize">,
+  toml: Pick<
+    NimbusEmbeddingToml,
+    "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize" | "pauseOnBattery"
+  >,
   logger: Logger,
 ): EmbeddingRuntime | null {
   let worker: Worker;
@@ -105,7 +108,10 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
     private readonly worker: Worker,
     dbPath: string,
     cacheDir: string,
-    toml: Pick<NimbusEmbeddingToml, "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize">,
+    toml: Pick<
+      NimbusEmbeddingToml,
+      "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize" | "pauseOnBattery"
+    >,
     private readonly logger: Logger,
   ) {
     let res!: () => void;

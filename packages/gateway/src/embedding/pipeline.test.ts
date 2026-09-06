@@ -131,6 +131,102 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline", () => {
   });
 });
 
+describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — [embedding] pause_on_battery", () => {
+  /** Seeds `count` items and returns an embedder that records how many texts it was asked for. */
+  function seedAndCount(db: Database, count: number): { embedder: Embedder; calls: () => number } {
+    const now = Date.now();
+    for (let i = 0; i < count; i++) {
+      upsertIndexedItem(db, {
+        service: "s",
+        type: "file",
+        externalId: `pause-${i}`,
+        title: `title ${i}`,
+        modifiedAt: now,
+        syncedAt: now,
+      });
+    }
+    let calls = 0;
+    return {
+      embedder: {
+        model: "pause-m",
+        dims: 384,
+        isLocal: true,
+        async embed(texts: string[]) {
+          calls += 1;
+          return texts.map(() => new Float32Array(384).fill(0.01));
+        },
+      },
+      calls: () => calls,
+    };
+  }
+
+  test("a paused gate stops the loop before it embeds ANYTHING; releasing it lets the work run", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const { embedder, calls } = seedAndCount(db, 3);
+
+    // Held closed, then opened — the real battery gate has exactly this shape (it does not resolve
+    // while the host reports `battery`).
+    let release!: (proceed: boolean) => void;
+    let held: Promise<boolean> = new Promise<boolean>((resolve) => {
+      release = resolve;
+    });
+    const pipeline = new SqliteEmbeddingPipeline({
+      db,
+      embedder,
+      backfillBatchSize: 1,
+      backfillGate: () => held,
+    });
+
+    const run = pipeline.backfillAll();
+    // Positive control on the premise: the rows exist and WOULD be embedded, so a zero here is the
+    // gate working rather than an empty table. Without this the assertion passes vacuously.
+    expect((db.query("SELECT COUNT(*) AS c FROM item").get() as { c: number }).c).toBe(3);
+    // A MACROTASK turn, not a microtask: an ungated backfill of three tiny items completes well
+    // inside this, so a zero here means the gate held rather than that the work had not started.
+    await new Promise<void>((r) => {
+      setTimeout(r, 25);
+    });
+    expect(calls()).toBe(0);
+
+    held = Promise.resolve(true);
+    release(true);
+    await run;
+    expect(calls()).toBeGreaterThan(0);
+    const embedded = db
+      .query("SELECT COUNT(DISTINCT item_id) AS c FROM embedding_chunk WHERE model = 'pause-m'")
+      .get() as { c: number };
+    expect(embedded.c).toBe(3);
+    db.close();
+  });
+
+  test("a gate that resolves false ends the backfill without embedding a single item", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const { embedder, calls } = seedAndCount(db, 3);
+    const pipeline = new SqliteEmbeddingPipeline({
+      db,
+      embedder,
+      backfillBatchSize: 1,
+      backfillGate: async () => false,
+    });
+
+    await pipeline.backfillAll();
+    expect(calls()).toBe(0);
+    db.close();
+  });
+
+  test("no gate at all is the old behaviour: the backfill runs unconditionally", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const { embedder, calls } = seedAndCount(db, 2);
+    const pipeline = new SqliteEmbeddingPipeline({ db, embedder, backfillBatchSize: 1 });
+    await pipeline.backfillAll();
+    expect(calls()).toBeGreaterThan(0);
+    db.close();
+  });
+});
+
 // `isLocal` is DECLARED here, never inferred from the model string -- inference (e.g.
 // `!model.startsWith("openai:")`) is exactly the shape this branch's invariant forbids in
 // production code (locality must be declared, not guessed from a vendor name), and a fixture

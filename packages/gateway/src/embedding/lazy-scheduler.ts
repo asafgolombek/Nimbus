@@ -5,6 +5,7 @@ import type { Logger } from "pino";
 import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { ensureSqliteVecForConnection } from "../index/sqlite-vec-load.ts";
+import type { BackfillGate } from "./backfill-gate.ts";
 import type {
   EmbeddingModelDownload,
   EmbeddingReadiness,
@@ -26,8 +27,16 @@ export function createLazyEmbeddingRuntime(
   toml: Pick<NimbusEmbeddingToml, "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize">,
   preloadedEmbedder?: Embedder,
   createEmbedder: (options: CreateLocalEmbedderOptions) => Promise<Embedder> = createLocalEmbedder,
+  opts?: { backfillGate?: BackfillGate | undefined },
 ): EmbeddingRuntime {
   let pipeline: SqliteEmbeddingPipeline | null = null;
+  // `[embedding] pause_on_battery`. Wrapped rather than passed straight through so `terminate()`
+  // ends a PAUSED poll loop: the battery gate itself only ever pauses or proceeds, and a torn-down
+  // runtime whose backfill kept re-probing power forever would be a leak with a 30-second heartbeat.
+  let stopped = false;
+  const outerGate = opts?.backfillGate;
+  const backfillGate: BackfillGate | undefined =
+    outerGate === undefined ? undefined : async () => (stopped ? false : outerGate());
   let loading: Promise<SqliteEmbeddingPipeline | null> | null = null;
   let backfillStarted = false;
   const startedMs = Date.now();
@@ -73,6 +82,7 @@ export function createLazyEmbeddingRuntime(
           db,
           embedder,
           logger,
+          ...(backfillGate === undefined ? {} : { backfillGate }),
           backfillBatchSize: toml.backfillBatchSize,
           chunkOptions: {
             maxChunkTokens: toml.chunkTokens,
@@ -199,7 +209,9 @@ export function createLazyEmbeddingRuntime(
     },
 
     terminate(): void {
-      /* in-process: nothing to tear down */
+      // Nothing to tear down except a backfill that may be PAUSED on battery — without this its
+      // poll loop outlives the runtime.
+      stopped = true;
     },
   };
 }
