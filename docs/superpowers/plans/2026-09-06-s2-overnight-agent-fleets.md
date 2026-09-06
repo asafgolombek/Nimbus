@@ -1589,7 +1589,7 @@ the identical shape and emitting a `::error file=…::D28 fleet ClientKind breac
 
 - [ ] **Step 8: Run everything**
 
-Run: `bun test packages/gateway/src/ipc packages/gateway/src/egress && bun run audit:nimbus-invariants && bun run typecheck`
+Run: `bun test packages/gateway/src/ipc packages/gateway/src/egress && bun run audit:invariants && bun run typecheck`
 Expected: PASS. Confirm the compiler forced the egress-map entry by temporarily deleting
 `fleet: null` and seeing `typecheck` fail; restore it.
 
@@ -3045,7 +3045,7 @@ warns instead of stopping; adding `fleet` to `RECOGNISED`).
 
 - [ ] **Step 4: Verify the invariant count gates**
 
-Run: `bun run audit:status-drift && bun run audit:doc-refs && bun run audit:nimbus-invariants`
+Run: `bun run audit:status-drift && bun run audit:doc-refs && bun run audit:invariants`
 Expected: PASS. If a gate asserts an invariant count, update it to I38 — and re-derive the
 enumeration, not just the number.
 
