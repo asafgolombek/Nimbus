@@ -13,6 +13,7 @@ import {
 import {
   hasUnterminatedString,
   isTableHeader,
+  parseBool,
   parseIntDec,
   parseString,
   parseStringArray,
@@ -55,17 +56,6 @@ export const DEFAULT_NIMBUS_EMBEDDING_TOML: NimbusEmbeddingToml = {
   backfillBatchSize: 50,
   pauseOnBattery: true,
 };
-
-function parseBool(raw: string): boolean | undefined {
-  const s = raw.trim().toLowerCase();
-  if (s === "true") {
-    return true;
-  }
-  if (s === "false") {
-    return false;
-  }
-  return undefined;
-}
 
 /**
  * Assign a boolean key when — and only when — the raw value actually parses as one.

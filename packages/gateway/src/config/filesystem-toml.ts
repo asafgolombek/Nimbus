@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { parseString, stripComment } from "./toml-primitives.ts";
+import { parseBool, parseString, stripComment } from "./toml-primitives.ts";
 
 export type NimbusFilesystemRootToml = {
   path: string;
@@ -12,17 +12,6 @@ export type NimbusFilesystemRootToml = {
   mediaIndex: boolean;
   exclude: string[];
 };
-
-function parseBool(raw: string): boolean | undefined {
-  const s = raw.trim().toLowerCase();
-  if (s === "true") {
-    return true;
-  }
-  if (s === "false") {
-    return false;
-  }
-  return undefined;
-}
 
 function applyOptionalBool(valRaw: string, set: (b: boolean) => void): void {
   const b = parseBool(valRaw);

@@ -73,6 +73,14 @@ export function parseString(raw: string): string {
   return t;
 }
 
+/** TOML booleans. `undefined` for anything else, so a malformed value leaves the default alone. */
+export function parseBool(raw: string): boolean | undefined {
+  const s = raw.trim().toLowerCase();
+  if (s === "true") return true;
+  if (s === "false") return false;
+  return undefined;
+}
+
 export function parseIntDec(raw: string): number | undefined {
   const n = Number.parseInt(raw.trim(), 10);
   return Number.isFinite(n) ? n : undefined;
