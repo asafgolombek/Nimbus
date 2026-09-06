@@ -1945,6 +1945,13 @@ export const RULE_ANCHORS: readonly string[] = [
   // constructor rule skips as its own definition and whose presence would therefore prove nothing.
   // Same shape as the D23 and D22(f) anchors above.
   "packages/gateway/src/multimodal/build-media-pass-deps.ts",
+  // D28 — anchored on the ONE production file allowed to wear the `fleet` ClientKind, a file the
+  // rule SCANS (it is on the allow-list, so it is read and then permitted). NOT client-kind.ts:
+  // that file DEFINES the union, and its presence in the scanned set would prove nothing about
+  // whether the rule can see the invoker. Same shape as the D23 and D22(f)/(g) anchors above —
+  // without an anchor of its own, D28 would report clean while scanning nothing the moment
+  // `iterateSourceFiles()` stopped reaching `fleet/`.
+  "packages/gateway/src/fleet/fleet-invoker.ts",
 ];
 
 /** Fail loudly when the scanned set cannot support the rules about to run. */
