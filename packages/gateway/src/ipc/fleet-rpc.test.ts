@@ -37,6 +37,50 @@ test("fleet.status reports the live probe and config without running anything", 
   expect(out.value).toMatchObject({ enabled: false, running: false });
 });
 
+test("fleet.status reports running: true and the real config/jobsConfigured when a scheduler IS wired", async () => {
+  // Red-prove: hardcoding `running: false` in `handleStatus` passed the WHOLE suite before this
+  // test existed — the only prior assertion on `running` was the `false` case above, and neither
+  // `jobsConfigured` nor a config field was pinned against a ctx that actually carried them (the
+  // `as never` ctx used everywhere else supplies at most one field, and the CLI's own status test
+  // stubs the rendered response rather than exercising this handler). This ctx carries a REAL
+  // scheduler, a REAL jobs array and a REAL (non-default) config, so a hardcoded `false`/`0`/a
+  // dropped config field all fail here.
+  const scheduler: FakeScheduler = { runOnce: async () => COMPLETED };
+  const jobs: readonly NimbusFleetJobToml[] = [
+    { name: "a", agent: "catchup", intervalSeconds: 60, params: {} },
+    { name: "b", agent: "ownership", intervalSeconds: 120, params: {} },
+  ];
+  const config: NimbusFleetToml = {
+    ...DEFAULT_FLEET_CONFIG,
+    enabled: true,
+    allowRemote: true,
+    remoteCallBudget: 7,
+    minIdleSeconds: 42,
+    requireAcPower: false,
+    retentionDays: 3,
+  };
+  const out = await dispatchFleetRpc("fleet.status", {}, {
+    scheduler,
+    store: undefined,
+    hostActivity: { probe: async () => ({ power: "battery", idleMs: 500, source: "measured" }) },
+    config,
+    jobs,
+    now: () => 0,
+  } as never);
+  if (out.kind !== "hit") throw new Error("expected a hit");
+  expect(out.value).toEqual({
+    enabled: true,
+    running: true,
+    allowRemote: true,
+    remoteCallBudget: 7,
+    minIdleSeconds: 42,
+    requireAcPower: false,
+    retentionDays: 3,
+    jobsConfigured: 2,
+    probe: { power: "battery", idleMs: 500, source: "measured" },
+  });
+});
+
 test("an unknown fleet method is a miss, not a throw", async () => {
   const out = await dispatchFleetRpc("fleet.nope", {}, {} as never);
   expect(out).toMatchObject({ kind: "miss" });
@@ -233,5 +277,46 @@ describe("fleet.list / fleet.briefs / fleet.show over a real store", () => {
 
   test("fleet.show requires a non-empty id", async () => {
     await expect(dispatchFleetRpc("fleet.show", {}, ctx(0))).rejects.toThrow(FleetRpcError);
+  });
+
+  test("fleet.briefs rejects limit: 0 rather than silently returning an empty page", async () => {
+    // The IPC boundary is the trust boundary, not the CLI: a caller-supplied 0 must not be
+    // indistinguishable from "no briefs exist" (SQLite's LIMIT 0 would otherwise do exactly that).
+    await expect(dispatchFleetRpc("fleet.briefs", { limit: 0 }, ctx(0))).rejects.toThrow(
+      FleetRpcError,
+    );
+  });
+
+  test("fleet.briefs rejects a negative limit", async () => {
+    await expect(dispatchFleetRpc("fleet.briefs", { limit: -1 }, ctx(0))).rejects.toThrow(
+      FleetRpcError,
+    );
+  });
+
+  test("fleet.briefs caps an oversized limit rather than trusting it through to the query", async () => {
+    const runId = store.openRun({
+      startedAt: 0,
+      hostPower: "ac",
+      hostIdleMs: 0,
+      hostSource: "measured",
+      remoteCallBudget: 0,
+    });
+    for (let i = 0; i < 3; i++) {
+      store.recordBrief({
+        runId,
+        jobId: `j${i}`,
+        agentMethod: "agents.catchup",
+        briefMarkdown: "x",
+        findingsJson: "{}",
+        synthesisJson: null,
+        createdAt: i,
+        expiresAt: 10_000,
+      });
+    }
+    // A limit far above MAX_BRIEFS_LIMIT must not throw and must not fail — it clamps, so 3 real
+    // rows still come back rather than the request being refused outright.
+    const out = await dispatchFleetRpc("fleet.briefs", { limit: 1_000_000 }, ctx(0));
+    if (out.kind !== "hit") throw new Error("expected a hit");
+    expect((out.value as { briefs: unknown[] }).briefs).toHaveLength(3);
   });
 });

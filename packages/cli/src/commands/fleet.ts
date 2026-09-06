@@ -287,18 +287,10 @@ function describeDeferred(runId: string | null): string {
 }
 
 async function runRun(c: FleetIpc, a: FleetRunArgs, sink: OutcomeSink): Promise<number> {
-  let summary: FleetRunSummaryShape;
-  try {
-    summary = (await c.call("fleet.runNow", {
-      job: a.job,
-      force: a.force,
-    })) as FleetRunSummaryShape;
-  } catch (e) {
-    const code = jsonRpcErrorCode(e);
-    const msg = e instanceof Error ? e.message : String(e);
-    sink.err(`${msg}\n`);
-    return code === -32602 ? FLEET_EXIT_CODES.notFound : FLEET_EXIT_CODES.disabled;
-  }
+  const summary = (await c.call("fleet.runNow", {
+    job: a.job,
+    force: a.force,
+  })) as FleetRunSummaryShape;
 
   if (a.json) {
     sink.out(`${JSON.stringify(summary)}\n`);
@@ -322,23 +314,42 @@ async function runRun(c: FleetIpc, a: FleetRunArgs, sink: OutcomeSink): Promise<
   }
 }
 
+/**
+ * Translate a thrown gateway RPC error into an exit code. ONE definition, used for every
+ * subcommand via `runFleetCommand`'s single catch — not just `run`: `fleet.show`/`fleet.briefs`
+ * throw the same `-32000` ("fleet: store not available") that `fleet.runNow` throws when no
+ * scheduler is wired, and `fleet.show`/`fleet.runNow` both throw `-32602` for a bad/unresolvable
+ * param (an unknown job name, a malformed id). Duplicating this per subcommand is exactly how the
+ * two drifted before: `run` translated both codes and every other subcommand fell through to
+ * `runFleet`'s outer catch, which always reports `disabled` — so a `fleet.show -32602` looked
+ * identical to a `fleet.show -32000`, when only the latter is really "the fleet is disabled".
+ */
+function exitCodeForRpcError(e: unknown): number {
+  return jsonRpcErrorCode(e) === -32602 ? FLEET_EXIT_CODES.notFound : FLEET_EXIT_CODES.disabled;
+}
+
 /** Execute a parsed fleet subcommand over an injected client (test entry point + runtime path). */
 export async function runFleetCommand(
   client: FleetIpc,
   cmd: ParsedFleetArgs,
   sink: OutcomeSink = defaultSink,
 ): Promise<number> {
-  switch (cmd.sub) {
-    case "status":
-      return runStatus(client, cmd.json, sink);
-    case "list":
-      return runList(client, cmd.json, sink);
-    case "briefs":
-      return runBriefs(client, cmd, sink);
-    case "show":
-      return runShow(client, cmd, sink);
-    case "run":
-      return runRun(client, cmd, sink);
+  try {
+    switch (cmd.sub) {
+      case "status":
+        return await runStatus(client, cmd.json, sink);
+      case "list":
+        return await runList(client, cmd.json, sink);
+      case "briefs":
+        return await runBriefs(client, cmd, sink);
+      case "show":
+        return await runShow(client, cmd, sink);
+      case "run":
+        return await runRun(client, cmd, sink);
+    }
+  } catch (e) {
+    sink.err(`${e instanceof Error ? e.message : String(e)}\n`);
+    return exitCodeForRpcError(e);
   }
 }
 

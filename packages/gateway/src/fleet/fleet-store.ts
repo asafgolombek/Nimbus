@@ -185,7 +185,7 @@ export class FleetStore {
 
   /**
    * `now` is REQUIRED, not defaulted to `Date.now()` internally: pruning only runs at gateway
-   * boot (`bootFleetScheduler`'s doc comment), so on a long-running gateway a brief past its
+   * boot (`assembleFleetRuntime`'s doc comment), so on a long-running gateway a brief past its
    * `expires_at` stays in the table indefinitely and MUST still be excluded here — retention means
    * the brief is gone, and a read surface that still returns it makes retention a lie. A caller-
    * supplied clock (rather than an internal `Date.now()`) keeps this testable without a live clock

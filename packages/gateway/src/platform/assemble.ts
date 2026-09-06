@@ -2923,9 +2923,15 @@ export interface FleetBootDeps {
 
 /**
  * Reads `[fleet]` off the PROFILE-RESOLVED toml, prunes expired runs and briefs, and starts the
- * scheduler when — and only when — the owner both enabled the fleet and configured a job.
+ * scheduler when — and only when — the owner both enabled the fleet and configured a job. Returns
+ * the full result of assembling the fleet subsystem, not just the (optionally-undefined)
+ * scheduler — the `fleet.*` IPC surface (Task 9) needs the store, the effective config and the job
+ * list even when the scheduler itself is `undefined` (disabled by config/policy or unconfigured),
+ * so `fleet.status`/`fleet.list` can report the truth without a live scheduler to ask.
+ * `store`/`config`/`jobs` are ALWAYS present — pruning and reporting must not hinge on whether the
+ * fleet happens to be running right now.
  *
- * Three things here are load-bearing enough to say out loud:
+ * Four things here are load-bearing enough to say out loud:
  *
  * 1. `resolveNimbusTomlForProfile(paths.configDir)`, never a hardcoded `nimbus.toml`. The
  *    profile-BLIND predecessor of `loadNimbusAgentsFromPath` silently discarded `[agents]
@@ -2942,30 +2948,21 @@ export interface FleetBootDeps {
  *    expire in 7 and deleted by the next `pruneBriefs`. `retentionMinDays` is the ORG floor alone,
  *    deliberately not `retentionDays` (which is that floor already merged with the audit log's
  *    own local window, 90 days by default).
+ * 4. Called exactly ONCE per boot, from `assemblePlatformServices` below, which derives both
+ *    `PlatformServices.fleetScheduler` and `ipcOpts.fleetRpcCtx` from that single call. There is no
+ *    thin `bootFleetScheduler(deps): FleetScheduler | undefined` wrapper any more — a second call
+ *    with the same deps would double-prune and, worse, construct and start a SECOND live scheduler
+ *    ticking against the same store. `assemble-fleet.test.ts` calls this directly and reads
+ *    `.scheduler` off the result, which is what production actually runs, not a parallel path.
  */
-/**
- * The full result of assembling the fleet subsystem, not just the (optionally-undefined)
- * scheduler `bootFleetScheduler` returns — the `fleet.*` IPC surface (Task 9) needs the store, the
- * effective config and the job list even when the scheduler itself is `undefined` (disabled by
- * config/policy or unconfigured), so `fleet.status`/`fleet.list` can report the truth without a
- * live scheduler to ask. `store`/`config`/`jobs` are ALWAYS present — pruning and reporting must
- * not hinge on whether the fleet happens to be running right now.
- */
-interface FleetRuntime {
+export interface FleetRuntime {
   readonly scheduler: FleetScheduler | undefined;
   readonly store: FleetStore;
   readonly config: NimbusFleetToml;
   readonly jobs: readonly NimbusFleetJobToml[];
 }
 
-/**
- * Shared body behind `bootFleetScheduler` (kept for `assemble-fleet.test.ts`'s direct calls, one
- * per test) and the production call site below, which needs the richer result too. Extracted
- * rather than left duplicated — a second, independently-reloaded copy of this config/prune logic
- * is exactly the kind of restated fact this codebase's sweeps have flagged before, and calling
- * this twice per boot would double-prune and, worse, construct and start TWO live schedulers.
- */
-function assembleFleetRuntime(deps: FleetBootDeps): FleetRuntime {
+export function assembleFleetRuntime(deps: FleetBootDeps): FleetRuntime {
   const fleetToml = resolveNimbusTomlForProfile(deps.paths.configDir);
   let fleet: { config: NimbusFleetToml; jobs: NimbusFleetJobToml[] } = {
     config: DEFAULT_FLEET_CONFIG,
@@ -3034,16 +3031,6 @@ function assembleFleetRuntime(deps: FleetBootDeps): FleetRuntime {
   // the process open but does not stop it firing during a shutdown that is still draining.
   deps.sidecarStops.push(() => scheduler.stop());
   return { scheduler, store, config, jobs: fleet.jobs };
-}
-
-/**
- * Public wrapper kept for `assemble-fleet.test.ts` and any other caller that only needs the
- * scheduler. The production boot path below calls `assembleFleetRuntime` directly instead, so it
- * can also wire the `fleet.*` IPC context from the SAME call — calling this a second time would
- * double-prune and start a second live scheduler ticking against the same store.
- */
-export function bootFleetScheduler(deps: FleetBootDeps): FleetScheduler | undefined {
-  return assembleFleetRuntime(deps).scheduler;
 }
 
 export async function assemblePlatformServices(
@@ -3227,10 +3214,9 @@ export async function assemblePlatformServices(
   // no job is configured by default, so a gateway with no `[fleet]` block constructs nothing at
   // all. Built here, after the policy gate, because it reads the `agent_fleet` lockoff from it.
   //
-  // `assembleFleetRuntime` rather than `bootFleetScheduler`: the `fleet.*` IPC context (Task 9,
-  // wired onto `ipcOpts` below) needs the store, effective config and job list too, and calling
-  // `bootFleetScheduler` a second time to get them would double-prune and start a second live
-  // scheduler against the same store — see that function's own doc comment.
+  // Called exactly ONCE: both `fleetScheduler` below and `ipcOpts.fleetRpcCtx` (wired further
+  // down) are derived from this single result — see `assembleFleetRuntime`'s own doc comment for
+  // why a second call would double-prune and start a second live scheduler.
   const fleetRuntime = assembleFleetRuntime({
     db,
     paths,

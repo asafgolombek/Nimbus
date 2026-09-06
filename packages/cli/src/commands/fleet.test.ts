@@ -3,6 +3,7 @@ import { JsonRpcError } from "@nimbus-dev/client";
 import {
   FLEET_EXIT_CODES,
   type FleetIpc,
+  type ParsedFleetArgs,
   parseFleetArgs,
   runFleet,
   runFleetCommand,
@@ -194,10 +195,54 @@ test("fleet.show returns null for an unknown or expired brief and exits notFound
 });
 
 test("--json emits machine-readable output for every subcommand", async () => {
-  const client: FleetIpc = { call: async () => ({ jobs: [] }) };
-  const { out, sink } = sinkSpy();
-  await runFleetCommand(client, { sub: "list", json: true }, sink);
-  expect(() => JSON.parse(out.join(""))).not.toThrow();
+  const statusResponse = {
+    enabled: true,
+    running: false,
+    allowRemote: false,
+    remoteCallBudget: 0,
+    minIdleSeconds: 900,
+    requireAcPower: true,
+    retentionDays: 14,
+    jobsConfigured: 0,
+    probe: { power: "ac", idleMs: 0, source: "measured" },
+  };
+  const briefResponse = {
+    id: "b1",
+    runId: "r1",
+    jobId: "j1",
+    agentMethod: "agents.catchup",
+    briefMarkdown: "# hi",
+    findingsJson: "{}",
+    synthesisJson: null,
+    createdAt: 0,
+  };
+  const responses: Record<string, unknown> = {
+    "fleet.status": statusResponse,
+    "fleet.list": { jobs: [] },
+    "fleet.briefs": { briefs: [briefResponse] },
+    "fleet.show": { brief: briefResponse },
+    "fleet.runNow": {
+      runId: "r1",
+      outcome: "completed",
+      jobsAttempted: 1,
+      jobsCompleted: 1,
+      jobsUnattempted: 0,
+      jobsSkippedNotDue: 0,
+    },
+  };
+  const client: FleetIpc = { call: async (method) => responses[method] };
+  const cmds: ParsedFleetArgs[] = [
+    { sub: "status", json: true },
+    { sub: "list", json: true },
+    { sub: "briefs", json: true },
+    { sub: "show", id: "b1", json: true },
+    { sub: "run", job: "j1", force: false, json: true },
+  ];
+  for (const cmd of cmds) {
+    const { out, sink } = sinkSpy();
+    await runFleetCommand(client, cmd, sink);
+    expect(() => JSON.parse(out.join(""))).not.toThrow();
+  }
 });
 
 test("runFleet prints usage and exits `usage` for an unparseable command", async () => {
@@ -255,4 +300,47 @@ test("a real JsonRpcError with code -32602 (no such job) exits notFound; -32000 
   );
   expect(code1).toBe(FLEET_EXIT_CODES.notFound);
   expect(code2).toBe(FLEET_EXIT_CODES.disabled);
+});
+
+test("the SAME translation applies to fleet.show, not just fleet.run", async () => {
+  // Before this fix, only `runRun` translated -32602/-32000; every other subcommand's error fell
+  // through to `runFleet`'s outer catch, which always reports `disabled` regardless of the real
+  // code — so a -32602 from `fleet.show` (a bad/missing id) looked identical to a -32000 (the
+  // fleet has no store wired at all), and a user asking about a specific brief would always be
+  // told "the fleet is disabled" even when that was not the actual reason.
+  const badIdClient: FleetIpc = {
+    call: async () => {
+      throw new JsonRpcError("fleet: id (non-empty string) required", -32602, undefined);
+    },
+  };
+  const noStoreClient: FleetIpc = {
+    call: async () => {
+      throw new JsonRpcError("fleet: store not available", -32000, undefined);
+    },
+  };
+  const s1 = sinkSpy();
+  const code1 = await runFleetCommand(
+    badIdClient,
+    { sub: "show", id: "whatever", json: false },
+    s1.sink,
+  );
+  const s2 = sinkSpy();
+  const code2 = await runFleetCommand(
+    noStoreClient,
+    { sub: "show", id: "whatever", json: false },
+    s2.sink,
+  );
+  expect(code1).toBe(FLEET_EXIT_CODES.notFound);
+  expect(code2).toBe(FLEET_EXIT_CODES.disabled);
+});
+
+test("fleet.briefs also gets the shared translation for a -32000 (no store wired)", async () => {
+  const client: FleetIpc = {
+    call: async () => {
+      throw new JsonRpcError("fleet: store not available", -32000, undefined);
+    },
+  };
+  const { sink } = sinkSpy();
+  const code = await runFleetCommand(client, { sub: "briefs", json: false }, sink);
+  expect(code).toBe(FLEET_EXIT_CODES.disabled);
 });

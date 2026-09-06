@@ -80,6 +80,29 @@ function requireStore(ctx: FleetRpcCtx): FleetStore {
 }
 
 const DEFAULT_BRIEFS_LIMIT = 20;
+/**
+ * Upper bound on `fleet.briefs`' `limit`, enforced HERE — the IPC boundary, not the CLI. The CLI
+ * already rejects `--limit 0`, but the CLI is not the trust boundary: any other caller (a future
+ * HTTP surface, a test, a hand-typed `nimbus query`-style raw RPC) reaches this handler directly,
+ * and `brief_markdown` can be tens of KB per row, so an unbounded limit is an unbounded response
+ * size from a single request.
+ */
+const MAX_BRIEFS_LIMIT = 500;
+
+/**
+ * `limit` must be a positive integer, never `0` or negative (a caller-supplied `0` would otherwise
+ * reach SQLite's `LIMIT 0` and silently return an empty result instead of erroring or defaulting —
+ * indistinguishable from "no briefs exist"), and capped at `MAX_BRIEFS_LIMIT` regardless of what a
+ * caller asks for, rather than trusting an arbitrarily large value through to the query.
+ */
+function optLimit(params: unknown, key: string): number | undefined {
+  const v = optInt(params, key);
+  if (v === undefined) return undefined;
+  if (v === 0) {
+    throw new FleetRpcError(-32602, `fleet: ${key} must be a positive integer`);
+  }
+  return Math.min(v, MAX_BRIEFS_LIMIT);
+}
 
 export interface FleetStatusResult {
   readonly enabled: boolean;
@@ -134,7 +157,7 @@ function handleList(_params: unknown, ctx: FleetRpcCtx): { jobs: readonly FleetJ
 
 function handleBriefs(params: unknown, ctx: FleetRpcCtx): { briefs: readonly FleetBriefRow[] } {
   const store = requireStore(ctx);
-  const limit = optInt(params, "limit") ?? DEFAULT_BRIEFS_LIMIT;
+  const limit = optLimit(params, "limit") ?? DEFAULT_BRIEFS_LIMIT;
   const jobId = optString(params, "jobId");
   return {
     briefs: store.listBriefs({

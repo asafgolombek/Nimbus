@@ -12,7 +12,7 @@ import { openMigratedMemoryDb } from "../index/migrated-db-template.ts";
 import type { LlmRegistry } from "../llm/registry.ts";
 import type { EnforcedPolicy, PolicyGate } from "../policy/policy-gate.ts";
 import { AI_V2_CAPABILITIES } from "../policy/types.ts";
-import { bootFleetScheduler, type FleetBootDeps } from "./assemble.ts";
+import { assembleFleetRuntime, type FleetBootDeps } from "./assemble.ts";
 import { processEnvDelete, processEnvSet } from "./env-access.ts";
 import { UNKNOWN_HOST_ACTIVITY } from "./host-activity.ts";
 import type { PlatformPaths } from "./paths.ts";
@@ -52,7 +52,7 @@ describe("FLEET_CAPABILITY", () => {
   });
 });
 
-describe("bootFleetScheduler", () => {
+describe("assembleFleetRuntime", () => {
   let dir: string;
   let db: Database;
   let stops: Array<() => void>;
@@ -95,7 +95,7 @@ describe("bootFleetScheduler", () => {
 
   test("no [fleet] block at all constructs nothing", () => {
     const { gate } = stubGate(enforcedWith({}));
-    expect(bootFleetScheduler(deps(gate))).toBeUndefined();
+    expect(assembleFleetRuntime(deps(gate)).scheduler).toBeUndefined();
   });
 
   test("enabled with a job starts a scheduler and registers its stop in sidecarStops", () => {
@@ -104,7 +104,7 @@ describe("bootFleetScheduler", () => {
     );
     const { gate } = stubGate(enforcedWith({}));
     const before = stops.length;
-    const scheduler = bootFleetScheduler(deps(gate));
+    const scheduler = assembleFleetRuntime(deps(gate)).scheduler;
     expect(scheduler).toBeDefined();
     expect(stops.length).toBe(before + 1);
   });
@@ -112,7 +112,7 @@ describe("bootFleetScheduler", () => {
   test("enabled but with NO job constructs nothing — an empty fleet is not a running one", () => {
     writeToml(`[fleet]\nenabled = true\n`);
     const { gate } = stubGate(enforcedWith({}));
-    expect(bootFleetScheduler(deps(gate))).toBeUndefined();
+    expect(assembleFleetRuntime(deps(gate)).scheduler).toBeUndefined();
   });
 
   /**
@@ -125,7 +125,7 @@ describe("bootFleetScheduler", () => {
     const { gate } = stubGate(enforcedWith({}));
     let scheduler: unknown = "unset";
     expect(() => {
-      scheduler = bootFleetScheduler(deps(gate));
+      scheduler = assembleFleetRuntime(deps(gate)).scheduler;
     }).not.toThrow();
     expect(scheduler).toBeUndefined();
   });
@@ -149,7 +149,7 @@ describe("bootFleetScheduler", () => {
       });
     }
     const { gate } = stubGate(enforcedWith({}));
-    expect(bootFleetScheduler(deps(gate))).toBeUndefined();
+    expect(assembleFleetRuntime(deps(gate)).scheduler).toBeUndefined();
     expect((db.query("SELECT COUNT(*) AS c FROM fleet_run").get() as { c: number }).c).toBe(1);
   });
 
@@ -164,7 +164,7 @@ describe("bootFleetScheduler", () => {
     processEnvSet("NIMBUS_PROFILE", "work");
     try {
       const { gate } = stubGate(enforcedWith({}));
-      expect(bootFleetScheduler(deps(gate))).toBeDefined();
+      expect(assembleFleetRuntime(deps(gate)).scheduler).toBeDefined();
     } finally {
       processEnvDelete("NIMBUS_PROFILE");
     }
@@ -191,7 +191,7 @@ describe("bootFleetScheduler", () => {
       seedRun(10);
       seedRun(1);
       const { gate } = stubGate(enforcedWith({}));
-      bootFleetScheduler(deps(gate));
+      assembleFleetRuntime(deps(gate));
       expect(runCount()).toBe(1);
     });
 
@@ -199,7 +199,7 @@ describe("bootFleetScheduler", () => {
       writeToml(`[fleet]\nretention_days = 7\n`);
       seedRun(10);
       const { gate } = stubGate(enforcedWith({ retentionMinDays: 30 }));
-      bootFleetScheduler(deps(gate));
+      assembleFleetRuntime(deps(gate));
       expect(runCount()).toBe(1);
     });
 
@@ -214,7 +214,7 @@ describe("bootFleetScheduler", () => {
         `[fleet]\nenabled = true\nretention_days = 7\n\n[[fleet.job]]\nname = "n"\nagent = "catchup"\ninterval_seconds = 60\n`,
       );
       const { gate } = stubGate(enforcedWith({ retentionMinDays: 30 }));
-      const scheduler = bootFleetScheduler(deps(gate));
+      const scheduler = assembleFleetRuntime(deps(gate)).scheduler;
       expect(scheduler).toBeDefined();
       // Reads the config the scheduler actually holds, rather than re-deriving the number here.
       const held = (scheduler as unknown as { deps: { config: { retentionDays: number } } }).deps;
@@ -225,7 +225,7 @@ describe("bootFleetScheduler", () => {
       writeToml(`[fleet]\nretention_days = 60\n`);
       seedRun(30);
       const { gate } = stubGate(enforcedWith({ retentionMinDays: 7 }));
-      bootFleetScheduler(deps(gate));
+      assembleFleetRuntime(deps(gate));
       expect(runCount()).toBe(1);
     });
 
@@ -246,7 +246,7 @@ describe("bootFleetScheduler", () => {
         [runId, Date.now(), Date.now() + 10 * DAY_MS],
       );
       const { gate } = stubGate(enforcedWith({}));
-      bootFleetScheduler(deps(gate));
+      assembleFleetRuntime(deps(gate));
       const ids = db.query("SELECT id FROM fleet_brief ORDER BY id").all() as { id: string }[];
       expect(ids.map((r) => r.id)).toEqual(["b-live"]);
     });
@@ -255,7 +255,7 @@ describe("bootFleetScheduler", () => {
       writeToml(`[fleet]\nenabled = false\nretention_days = 7\n`);
       seedRun(10);
       const { gate } = stubGate(enforcedWith({}));
-      expect(bootFleetScheduler(deps(gate))).toBeUndefined();
+      expect(assembleFleetRuntime(deps(gate)).scheduler).toBeUndefined();
       expect(runCount()).toBe(0);
     });
   });
@@ -270,7 +270,7 @@ describe("bootFleetScheduler", () => {
       `[fleet]\nenabled = true\n\n[[fleet.job]]\nname = "n"\nagent = "catchup"\ninterval_seconds = 60\n`,
     );
     const { gate, set } = stubGate(enforcedWith({}));
-    const scheduler = bootFleetScheduler(deps(gate));
+    const scheduler = assembleFleetRuntime(deps(gate)).scheduler;
     const held = (scheduler as unknown as { deps: { capabilityDisabled: boolean } }).deps;
     expect(held.capabilityDisabled).toBe(false);
 
@@ -285,7 +285,7 @@ describe("bootFleetScheduler", () => {
     const { gate } = stubGate(
       enforcedWith({ capabilitiesDisabled: new Set(["code_execution", "computer_use"]) }),
     );
-    const scheduler = bootFleetScheduler(deps(gate));
+    const scheduler = assembleFleetRuntime(deps(gate)).scheduler;
     const held = (scheduler as unknown as { deps: { capabilityDisabled: boolean } }).deps;
     expect(held.capabilityDisabled).toBe(false);
   });
