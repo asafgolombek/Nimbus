@@ -173,7 +173,7 @@ describe("FleetScheduler.runOnce", () => {
     // Counters agreeing is not proof the work happened: assert the persisted effect too.
     expect(
       store
-        .listBriefs({ limit: 10 })
+        .listBriefs({ limit: 10, now: NOW })
         .map((b) => b.jobId)
         .sort(),
     ).toEqual(["a", "b"]);
@@ -206,7 +206,7 @@ describe("FleetScheduler.runOnce", () => {
       // Nothing was assessed for dueness, so nothing may be reported as not-due.
       jobs_skipped_not_due: 0,
     });
-    expect(store.listBriefs({ limit: 10 })).toHaveLength(0);
+    expect(store.listBriefs({ limit: 10, now: NOW })).toHaveLength(0);
   });
 
   test("yields at a job boundary when the user returns mid-run", async () => {
@@ -218,7 +218,7 @@ describe("FleetScheduler.runOnce", () => {
     expect(summary.jobsUnattempted).toBe(1);
     // Stopped at a boundary, not mid-brief: the one completed job's brief is intact and there is
     // no second, partial row.
-    expect(store.listBriefs({ limit: 10 }).map((b) => b.jobId)).toEqual(["a"]);
+    expect(store.listBriefs({ limit: 10, now: NOW }).map((b) => b.jobId)).toEqual(["a"]);
   });
 
   test("a failing job backs off and the run continues", async () => {
@@ -235,7 +235,7 @@ describe("FleetScheduler.runOnce", () => {
     expect(store.loadJobState("a")?.backoffUntil).toBeGreaterThan(NOW);
     expect(store.loadJobState("a")?.lastError).toBe("boom");
     // The failure is isolated: the later job still produced its brief.
-    expect(store.listBriefs({ limit: 10 }).map((b) => b.jobId)).toEqual(["b"]);
+    expect(store.listBriefs({ limit: 10, now: NOW }).map((b) => b.jobId)).toEqual(["b"]);
   });
 
   test("a job that ran within its interval is NOT due", async () => {
@@ -266,7 +266,7 @@ describe("FleetScheduler.runOnce", () => {
       jobs_skipped_not_due: 1,
     });
     // A not-due job must not leave a brief behind either — the counter and the table must agree.
-    expect(store.listBriefs({ limit: 10 }).map((b) => b.jobId)).toEqual(["b"]);
+    expect(store.listBriefs({ limit: 10, now: NOW }).map((b) => b.jobId)).toEqual(["b"]);
   });
 
   test("not-due and stopped-short are reported as DISTINCT numbers", async () => {
@@ -350,7 +350,7 @@ describe("FleetScheduler.runOnce", () => {
     // interleaves its writes with the first — the counter check alone would not see that.
     const runs = db.query(`SELECT COUNT(*) AS n FROM fleet_run`).get() as { n: number };
     expect(runs.n).toBe(1);
-    expect(store.listBriefs({ limit: 10 })).toHaveLength(2);
+    expect(store.listBriefs({ limit: 10, now: NOW })).toHaveLength(2);
   });
 
   test("the in-flight guard is released after a run, so the next tick proceeds", async () => {

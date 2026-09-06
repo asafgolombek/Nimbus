@@ -183,23 +183,32 @@ export class FleetStore {
     );
   }
 
-  listBriefs(q: { limit: number; jobId?: string }): FleetBriefRow[] {
+  /**
+   * `now` is REQUIRED, not defaulted to `Date.now()` internally: pruning only runs at gateway
+   * boot (`bootFleetScheduler`'s doc comment), so on a long-running gateway a brief past its
+   * `expires_at` stays in the table indefinitely and MUST still be excluded here — retention means
+   * the brief is gone, and a read surface that still returns it makes retention a lie. A caller-
+   * supplied clock (rather than an internal `Date.now()`) keeps this testable without a live clock
+   * and matches every other timestamped method on this class (`pruneBriefs`, `recordJobSuccess`, …).
+   */
+  listBriefs(q: { limit: number; jobId?: string; now: number }): FleetBriefRow[] {
     const rows = (
       q.jobId === undefined
         ? this.db
             .query(
               `SELECT id, run_id, job_id, agent_method, brief_markdown, findings_json,
                       synthesis_json, created_at
-                 FROM fleet_brief ORDER BY created_at DESC LIMIT ?`,
+                 FROM fleet_brief WHERE expires_at > ? ORDER BY created_at DESC LIMIT ?`,
             )
-            .all(q.limit)
+            .all(q.now, q.limit)
         : this.db
             .query(
               `SELECT id, run_id, job_id, agent_method, brief_markdown, findings_json,
                       synthesis_json, created_at
-                 FROM fleet_brief WHERE job_id = ? ORDER BY created_at DESC LIMIT ?`,
+                 FROM fleet_brief WHERE job_id = ? AND expires_at > ?
+                 ORDER BY created_at DESC LIMIT ?`,
             )
-            .all(q.jobId, q.limit)
+            .all(q.jobId, q.now, q.limit)
     ) as ReadonlyArray<{
       id: string;
       run_id: string;
@@ -222,15 +231,20 @@ export class FleetStore {
     }));
   }
 
-  /** A point lookup on the primary key — never a scan. `brief_markdown` can be tens of KB. */
-  getBrief(id: string): FleetBriefRow | undefined {
+  /**
+   * A point lookup on the primary key — never a scan. `brief_markdown` can be tens of KB.
+   *
+   * `now` REQUIRED for the same reason as `listBriefs`: a lookup by id must not resurrect a brief
+   * retention already decided to drop just because `pruneBriefs` has not run since it expired.
+   */
+  getBrief(id: string, now: number): FleetBriefRow | undefined {
     const row = this.db
       .query(
         `SELECT id, run_id, job_id, agent_method, brief_markdown, findings_json,
                 synthesis_json, created_at
-           FROM fleet_brief WHERE id = ?`,
+           FROM fleet_brief WHERE id = ? AND expires_at > ?`,
       )
-      .get(id) as {
+      .get(id, now) as {
       id: string;
       run_id: string;
       job_id: string;

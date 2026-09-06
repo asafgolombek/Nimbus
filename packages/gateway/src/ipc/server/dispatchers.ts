@@ -49,6 +49,7 @@ import { dispatchEgressRpc, type EgressRpcCtx, EgressRpcError } from "../egress-
 import { dispatchExecRpc, ExecRpcError } from "../exec-rpc.ts";
 import { dispatchFederationRpc, FederationRpcError } from "../federation-rpc.ts";
 import { dispatchFilesystemRpc, FilesystemRpcError } from "../filesystem-rpc.ts";
+import { dispatchFleetRpc, FleetRpcError } from "../fleet-rpc.ts";
 import { dispatchGlossaryRpc, GlossaryRpcError } from "../glossary-rpc.ts";
 import { dispatchHitlRpc, HitlRpcError } from "../hitl-rpc.ts";
 import { dispatchIdentityRpc, type IdentityRpcContext, IdentityRpcError } from "../identity-rpc.ts";
@@ -1239,6 +1240,33 @@ export async function tryDispatchComputerRpc(
   return phase4RpcSkipped;
 }
 
+/**
+ * Overnight agent fleet (S2). Same 3-arg shape as exec/computer: the HITL boundary here is
+ * `[fleet] enabled` + the `agent_fleet` org-policy lockoff (I22) checked inside `runOnce` itself,
+ * not a per-client consent broker — an unattended overnight run has no client present to consent
+ * per-action. Present only when assembled at boot; the dispatcher skips cleanly when unset.
+ * `fleet.*` is LAN-forbidden in full (`FORBIDDEN_OVER_LAN`, I5) and absent from the Tauri allowlist
+ * (I7): `fleet.runNow` spends the machine's resources and the reads return synthesised answers over
+ * the private index, neither of which a peer or the renderer needs.
+ */
+export async function tryDispatchFleetRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  if (!method.startsWith("fleet.")) return phase4RpcSkipped;
+  const rpc = ctx.options.fleetRpcCtx;
+  if (rpc === undefined) return phase4RpcSkipped;
+  try {
+    const out = await dispatchFleetRpc(method, params, rpc);
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof FleetRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+    throw e;
+  }
+  return phase4RpcSkipped;
+}
+
 export async function tryDispatchShareRpc(
   ctx: ServerCtx,
   method: string,
@@ -1511,6 +1539,7 @@ const PHASE4_PLATFORM_DISPATCHERS: ReadonlyArray<
   tryDispatchShareRpc,
   tryDispatchExecRpc,
   tryDispatchComputerRpc,
+  tryDispatchFleetRpc,
   tryDispatchMediaRpc,
   tryDispatchEgressRpc,
   tryDispatchGlossaryRpc,

@@ -42,7 +42,7 @@ describe("FleetStore", () => {
       remoteCallsMade: 0,
     });
 
-    const briefs = store.listBriefs({ limit: 10 });
+    const briefs = store.listBriefs({ limit: 10, now: 0 });
     expect(briefs).toHaveLength(1);
     expect(briefs[0]?.agentMethod).toBe("agents.catchup");
   });
@@ -133,7 +133,7 @@ describe("FleetStore", () => {
       expiresAt: 2,
     });
     db.run("DELETE FROM fleet_run WHERE id = ?", [runId]);
-    expect(store.listBriefs({ limit: 10 })).toHaveLength(0);
+    expect(store.listBriefs({ limit: 10, now: 0 })).toHaveLength(0);
   });
 
   test("failure backoff is exponential and capped at 24h", () => {
@@ -176,7 +176,7 @@ describe("FleetStore", () => {
       });
     }
     expect(store.pruneBriefs(500)).toBe(1);
-    expect(store.listBriefs({ limit: 10 })).toHaveLength(1);
+    expect(store.listBriefs({ limit: 10, now: 0 })).toHaveLength(1);
   });
 
   test("getBrief is a point lookup that finds a brief beyond any list page", () => {
@@ -202,8 +202,8 @@ describe("FleetStore", () => {
       });
       if (i === 0) target = id; // the OLDEST, so it sorts last by created_at DESC
     }
-    expect(store.getBrief(target)?.jobId).toBe("j0");
-    expect(store.getBrief("no-such-id")).toBeUndefined();
+    expect(store.getBrief(target, 0)?.jobId).toBe("j0");
+    expect(store.getBrief("no-such-id", 0)).toBeUndefined();
   });
 
   test("pruning a run cascades its briefs away", () => {
@@ -227,6 +227,43 @@ describe("FleetStore", () => {
       expiresAt: 10_000_000,
     });
     expect(store.pruneRuns(500)).toBe(1);
-    expect(store.listBriefs({ limit: 10 })).toHaveLength(0);
+    expect(store.listBriefs({ limit: 10, now: 0 })).toHaveLength(0);
+  });
+
+  test("an expired brief is excluded from both reads even though its row still exists", () => {
+    // Pruning only runs at gateway boot — on a long-running gateway a brief past its `expires_at`
+    // stays in the table until the next restart, and a read surface that still returned it would
+    // make retention a lie. This proves the exclusion happens on READ, independent of `pruneBriefs`
+    // ever having run: the row is left in place deliberately (no prune call in this test at all).
+    const runId = store.openRun({
+      startedAt: 0,
+      hostPower: "ac",
+      hostIdleMs: 0,
+      hostSource: "measured",
+      remoteCallBudget: 0,
+    });
+    const id = store.recordBrief({
+      runId,
+      jobId: "stale",
+      agentMethod: "agents.catchup",
+      briefMarkdown: "x",
+      findingsJson: "{}",
+      synthesisJson: null,
+      createdAt: 0,
+      expiresAt: 1000,
+    });
+
+    // The row is still physically present …
+    const raw = db.query(`SELECT id FROM fleet_brief WHERE id = ?`).get(id);
+    expect(raw).not.toBeNull();
+
+    // … but both read paths refuse it once `now` is past `expires_at`.
+    expect(store.getBrief(id, 2000)).toBeUndefined();
+    expect(store.listBriefs({ limit: 10, now: 2000 })).toHaveLength(0);
+    expect(store.listBriefs({ limit: 10, jobId: "stale", now: 2000 })).toHaveLength(0);
+
+    // Sanity: the same brief IS visible before its expiry.
+    expect(store.getBrief(id, 500)?.id).toBe(id);
+    expect(store.listBriefs({ limit: 10, now: 500 })).toHaveLength(1);
   });
 });

@@ -2943,7 +2943,29 @@ export interface FleetBootDeps {
  *    deliberately not `retentionDays` (which is that floor already merged with the audit log's
  *    own local window, 90 days by default).
  */
-export function bootFleetScheduler(deps: FleetBootDeps): FleetScheduler | undefined {
+/**
+ * The full result of assembling the fleet subsystem, not just the (optionally-undefined)
+ * scheduler `bootFleetScheduler` returns — the `fleet.*` IPC surface (Task 9) needs the store, the
+ * effective config and the job list even when the scheduler itself is `undefined` (disabled by
+ * config/policy or unconfigured), so `fleet.status`/`fleet.list` can report the truth without a
+ * live scheduler to ask. `store`/`config`/`jobs` are ALWAYS present — pruning and reporting must
+ * not hinge on whether the fleet happens to be running right now.
+ */
+interface FleetRuntime {
+  readonly scheduler: FleetScheduler | undefined;
+  readonly store: FleetStore;
+  readonly config: NimbusFleetToml;
+  readonly jobs: readonly NimbusFleetJobToml[];
+}
+
+/**
+ * Shared body behind `bootFleetScheduler` (kept for `assemble-fleet.test.ts`'s direct calls, one
+ * per test) and the production call site below, which needs the richer result too. Extracted
+ * rather than left duplicated — a second, independently-reloaded copy of this config/prune logic
+ * is exactly the kind of restated fact this codebase's sweeps have flagged before, and calling
+ * this twice per boot would double-prune and, worse, construct and start TWO live schedulers.
+ */
+function assembleFleetRuntime(deps: FleetBootDeps): FleetRuntime {
   const fleetToml = resolveNimbusTomlForProfile(deps.paths.configDir);
   let fleet: { config: NimbusFleetToml; jobs: NimbusFleetJobToml[] } = {
     config: DEFAULT_FLEET_CONFIG,
@@ -2982,7 +3004,9 @@ export function bootFleetScheduler(deps: FleetBootDeps): FleetScheduler | undefi
   store.pruneRuns(Date.now() - config.retentionDays * 86_400_000);
   store.pruneBriefs(Date.now());
 
-  if (configError || !config.enabled || fleet.jobs.length === 0) return undefined;
+  if (configError || !config.enabled || fleet.jobs.length === 0) {
+    return { scheduler: undefined, store, config, jobs: fleet.jobs };
+  }
 
   const scheduler = new FleetScheduler({
     store,
@@ -3009,7 +3033,17 @@ export function bootFleetScheduler(deps: FleetBootDeps): FleetScheduler | undefi
   // Without this the 60 s interval outlives `disposeSidecars()`. `.unref()` keeps it from holding
   // the process open but does not stop it firing during a shutdown that is still draining.
   deps.sidecarStops.push(() => scheduler.stop());
-  return scheduler;
+  return { scheduler, store, config, jobs: fleet.jobs };
+}
+
+/**
+ * Public wrapper kept for `assemble-fleet.test.ts` and any other caller that only needs the
+ * scheduler. The production boot path below calls `assembleFleetRuntime` directly instead, so it
+ * can also wire the `fleet.*` IPC context from the SAME call — calling this a second time would
+ * double-prune and start a second live scheduler ticking against the same store.
+ */
+export function bootFleetScheduler(deps: FleetBootDeps): FleetScheduler | undefined {
+  return assembleFleetRuntime(deps).scheduler;
 }
 
 export async function assemblePlatformServices(
@@ -3192,7 +3226,12 @@ export async function assemblePlatformServices(
   // Overnight agent fleet (S2). DEFAULT OFF twice over: `[fleet] enabled` is false by default and
   // no job is configured by default, so a gateway with no `[fleet]` block constructs nothing at
   // all. Built here, after the policy gate, because it reads the `agent_fleet` lockoff from it.
-  const fleetScheduler = bootFleetScheduler({
+  //
+  // `assembleFleetRuntime` rather than `bootFleetScheduler`: the `fleet.*` IPC context (Task 9,
+  // wired onto `ipcOpts` below) needs the store, effective config and job list too, and calling
+  // `bootFleetScheduler` a second time to get them would double-prune and start a second live
+  // scheduler against the same store — see that function's own doc comment.
+  const fleetRuntime = assembleFleetRuntime({
     db,
     paths,
     localIndex,
@@ -3202,6 +3241,7 @@ export async function assemblePlatformServices(
     logger: syncLogger,
     sidecarStops,
   });
+  const fleetScheduler = fleetRuntime.scheduler;
 
   const {
     syncScheduler,
@@ -3719,6 +3759,21 @@ export async function assemblePlatformServices(
     requestPruneApproval: () => Promise.resolve(false),
   };
   ipcOpts.egressRpcCtx = egressRpcCtx;
+
+  // S2 overnight agent fleets (Task 9). `store`/`config`/`jobs` are always present (see
+  // `assembleFleetRuntime`'s doc comment) so `fleet.status`/`fleet.list` can report the truth even
+  // when the scheduler itself is `undefined` — disabled by config/policy, or unconfigured. The
+  // whole namespace is LAN-forbidden (I5) and absent from the Tauri allowlist (I7): `fleet.runNow`
+  // spends the machine's resources and the reads return synthesised answers over the private
+  // index, neither of which a LAN peer or the renderer needs.
+  ipcOpts.fleetRpcCtx = {
+    scheduler: fleetRuntime.scheduler,
+    store: fleetRuntime.store,
+    hostActivity,
+    config: fleetRuntime.config,
+    jobs: fleetRuntime.jobs,
+    now: () => Date.now(),
+  };
 
   ipcOpts.glossaryRefresher = glossaryRefresher;
   assignIfPresent(ipcOpts, "decisionsRefresher", decisionsRefresher);

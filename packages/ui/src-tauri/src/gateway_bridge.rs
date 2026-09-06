@@ -616,6 +616,18 @@ mod tests {
     }
 
     #[test]
+    fn allowlist_excludes_fleet_namespace() {
+        // S2 overnight agent fleets (Task 9, I7). `fleet.runNow` spends the machine's resources
+        // and `fleet.briefs`/`fleet.show` return synthesised answers over the private index —
+        // neither is something the renderer needs. Whole-namespace exclusion, matching
+        // exec/computer/media: a scan over every entry so a later one-off addition (e.g.
+        // `fleet.status`) is caught here rather than only by the total staying unchanged.
+        for m in ALLOWED_METHODS {
+            assert!(!m.starts_with("fleet."), "fleet.* must never be Tauri-exposed (I7): {m}");
+        }
+    }
+
+    #[test]
     fn allowlist_exact_size() {
         assert_eq!(ALLOWED_METHODS.len(), 105);
     }
