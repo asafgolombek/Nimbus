@@ -30,6 +30,7 @@ import {
   EXTENSION_SESSION_V10_NO_VEC_MIGRATION_SQL,
 } from "../extension-session-v10-sql.ts";
 import { V33_FEDERATION_SQL } from "../federation-v33-sql.ts";
+import { FLEET_V60_SQL } from "../fleet-v60-sql.ts";
 import { GDPR_V37_SQL } from "../gdpr-v37-sql.ts";
 import { V32_GIT_BLAME_LINE_SQL } from "../git-blame-line-v32-sql.ts";
 import { GLOSSARY_MANUAL_V46_SQL } from "../glossary-manual-v46-sql.ts";
@@ -563,6 +564,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   simpleStep(56, 57, "computer-use session + action stream", COMPUTER_USE_V57_SQL),
   simpleStep(57, 58, "multimodal understanding pass cursor", MEDIA_PASS_V58_SQL),
   simpleStep(58, 59, "multimodal remote-model grants", MEDIA_GRANT_V59_SQL),
+  simpleStep(59, 60, "agent fleet scheduling", FLEET_V60_SQL),
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
