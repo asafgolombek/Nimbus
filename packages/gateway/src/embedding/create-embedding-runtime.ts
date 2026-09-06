@@ -42,11 +42,20 @@ type RoutingRuntimeFactory = typeof tryCreateRoutingEmbeddingRuntime;
 
 type WorkerBridgeFactory = typeof tryCreateEmbeddingWorkerBridge;
 
+/**
+ * The third leg's seam, added for the same reason the other two exist: without it the two
+ * `createLazyEmbeddingRuntime` call sites below are unobservable, because reaching them for real
+ * needs either a MiniLM download or a loaded `sqlite-vec` — so the argument they pass could stop
+ * travelling and no test would notice.
+ */
+type LazyRuntimeFactory = typeof createLazyEmbeddingRuntime;
+
 /** Optional DI overrides – pass only in tests. */
 export type EmbeddingRuntimeOverrides = {
   openaiEmbedderFactory?: OpenAIEmbedderFactory;
   routingRuntimeFactory?: RoutingRuntimeFactory;
   workerBridgeFactory?: WorkerBridgeFactory;
+  lazyRuntimeFactory?: LazyRuntimeFactory;
 };
 
 async function tryCreateOpenAIEmbeddingRuntime(
@@ -58,6 +67,7 @@ async function tryCreateOpenAIEmbeddingRuntime(
   vault: NimbusVault,
   openaiEmbedderFactory: OpenAIEmbedderFactory = createOpenAIEmbedder,
   backfillGate?: BackfillGate,
+  lazyFactory: LazyRuntimeFactory = createLazyEmbeddingRuntime,
 ): Promise<EmbeddingRuntime | null> {
   let apiKey = processEnvGet("OPENAI_API_KEY")?.trim() ?? "";
   if (apiKey === "") {
@@ -85,7 +95,7 @@ async function tryCreateOpenAIEmbeddingRuntime(
         dimensions: 1536,
       }),
     );
-    return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice, embedder, undefined, {
+    return lazyFactory(db, paths.dataDir, logger, slice, embedder, undefined, {
       backfillGate,
     });
   } catch (err) {
@@ -193,6 +203,7 @@ export async function createEmbeddingRuntime(
   const routingFactory = overrides?.["routingRuntimeFactory"] ?? tryCreateRoutingEmbeddingRuntime;
   const workerFactory = overrides?.["workerBridgeFactory"] ?? tryCreateEmbeddingWorkerBridge;
   const openaiFactory = overrides?.["openaiEmbedderFactory"] ?? createOpenAIEmbedder;
+  const lazyFactory = overrides?.["lazyRuntimeFactory"] ?? createLazyEmbeddingRuntime;
 
   if (tomlEmbedding.provider === "hybrid") {
     const hybrid = await routingFactory(db, paths, logger, slice, vault, undefined, undefined, {
@@ -212,6 +223,7 @@ export async function createEmbeddingRuntime(
       vault,
       openaiFactory,
       backfillGate,
+      lazyFactory,
     );
   }
 
@@ -220,7 +232,7 @@ export async function createEmbeddingRuntime(
   if (worker !== null) {
     return worker;
   }
-  return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice, undefined, undefined, {
+  return lazyFactory(db, paths.dataDir, logger, slice, undefined, undefined, {
     backfillGate,
   });
 }

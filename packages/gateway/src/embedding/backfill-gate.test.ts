@@ -113,12 +113,21 @@ describe("createBatteryBackfillGate — [embedding] pause_on_battery", () => {
     expect(await gate()).toBe(false);
   });
 
-  test("omitting pollMs falls back to the exported default rather than to zero", async () => {
-    // Exercises the `?? DEFAULT_BACKFILL_POLL_MS` arm on a host that never pauses, so the test does
-    // not have to wait out a 30-second poll to prove which interval was chosen.
-    const { host } = switchableHost("ac");
-    const { gate } = createBatteryBackfillGate({ pauseOnBattery: true, hostActivity: host });
-    expect(await gate()).toBe(true);
+  test("omitting pollMs falls back to the 30 s default, NOT to a busy loop", async () => {
+    // Must run on BATTERY: on an `ac` host the interval is never read at all, so the same test
+    // would pass with a fallback of `0` — which is the whole failure this guards against.
+    const { host, probes } = switchableHost("battery");
+    const { gate, stop } = createBatteryBackfillGate({ pauseOnBattery: true, hostActivity: host });
+
+    const pending = gate();
+    expect(await settledWithin(pending, 120)).toBe("pending");
+    // With the real 30-second default the gate has probed EXACTLY once in that window. A zero (or
+    // any other small) fallback would have spun through dozens of probes by now.
+    expect(probes()).toBe(1);
+
+    // The gate is still asleep on a 30 s timer; release it rather than stranding a live handle.
+    stop();
+    expect(await pending).toBe(false);
   });
 
   test("the default poll interval is a real constant, not an accidental zero", () => {

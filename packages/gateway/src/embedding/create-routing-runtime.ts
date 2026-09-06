@@ -183,7 +183,8 @@ export async function tryCreateRoutingEmbeddingRuntime(
     },
 
     terminate(): void {
-      // Nothing to tear down except a backfill that may be PAUSED on battery.
+      // Stops the backfill at its NEXT gate check, not mid-sleep — see `lazy-scheduler.ts`'s
+      // `terminate` for the bound. The shared gate's own `stop()` is what ends a pause in progress.
       stopped = true;
     },
   };

@@ -2933,8 +2933,9 @@ export interface FleetBootDeps {
  *    reaching for a config-dir loader here would be making that mistake a second time.
  * 2. A malformed `[fleet]` block must NOT take the gateway down. The parser throws by design (an
  *    `allow_remote` with no budget is a permission the owner clearly meant to bound), and this is
- *    the caller that catches it: log loudly, name the file, construct nothing. The fleet is an
- *    optional default-off feature; the index is not.
+ *    the caller that catches it: log loudly, name the file, construct no scheduler. The fleet is an
+ *    optional default-off feature; the index is not. Note that the PRUNE still runs on that path —
+ *    old rows exist whether or not today's config parses, and retention must not hinge on a typo.
  * 3. Retention is a policy FLOOR, applied to `config.retentionDays` BEFORE the scheduler sees it —
  *    not only to the boot prune below. The scheduler stamps each brief's `expires_at` from that
  *    same field, so flooring only the prune would leave an org-mandated 30-day brief marked to
@@ -2948,14 +2949,15 @@ export function bootFleetScheduler(deps: FleetBootDeps): FleetScheduler | undefi
     config: DEFAULT_FLEET_CONFIG,
     jobs: [],
   };
+  let configError = false;
   try {
     fleet = loadNimbusFleetFromPath(fleetToml);
   } catch (err) {
+    configError = true;
     deps.logger.error(
       { err: err instanceof Error ? err.message : String(err), tomlPath: fleetToml },
       `[fleet] config error in ${fleetToml} — fleet disabled for this process`,
     );
-    return undefined;
   }
 
   const config: NimbusFleetToml = {
@@ -2966,15 +2968,21 @@ export function bootFleetScheduler(deps: FleetBootDeps): FleetScheduler | undefi
     ),
   };
 
-  // Prune unconditionally — including when the fleet is now disabled, since rows written while it
-  // WAS enabled must still age out. `pruneRuns` FIRST: the FK cascade takes each run's briefs with
-  // it, which is what stops `fleet_run` growing a row per 60-second tick forever. `pruneBriefs`
-  // then catches any brief whose own `expires_at` is earlier than its run's age.
+  // Prune UNCONDITIONALLY — when the fleet is disabled, and when its config did not even parse.
+  // Rows written while it WAS enabled exist either way, and retention must not depend on whether
+  // the owner currently has a typo in their TOML: the alternative is a machine that silently keeps
+  // every fleet brief forever because of one bad line. On the unparsed path the window is
+  // `DEFAULT_FLEET_CONFIG.retentionDays` floored by policy, which is the only defensible answer
+  // when the configured one is unreadable.
+  //
+  // `pruneRuns` FIRST: the FK cascade takes each run's briefs with it, which is what stops
+  // `fleet_run` growing a row per 60-second tick forever. `pruneBriefs` then catches any brief
+  // whose own `expires_at` is earlier than its run's age.
   const store = new FleetStore(deps.db);
   store.pruneRuns(Date.now() - config.retentionDays * 86_400_000);
   store.pruneBriefs(Date.now());
 
-  if (!config.enabled || fleet.jobs.length === 0) return undefined;
+  if (configError || !config.enabled || fleet.jobs.length === 0) return undefined;
 
   const scheduler = new FleetScheduler({
     store,

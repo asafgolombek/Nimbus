@@ -130,6 +130,29 @@ describe("bootFleetScheduler", () => {
     expect(scheduler).toBeUndefined();
   });
 
+  /**
+   * Retention must not hinge on whether today's config parses. Old rows exist either way, and a
+   * machine that keeps every fleet brief forever because of one bad TOML line is a data-retention
+   * failure caused by a typo.
+   */
+  test("a malformed [fleet] block still prunes, using the DEFAULT window", () => {
+    writeToml(`[fleet]\nenabled = true\nallow_remote = true\nremote_call_budget = 0\n`);
+    const store = new FleetStore(db);
+    // DEFAULT_FLEET_CONFIG.retentionDays is 14: 20 days old goes, 3 days old stays.
+    for (const ageDays of [20, 3]) {
+      store.openRun({
+        startedAt: Date.now() - ageDays * DAY_MS,
+        hostPower: "unknown",
+        hostIdleMs: null,
+        hostSource: "power_only",
+        remoteCallBudget: 0,
+      });
+    }
+    const { gate } = stubGate(enforcedWith({}));
+    expect(bootFleetScheduler(deps(gate))).toBeUndefined();
+    expect((db.query("SELECT COUNT(*) AS c FROM fleet_run").get() as { c: number }).c).toBe(1);
+  });
+
   test("the PROFILE toml is what is read, not a hardcoded nimbus.toml", () => {
     // The base file says disabled; the active profile's file enables it. A profile-blind loader
     // would return `undefined` here — the exact bug `loadNimbusAgentsFromPath` was born from.

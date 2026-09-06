@@ -209,8 +209,10 @@ export function createLazyEmbeddingRuntime(
     },
 
     terminate(): void {
-      // Nothing to tear down except a backfill that may be PAUSED on battery — without this its
-      // poll loop outlives the runtime.
+      // Stops the backfill at its NEXT gate check. A run already asleep inside the shared battery
+      // gate's poll loop keeps polling until that gate's own `stop()` fires — this flag is checked
+      // before entering it, not while waiting in it. Production ends both: `platform/assemble.ts`
+      // registers the gate's `stop` in `sidecarStops`.
       stopped = true;
     },
   };
