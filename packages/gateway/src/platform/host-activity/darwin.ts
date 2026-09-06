@@ -3,15 +3,29 @@ import { UNKNOWN_PROBE } from "../host-activity.ts";
 
 const SPAWN_TIMEOUT_MS = 2_000;
 
-async function run(cmd: string[]): Promise<string | undefined> {
+/**
+ * Injectable purely so a test can capture the options `run()` passes to `Bun.spawn` (`windowsHide`
+ * in particular) without widening `HostActivity`'s own public `probe()` contract — the same shape
+ * as `ownership/repo-remote.ts`'s `RemoteSpawn`.
+ */
+export type DarwinSpawn = typeof Bun.spawn;
+
+export async function run(
+  cmd: string[],
+  spawn: DarwinSpawn = Bun.spawn,
+): Promise<string | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore", windowsHide: true });
-    const timer = setTimeout(() => proc.kill(), SPAWN_TIMEOUT_MS);
+    const proc = spawn(cmd, { stdout: "pipe", stderr: "ignore", windowsHide: true });
+    timer = setTimeout(() => proc.kill(), SPAWN_TIMEOUT_MS);
     const text = await new Response(proc.stdout).text();
-    clearTimeout(timer);
     return (await proc.exited) === 0 ? text : undefined;
   } catch {
     return undefined;
+  } finally {
+    // Must run on every path, including a throw while reading stdout — otherwise the timer
+    // outlives this call and can `kill()` an unrelated `proc` up to SPAWN_TIMEOUT_MS later.
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
