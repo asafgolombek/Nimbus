@@ -380,6 +380,18 @@ rather than a remote provider when remote is not permitted or the budget is spen
 `generateMarkdown` refuses a non-local provider on the same conditions and decrements the budget
 when it allows one. Locality is read from `provider.isLocal`, never recomputed.
 
+**How `remote_call_budget` is PER RUN, given one budget instance.** `platform/assemble.ts` builds a
+single `FleetRemoteBudget` at boot and shares it with the invoker, so the cap would otherwise be a
+process-lifetime one: `remote_call_budget = 5` would mean five remote calls for the entire life of
+the gateway, and a machine up for a week would get five in total. `FleetScheduler.execute` therefore
+calls `budget.reset()` at the run boundary, before `openRun`, restoring the full cap. That is safe
+without re-threading a fresh budget through the invoker because `runOnce`'s `inFlight` guard
+serialises every entry path — the 60-second tick, `--force`, and a named single job all reach
+`execute` only through it — so a reset can never land mid-run. `fleet_run.remote_call_budget` is
+then recorded off the freshly reset budget's `remaining()`, not the raw config number: the two
+differ whenever `allow_remote = false`, where the cap is clamped to 0 while the parser still accepts
+a non-zero `remote_call_budget` beside it.
+
 **Two rejected alternatives, so they are not revisited:**
 
 - **`LlmRouter.setTaskPin`** mutates a router-wide map. A background fleet run and a concurrent

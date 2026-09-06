@@ -3024,9 +3024,10 @@ export function assembleFleetRuntime(deps: FleetBootDeps): FleetRuntime {
       return deps.policyGate.enforced().capabilitiesDisabled.has(FLEET_CAPABILITY);
     },
     hostActivity: deps.hostActivity,
-    // Cumulative for the process, which is why `FleetScheduler` persists the DELTA across a run
-    // rather than this value verbatim — see its own comment.
-    remoteCallsMade: () => remoteBudget.spent(),
+    // The SAME instance, narrowed to `FleetRunBudget` by the dep's type: the scheduler resets it at
+    // each run boundary (which is what makes `remote_call_budget` the PER-RUN key it is documented
+    // to be) and reads what the run had and spent, while `consume` stays the invoker's alone.
+    remoteBudget,
     invoke: buildFleetInvoker({
       db: deps.db,
       router: deps.llmRegistry.llmRouter,

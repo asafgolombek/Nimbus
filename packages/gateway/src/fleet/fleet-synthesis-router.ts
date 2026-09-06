@@ -10,6 +10,23 @@ export interface FleetRemoteBudget {
   exhausted(): boolean;
   /** Reserves one remote call. Returns false when none is left. */
   consume(): boolean;
+  /**
+   * Returns the budget to its full cap.
+   *
+   * `[fleet] remote_call_budget` is documented PER RUN, and this is what makes that true.
+   * `platform/assemble.ts` builds ONE instance at boot — re-threading a fresh budget through the
+   * invoker on every run would mean restructuring the seam Tasks 4-8 settled — so without a reset a
+   * cap of 5 would mean five remote calls for the gateway's entire LIFETIME: a machine up for a
+   * week would get five, total, which is not what any reader of that key expects. Worse, it would
+   * make `fleet_run.remote_call_budget` a false record, claiming 5 on a run that in fact had 5
+   * minus everything spent since boot.
+   *
+   * Called ONLY from `FleetScheduler.execute`, at the run boundary, where the `inFlight` guard
+   * serialises runs so a reset can never land mid-run. The scheduler holds a narrowed view of this
+   * interface (`FleetRunBudget`) that excludes `consume`, since spending is the invoker's
+   * capability and not the scheduler's.
+   */
+  reset(): void;
 }
 
 export function createFleetRemoteBudget(allowRemote: boolean, budget: number): FleetRemoteBudget {
@@ -24,6 +41,9 @@ export function createFleetRemoteBudget(allowRemote: boolean, budget: number): F
       if (used >= cap) return false;
       used += 1;
       return true;
+    },
+    reset: () => {
+      used = 0;
     },
   };
 }

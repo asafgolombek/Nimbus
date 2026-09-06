@@ -5,7 +5,7 @@ import { DEFAULT_FLEET_CONFIG } from "../config/fleet-toml.ts";
 import { FLEET_V60_SQL } from "../index/fleet-v60-sql.ts";
 import type { HostActivityProbe } from "../platform/host-activity.ts";
 import type { FleetInvoker, FleetJobOutcome } from "./fleet-invoker.ts";
-import type { FleetRunSummary } from "./fleet-scheduler.ts";
+import type { FleetRunBudget, FleetRunSummary } from "./fleet-scheduler.ts";
 import { DEFAULT_TICK_MS, FleetScheduler, isJobDue } from "./fleet-scheduler.ts";
 import { FleetStore } from "./fleet-store.ts";
 import { createFleetRemoteBudget, wrapFleetSynthesisRouter } from "./fleet-synthesis-router.ts";
@@ -46,7 +46,7 @@ function build(opts: {
   invoke: FleetInvoker;
   jobs?: readonly NimbusFleetJobToml[];
   config?: Partial<NimbusFleetToml>;
-  remoteCallsMade?: () => number;
+  remoteBudget?: FleetRunBudget;
   tickMs?: number;
   onProbe?: () => void;
 }): FleetScheduler {
@@ -69,7 +69,7 @@ function build(opts: {
     },
     invoke: opts.invoke,
     now: () => NOW,
-    ...(opts.remoteCallsMade === undefined ? {} : { remoteCallsMade: opts.remoteCallsMade }),
+    ...(opts.remoteBudget === undefined ? {} : { remoteBudget: opts.remoteBudget }),
     ...(opts.tickMs === undefined ? {} : { tickMs: opts.tickMs }),
   });
 }
@@ -99,6 +99,15 @@ function runRow(runId: string): FleetRunRow {
     .get(runId) as FleetRunRow | null;
   if (row === null) throw new Error(`no fleet_run row for ${runId}`);
   return row;
+}
+
+/** The `remote_call_budget` the run row recorded — what that run actually had available. */
+function recordedBudget(runId: string): number {
+  const row = db.query(`SELECT remote_call_budget AS b FROM fleet_run WHERE id = ?`).get(runId) as {
+    b: number;
+  } | null;
+  if (row === null) throw new Error(`no fleet_run row for ${runId}`);
+  return row.b;
 }
 
 /**
@@ -572,55 +581,69 @@ describe("FleetScheduler.runOnce", () => {
   });
 
   test("records the run's remote spend against its budget", async () => {
-    // A LIVE counter, not a constant. A constant getter reads the same value at the run's start and
-    // its end, so it passes for a scheduler that persists the raw cumulative value AND for one that
-    // persists the delta — it cannot tell the two apart, which is the whole question this column
-    // exists to answer.
-    let spent = 0;
+    // A REAL `FleetRemoteBudget`, spent through its own `consume()`, not a fake counter. The
+    // scheduler's job here is to report what the budget says, and a fake would let the two agree on
+    // a contract the real object does not have.
+    const budget = createFleetRemoteBudget(true, 4);
     const s = build({
       probes: [AC_IDLE],
       invoke: async (job) => {
-        spent += 1; // this job's brief synthesised through a granted remote provider
+        budget.consume(); // this job's brief synthesised through a granted remote provider
         return done(job.name);
       },
       config: { allowRemote: true, remoteCallBudget: 4 },
-      remoteCallsMade: () => spent,
+      remoteBudget: budget,
     });
     const summary = await s.runOnce();
     expect(summary.runId).not.toBeNull();
     expect(runRow(requireRunId(summary)).remote_calls_made).toBe(2); // one per job in JOBS
-    const budget = db
-      .query(`SELECT remote_call_budget AS b FROM fleet_run WHERE id = ?`)
-      .get(requireRunId(summary)) as { b: number };
-    expect(budget.b).toBe(4);
+    expect(recordedBudget(requireRunId(summary))).toBe(4);
   });
 
-  test("a SECOND run records only ITS OWN remote calls, not the process total", async () => {
-    // The regression the obvious wiring ships. `platform/assemble.ts` builds ONE `FleetRemoteBudget`
-    // for the process, so `spent()` never resets; persisting it verbatim would make every run after
-    // the first report its predecessors' calls as its own. Two runs, one call each, is the smallest
-    // shape that can see the difference — run 2 must read 1, not 2.
-    let spent = 0;
+  test("two consecutive runs EACH get the full budget — the cap is per RUN, not per process", async () => {
+    // `[fleet] remote_call_budget` is documented per run, and `platform/assemble.ts` builds ONE
+    // budget for the process, so without the run-boundary reset a cap of 2 would mean two remote
+    // calls for the gateway's entire lifetime: run 1 spends both, run 2 gets none, and a machine up
+    // for a week gets two in total. Each job here spends until the budget refuses, so the count IS
+    // the cap the run actually had.
+    const budget = createFleetRemoteBudget(true, 2);
     const s = build({
       probes: [AC_IDLE],
       jobs: [JOBS[0] as NimbusFleetJobToml],
       invoke: async (job) => {
-        spent += 1;
+        while (budget.consume());
         return done(job.name);
       },
-      config: { allowRemote: true, remoteCallBudget: 10 },
-      remoteCallsMade: () => spent,
+      config: { allowRemote: true, remoteCallBudget: 2 },
+      remoteBudget: budget,
     });
     const first = await s.runOnce({ force: true });
     const second = await s.runOnce({ force: true });
-    expect(spent).toBe(2); // the process total really did advance
-    expect(runRow(requireRunId(first)).remote_calls_made).toBe(1);
-    expect(runRow(requireRunId(second)).remote_calls_made).toBe(1);
+    expect(runRow(requireRunId(first)).remote_calls_made).toBe(2);
+    // The load-bearing one: without the reset this is 0, and the run row would still claim a budget
+    // of 2 it never had.
+    expect(runRow(requireRunId(second)).remote_calls_made).toBe(2);
+    expect(recordedBudget(requireRunId(second))).toBe(2);
+  });
+
+  test("the recorded budget is the EFFECTIVE cap, not the raw config number", async () => {
+    // The parser refuses `allow_remote = true` with no budget, but accepts the opposite pairing —
+    // so `allow_remote = false, remote_call_budget = 5` is legal config, and
+    // `createFleetRemoteBudget` clamps its cap to 0. Recording the config number would have the row
+    // claim a budget of 5 on a run that could not spend a single call of it.
+    const budget = createFleetRemoteBudget(false, 5);
+    const s = build({
+      probes: [AC_IDLE],
+      invoke: async (job) => done(job.name),
+      config: { allowRemote: false, remoteCallBudget: 5 },
+      remoteBudget: budget,
+    });
+    expect(recordedBudget(requireRunId(await s.runOnce()))).toBe(0);
   });
 
   test("allow_remote = false records 0 because the REAL gate refused, not because nothing is wired", async () => {
-    // "0" is the value a missing getter also produces, so the assertion is only worth anything with
-    // the real I38 pieces in the loop: a real `createFleetRemoteBudget`, a real
+    // "0" is the value a missing dep also produces, so the assertion is only worth anything with the
+    // real I38 pieces in the loop: a real `createFleetRemoteBudget`, a real
     // `wrapFleetSynthesisRouter`, and a real non-local provider handed to it. The positive control
     // below runs the IDENTICAL harness with `allow_remote = true` and must record 2 — without it,
     // this test would pass for a scheduler that persists a hardcoded zero.
@@ -643,7 +666,7 @@ describe("FleetScheduler.runOnce", () => {
           return done(job.name);
         },
         config: { allowRemote, remoteCallBudget: cap },
-        remoteCallsMade: () => budget.spent(),
+        remoteBudget: budget,
       });
       // `force` because both arms share the module-level store: the second call's jobs would
       // otherwise be not-due from the first, attempt nothing, and make the positive control read

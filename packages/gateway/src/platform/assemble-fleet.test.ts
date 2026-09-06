@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
 import { dbRun } from "../db/write.ts";
+import type { FleetRunBudget } from "../fleet/fleet-scheduler.ts";
 import { FLEET_CAPABILITY } from "../fleet/fleet-scheduler.ts";
 import { FleetStore } from "../fleet/fleet-store.ts";
 import type { LocalIndex } from "../index/local-index.ts";
@@ -111,38 +112,51 @@ describe("assembleFleetRuntime", () => {
   });
 
   /**
-   * I38's audit trail. `FleetSchedulerDeps.remoteCallsMade` is optional, and this call site simply
-   * did not pass it — so `fleet_run.remote_calls_made` recorded `0` on every production run while
-   * the column purported to count remote model calls. A persisted field that is always wrong is a
-   * false record, not a missing feature, which is why this is asserted at the BOOT site rather than
-   * left to the scheduler's own tests: the scheduler was already correct, and nothing reached it.
+   * I38's audit trail. `FleetSchedulerDeps`' budget dep is optional, and this call site simply did
+   * not pass it — so `fleet_run.remote_calls_made` recorded `0` on every production run while the
+   * column purported to count remote model calls, and `remote_call_budget` recorded a per-run cap
+   * the run did not have. A persisted field that is always wrong is a false record, not a missing
+   * feature, which is why this is asserted at the BOOT site rather than left to the scheduler's own
+   * tests: the scheduler was already correct, and nothing reached it.
    *
    * White-box (`deps` is `private` to TypeScript only) because there is no black-box way to see an
    * optional dependency that was never supplied — a run row reading `0` is exactly what the bug
    * produced, so observing the row cannot distinguish "no calls" from "not wired".
    */
-  test("the scheduler is given a live remoteCallsMade getter, reading the budget the invoker caps against", () => {
+  test("the scheduler is given the live remote budget the invoker caps against", () => {
     writeToml(
-      `[fleet]\nenabled = true\nallow_remote = true\nremote_call_budget = 3\n\n[[fleet.job]]\nname = "nightly"\nagent = "catchup"\ninterval_seconds = 3600\n`,
+      `[fleet]
+enabled = true
+allow_remote = true
+remote_call_budget = 3
+
+[[fleet.job]]
+name = "nightly"
+agent = "catchup"
+interval_seconds = 3600
+`,
     );
     const { gate } = stubGate(enforcedWith({}));
     const scheduler = assembleFleetRuntime(deps(gate)).scheduler;
     expect(scheduler).toBeDefined();
-    const wired = (scheduler as unknown as { deps: { remoteCallsMade?: () => number } }).deps;
-    expect(typeof wired.remoteCallsMade).toBe("function");
-    // Reads the REAL budget, which has spent nothing at boot. Not a constant: the assertion that
-    // makes it a budget rather than a literal `() => 0` is `fleet-scheduler.test.ts`'s pair of
-    // tests, which drive a real `createFleetRemoteBudget` through a real run.
-    expect(wired.remoteCallsMade?.()).toBe(0);
+    const wired = (scheduler as unknown as { deps: { remoteBudget?: FleetRunBudget } }).deps
+      .remoteBudget;
+    expect(wired).toBeDefined();
+    // A REAL budget carrying the configured cap, not a stub: `remaining()` is the effective cap and
+    // `reset()` is the method that makes `remote_call_budget` a per-RUN key. Asserting the cap is
+    // what distinguishes the wired budget from any object that merely has the right method names.
+    expect(wired?.remaining()).toBe(3);
+    expect(wired?.spent()).toBe(0);
+    expect(typeof wired?.reset).toBe("function");
   });
 
   /**
-   * The failure mode the fix could reintroduce: two budgets. `remoteCallsMade` would then read an
-   * instance nothing ever spends against, and the column would go back to reporting `0` forever —
+   * The failure mode the fix could reintroduce: two budgets. The scheduler would then reset and
+   * report an instance nothing ever spends against, and both columns would go back to being wrong —
    * the same false record wearing a getter. Exactly one construction in this module is what makes
-   * the scheduler's counter and the invoker's cap the same object.
+   * the scheduler's run boundary and the invoker's cap the same object.
    */
-  test("exactly ONE FleetRemoteBudget is constructed in assemble.ts — the counter and the cap are one object", async () => {
+  test("exactly ONE FleetRemoteBudget is constructed in assemble.ts — the run boundary and the cap are one object", async () => {
     const src = await readFile(join(import.meta.dir, "assemble.ts").replaceAll("\\", "/"), "utf8");
     const calls = src.match(/createFleetRemoteBudget\s*\(/g) ?? [];
     expect(calls.length).toBe(1);

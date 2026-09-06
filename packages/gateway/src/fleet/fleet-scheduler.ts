@@ -61,6 +61,23 @@ export interface FleetRunOptions {
   readonly jobName?: string | undefined;
 }
 
+/**
+ * The budget surface the SCHEDULER needs: reset it at the run boundary, then report what the run
+ * had and what it spent.
+ *
+ * Deliberately a STRUCTURAL SUBSET of `FleetRemoteBudget` rather than that type itself, the same
+ * technique `SynthesisRouter` uses over `LlmRouter`. `consume()` is the INVOKER's capability —
+ * spending is what the wrapped synthesis router does behind I38's two doors — and a scheduler able
+ * to spend the fleet's remote budget is a capability nothing needs and no reader would expect. A
+ * real `FleetRemoteBudget` satisfies this by structure, so production passes the one instance and
+ * the narrowing costs nothing.
+ */
+export interface FleetRunBudget {
+  reset(): void;
+  spent(): number;
+  remaining(): number;
+}
+
 export interface FleetSchedulerDeps {
   readonly store: FleetStore;
   readonly jobs: readonly NimbusFleetJobToml[];
@@ -71,9 +88,9 @@ export interface FleetSchedulerDeps {
   readonly invoke: FleetInvoker;
   readonly now: () => number;
   /**
-   * The fleet budget's CUMULATIVE remote-call count for this process — production passes
-   * `() => remoteBudget.spent()` on the SAME `FleetRemoteBudget` instance the invoker caps against
-   * (I38). `execute` persists the delta across a run, never this value verbatim.
+   * The SAME `FleetRemoteBudget` instance the invoker caps against (I38) — production passes the
+   * one object `platform/assemble.ts` constructs, so the run boundary this scheduler owns and the
+   * spending the invoker does are the same accounting.
    *
    * Optional because the scheduler is constructible without a budget (tests, and a fleet assembled
    * before a router exists), NOT because production may omit it: it did, and
@@ -81,7 +98,7 @@ export interface FleetSchedulerDeps {
    * remote model calls. Omitting it means "this run made no remote calls I can account for", which
    * is only honest when there is genuinely no budget to read.
    */
-  readonly remoteCallsMade?: (() => number) | undefined;
+  readonly remoteBudget?: FleetRunBudget | undefined;
   /** Test seam only. Production leaves it at `DEFAULT_TICK_MS`. */
   readonly tickMs?: number | undefined;
 }
@@ -197,29 +214,31 @@ export class FleetScheduler {
     const probe = await this.deps.hostActivity.probe();
     const admitted = this.admit(probe).admitted;
 
+    // The run boundary. `[fleet] remote_call_budget` is PER RUN, and one instance is shared with
+    // the invoker for the process lifetime, so this is the line that makes the key mean what it
+    // says. Before `openRun`, so the row records what this run actually HAS. Safe because
+    // `runOnce`'s `inFlight` guard serialises every entry path — the tick, `--force` and a named
+    // job all reach `execute` only through it — so no reset can land mid-run.
+    this.deps.remoteBudget?.reset();
+
     const startedAt = this.deps.now();
     const runId = this.deps.store.openRun({
       startedAt,
       hostPower: probe.power,
       hostIdleMs: probe.idleMs,
       hostSource: probe.source,
-      remoteCallBudget: this.deps.config.remoteCallBudget,
+      // What the run HAS, read off the freshly reset budget — not the raw config value. The two
+      // differ whenever `allow_remote = false`: `createFleetRemoteBudget` clamps the cap to 0,
+      // while the parser happily accepts `remote_call_budget = 5` alongside it (it refuses only the
+      // opposite pairing). Recording the config number there would have the row claim a budget the
+      // run could not spend a single call of.
+      remoteCallBudget: this.deps.remoteBudget?.remaining() ?? this.deps.config.remoteCallBudget,
     });
 
     // ONE mutable tally, read by `close` rather than threaded through it as arguments. Every exit
     // (deferred, yielded, failed, completed) then reports the same numbers by construction — three
     // positional counters at four call sites is how one of them ends up stale on one path.
     const tally = { attempted: 0, completed: 0, skippedNotDue: 0 };
-
-    // `remoteCallsMade` is CUMULATIVE for the gateway process: `platform/assemble.ts` builds ONE
-    // `FleetRemoteBudget` at boot (the cap is a process-lifetime cap, which is what makes it a cap
-    // at all), so the getter's value at `close` includes every earlier run's spend. Persisting it
-    // verbatim would make run 2 report run 1's calls as its own — a false record on the one column
-    // whose job is to say what THIS run spent. So the DELTA either side of the run is what is
-    // written. This stays correct if the budget is ever made per-run: the opening read is then 0
-    // and the delta is the whole of it. Captured HERE, before the first job, and before `close` can
-    // be reached by any path including the deferred one (where the delta is 0, correctly).
-    const remoteCallsAtStart = this.deps.remoteCallsMade?.() ?? 0;
 
     const close = (outcome: FleetRunOutcome): FleetRunSummary => {
       this.deps.store.closeRun(runId, {
@@ -232,7 +251,7 @@ export class FleetScheduler {
         jobsAttempted: tally.attempted,
         jobsCompleted: tally.completed,
         jobsSkippedNotDue: tally.skippedNotDue,
-        remoteCallsMade: (this.deps.remoteCallsMade?.() ?? 0) - remoteCallsAtStart,
+        remoteCallsMade: this.deps.remoteBudget?.spent() ?? 0,
       });
       return {
         runId,
