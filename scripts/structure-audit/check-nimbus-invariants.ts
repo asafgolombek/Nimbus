@@ -935,12 +935,40 @@ export function checkRunConfinedConfinement(files: readonly FileEntry[]): Violat
 // DECIDED, and in the one invoker that legitimately wears it. A second file naming it would be a
 // second path able to file briefs under that attribution without passing the scheduler's config,
 // policy, admission and I38 budget checks. Mirrors D23's runConfined confinement. Tests exempt.
+//
+// WHAT THIS RULE COVERS, and what it does not — stated plainly, in the style of D26(b), because a
+// rule that implies completeness is worse than one that names its own edge. It matches the literal
+// only where it is being ASSIGNED as a client kind:
+//   * an object-literal property or a plain assignment — `kind: "fleet"`, `callerKind = "fleet"`
+//     (any identifier ending in `kind`/`Kind`);
+//   * a `ClientKind`-typed declaration — `const k: ClientKind = "fleet"`;
+//   * a `ClientKind` assertion — `"fleet" as ClientKind`;
+//   * a `ClientKindStore.declare(...)` second argument — `store.declare(id, "fleet")`;
+//   * a quoted `"fleet":` map key whose value is `null` or a string, i.e. a second copy of the
+//     egress classification.
+// Each is checked against the line AND against that line joined with the next, so a formatter that
+// breaks `kind:` from its literal does not slip past.
+//
+// It deliberately does NOT match a BARE `"fleet"` string. The word is a legitimate namespace token
+// elsewhere — the LAN forbid-list (`ipc/lan-rpc.ts`) and the CLI command map both name it with no
+// `ClientKind` involved — and a bare-string rule would false-positive on those, then be weakened or
+// allow-listed until it caught nothing. A narrow rule that fires is worth more than a broad one
+// that gets disarmed.
+//
+// RESIDUAL BOUND: a regex cannot see every construction. An indirection
+// (`const K = "fleet"; { kind: K }`), a computed key, or a value arriving from JSON all evade it —
+// the same class of hole D23 carries and that D26(a) had to close at the import instead. The
+// PRIMARY defense is capability confinement: the `ClientKind` value is only reachable where the
+// scheduler builds its caller descriptor, and `RECOGNISED` in `client-kind.ts` independently
+// refuses `fleet` as a client-DECLARED kind, so the socket path is closed by construction rather
+// than by this scan. This rule is the backstop for the copy-paste case, not the boundary.
 const D28_FLEET_KIND_ALLOWED = [
   "packages/gateway/src/ipc/server/client-kind.ts",
   "packages/gateway/src/egress/egress-bearing-kinds.ts",
   "packages/gateway/src/fleet/fleet-invoker.ts",
 ];
-const D28_FLEET_KIND_RE = /kind:\s*"fleet"|"fleet"\s*:\s*(?:null|")/;
+const D28_FLEET_KIND_RE =
+  /\w*[Kk]ind\s*[:=]\s*"fleet"|:\s*ClientKind\s*=\s*"fleet"|"fleet"\s+as\s+ClientKind|\bdeclare\s*\([^)]*,\s*"fleet"|"fleet"\s*:\s*(?:null|")/;
 
 export function checkFleetClientKindConfinement(files: readonly FileEntry[]): Violation[] {
   const out: Violation[] = [];
@@ -950,7 +978,17 @@ export function checkFleetClientKindConfinement(files: readonly FileEntry[]): Vi
     const stripped = stripComments(f.contents).split("\n");
     const original = f.contents.split("\n");
     for (let i = 0; i < stripped.length; i++) {
-      if (D28_FLEET_KIND_RE.test(stripped[i] ?? "")) {
+      const line = stripped[i] ?? "";
+      const next = stripped[i + 1] ?? "";
+      // The line alone, else the line joined with its successor. The joined form counts ONLY when
+      // the successor does not match on its own: otherwise a violation sitting wholly on line i+1
+      // would be reported twice — once here, at the wrong line number, and again at its own index.
+      // The first line has to actually contribute for the window to mean anything.
+      let matched = D28_FLEET_KIND_RE.test(line);
+      if (!matched && !D28_FLEET_KIND_RE.test(next)) {
+        matched = D28_FLEET_KIND_RE.test(`${line} ${next}`);
+      }
+      if (matched) {
         out.push({
           rule: "D28-fleet-client-kind",
           file: f.relPath,

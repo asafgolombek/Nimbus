@@ -14,6 +14,7 @@ import {
   checkEmbeddingAppenderConfinement,
   checkEmbeddingConstructorConfinement,
   checkFlatUpsertGraphEntityCoOwnedTypes,
+  checkFleetClientKindConfinement,
   checkForwardShareConfinement,
   checkMediaGrantStoreConfinement,
   checkRemoteVlmConfinement,
@@ -1966,5 +1967,120 @@ describe("D27(b) media_grant table confinement", () => {
         ),
       ]),
     ).toEqual([]);
+  });
+});
+describe("D28 — fleet ClientKind confinement (I38)", () => {
+  const file = (relPath: string, contents: string): FileEntry => ({ relPath, contents });
+  const ROGUE = "packages/gateway/src/agents/rogue.ts";
+  const KIND_DEF = "packages/gateway/src/ipc/server/client-kind.ts";
+  const EGRESS = "packages/gateway/src/egress/egress-bearing-kinds.ts";
+  const INVOKER = "packages/gateway/src/fleet/fleet-invoker.ts";
+  const flagged = (files: FileEntry[]): boolean =>
+    checkFleetClientKindConfinement(files).some((v) => v.rule === "D28-fleet-client-kind");
+
+  // ---- positive: one per assignment shape the rule claims to cover -------------------------
+
+  test("flags an object-literal property — the copy-paste case", () => {
+    expect(flagged([file(ROGUE, `const caller = { clientId: id, kind: "fleet" };`)])).toBe(true);
+  });
+
+  test("flags a plain assignment to any identifier ending in kind", () => {
+    expect(flagged([file(ROGUE, `let callerKind = "fleet";`)])).toBe(true);
+    expect(flagged([file(ROGUE, `ctx.kind = "fleet";`)])).toBe(true);
+  });
+
+  test("flags a ClientKind-typed declaration", () => {
+    expect(flagged([file(ROGUE, `const k: ClientKind = "fleet";`)])).toBe(true);
+  });
+
+  test("flags a ClientKind assertion", () => {
+    expect(flagged([file(ROGUE, `dispatch(method, params, "fleet" as ClientKind);`)])).toBe(true);
+  });
+
+  test("flags a ClientKindStore.declare second argument", () => {
+    expect(flagged([file(ROGUE, `store.declare(clientId, "fleet");`)])).toBe(true);
+  });
+
+  test("flags a second copy of the egress classification", () => {
+    expect(flagged([file(ROGUE, `const map = { "fleet": null, mcp: "mcp" };`)])).toBe(true);
+  });
+
+  test("flags a line-broken literal — a formatter must not disarm the rule", () => {
+    // Prettier/Biome will break a long property onto two lines; a per-line scan alone misses it.
+    expect(flagged([file(ROGUE, `const caller = {\n  kind:\n    "fleet",\n};`)])).toBe(true);
+  });
+
+  test("reports the line the literal is assigned on, exactly once", () => {
+    // Regression guard for the two-line window: a violation wholly on line N must not ALSO be
+    // reported as the tail of line N-1's window, which would double-count it at the wrong line.
+    const v = checkFleetClientKindConfinement([
+      file(ROGUE, `const a = 1;\nconst caller = { kind: "fleet" };\nconst b = 2;`),
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.line).toBe(2);
+    expect(v[0]?.snippet).toBe(`const caller = { kind: "fleet" };`);
+  });
+
+  // ---- negative: the legitimate occurrences -------------------------------------------------
+
+  test("does not flag the ClientKind union member in its own definition file", () => {
+    const union = `export type ClientKind = "cli" | "mcp" | "ui" | "http" | "chatops" | "fleet" | "unknown";`;
+    expect(flagged([file(KIND_DEF, union)])).toBe(false);
+    // And not even when it appears somewhere the allow-list does NOT cover: a union member is a
+    // type declaration, not an attribution being assigned to a caller.
+    expect(flagged([file(ROGUE, union)])).toBe(false);
+  });
+
+  test("does not flag the unquoted `fleet: null` egress map entry", () => {
+    const entry = `  chatops: null,\n  fleet: null,\n});`;
+    expect(flagged([file(EGRESS, entry)])).toBe(false);
+    expect(flagged([file(ROGUE, entry)])).toBe(false);
+  });
+
+  test("does not flag FLEET_ELIGIBILITY — `preflight` contains `fleet` as a substring", () => {
+    expect(
+      flagged([
+        file(
+          "packages/gateway/src/ipc/agents-rpc.ts",
+          `  "agents.preflight": "excluded_side_effects",\n  "agents.catchup": "eligible",`,
+        ),
+      ]),
+    ).toBe(false);
+  });
+
+  test("does not flag a BARE `fleet` string — the LAN forbid-list and CLI map both need one", () => {
+    // Load-bearing. A bare-string rule would false-positive on both of these, and a rule that
+    // false-positives on legitimate code gets weakened or allow-listed until it catches nothing.
+    expect(flagged([file("packages/gateway/src/ipc/lan-rpc.ts", `  "exec",\n  "fleet",`)])).toBe(
+      false,
+    );
+    expect(flagged([file("packages/cli/src/commands/index.ts", `  fleet: runFleet,`)])).toBe(false);
+  });
+
+  // ---- negative: the structural exemptions --------------------------------------------------
+
+  test("allows every file on the allow-list, including one that does not exist yet", () => {
+    // fleet-invoker.ts is created in a later task. An allow-list entry for an absent file must be
+    // inert, not an error.
+    expect(
+      checkFleetClientKindConfinement([
+        file(KIND_DEF, `const resolved: ClientKind = "fleet";`),
+        file(EGRESS, `const m = { "fleet": null };`),
+        file(INVOKER, `const caller = { clientId, kind: "fleet" };`),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("ignores .test.ts files", () => {
+    expect(flagged([file("packages/gateway/src/fleet/fleet-store.test.ts", `kind: "fleet"`)])).toBe(
+      false,
+    );
+  });
+
+  /** Proves stripComments is actually exercised for THIS rule, not merely shared and untested here. */
+  test("does not flag a mere mention in a comment", () => {
+    expect(
+      flagged([file(ROGUE, `// the invoker sets kind: "fleet" on its caller\nconst x = 1;`)]),
+    ).toBe(false);
   });
 });

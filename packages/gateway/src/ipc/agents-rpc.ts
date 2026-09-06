@@ -1153,11 +1153,17 @@ export const FLEET_ELIGIBILITY: Readonly<Record<AgentMethod, FleetEligibility>> 
  *
  * `Object.hasOwn`, never `in` — the name comes from `nimbus.toml` and `in` would resolve
  * `"constructor"` against the prototype. Same reasoning as `resolveExternalAgentMethod`.
+ *
+ * Returns `AgentMethod`, not `string`: the caller hands this straight to `dispatchAgentsRpc`, and
+ * the narrower type is what stops a raw, unresolved method string being passed there instead. The
+ * single assertion sits immediately after the `Object.hasOwn` guard that establishes it — the
+ * membership check IS the narrowing, TypeScript just cannot see it through a template literal.
  */
-export function resolveFleetAgentMethod(agent: string): string | null {
+export function resolveFleetAgentMethod(agent: string): AgentMethod | null {
   const method = `${AGENTS_METHOD_PREFIX}${agent}`;
   if (!Object.hasOwn(AGENTS_RPC_HANDLERS, method)) return null;
-  return FLEET_ELIGIBILITY[method as AgentMethod] === "eligible" ? method : null;
+  const served = method as AgentMethod;
+  return FLEET_ELIGIBILITY[served] === "eligible" ? served : null;
 }
 
 /**
