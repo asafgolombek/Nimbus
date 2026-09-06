@@ -197,6 +197,10 @@ export class FleetScheduler {
       this.deps.store.closeRun(runId, {
         endedAt: this.deps.now(),
         outcome,
+        // Written on EVERY exit, the deferred path included — that is the case the row could not
+        // previously describe at all: attempted 0, skipped 0, and no record of how many jobs were
+        // waiting behind the refusal.
+        jobsInScope: jobs.length,
         jobsAttempted: tally.attempted,
         jobsCompleted: tally.completed,
         jobsSkippedNotDue: tally.skippedNotDue,

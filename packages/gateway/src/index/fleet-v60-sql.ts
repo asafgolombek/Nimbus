@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS fleet_run (
   host_idle_ms          INTEGER,
   host_source           TEXT NOT NULL CHECK (host_source IN ('measured', 'power_only')),
   outcome               TEXT CHECK (outcome IN ('completed', 'yielded', 'deferred', 'failed')),
+  -- How many jobs were in scope for this run: the whole configured set, or the single job named
+  -- by a targeted "nimbus fleet run <job>". Persisted so the row is SELF-DESCRIBING -- with it,
+  -- every number the run reported is derivable from the row alone:
+  --   unattempted = jobs_in_scope - jobs_attempted - jobs_skipped_not_due
+  -- so a reader can answer "how many jobs did not get to run" months later, after the config that
+  -- produced the run has been edited. Without it that question is unanswerable from history.
+  -- (No backticks in this comment: the whole DDL is a TypeScript template literal.)
+  jobs_in_scope         INTEGER NOT NULL DEFAULT 0,
   jobs_attempted        INTEGER NOT NULL DEFAULT 0,
   jobs_completed        INTEGER NOT NULL DEFAULT 0,
   -- Jobs in scope but outside their interval or inside a backoff. Deliberately SEPARATE from

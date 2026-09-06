@@ -79,26 +79,40 @@ function requireRunId(summary: FleetRunSummary): string {
   return summary.runId;
 }
 
-function runRow(runId: string): {
+interface FleetRunRow {
   outcome: string | null;
+  jobs_in_scope: number;
   jobs_attempted: number;
   jobs_completed: number;
   jobs_skipped_not_due: number;
   remote_calls_made: number;
-} {
+}
+
+function runRow(runId: string): FleetRunRow {
   const row = db
     .query(
-      `SELECT outcome, jobs_attempted, jobs_completed, jobs_skipped_not_due, remote_calls_made
+      `SELECT outcome, jobs_in_scope, jobs_attempted, jobs_completed, jobs_skipped_not_due,
+              remote_calls_made
          FROM fleet_run WHERE id = ?`,
     )
-    .get(runId) as {
-    outcome: string | null;
-    jobs_attempted: number;
-    jobs_completed: number;
-    jobs_skipped_not_due: number;
-    remote_calls_made: number;
-  } | null;
+    .get(runId) as FleetRunRow | null;
   if (row === null) throw new Error(`no fleet_run row for ${runId}`);
+  return row;
+}
+
+/**
+ * The property the persisted counters exist for: the row alone answers "how many jobs did not get
+ * to run", with no access to the config that produced it. Asserted against the SUMMARY's own
+ * `jobsUnattempted` so the durable record and the live answer cannot drift apart.
+ */
+function expectRowIsSelfDescribing(summary: FleetRunSummary): FleetRunRow {
+  const row = runRow(requireRunId(summary));
+  expect(row.jobs_in_scope - row.jobs_attempted - row.jobs_skipped_not_due).toBe(
+    summary.jobsUnattempted,
+  );
+  expect(row.jobs_attempted).toBe(summary.jobsAttempted);
+  expect(row.jobs_completed).toBe(summary.jobsCompleted);
+  expect(row.jobs_skipped_not_due).toBe(summary.jobsSkippedNotDue);
   return row;
 }
 
@@ -374,6 +388,66 @@ describe("FleetScheduler.runOnce", () => {
     const after = await s.runOnce({ force: true });
     expect(after.runId).not.toBeNull();
     expect(after.outcome).toBe("completed");
+  });
+
+  // in_scope - attempted - skipped_not_due === unattempted, on all three outcomes. That identity
+  // is the property worth pinning, more than any single field: it is what lets a human read a
+  // fleet_run row months later and answer "how many jobs did not get to run" without the config
+  // that produced it — which by then may have been edited. One test per outcome rather than three
+  // runs in one body, because a run leaves `fleet_job_state` behind and a later run in the same
+  // database would be judged against the earlier one's successes.
+  const THREE_JOBS: readonly NimbusFleetJobToml[] = [
+    { name: "a", agent: "catchup", intervalSeconds: 1, params: {} },
+    { name: "b", agent: "ownership", intervalSeconds: 1, params: {} },
+    { name: "c", agent: "impact", intervalSeconds: 1, params: {} },
+  ];
+
+  test("a COMPLETED run's row is self-describing", async () => {
+    const summary = await build({
+      probes: [AC_IDLE],
+      invoke: async (job) => done(job.name),
+    }).runOnce();
+    expect(summary.outcome).toBe("completed");
+    expect(summary.jobsUnattempted).toBe(0);
+    expect(expectRowIsSelfDescribing(summary)).toMatchObject({
+      jobs_in_scope: 2,
+      jobs_attempted: 2,
+      jobs_skipped_not_due: 0,
+    });
+  });
+
+  test("a YIELDED run's row is self-describing, with a not-due job in the mix", async () => {
+    store.recordJobSuccess("a", NOW); // `a` not due; `c` cut off by the mid-run re-probe
+    const summary = await build({
+      jobs: THREE_JOBS,
+      probes: [AC_IDLE, ON_BATTERY],
+      invoke: async (job) => done(job.name),
+    }).runOnce();
+    expect(summary.outcome).toBe("yielded");
+    expect(summary.jobsUnattempted).toBe(1);
+    expect(expectRowIsSelfDescribing(summary)).toMatchObject({
+      jobs_in_scope: 3,
+      jobs_attempted: 1,
+      jobs_skipped_not_due: 1,
+    });
+  });
+
+  test("a DEFERRED run's row is self-describing — the case that motivated jobs_in_scope", async () => {
+    // Attempted 0, skipped 0, and before `jobs_in_scope` no record whatsoever of how many jobs were
+    // waiting behind the refusal: the row could not tell "nothing configured" from "three jobs, all
+    // held". This is the read a human makes after a night on battery.
+    const summary = await build({
+      jobs: THREE_JOBS,
+      probes: [ON_BATTERY],
+      invoke: async (job) => done(job.name),
+    }).runOnce();
+    expect(summary.outcome).toBe("deferred");
+    expect(summary.jobsUnattempted).toBe(3);
+    expect(expectRowIsSelfDescribing(summary)).toMatchObject({
+      jobs_in_scope: 3,
+      jobs_attempted: 0,
+      jobs_skipped_not_due: 0,
+    });
   });
 
   test("a close() failure does not mask the error that failed the run", async () => {

@@ -59,11 +59,18 @@ export class FleetStore {
     r: {
       endedAt: number;
       outcome: FleetRunOutcome;
+      /**
+       * How many jobs this run had in scope. With it the row is self-describing:
+       * `jobsInScope - jobsAttempted - jobsSkippedNotDue` is the unattempted count, so a reader
+       * needs no access to the config that produced the run.
+       */
+      jobsInScope: number;
       jobsAttempted: number;
       jobsCompleted: number;
       /**
        * REQUIRED, not optional-with-a-default: a caller that forgets must be a compile error, not
-       * a run row that quietly claims nothing was skipped.
+       * a run row that quietly claims nothing was skipped. Same for `jobsInScope` above — a silent
+       * zero there would make every run look like it had nothing to do.
        */
       jobsSkippedNotDue: number;
       remoteCallsMade: number;
@@ -72,12 +79,13 @@ export class FleetStore {
     dbRun(
       this.db,
       `UPDATE fleet_run
-          SET ended_at = ?, outcome = ?, jobs_attempted = ?, jobs_completed = ?,
-              jobs_skipped_not_due = ?, remote_calls_made = ?
+          SET ended_at = ?, outcome = ?, jobs_in_scope = ?, jobs_attempted = ?,
+              jobs_completed = ?, jobs_skipped_not_due = ?, remote_calls_made = ?
         WHERE id = ?`,
       [
         r.endedAt,
         r.outcome,
+        r.jobsInScope,
         r.jobsAttempted,
         r.jobsCompleted,
         r.jobsSkippedNotDue,

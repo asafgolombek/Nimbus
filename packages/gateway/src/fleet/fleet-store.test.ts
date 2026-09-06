@@ -35,6 +35,7 @@ describe("FleetStore", () => {
     store.closeRun(runId, {
       endedAt: 2000,
       outcome: "completed",
+      jobsInScope: 1,
       jobsAttempted: 1,
       jobsCompleted: 1,
       jobsSkippedNotDue: 0,
@@ -61,6 +62,7 @@ describe("FleetStore", () => {
     store.closeRun(runId, {
       endedAt: 20,
       outcome: "yielded",
+      jobsInScope: 9,
       jobsAttempted: 3,
       jobsCompleted: 2,
       jobsSkippedNotDue: 5,
@@ -69,10 +71,12 @@ describe("FleetStore", () => {
 
     const row = db
       .query(
-        `SELECT jobs_attempted, jobs_completed, jobs_skipped_not_due, remote_calls_made, outcome
+        `SELECT jobs_in_scope, jobs_attempted, jobs_completed, jobs_skipped_not_due,
+                remote_calls_made, outcome
            FROM fleet_run WHERE id = ?`,
       )
       .get(runId) as {
+      jobs_in_scope: number;
       jobs_attempted: number;
       jobs_completed: number;
       jobs_skipped_not_due: number;
@@ -80,6 +84,7 @@ describe("FleetStore", () => {
       outcome: string;
     } | null;
     expect(row).toMatchObject({
+      jobs_in_scope: 9,
       jobs_attempted: 3,
       jobs_completed: 2,
       jobs_skipped_not_due: 5,
@@ -99,9 +104,13 @@ describe("FleetStore", () => {
       remoteCallBudget: 0,
     });
     const row = db
-      .query(`SELECT jobs_skipped_not_due AS n, outcome FROM fleet_run WHERE id = ?`)
-      .get(runId) as { n: number; outcome: string | null } | null;
+      .query(
+        `SELECT jobs_skipped_not_due AS n, jobs_in_scope AS scope, outcome
+           FROM fleet_run WHERE id = ?`,
+      )
+      .get(runId) as { n: number; scope: number; outcome: string | null } | null;
     expect(row?.n).toBe(0);
+    expect(row?.scope).toBe(0);
     expect(row?.outcome).toBeNull();
   });
 
