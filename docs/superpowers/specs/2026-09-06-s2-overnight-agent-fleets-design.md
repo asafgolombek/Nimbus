@@ -13,6 +13,11 @@
 > generation. Read [§ Active](../../roadmap.md#active) for delivery status, never Phase 14's or
 > Phase 27's own checkboxes — S2 tracks delivery in § Active and the phase checkboxes lag.
 >
+> **Reviewed 2026-09-06** — see
+> [`…-design-review.md`](./2026-09-06-s2-overnight-agent-fleets-design-review.md). Nine findings
+> folded in; § 12 records which of its claims were verified against the code and which remain
+> expectations. The one that changed the design is § 5.1.1.
+>
 > **Predecessors this document leans on, by name:**
 > [S2 slice 1 — Sandboxed Code Execution](./2026-08-22-s2-sandboxed-code-execution-design.md)
 > (I33's ordering discipline: refuse before consent, never advertise a disabled capability),
@@ -87,7 +92,9 @@ advertised — but it is a key that lies about what it does.
 
 **This slice fixes that as part of its own work.** Once `HostActivity` exists, wiring
 `pause_on_battery` to it is a few lines, and building the exact capability a known-dead key needs
-while leaving the key dead is not a defensible place to stop.
+while leaving the key dead is not a defensible place to stop. Concretely: `platform/assemble.ts`
+threads `hostActivity` into the embedding runtime deps, and the background backfill loop pauses
+chunk processing while `pauseOnBattery && probe().power === "battery"`, resuming when power returns.
 
 ### 4.2 `HostActivity` on `PlatformServices`
 
@@ -114,7 +121,16 @@ export interface HostActivity {
 |---|---|---|
 | Windows | `GetSystemPowerStatus` | `GetLastInputInfo` |
 | macOS | IOKit / `pmset -g batt` | `ioreg -c IOHIDSystem` `HIDIdleTime` |
-| Linux | `/sys/class/power_supply/AC*/online` | **no universal source** |
+| Linux | scan `/sys/class/power_supply/*` (see below) | **no universal source** |
+
+**The Linux power probe must scan, not glob `AC*`.** Mains adapters are named `ADP1`, `ACAD`,
+`AC`, `Mains` and others depending on distribution and hardware, and laptops carry multiple battery
+entries (`BAT0`, `BAT1`). A `AC*` glob silently misses `ADP1` — and the failure mode is a fleet
+that reports `unknown` forever on a machine that knows perfectly well it is plugged in. The rule:
+
+1. Any entry with `type == Battery` and `status == Discharging` → `"battery"`.
+2. Else any entry with `type` in `{Mains, AC}` and `online == 1` → `"ac"`.
+3. Else, no battery discharging and no directory → `"unknown"` (admits, per § 4.4).
 
 Linux idle is the gap and it is a real one: X11, Wayland and headless each answer differently, and a
 gateway running on a server has no user session to be idle from. Platform equality
@@ -146,14 +162,32 @@ mid-run it stops **at the next job boundary**, not mid-brief, and records the ru
 the count of jobs not attempted. A half-written brief is worse than an absent one, and a run that
 silently reports fewer jobs than it was configured for is the disclosure failure this avoids.
 
-### 4.6 Two implementation traps, both previously paid for here
+### 4.6 Overdue is not the same as due — the sleep/wake case
+
+**A timer that was due during sleep fires the moment the machine wakes**, which is the single most
+likely real-world way this feature makes itself hated: the job scheduled for 03:00 runs at 08:31
+while the user is typing their first email on battery.
+
+So *overdue* never implies *run now*. `FleetScheduler` probes `HostActivity` immediately on waking
+a timer and **before** starting any overdue batch; an overdue run that fails admission is recorded
+`deferred` and waits for the next idle window. It does not accumulate a backlog to burn through
+either — a missed daily job runs once when conditions allow, not five times because five days
+were missed.
+
+### 4.7 Three implementation traps
 
 - **`bun:ffi` is synchronous and freezes the event loop.** A `Promise.race` cannot bound an FFI call.
-  Prefer file reads and short-lived subprocesses; where FFI is genuinely the only route (Windows),
-  the call must be one that returns in microseconds.
+  Prefer file reads and short-lived subprocesses; where FFI is genuinely the only route (Windows —
+  `GetSystemPowerStatus` and `GetLastInputInfo` have no file equivalent), the call must be one that
+  returns in microseconds. Both of those do.
 - **A bare `Bun.spawn` on Windows pops a console window per child.** Every probe spawn needs
   `windowsHide: true`, and the test must assert the **value** — a guard that checks for the presence
   of the token passes `windowsHide: false`.
+- **Windows idle time wraps every 49.7 days.** `LASTINPUTINFO.dwTime` and `GetTickCount()` are both
+  32-bit unsigned millisecond counters. Naive signed arithmetic
+  (`getTickCount() - dwTime`) goes negative or absurd after a wrap, which would either freeze
+  admission permanently or admit falsely — on a machine with long uptime, i.e. exactly the always-on
+  workstation this row targets. Compute with unsigned 32-bit semantics: `(tick - dwTime) >>> 0`.
 
 ## 5. Architecture
 
@@ -162,10 +196,13 @@ New subsystem `packages/gateway/src/fleet/`, laid out like `sync/`:
 | File | Responsibility |
 |---|---|
 | `fleet-scheduler.ts` | The loop: which jobs are due, ask admission, run, re-probe, record. |
-| `fleet-invoker.ts` | Dispatches one job. The only file that may name the `fleet` caller kind (D28). |
+| `fleet-invoker.ts` | Dispatches one job and awaits its completion (§ 5.1.1). The only file that may name the `fleet` caller kind (D28). |
 | `fleet-store.ts` | Sole writer of the V60 tables. |
-| `fleet-eligible.ts` | The eligibility map and its written justification. |
+| `fleet-synthesis-router.ts` | The I38 budget/locality decorator (§ 8.1). |
 | `config/fleet-toml.ts` | `[fleet]` + `[[fleet.job]]` parsing. |
+
+There is deliberately **no** `fleet/fleet-eligible.ts`: the eligibility map lives in
+`ipc/agents-rpc.ts` beside `EXTERNAL_EXCLUDED_AGENT_METHODS`, for the reason given in § 6.1.
 
 ### 5.1 The dispatch seam
 
@@ -182,9 +219,36 @@ appending dispatcher."*
    `AGENTS_RPC_HANDLERS` is deliberately **not exported** — that file's own comment says handing the
    map out *"would let another file invoke an agent directly — a bypass D22(d) cannot see."* A
    fleet-local copy of the same names is the drift shape this repo has paid for repeatedly.
-2. **`notify` writes into the durable brief store** rather than `AgentRunController.observe`. The
-   capture pattern is identical; only the lifetime differs.
+2. **`notify` writes into the durable brief store** rather than `AgentRunController.observe`, and —
+   see § 5.1.1 — is also what tells the invoker the job is *finished*.
 3. **`caller: { clientId: <job id>, kind: "fleet" }`.**
+
+### 5.1.1 Awaiting `dispatchAgentsRpc` does NOT await the brief
+
+**Verified 2026-09-06, and it invalidates the naive scheduler loop.**
+`agents/_lib/emit-brief.ts`'s `emitBriefWithSynthesis` is fire-and-forget by design:
+
+```ts
+void (async () => { … opts.notify(opts.briefReadyMethod, …); })()
+  .catch(() => opts.notify(opts.briefErrorMethod, …));
+return { sessionId: opts.sessionId };
+```
+
+The brief is built and synthesised on a detached promise; the dispatch returns `{ sessionId }` in
+about a millisecond. That is correct for the two existing consumers — the socket client waits for a
+`briefReady` notification, and the HTTP client polls `{runId}` — but it means **`await
+dispatchAgentsRpc(...)` awaits the scheduling of the work, not the work**.
+
+A scheduler that looped over jobs awaiting that call would therefore launch every configured job
+**concurrently**, which breaks three things at once: it saturates the CPU and GPU it was supposed to
+use gently, it makes the between-jobs re-probe meaningless, and it makes yield-at-job-boundary
+(§ 4.5) unreachable because there are no boundaries.
+
+**So `fleet-invoker.ts` returns a promise that settles on the completion notification**, resolving
+when `notify` receives `<agent>.briefReady` for the dispatch's own `sessionId`, rejecting on
+`<agent>.briefError`, and settling `failed` on a per-job timeout. The scheduler then genuinely
+runs one job at a time. The timeout is not optional: without it a hung synthesis wedges the fleet
+until the process restarts, and the detached promise means nothing else would ever notice.
 
 ### 5.2 Why `AgentRunController` is not reused
 
@@ -226,6 +290,18 @@ agent **does not compile** until someone classifies it. This is strictly better 
 `"excluded_shape"`, `"deferred"` — so the map carries *why* alongside *whether*, and a classification
 of "we have not decided yet" is an explicit value rather than an absence. Every agent in § 6.3 has
 one, including the deferred case.
+
+**Where it lives, and the wrinkle that forces it.** `AGENTS_RPC_HANDLERS` is deliberately
+**not exported** — that file's comment says handing it out *"would let another file invoke an agent
+directly — a bypass D22(d) cannot see."* So a `Record<AgentMethod, …>` in `fleet/` could not name
+its own key type, and a test in `fleet/` could not compare the two key sets. Two consequences:
+
+- `FLEET_ELIGIBILITY` and `resolveFleetAgentMethod` live in `ipc/agents-rpc.ts`, beside
+  `EXTERNAL_EXCLUDED_AGENT_METHODS`. The eligibility *reasoning* is fleet domain; the *map* belongs
+  where the handler map is, or it cannot be total.
+- `agents-rpc.ts` exports a **type-only** `export type AgentMethod = keyof typeof
+  AGENTS_RPC_HANDLERS`. A type export carries no runtime value, so it grants no ability to invoke
+  anything and does not weaken the confinement above.
 
 ### 6.2 Why not reuse `EXTERNAL_EXCLUDED_AGENT_METHODS`
 
@@ -271,9 +347,13 @@ A digest posted to a ChatOps channel *is* egress and is covered by the `chatops`
 
 > **I38** — an unattended fleet run reaches a NON-LOCAL model only when `[fleet] allow_remote` is
 > true **and** the run's remaining call budget covers the call. Absent either, the run resolves to
-> the local provider: a grant **widens** what may happen and never narrows the capability the fleet
-> already had, so a fleet with no remote permission produces exactly the briefs it would otherwise
-> have produced. A frontier key configured under `[llm.remote.<vendor>]` for interactive use grants
+> the local provider — or, when no local provider is available at all, to the DETERMINISTIC render,
+> exactly as `[agents] synthesis = "off"` would. (The earlier wording said only "the local
+> provider", which was imprecise: `resolveForSynthesis(preferLocal)` returning a remote provider
+> means no local one existed, so the honest fallback there is the deterministic render, not a local
+> model that is not there.) A grant **widens** what may happen and never narrows the capability the
+> fleet already had, so a fleet with no remote permission produces exactly the briefs it would
+> otherwise have produced. A frontier key configured under `[llm.remote.<vendor>]` for interactive use grants
 > the fleet nothing on its own — that permission is `[fleet] allow_remote`'s alone. Locality is
 > DERIVED from `provider.isLocal` (I34), never from a caller-supplied flag. Budget exhaustion
 > mid-run is DISCLOSED in the run record and in every affected brief, never a silent downgrade.
@@ -285,12 +365,32 @@ capability-is-not-inherited-from-a-key rule, same fail-to-local rather than fail
 `egress/egress-bearing-kinds.ts` and `fleet/fleet-invoker.ts`, so no other file can originate a call
 wearing that attribution.
 
-### 8.1 Open implementation question — do not guess this
+### 8.1 How the local pin is enforced — RESOLVED 2026-09-06
 
-**The mechanism for pinning a fleet run's synthesis to local providers is NOT settled by this
-document.** `buildAgentSynthesisRunner` takes a `SynthesisRouter`; whether the local pin is a
-restricted router instance, a per-call task pin, or a reuse of `enforce_air_gap`'s refusal path
-requires reading `llm/router.ts`, which has not been done. Settle it in the plan, against the code.
+The spec originally left this open. It is now settled against the code.
+
+**`SynthesisRouter` is a two-method interface** (`agents/_lib/synthesis-llm.ts:40`):
+`resolveForSynthesis(preferLocal?)` and `generateMarkdown(prompt, provider, egressMethod?)`. The
+`ResolvedSynthesisProvider` it hands back carries `isLocal` (`llm/router.ts:56`) — the same field
+I34 pins and I29's `model` appender reads.
+
+**So the pin is a DECORATOR over that interface**, `fleet/fleet-synthesis-router.ts`, wrapping the
+router before it reaches `buildAgentSynthesisRunner`. `resolveForSynthesis` returns `undefined`
+rather than a remote provider when remote is not permitted or the budget is spent;
+`generateMarkdown` refuses a non-local provider on the same conditions and decrements the budget
+when it allows one. Locality is read from `provider.isLocal`, never recomputed.
+
+**Two rejected alternatives, so they are not revisited:**
+
+- **`LlmRouter.setTaskPin`** mutates a router-wide map. A background fleet run and a concurrent
+  interactive `nimbus ask` share that router, so a pin set for the fleet would silently re-route the
+  user's own question — and un-setting it races.
+- **`enforce_air_gap`** is a gateway-wide refusal. It would disable remote for everything, not for
+  the fleet.
+
+The decorator shape is also the one this codebase already uses for exactly this class of problem —
+`wrapLedgeredProvider` (I29), `wrapServerSpec` (I15), `wrapLedgeredVlm` (D22(g)) — so it covers
+every caller including ones written later, without their cooperation.
 
 ## 9. Data model — V60
 
@@ -299,19 +399,37 @@ requires reading `llm/router.ts`, which has not been done. Settle it in the plan
 V59 (`media_grant`) is the current head, verified 2026-09-06.
 
 - **`fleet_job_state`** — per-job scheduling state keyed by a config-derived job id: last attempt,
-  last success, consecutive failures, backoff. Config remains the source of truth for job
+  last success, consecutive failures, backoff, last error. Config remains the source of truth for job
   *definitions*; this table holds only what config cannot. Same split as
   `sync/scheduler-state-repository.ts`.
+
+  **A failing job is isolated, not fatal to the run.** One job's bad `resourceRef`, missing path or
+  synthesis timeout records against *that* job — incrementing `consecutive_failures` and setting an
+  exponential `backoff_until` (1h → 2h → 4h, capped at 24h) — and the scheduler proceeds to the next
+  job. A run that aborts wholesale on the first bad entry would let one stale config line silence
+  every other brief indefinitely, and overnight nobody is there to notice.
 - **`fleet_run`** — one row per **attempted** run: window, admission verdict, `host_power`,
   `host_idle_ms`, `host_source`, outcome (`completed` / `yielded` / `deferred` / `failed`), jobs
   attempted vs. completed, remote calls made vs. budget.
 - **`fleet_brief`** — run id, job id, agent method, markdown, findings, synthesis provenance,
   created-at.
 
+`fleet_brief.run_id` is `REFERENCES fleet_run(id) ON DELETE CASCADE`. That cascade is **live, not
+decorative**: `index/local-index.ts:279` runs `PRAGMA foreign_keys = ON`, and `cu_action` →
+`cu_session` (V57) is the same parent/child shape. Verified 2026-09-06 — worth verifying because
+SQLite defaults foreign keys **off**, and a cascade written against a database that never enabled
+them is a silent no-op that leaves orphans forever.
+
 **Prune is a plain TTL, not HITL-gated**, and the reason is stated so it does not read as a missing
 defense: `egress.prune` is gated because the ledger is the audit record and deleting it destroys
 evidence. Fleet briefs are *derived* data, recomputable from the index. A retention window is a
 retention window.
+
+**But local retention does not get to be shorter than org policy allows.** `policy/types.ts:26`
+carries `retention: { minDays: number }`, resolved through the I22 signed-policy gate. Effective
+retention is therefore `max(config.retention_days, enforcedPolicy.retention.minDays)` — a floor, not
+an override, so an org that requires 30 days of evidence cannot have it deleted by a local
+`retention_days = 7`. Pruning runs at gateway startup and after each completed run.
 
 ## 10. Config, CLI, org policy
 
@@ -324,19 +442,42 @@ allow_remote = false     # DEFAULT OFF — a frontier key alone grants nothing
 remote_call_budget = 0   # per run; MUST be > 0 when allow_remote is true, refused otherwise
 min_idle_seconds = 900
 require_ac_power = true
+retention_days = 14
 ```
 
 `[[fleet.job]]` gets its own module, `config/fleet-toml.ts`, following `config/filesystem-toml.ts`
 — the existing array-of-tables precedent, and cleaner than the inline `[[security.allowlist]]`
 handling in `nimbus-toml.ts`.
 
-**Open question, to be answered against the parser and not from memory:** the TOML parser here is
-hand-rolled, and whether it supports **inline tables** is unverified. If it does not, per-job params
-cannot be `params = { sinceMs = ... }` and must be flat, per-agent-validated keys.
+**Inline tables are NOT available — RESOLVED 2026-09-06.** `config/toml-primitives.ts` exports
+exactly `stripComment`, `hasUnterminatedString`, `parseString`, `parseIntDec`, `isTableHeader`,
+`splitKeyValue` and `parseStringArray`. It is a line-scanner: there is no inline-table parser and no
+multi-line nested value support. So per-job params are **flat, per-agent-validated keys**, mapped to
+each agent's RPC parameter shape in the invoker:
+
+```toml
+[[fleet.job]]
+name = "morning_catchup"
+agent = "catchup"
+interval_seconds = 86400
+since_ms = 86400000
+service = "github"
+```
 
 ### 10.2 CLI
 
-`nimbus fleet status | list | briefs | show <id> | run <job>`.
+- `nimbus fleet status [--json]` — scheduler state, the current power/idle probe, last run, next
+  due job, remaining remote budget.
+- `nimbus fleet list [--json]` — configured jobs with interval, last run, health.
+- `nimbus fleet briefs [--limit N] [--agent <name>] [--json]` — recent briefs.
+- `nimbus fleet show <brief-id>` — the brief markdown on stdout.
+- `nimbus fleet run <job> [--force]` — manual trigger.
+
+**`--force` bypasses host admission ONLY** — the idle and power checks of § 4.4, which exist to
+protect the user's machine and which the user is by definition present to override. It does **not**
+bypass `[fleet] enabled`, the `agent_fleet` policy lockoff, eligibility (§ 6), or I38's remote
+permission and budget. Saying so here because "force" is the kind of flag that grows into "skip the
+checks" if nobody wrote down which checks.
 
 ### 10.3 Org policy
 
@@ -350,12 +491,34 @@ defaulting to enabled.
 
 ## 11. Testing
 
-- **Admission truth table:** `{ac, battery, unknown} × {idle above threshold, below, null}`.
-- **Eligibility totality:** a test proving the map is total over the handler map's keys, so a new
-  agent forces a classification.
+- **Admission truth table**, against an injected `HostActivity`:
+
+  | power | idle | config | verdict |
+  |---|---|---|---|
+  | `battery` | 1200 s | `require_ac_power = true` | refused, `deferred` |
+  | `battery` | 1200 s | `require_ac_power = false` | admitted |
+  | `ac` | 300 s | `min_idle_seconds = 900` | refused, `deferred` |
+  | `ac` | 1200 s | `min_idle_seconds = 900` | admitted |
+  | `unknown` | `null` | default | admitted, `source: power_only` |
+
+- **Eligibility totality:** the map is total over `AgentMethod`, so a new agent forces a
+  classification. Note this must be enforced **inside `ipc/agents-rpc.ts`** (or through the
+  type-only `AgentMethod` export of § 6.1) — a test in `fleet/` cannot compare against
+  `AGENTS_RPC_HANDLERS`, which is not exported. Compile-time totality is the real gate; the unit
+  test asserts the classifications, not the key set.
+- **Sequencing:** two configured jobs run strictly one at a time — the second does not start before
+  the first's `briefReady` (§ 5.1.1). Red-prove this by reverting to a bare `await
+  dispatchAgentsRpc`, which must make it fail.
+- **Per-job timeout:** a synthesis that never settles fails that job and the run continues.
+- **Failure isolation:** a job that throws records backoff and does not abort the run.
+- **Overdue-on-wake:** a job overdue by days, with the probe reporting `battery`, is `deferred`
+  and does not run — and does not then run once per missed interval.
 - **Integration on real SQLite with an injected `HostActivity`:** user-return yields at a job
-  boundary and records `yielded` with an accurate unattempted count; budget exhaustion aborts the
-  remote arm and discloses it; `allow_remote = false` produces **zero** non-local calls.
+  boundary and records `yielded` with an accurate unattempted count; `allow_remote = false`
+  produces **zero** `model`-class ledger rows; `allow_remote = true, remote_call_budget = 1`
+  permits exactly one, and the second job's synthesis falls back with the exhaustion disclosed in
+  its provenance.
+- **Retention floor:** `retention_days = 7` under a policy `retention.minDays = 30` prunes at 30.
 - **Per-platform probe tests that verify their own premise** rather than `skipIf`-ing. A
   platform-skipped test never runs on the author's machine, so CI is its first execution — and a
   skip that is silently always-true passes vacuously forever.
@@ -382,9 +545,23 @@ Recorded explicitly, because the difference is where specs rot.
 - `AI_V2_CAPABILITIES` has five members; V59 is the schema head; `simpleStep` is the registration
   form; `config/filesystem-toml.ts` is the array-of-tables precedent.
 
-**Assumed and NOT verified — settle in the plan:**
+**Added by the 2026-09-06 review pass, verified then:**
 
-- The mechanism for pinning synthesis to local providers (§ 8.1).
-- Whether the hand-rolled TOML parser supports inline tables (§ 10.1).
-- That `ioreg` / `pmset` / `GetLastInputInfo` behave as described on the CI runners, as opposed to
-  on a developer machine.
+- `emitBriefWithSynthesis` is fire-and-forget; `dispatchAgentsRpc` returns before the brief exists
+  (§ 5.1.1). This one changed the design.
+- `SynthesisRouter` is a two-method interface and `ResolvedSynthesisProvider` carries `isLocal`,
+  making the § 8.1 decorator viable — and `LlmRouter.setTaskPin` is router-wide, making the pin
+  alternative unsafe.
+- `config/toml-primitives.ts` has no inline-table parser (§ 10.1).
+- `policy/types.ts:26` carries `retention: { minDays: number }` (§ 9).
+- `PRAGMA foreign_keys = ON` is set at `index/local-index.ts:279`, so the § 9 cascade is live.
+
+**Assumed and NOT verified — settle during implementation:**
+
+- **Probe behaviour on the CI runners specifically.** The expectation is that Windows runners report
+  `ACLineStatus` 1 or 255; that headless macOS runners may expose no usable `HIDIdleTime`; and that
+  Linux runners have no `/sys/class/power_supply` at all — so all three land on
+  `source: "power_only"` and admit. That is an expectation, not a measurement: none of it has been
+  run. The probe tests must **verify their own premise** rather than skip, since a platform-skipped
+  test never executes on the author's machine and CI is its first run.
+- Exact V60 DDL. The shapes and the cascade are settled; column-level detail belongs to the plan.
