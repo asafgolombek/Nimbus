@@ -92,13 +92,14 @@ export interface FleetSchedulerDeps {
    * one object `platform/assemble.ts` constructs, so the run boundary this scheduler owns and the
    * spending the invoker does are the same accounting.
    *
-   * Optional because the scheduler is constructible without a budget (tests, and a fleet assembled
-   * before a router exists), NOT because production may omit it: it did, and
-   * `fleet_run.remote_calls_made` then recorded 0 on every run while the column claimed to count
-   * remote model calls. Omitting it means "this run made no remote calls I can account for", which
-   * is only honest when there is genuinely no budget to read.
+   * REQUIRED, and that is the point. It was optional, this call site did not pass it, and both
+   * `fleet_run.remote_calls_made` and `remote_call_budget` then recorded numbers that were wrong on
+   * every production run. An optional dep whose absence produces a silently wrong PERSISTED value
+   * needs a compile error, not a test — the same reasoning `closeRun`'s parameters are required
+   * for. A scheduler with no budget to account against is not a thing this type admits: an
+   * `allow_remote = false` fleet still has a budget, it is just clamped to 0.
    */
-  readonly remoteBudget?: FleetRunBudget | undefined;
+  readonly remoteBudget: FleetRunBudget;
   /** Test seam only. Production leaves it at `DEFAULT_TICK_MS`. */
   readonly tickMs?: number | undefined;
 }
@@ -219,7 +220,7 @@ export class FleetScheduler {
     // says. Before `openRun`, so the row records what this run actually HAS. Safe because
     // `runOnce`'s `inFlight` guard serialises every entry path — the tick, `--force` and a named
     // job all reach `execute` only through it — so no reset can land mid-run.
-    this.deps.remoteBudget?.reset();
+    this.deps.remoteBudget.reset();
 
     const startedAt = this.deps.now();
     const runId = this.deps.store.openRun({
@@ -231,8 +232,9 @@ export class FleetScheduler {
       // differ whenever `allow_remote = false`: `createFleetRemoteBudget` clamps the cap to 0,
       // while the parser happily accepts `remote_call_budget = 5` alongside it (it refuses only the
       // opposite pairing). Recording the config number there would have the row claim a budget the
-      // run could not spend a single call of.
-      remoteCallBudget: this.deps.remoteBudget?.remaining() ?? this.deps.config.remoteCallBudget,
+      // run could not spend a single call of — which is why there is no `?? config.remoteCallBudget`
+      // fallback here: a fallback to the wrong number is the false record with a longer fuse.
+      remoteCallBudget: this.deps.remoteBudget.remaining(),
     });
 
     // ONE mutable tally, read by `close` rather than threaded through it as arguments. Every exit
@@ -251,7 +253,7 @@ export class FleetScheduler {
         jobsAttempted: tally.attempted,
         jobsCompleted: tally.completed,
         jobsSkippedNotDue: tally.skippedNotDue,
-        remoteCallsMade: this.deps.remoteBudget?.spent() ?? 0,
+        remoteCallsMade: this.deps.remoteBudget.spent(),
       });
       return {
         runId,

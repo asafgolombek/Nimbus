@@ -51,10 +51,11 @@ function build(opts: {
   onProbe?: () => void;
 }): FleetScheduler {
   let i = 0;
+  const config: NimbusFleetToml = { ...DEFAULT_FLEET_CONFIG, enabled: true, ...opts.config };
   return new FleetScheduler({
     store,
     jobs: opts.jobs ?? JOBS,
-    config: { ...DEFAULT_FLEET_CONFIG, enabled: true, ...opts.config },
+    config,
     capabilityDisabled: false,
     hostActivity: {
       probe: async (): Promise<HostActivityProbe> => {
@@ -69,7 +70,10 @@ function build(opts: {
     },
     invoke: opts.invoke,
     now: () => NOW,
-    ...(opts.remoteBudget === undefined ? {} : { remoteBudget: opts.remoteBudget }),
+    // A REAL budget derived from the same config, so a test that says nothing about the budget
+    // still gets the one its config implies rather than a stub. Tests that care pass their own.
+    remoteBudget:
+      opts.remoteBudget ?? createFleetRemoteBudget(config.allowRemote, config.remoteCallBudget),
     ...(opts.tickMs === undefined ? {} : { tickMs: opts.tickMs }),
   });
 }
@@ -554,6 +558,9 @@ describe("FleetScheduler.runOnce", () => {
       hostActivity: { probe: async () => AC_IDLE },
       invoke: async (job) => done(job.name),
       now: () => 1,
+      // Refused before any run opens, so nothing here reads the budget — the default cap is the
+      // honest value rather than a number this test would be implying something about.
+      remoteBudget: createFleetRemoteBudget(false, 0),
     });
     await expect(s.runOnce({ force: true })).rejects.toThrow(/org policy/);
     const runs = db.query(`SELECT COUNT(*) AS n FROM fleet_run`).get() as { n: number };
@@ -575,6 +582,9 @@ describe("FleetScheduler.runOnce", () => {
       },
       invoke: async (job) => done(job.name),
       now: () => 1,
+      // Refused before any run opens, so nothing here reads the budget — the default cap is the
+      // honest value rather than a number this test would be implying something about.
+      remoteBudget: createFleetRemoteBudget(false, 0),
     });
     await expect(s.runOnce()).rejects.toThrow(/disabled/);
     expect(probed).toBe(0);
@@ -747,6 +757,7 @@ describe("FleetScheduler.start/stop", () => {
       invoke: async (job) => done(job.name),
       now: () => NOW,
       tickMs: 5,
+      remoteBudget: createFleetRemoteBudget(false, 0),
     });
     s.start();
     await sleep(40);

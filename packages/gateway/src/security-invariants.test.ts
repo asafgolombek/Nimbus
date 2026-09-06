@@ -3663,7 +3663,19 @@ describe("I38 — an unattended fleet run reaches a non-local model only under g
     expect(await wrapped.resolveForSynthesis(true)).toBeUndefined();
   });
 
-  test("locality is derived from provider.isLocal (I34), never from the vendor id", async () => {
+  /**
+   * ANTI-PATTERN TEST, not a wiring test — labelled so a future audit does not count it among the
+   * tests proving I38 is wired. Its first half CANNOT detect the wrapper's absence: a local
+   * provider passes through untouched BY DESIGN, so "the call went through" is what a pass-through
+   * router does too. That is not a defect in the test, it is what the property IS.
+   *
+   * Its second half CAN: a provider whose id looks local (`ollama`) but declares `isLocal: false`
+   * must be REFUSED, which only a present wrapper reading `provider.isLocal` does. Both halves
+   * together pin the mistake in the direction that matters — recomputing locality from a vendor id
+   * fails silently BOTH ways, refusing a genuinely local provider and admitting a remote one, and
+   * a test covering only the first direction would let the dangerous half through.
+   */
+  test("ANTI-PATTERN: locality recomputed from the vendor id (the mistake I34 exists to prevent)", async () => {
     const budget = createFleetRemoteBudget(false, 0);
     let called = false;
     const wrapped = wrapFleetSynthesisRouter(
@@ -3676,11 +3688,39 @@ describe("I38 — an unattended fleet run reaches a non-local model only under g
       },
       budget,
     );
-    // providerId reads remote; isLocal says otherwise, and isLocal is what governs. A wrapper that
-    // recomputed locality from the vendor id would refuse this — and would let a LOCAL-ID'd remote
-    // provider straight through, failing silently in both directions at once.
+    // Direction 1 — providerId reads remote, `isLocal` says otherwise, and `isLocal` governs.
+    // (Passes with the wrapper removed; see the block comment.)
     await wrapped.generateMarkdown("p", { providerId: "openai", modelName: "m", isLocal: true });
     expect(called).toBe(true);
+    // Direction 2 — the dangerous one, and the half that IS wrapper-detecting: a LOCAL-LOOKING
+    // vendor id on a provider that declares itself non-local must still be refused.
+    called = false;
+    await expect(
+      wrapped.generateMarkdown("p", { providerId: "ollama", modelName: "m", isLocal: false }),
+    ).rejects.toThrow(/allow_remote/);
+    expect(called).toBe(false);
+  });
+
+  test("a LOCAL provider resolves through untouched — a grant WIDENS, it never narrows", async () => {
+    // The statement's "resolves to the local provider" half, on the door that actually resolves.
+    // Everything else here proves what is WITHHELD; without this, a wrapper that returned
+    // `undefined` unconditionally — withholding the local provider too, and so silently downgrading
+    // every unattended brief to the deterministic render — would pass the whole block.
+    const local: ResolvedSynthesisProvider = {
+      providerId: "ollama",
+      modelName: "qwen",
+      isLocal: true,
+    };
+    const wrapped = wrapFleetSynthesisRouter(
+      {
+        resolveForSynthesis: async () => local,
+        generateMarkdown: async () => "md",
+      },
+      // The most hostile budget there is: no grant, no cap. A local provider is unaffected by both.
+      createFleetRemoteBudget(false, 0),
+    );
+    expect(await wrapped.resolveForSynthesis(true)).toBe(local);
+    expect(await wrapped.generateMarkdown("p", local)).toBe("md");
   });
 
   test("a fleet brief appends no egress row — the fleet kind is non-bearing", () => {
