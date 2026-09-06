@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS fleet_run (
   outcome               TEXT CHECK (outcome IN ('completed', 'yielded', 'deferred', 'failed')),
   jobs_attempted        INTEGER NOT NULL DEFAULT 0,
   jobs_completed        INTEGER NOT NULL DEFAULT 0,
+  -- Jobs in scope but outside their interval or inside a backoff. Deliberately SEPARATE from
+  -- (jobs_attempted, jobs_completed): a reader must be able to tell "not scheduled yet, working as
+  -- configured" from "wanted to run and was stopped short", because a run that reports fewer jobs
+  -- than it was configured for, with no way to say which kind of fewer, is the disclosure failure
+  -- this table exists to avoid.
+  jobs_skipped_not_due  INTEGER NOT NULL DEFAULT 0,
   remote_calls_made     INTEGER NOT NULL DEFAULT 0,
   remote_call_budget    INTEGER NOT NULL DEFAULT 0
 ) WITHOUT ROWID;

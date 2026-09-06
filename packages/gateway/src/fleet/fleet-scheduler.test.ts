@@ -83,17 +83,19 @@ function runRow(runId: string): {
   outcome: string | null;
   jobs_attempted: number;
   jobs_completed: number;
+  jobs_skipped_not_due: number;
   remote_calls_made: number;
 } {
   const row = db
     .query(
-      `SELECT outcome, jobs_attempted, jobs_completed, remote_calls_made
+      `SELECT outcome, jobs_attempted, jobs_completed, jobs_skipped_not_due, remote_calls_made
          FROM fleet_run WHERE id = ?`,
     )
     .get(runId) as {
     outcome: string | null;
     jobs_attempted: number;
     jobs_completed: number;
+    jobs_skipped_not_due: number;
     remote_calls_made: number;
   } | null;
   if (row === null) throw new Error(`no fleet_run row for ${runId}`);
@@ -187,6 +189,8 @@ describe("FleetScheduler.runOnce", () => {
     expect(runRow(requireRunId(summary))).toMatchObject({
       outcome: "deferred",
       jobs_attempted: 0,
+      // Nothing was assessed for dueness, so nothing may be reported as not-due.
+      jobs_skipped_not_due: 0,
     });
     expect(store.listBriefs({ limit: 10 })).toHaveLength(0);
   });
@@ -239,6 +243,14 @@ describe("FleetScheduler.runOnce", () => {
     // unattempted would make an ordinary tick read as a run that gave up on a job.
     expect(summary.jobsSkippedNotDue).toBe(1);
     expect(summary.jobsUnattempted).toBe(0);
+    // And it is PERSISTED, not just returned: the summary object is gone the moment `runOnce`
+    // returns, so a `nimbus fleet status` reading history from SQLite must see the same number.
+    expect(runRow(requireRunId(summary))).toMatchObject({
+      outcome: "completed",
+      jobs_attempted: 1,
+      jobs_completed: 1,
+      jobs_skipped_not_due: 1,
+    });
     // A not-due job must not leave a brief behind either — the counter and the table must agree.
     expect(store.listBriefs({ limit: 10 }).map((b) => b.jobId)).toEqual(["b"]);
   });
@@ -273,6 +285,13 @@ describe("FleetScheduler.runOnce", () => {
     expect(summary.jobsCompleted).toBe(1);
     expect(summary.jobsSkippedNotDue).toBe(1); // a
     expect(summary.jobsUnattempted).toBe(1); // c — and NOT 2
+    // The distinction survives into the row a later reader will see, not only into the summary.
+    expect(runRow(requireRunId(summary))).toMatchObject({
+      outcome: "yielded",
+      jobs_attempted: 1,
+      jobs_completed: 1,
+      jobs_skipped_not_due: 1,
+    });
   });
 
   test("a job whose interval has elapsed is due again", async () => {

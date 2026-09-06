@@ -61,6 +61,11 @@ export class FleetStore {
       outcome: FleetRunOutcome;
       jobsAttempted: number;
       jobsCompleted: number;
+      /**
+       * REQUIRED, not optional-with-a-default: a caller that forgets must be a compile error, not
+       * a run row that quietly claims nothing was skipped.
+       */
+      jobsSkippedNotDue: number;
       remoteCallsMade: number;
     },
   ): void {
@@ -68,9 +73,17 @@ export class FleetStore {
       this.db,
       `UPDATE fleet_run
           SET ended_at = ?, outcome = ?, jobs_attempted = ?, jobs_completed = ?,
-              remote_calls_made = ?
+              jobs_skipped_not_due = ?, remote_calls_made = ?
         WHERE id = ?`,
-      [r.endedAt, r.outcome, r.jobsAttempted, r.jobsCompleted, r.remoteCallsMade, runId],
+      [
+        r.endedAt,
+        r.outcome,
+        r.jobsAttempted,
+        r.jobsCompleted,
+        r.jobsSkippedNotDue,
+        r.remoteCallsMade,
+        runId,
+      ],
     );
   }
 

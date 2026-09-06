@@ -22,7 +22,7 @@ export interface FleetRunSummary {
   readonly jobsAttempted: number;
   readonly jobsCompleted: number;
   /**
-   * In scope, DUE, and still not attempted — the yield and abandon cases only.
+   * In scope and did not run, having NOT been classified as not-due — the yield and abandon cases.
    *
    * A job that was simply not scheduled yet is NOT counted here; it is `jobsSkippedNotDue`. The
    * two are different facts and a human acts differently on each: "the fleet was stopped before it
@@ -30,6 +30,13 @@ export interface FleetRunSummary {
    * working exactly as configured. Folding them together makes every ordinary tick on a
    * daily-interval fleet look like a run that gave up — a disclosure failure wearing the shape of
    * a smaller number, which is precisely what this counter exists to avoid.
+   *
+   * NOTE FOR AN AGGREGATOR: on a `deferred` run this is `jobs.length`, every time. A deferred run
+   * is refused BEFORE any job is assessed for dueness, so no job can be classified as not-due and
+   * every job in scope genuinely did not run — `jobs.length` is the honest number, not a fallback.
+   * The consequence is that this field is not directly comparable across a deferred run and a
+   * completed one: averaging the two averages two different meanings. Nothing in this codebase
+   * aggregates these rows today; whoever first does must bucket by `outcome`.
    */
   readonly jobsUnattempted: number;
   /** In scope but outside its `interval_seconds` or inside its backoff. Not a failure. */
@@ -192,6 +199,7 @@ export class FleetScheduler {
         outcome,
         jobsAttempted: tally.attempted,
         jobsCompleted: tally.completed,
+        jobsSkippedNotDue: tally.skippedNotDue,
         remoteCallsMade: this.deps.remoteCallsMade?.() ?? 0,
       });
       return {

@@ -37,12 +37,72 @@ describe("FleetStore", () => {
       outcome: "completed",
       jobsAttempted: 1,
       jobsCompleted: 1,
+      jobsSkippedNotDue: 0,
       remoteCallsMade: 0,
     });
 
     const briefs = store.listBriefs({ limit: 10 });
     expect(briefs).toHaveLength(1);
     expect(briefs[0]?.agentMethod).toBe("agents.catchup");
+  });
+
+  test("closeRun round-trips jobs_skipped_not_due as a value distinct from the other counters", () => {
+    // Three DIFFERENT numbers, so a column swap or a copied bind parameter cannot pass. Persisted
+    // rather than derived because the summary object is gone the moment `runOnce` returns, and
+    // reconstructing "how many were not due" after the fact from config + fleet_job_state is a
+    // guess: the intervals may have been edited since.
+    const runId = store.openRun({
+      startedAt: 10,
+      hostPower: "ac",
+      hostIdleMs: 900_000,
+      hostSource: "measured",
+      remoteCallBudget: 7,
+    });
+    store.closeRun(runId, {
+      endedAt: 20,
+      outcome: "yielded",
+      jobsAttempted: 3,
+      jobsCompleted: 2,
+      jobsSkippedNotDue: 5,
+      remoteCallsMade: 1,
+    });
+
+    const row = db
+      .query(
+        `SELECT jobs_attempted, jobs_completed, jobs_skipped_not_due, remote_calls_made, outcome
+           FROM fleet_run WHERE id = ?`,
+      )
+      .get(runId) as {
+      jobs_attempted: number;
+      jobs_completed: number;
+      jobs_skipped_not_due: number;
+      remote_calls_made: number;
+      outcome: string;
+    } | null;
+    expect(row).toMatchObject({
+      jobs_attempted: 3,
+      jobs_completed: 2,
+      jobs_skipped_not_due: 5,
+      remote_calls_made: 1,
+      outcome: "yielded",
+    });
+  });
+
+  test("a run row that is opened and never closed reports zero skipped, not NULL", () => {
+    // The column is NOT NULL DEFAULT 0, so an in-flight run reads as 0 rather than NULL. A reader
+    // must not have to handle a third state for a row that simply has not finished yet.
+    const runId = store.openRun({
+      startedAt: 10,
+      hostPower: "unknown",
+      hostIdleMs: null,
+      hostSource: "power_only",
+      remoteCallBudget: 0,
+    });
+    const row = db
+      .query(`SELECT jobs_skipped_not_due AS n, outcome FROM fleet_run WHERE id = ?`)
+      .get(runId) as { n: number; outcome: string | null } | null;
+    expect(row?.n).toBe(0);
+    expect(row?.outcome).toBeNull();
   });
 
   test("deleting a run cascades to its briefs — the cascade is live, not decorative", () => {
