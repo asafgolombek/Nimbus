@@ -60,7 +60,7 @@ export interface FleetInvokerDeps {
 export type FleetInvoker = (job: NimbusFleetJobToml) => Promise<FleetJobOutcome>;
 
 /**
- * The real dispatcher, adapted to `FleetDispatch`.
+ * Builds the real dispatcher, adapted to `FleetDispatch`.
  *
  * A plain function rather than a cast: `dispatchAgentsRpc` returns `RpcMissOrHit`, so handing it in
  * directly — even where the types could be forced to line up — would make every production run
@@ -68,14 +68,27 @@ export type FleetInvoker = (job: NimbusFleetJobToml) => Promise<FleetJobOutcome>
  * structurally-impossible `miss` becomes a loud failure: `resolveFleetAgentMethod` and
  * `dispatchByMethod` consult the SAME handler map, so a resolved method cannot miss, and the
  * alternative to throwing is waiting out the whole job timeout on a call that never started.
+ *
+ * The inner dispatcher is a PARAMETER, defaulted to the real one, for the reason
+ * `agent-runs/agent-http-invoke.ts` exports `requireRunId`: both arms are otherwise unreachable
+ * from any test — a `miss` cannot follow a resolved method — and defensive code no test can reach
+ * is indistinguishable from defensive code that does not work. The seam grants no new capability:
+ * a caller still has to supply a `FleetDispatchContext`, whose `kind: "fleet"` D28 confines to
+ * this file.
  */
-const defaultFleetDispatch: FleetDispatch = async (method, params, ctx) => {
-  const out = await dispatchAgentsRpc(method, params, ctx);
-  if (out.kind === "miss") {
-    throw new AgentsRpcError(-32601, `agent method not served: ${method}`);
-  }
-  return out.value;
-};
+export function buildDefaultFleetDispatch(
+  dispatchAgents: typeof dispatchAgentsRpc = dispatchAgentsRpc,
+): FleetDispatch {
+  return async (method, params, ctx) => {
+    const out = await dispatchAgents(method, params, ctx);
+    if (out.kind === "miss") {
+      throw new AgentsRpcError(-32601, `agent method not served: ${method}`);
+    }
+    return out.value;
+  };
+}
+
+const defaultFleetDispatch: FleetDispatch = buildDefaultFleetDispatch();
 
 /**
  * Notification payloads arrive as `unknown` and are read with `in` narrowing rather than a cast:
