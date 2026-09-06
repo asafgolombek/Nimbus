@@ -6,7 +6,7 @@ import { FLEET_V60_SQL } from "../index/fleet-v60-sql.ts";
 import type { HostActivityProbe } from "../platform/host-activity.ts";
 import type { FleetInvoker, FleetJobOutcome } from "./fleet-invoker.ts";
 import type { FleetRunSummary } from "./fleet-scheduler.ts";
-import { FleetScheduler, isJobDue } from "./fleet-scheduler.ts";
+import { DEFAULT_TICK_MS, FleetScheduler, isJobDue } from "./fleet-scheduler.ts";
 import { FleetStore } from "./fleet-store.ts";
 
 const AC_IDLE: HostActivityProbe = { power: "ac", idleMs: 3_600_000, source: "measured" };
@@ -43,6 +43,7 @@ beforeEach(() => {
 function build(opts: {
   probes: readonly HostActivityProbe[];
   invoke: FleetInvoker;
+  jobs?: readonly NimbusFleetJobToml[];
   config?: Partial<NimbusFleetToml>;
   remoteCallsMade?: () => number;
   tickMs?: number;
@@ -51,7 +52,7 @@ function build(opts: {
   let i = 0;
   return new FleetScheduler({
     store,
-    jobs: JOBS,
+    jobs: opts.jobs ?? JOBS,
     config: { ...DEFAULT_FLEET_CONFIG, enabled: true, ...opts.config },
     capabilityDisabled: false,
     hostActivity: {
@@ -234,8 +235,44 @@ describe("FleetScheduler.runOnce", () => {
     const summary = await s.runOnce();
     expect(ran).toEqual(["b"]);
     expect(summary.jobsAttempted).toBe(1);
+    // "not due" is NOT "unattempted": job `a` was never going to run this tick, so reporting it as
+    // unattempted would make an ordinary tick read as a run that gave up on a job.
+    expect(summary.jobsSkippedNotDue).toBe(1);
+    expect(summary.jobsUnattempted).toBe(0);
     // A not-due job must not leave a brief behind either — the counter and the table must agree.
     expect(store.listBriefs({ limit: 10 }).map((b) => b.jobId)).toEqual(["b"]);
+  });
+
+  test("not-due and stopped-short are reported as DISTINCT numbers", async () => {
+    // Three jobs, three different fates in one run: `a` is not due, `b` runs, and the re-probe
+    // before `c` shows the user back so the run yields with `c` never attempted.
+    //
+    // This is the test that fails if the two are conflated: summing them gives
+    // jobsUnattempted === 2, which reads as "the fleet was stopped before it got to two jobs" when
+    // only ONE job was actually cut short. The spec calls a run that under-reports what it was
+    // configured for a disclosure failure; over-reporting what it abandoned is the same failure.
+    const jobs: readonly NimbusFleetJobToml[] = [
+      { name: "a", agent: "catchup", intervalSeconds: 1, params: {} },
+      { name: "b", agent: "ownership", intervalSeconds: 1, params: {} },
+      { name: "c", agent: "impact", intervalSeconds: 1, params: {} },
+    ];
+    store.recordJobSuccess("a", NOW); // not due: zero elapsed against a 1 s interval
+    const ran: string[] = [];
+    const s = build({
+      jobs,
+      probes: [AC_IDLE, ON_BATTERY],
+      invoke: async (job) => {
+        ran.push(job.name);
+        return done(job.name);
+      },
+    });
+    const summary = await s.runOnce();
+    expect(ran).toEqual(["b"]);
+    expect(summary.outcome).toBe("yielded");
+    expect(summary.jobsAttempted).toBe(1);
+    expect(summary.jobsCompleted).toBe(1);
+    expect(summary.jobsSkippedNotDue).toBe(1); // a
+    expect(summary.jobsUnattempted).toBe(1); // c — and NOT 2
   });
 
   test("a job whose interval has elapsed is due again", async () => {
@@ -272,6 +309,10 @@ describe("FleetScheduler.runOnce", () => {
     expect(maxConcurrent).toBe(1);
     expect([first.outcome, second.outcome].sort()).toEqual(["completed", "deferred"]);
     expect([first.runId, second.runId]).toContain(null); // the refused one opened no run row
+    // The refused tick evaluated nothing for dueness, so it must claim no not-due skips.
+    const refused = first.runId === null ? first : second;
+    expect(refused.jobsUnattempted).toBe(2);
+    expect(refused.jobsSkippedNotDue).toBe(0);
     // Exactly ONE `fleet_run` row exists. Without the guard the second tick opens its own row and
     // interleaves its writes with the first — the counter check alone would not see that.
     const runs = db.query(`SELECT COUNT(*) AS n FROM fleet_run`).get() as { n: number };
@@ -316,6 +357,22 @@ describe("FleetScheduler.runOnce", () => {
     expect(after.outcome).toBe("completed");
   });
 
+  test("a close() failure does not mask the error that failed the run", async () => {
+    // `close()` writes to SQLite and can itself throw. If it did, its error would REPLACE the one
+    // that actually broke the run and the diagnosis would be lost — the row ends up unclosed
+    // either way, so masking the cause buys nothing. Here the table is dropped mid-run so the
+    // `UPDATE fleet_run` in `close("failed")` fails; the caller must still see `invoker exploded`.
+    const s = build({
+      probes: [AC_IDLE],
+      invoke: async () => {
+        db.run("DROP TABLE fleet_brief");
+        db.run("DROP TABLE fleet_run");
+        throw new Error("invoker exploded");
+      },
+    });
+    await expect(s.runOnce()).rejects.toThrow(/invoker exploded/);
+  });
+
   test("runOnce({ jobName }) runs only that job", async () => {
     const ran: string[] = [];
     const s = build({
@@ -356,7 +413,7 @@ describe("FleetScheduler.runOnce", () => {
     expect(ran).toEqual(["b"]);
   });
 
-  test("force skips ADMISSION only, never the disabled capability", async () => {
+  test("force runs on battery — admission is what it overrides", async () => {
     let called = 0;
     const s = build({
       probes: [ON_BATTERY],
@@ -478,7 +535,10 @@ describe("FleetScheduler.start/stop", () => {
 
   test("stop() before start() is a no-op, and the default tick installs cleanly", () => {
     // No `tickMs`, so this exercises the production `DEFAULT_TICK_MS` arm. A 60 s interval will
-    // not fire inside the test; `unref` is what keeps it from holding the runner open.
+    // not fire inside the test; `unref` is what keeps it from holding the runner open. Exercising
+    // the arm proves nothing about the VALUE, and a regression to 60 ms would turn the fleet into
+    // a hot loop while every test here stayed green — so assert the constant outright.
+    expect(DEFAULT_TICK_MS).toBe(60_000);
     const s = build({ probes: [AC_IDLE], invoke: async (job) => done(job.name) });
     expect(() => s.stop()).not.toThrow();
     s.start();

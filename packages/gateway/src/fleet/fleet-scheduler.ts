@@ -21,7 +21,19 @@ export interface FleetRunSummary {
   readonly outcome: FleetRunOutcome;
   readonly jobsAttempted: number;
   readonly jobsCompleted: number;
+  /**
+   * In scope, DUE, and still not attempted — the yield and abandon cases only.
+   *
+   * A job that was simply not scheduled yet is NOT counted here; it is `jobsSkippedNotDue`. The
+   * two are different facts and a human acts differently on each: "the fleet was stopped before it
+   * got to 2 jobs" is a reason to look at the machine, "2 jobs are not due yet" is the scheduler
+   * working exactly as configured. Folding them together makes every ordinary tick on a
+   * daily-interval fleet look like a run that gave up — a disclosure failure wearing the shape of
+   * a smaller number, which is precisely what this counter exists to avoid.
+   */
   readonly jobsUnattempted: number;
+  /** In scope but outside its `interval_seconds` or inside its backoff. Not a failure. */
+  readonly jobsSkippedNotDue: number;
 }
 
 /**
@@ -132,7 +144,10 @@ export class FleetScheduler {
         outcome: "deferred",
         jobsAttempted: 0,
         jobsCompleted: 0,
+        // Nothing was evaluated for dueness, so nothing can be classified as not-due: every job in
+        // scope is genuinely unattempted because another run held the lane.
         jobsUnattempted: jobs.length,
+        jobsSkippedNotDue: 0,
       };
     }
     this.inFlight = true;
@@ -166,49 +181,52 @@ export class FleetScheduler {
       remoteCallBudget: this.deps.config.remoteCallBudget,
     });
 
-    const close = (
-      outcome: FleetRunOutcome,
-      attempted: number,
-      completed: number,
-    ): FleetRunSummary => {
+    // ONE mutable tally, read by `close` rather than threaded through it as arguments. Every exit
+    // (deferred, yielded, failed, completed) then reports the same numbers by construction — three
+    // positional counters at four call sites is how one of them ends up stale on one path.
+    const tally = { attempted: 0, completed: 0, skippedNotDue: 0 };
+
+    const close = (outcome: FleetRunOutcome): FleetRunSummary => {
       this.deps.store.closeRun(runId, {
         endedAt: this.deps.now(),
         outcome,
-        jobsAttempted: attempted,
-        jobsCompleted: completed,
+        jobsAttempted: tally.attempted,
+        jobsCompleted: tally.completed,
         remoteCallsMade: this.deps.remoteCallsMade?.() ?? 0,
       });
       return {
         runId,
         outcome,
-        jobsAttempted: attempted,
-        jobsCompleted: completed,
-        jobsUnattempted: jobs.length - attempted,
+        jobsAttempted: tally.attempted,
+        jobsCompleted: tally.completed,
+        // Not-due jobs are subtracted OUT: they were never going to run this tick, so counting
+        // them as unattempted would report an ordinary tick as a run that gave up.
+        jobsUnattempted: jobs.length - tally.attempted - tally.skippedNotDue,
+        jobsSkippedNotDue: tally.skippedNotDue,
       };
     };
 
-    if (!admitted && !force) return close("deferred", 0, 0);
+    if (!admitted && !force) return close("deferred");
 
     const expiresAt = startedAt + this.deps.config.retentionDays * 86_400_000;
-    let attempted = 0;
-    let completed = 0;
 
     try {
       for (const job of jobs) {
         // Re-probe BETWEEN jobs, not only at the start. Stopping at a boundary rather than
         // mid-brief is why the boundary exists: a half-written brief is worse than an absent one.
-        if (attempted > 0 && !force) {
+        if (tally.attempted > 0 && !force) {
           const again = await this.deps.hostActivity.probe();
-          if (!this.admit(again).admitted) return close("yielded", attempted, completed);
+          if (!this.admit(again).admitted) return close("yielded");
         }
 
         // Due check AND backoff, both inside `isJobDue`. `force` (an owner at a keyboard)
         // overrides the schedule; it does not override the capability, eligibility or I38's budget.
         if (!force && !isJobDue(job, this.deps.store.loadJobState(job.name), this.deps.now())) {
+          tally.skippedNotDue += 1;
           continue;
         }
 
-        attempted += 1;
+        tally.attempted += 1;
         const outcome = await this.deps.invoke(job);
         if (outcome.status === "done") {
           this.deps.store.recordBrief({
@@ -222,7 +240,7 @@ export class FleetScheduler {
             expiresAt,
           });
           this.deps.store.recordJobSuccess(job.name, this.deps.now());
-          completed += 1;
+          tally.completed += 1;
         } else {
           // Isolated, not fatal. A run that aborted on the first bad config line would let one
           // stale entry silence every other brief indefinitely — and overnight, nobody notices.
@@ -235,10 +253,18 @@ export class FleetScheduler {
       // and rethrow: an abandoned run row keeps `outcome` NULL forever, which reads as "still
       // running" to every consumer and is the one state `nimbus fleet status` cannot recover from.
       // This is also the only writer of the `failed` outcome the schema already allows.
-      close("failed", attempted, completed);
+      //
+      // Guarded: `close` writes to SQLite and can itself throw (a closed handle, a disk error). If
+      // it did, its error would replace `err` and the ACTUAL cause of the run's failure would never
+      // be seen — the row would be unclosed either way, so losing the diagnosis buys nothing.
+      try {
+        close("failed");
+      } catch {
+        // Deliberately swallowed: `err` below is the failure worth surfacing.
+      }
       throw err;
     }
 
-    return close("completed", attempted, completed);
+    return close("completed");
   }
 }
