@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { HostActivity, HostActivityProbe, HostPower } from "../host-activity.ts";
-import { UNKNOWN_PROBE } from "../host-activity.ts";
+import type { HostActivity, HostActivityProbe, HostPower } from "../host-activity-types.ts";
+import { UNKNOWN_PROBE } from "../host-activity-types.ts";
 
 const DEFAULT_ROOT = "/sys/class/power_supply";
 const MAINS_TYPES = new Set(["mains", "ac"]);

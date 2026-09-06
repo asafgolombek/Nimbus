@@ -1,5 +1,5 @@
-import type { HostActivity, HostActivityProbe, HostPower } from "../host-activity.ts";
-import { UNKNOWN_PROBE } from "../host-activity.ts";
+import type { HostActivity, HostActivityProbe, HostPower } from "../host-activity-types.ts";
+import { UNKNOWN_PROBE } from "../host-activity-types.ts";
 
 const SPAWN_TIMEOUT_MS = 2_000;
 

@@ -1,6 +1,6 @@
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import type { HostActivity, HostActivityProbe, HostPower } from "../host-activity.ts";
-import { UNKNOWN_PROBE } from "../host-activity.ts";
+import type { HostActivity, HostActivityProbe, HostPower } from "../host-activity-types.ts";
+import { UNKNOWN_PROBE } from "../host-activity-types.ts";
 
 /**
  * `GetTickCount` and `LASTINPUTINFO.dwTime` are both 32-bit unsigned millisecond counters that
