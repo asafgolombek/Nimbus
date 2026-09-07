@@ -765,10 +765,20 @@ function numAt(o: Record<string, unknown>, k: string): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
-/** Every listed key must be a finite number, else `undefined`. Narrow BY DESIGN: a full-shape
- *  validator for a type that already typechecks elsewhere is a second definition free to drift. */
-function numbers(o: Record<string, unknown>, keys: readonly string[]): Record<string, number> | undefined {
-  const out: Record<string, number> = {};
+/**
+ * Every listed key must be a finite number, else `undefined`. Narrow BY DESIGN: a full-shape
+ * validator for a type that already typechecks elsewhere is a second definition free to drift.
+ *
+ * GENERIC over the key list so the result is `Record<K, number>` and not
+ * `Record<string, number>`. Under this repo's `noUncheckedIndexedAccess` the latter would type
+ * every read as `number | undefined` and force a cast at each of the twelve call sites below —
+ * casts that would each be a place the guard above silently stops meaning anything.
+ */
+function numbers<K extends string>(
+  o: Record<string, unknown>,
+  keys: readonly K[],
+): Record<K, number> | undefined {
+  const out = {} as Record<K, number>;
   for (const k of keys) {
     const n = numAt(o, k);
     if (n === undefined) return undefined;
@@ -809,11 +819,11 @@ const decisions: FleetDigestExtractor = (f) => {
   const n = numbers(stats, ["total", "pending", "extracted", "vetoed", "truncatedSources"]);
   if (n === undefined) return undefined;
   return summary(ids, {
-    total: n["total"] as number,
-    pending: n["pending"] as number,
-    extracted: n["extracted"] as number,
-    vetoed: n["vetoed"] as number,
-    truncated_sources: n["truncatedSources"] as number,
+    total: n.total,
+    pending: n.pending,
+    extracted: n.extracted,
+    vetoed: n.vetoed,
+    truncated_sources: n.truncatedSources,
     entries_listed: ids.length,
   });
 };
@@ -833,13 +843,13 @@ const ownership: FleetDigestExtractor = (f) => {
   const owners = target === undefined ? [] : stringsAt(target["owners"], "externalId");
   if (owners === undefined) return undefined;
   return summary(owners, {
-    roots_total: n["rootsTotal"] as number,
-    roots_covered: n["rootsCovered"] as number,
-    files_covered: n["filesCovered"] as number,
-    files_excluded: n["filesExcluded"] as number,
-    services_bound: n["servicesBound"] as number,
-    owners_emitted: n["ownersEmitted"] as number,
-    entities_reaped: n["entitiesReaped"] as number,
+    roots_total: n.rootsTotal,
+    roots_covered: n.rootsCovered,
+    files_covered: n.filesCovered,
+    files_excluded: n.filesExcluded,
+    services_bound: n.servicesBound,
+    owners_emitted: n.ownersEmitted,
+    entities_reaped: n.entitiesReaped,
   });
 };
 
@@ -1634,10 +1644,11 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
         : j.status;
     out.push(`${j.agentMethod} · compared over ${humanDuration(j.comparisonSpanMs)} · ${status}`, "");
 
-    const names = Object.keys(j.metrics);
-    if (names.length > 0) {
+    if (Object.keys(j.metrics).length > 0) {
       out.push("| metric | before | after | delta |", "| --- | --- | --- | --- |");
-      for (const n of names) out.push(metricRow(n, j.metrics[n] as FleetMetricDelta));
+      // `Object.entries`, not `names[i]`: indexing a Record under noUncheckedIndexedAccess yields
+      // `FleetMetricDelta | undefined` and would need a cast that hides a real absence.
+      for (const [n, d] of Object.entries(j.metrics)) out.push(metricRow(n, d));
       out.push("");
     }
     if (j.keysAppeared.length > 0) {
