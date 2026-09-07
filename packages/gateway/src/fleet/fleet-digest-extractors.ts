@@ -88,6 +88,11 @@ export function summarizeBrief(
   agentMethod: string,
   findingsJson: string,
 ): BriefSummary | undefined {
+  // `Object.hasOwn` BEFORE indexing, never a bare `PARTIAL[agentMethod]`. The method string comes
+  // from a database column, and a plain object resolves "constructor" up its prototype chain to
+  // `Object` — a truthy "extractor" that returns its argument, so summarizeBrief would hand back a
+  // raw parsed brief as if it were a BriefSummary. Same reasoning as `resolveFleetAgentMethod`.
+  if (!Object.hasOwn(PARTIAL, agentMethod)) return undefined;
   const extract = PARTIAL[agentMethod];
   if (extract === undefined) return undefined;
   let parsed: unknown;
