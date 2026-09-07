@@ -955,18 +955,19 @@ export function checkRunConfinedConfinement(files: readonly FileEntry[]): Violat
 // allow-listed until it caught nothing. A narrow rule that fires is worth more than a broad one
 // that gets disarmed.
 //
-// WHAT THE ALLOW-LIST IMPLIES AND THE RULE DOES NOT DELIVER — the narrower reading, checked
-// against the three files rather than inferred from the list's length. Only ONE of the three
-// allow-listed files contains a shape this regex can see: `fleet-invoker.ts`'s `kind: "fleet"`.
-// `client-kind.ts` holds the union MEMBER (`| "fleet" |`), which matches no alternative above, and
-// `egress-bearing-kinds.ts` writes the map entry UNQUOTED (`fleet: null`), while the map-key
-// alternative requires a QUOTED `"fleet":`. So the allow-list entries for those two are precautions
-// against a shape they do not currently contain, and — the consequence worth stating — a
-// copy-paste of the REAL egress classification line into a fourth file would NOT be caught. The
-// quoted-key alternative catches a hand-written `"fleet": null` map, not the one this repo ships.
-// Widening to the unquoted `fleet:` form is not obviously right: `fleet:` is also how a CLI command
-// map and a config object name the namespace, which is the false-positive class this rule
-// deliberately stays clear of. Recorded as the rule's edge rather than closed.
+// WHAT THE ALLOW-LIST IMPLIES AND THE RULE DELIVERS — checked against the three files rather than
+// inferred from the list's length. TWO of the three contain a shape this regex can see:
+// `fleet-invoker.ts`'s `kind: "fleet"` and `egress-bearing-kinds.ts`'s `fleet: null`.
+// `client-kind.ts` holds the union MEMBER (`| "fleet" |`), which matches no alternative above and
+// is not meant to — a union member declares that the kind exists, it does not wear it.
+//
+// This paragraph previously said only ONE file was visible, and that a copy-paste of the REAL
+// egress classification line would NOT be caught. That was true and is no longer: the map-key
+// alternative required a QUOTED `"fleet":` while the shipped map writes it bare, so the rule caught
+// a hand-written map and not this repo's own. Widening looked unsafe because `fleet:` is also how a
+// CLI command map names the namespace — but the VALUE separates them exactly. An egress
+// classification is `null`; a command-map entry is a function reference; a LAN forbid-list entry is
+// a bare array element with no colon at all. Hence `\bfleet\s*:\s*null\b` and nothing wider.
 //
 // RESIDUAL BOUND: a regex cannot see every construction. An indirection
 // (`const K = "fleet"; { kind: K }`), a computed key, or a value arriving from JSON all evade it —

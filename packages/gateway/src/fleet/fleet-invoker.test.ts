@@ -404,14 +404,28 @@ describe("per-brief remote-withholding disclosure (I38)", () => {
   });
 
   test("no withholding leaves the provenance untouched", async () => {
+    // A `null` synthesis alone would NOT discriminate — it stays null through `readReady`'s
+    // pre-existing path whether or not the disclosure exists. The non-null case is what proves the
+    // provenance is passed through unmodified rather than merely absent.
     const invoke = buildFleetInvoker(
       deps(async (_m, _p, ctx) => {
         ctx.notify("catchup.briefReady", ready("s1", null));
         return { sessionId: "s1" };
       }),
     );
-    const out = await invoke(JOB);
-    expect((out as { synthesisJson: string | null }).synthesisJson).toBeNull();
+    expect(((await invoke(JOB)) as { synthesisJson: string | null }).synthesisJson).toBeNull();
+
+    const withProv = buildFleetInvoker(
+      deps(async (_m, _p, ctx) => {
+        ctx.notify("catchup.briefReady", ready("s1", { attempted: true, model: "qwen" }));
+        return { sessionId: "s1" };
+      }),
+    );
+    const out = await withProv(JOB);
+    expect(JSON.parse((out as { synthesisJson: string }).synthesisJson)).toEqual({
+      attempted: true,
+      model: "qwen",
+    });
   });
 
   test("the count is this JOB's delta, not the run's running total", async () => {

@@ -127,9 +127,25 @@ test("retention_days = 1 is the minimum and is accepted", () => {
 test("remote_call_budget = 0 stays legal — it is the default and means no remote", () => {
   // The bound raised for retention_days must NOT be raised for this key: 0 is what
   // `allow_remote = false` implies, and DEFAULT_FLEET_CONFIG ships it.
+  //
+  // HONEST SCOPE, because a review caught this claiming more than it does. The `= 0` assertion
+  // CANNOT detect the mutation it looks like it guards: `DEFAULT_FLEET_CONFIG.remoteCallBudget` is
+  // already 0, so raising the shared arm to `n >= 1` makes the key ignored and the merged config
+  // still reads 0. Explicit-zero and defaulted-zero are indistinguishable here by construction.
+  //
+  // The sibling `min_idle_seconds = 0` test is what actually catches a shared-arm raise, because
+  // its default is 900 and the mutation makes the read value diverge. Verified by applying that
+  // mutation: it fails and this one does not.
+  //
+  // The `= 3` assertion below is still worth its line, but for a DIFFERENT mutation — it goes red
+  // if the key stops being read at all, e.g. dropped from the switch.
   expect(
     parseNimbusTomlFleet(["[fleet]", "remote_call_budget = 0"].join("\n")).remoteCallBudget,
   ).toBe(0);
+  expect(
+    parseNimbusTomlFleet(["[fleet]", "allow_remote = true", "remote_call_budget = 3"].join("\n"))
+      .remoteCallBudget,
+  ).toBe(3);
 });
 
 test("min_idle_seconds = 0 stays legal — it means no idle requirement", () => {
