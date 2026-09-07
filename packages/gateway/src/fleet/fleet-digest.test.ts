@@ -100,6 +100,27 @@ describe("compareSummaries", () => {
     expect(r.metrics).toEqual({ big: { before: 10, after: 20, delta: 10 } });
     expect(r.status).toBe("changed");
   });
+
+  // I4 red-prove: a threshold-suppressed metric must leave a trace even when the job ALSO changed
+  // some other way — today `suppressed` is consulted only in the `!changed` branch, so a mixed job
+  // (one metric above the threshold, one below) reports nothing at all about the withheld metric.
+  test("a suppressed metric is counted even when another metric changes (mixed case)", () => {
+    const r = compareSummaries(s([], { small: 4, big: 10 }), s([], { small: 5, big: 20 }), 5);
+    expect(r.metrics).toEqual({ big: { before: 10, after: 20, delta: 10 } });
+    expect(r.status).toBe("changed");
+    expect(r.metricsSuppressed).toBe(1);
+  });
+
+  test("metricsSuppressed counts every withheld metric in the all-suppressed case too", () => {
+    const r = compareSummaries(s([], { n: 10 }), s([], { n: 12 }), 5);
+    expect(r.status).toBe("unchanged_within_threshold");
+    expect(r.metricsSuppressed).toBe(1);
+  });
+
+  test("metricsSuppressed is zero when nothing was withheld", () => {
+    const r = compareSummaries(s([], { n: 10 }), s([], { n: 20 }), 1);
+    expect(r.metricsSuppressed).toBe(0);
+  });
 });
 
 describe("buildFleetDigest assembles the job union", () => {
@@ -185,8 +206,61 @@ describe("buildFleetDigest assembles the job union", () => {
 
   test("a configured job with no brief in window lands in noBriefInWindow", () => {
     const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
-    expect(r.notCompared.noBriefInWindow).toEqual([{ jobId: "j1", agent: "ghost" }]);
+    expect(r.notCompared.noBriefInWindow).toEqual([
+      { jobId: "j1", agent: "ghost", configured: true },
+    ]);
     expect(r.jobs).toEqual([]);
+  });
+
+  // I1 red-prove: a future-dated brief (NTP correction) must not put an unconfigured job into
+  // `noBriefInWindow` at all — `jobIdsWithBriefsInWindow` and `briefPairForJob` must agree on the
+  // upper bound, or the union admits the job while the pair query then finds no `current` for it.
+  test("a future-dated brief for an unconfigured job does not appear in noBriefInWindow", () => {
+    insertBrief({
+      jobId: "retired-ghost",
+      agentMethod: "agents.ghost",
+      createdAt: 99_000,
+      findings: ghostFindings(["p1"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [], windowMs: 1000, now: 5000 });
+    expect(r.notCompared.noBriefInWindow).toEqual([]);
+    expect(r.jobs).toEqual([]);
+    expect(r.notCompared.firstObservation).toEqual([]);
+  });
+
+  // I3 red-prove: the `[unconfigured]` marker must survive into every `notCompared` population,
+  // not only `FleetJobDigest`. firstObservation and agentChanged are each reachable for a job that
+  // was removed from config but still has real in-window briefs.
+  test("firstObservation carries configured:false for a retired job", () => {
+    insertBrief({
+      jobId: "retired",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings: ghostFindings(["p1"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [], windowMs: 1000, now: 5000 });
+    expect(r.notCompared.firstObservation).toEqual([
+      { jobId: "retired", briefId: expect.any(String), createdAt: 4500, configured: false },
+    ]);
+  });
+
+  test("agentChanged carries configured:false for a retired job", () => {
+    insertBrief({
+      jobId: "retired",
+      agentMethod: "agents.catchup",
+      createdAt: 4000,
+      findings: catchupFindings(),
+    });
+    insertBrief({
+      jobId: "retired",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings: ghostFindings(["p1"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [], windowMs: 1000, now: 5000 });
+    expect(r.notCompared.agentChanged).toEqual([
+      { jobId: "retired", from: "agents.catchup", to: "agents.ghost", configured: false },
+    ]);
   });
 
   test("a job with briefs but no config is reported with configured:false", () => {
@@ -265,7 +339,7 @@ describe("buildFleetDigest assembles the job union", () => {
     const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
     expect(r.jobs).toEqual([]);
     expect(r.notCompared.agentChanged).toEqual([
-      { jobId: "j1", from: "agents.catchup", to: "agents.ghost" },
+      { jobId: "j1", from: "agents.catchup", to: "agents.ghost", configured: true },
     ]);
     // NOT in notSummarizable: both briefs read fine, the comparison is what failed.
     expect(r.notCompared.notSummarizable).toEqual([]);
@@ -371,6 +445,7 @@ describe("renderFleetDigest", () => {
           predecessorCreatedAt: 0,
           comparisonSpanMs: 7 * 86_400_000,
           metrics: {},
+          metricsSuppressed: 0,
           keysAppeared: [],
           keysResolved: [],
         },
@@ -397,6 +472,7 @@ describe("renderFleetDigest", () => {
           predecessorCreatedAt: 0,
           comparisonSpanMs: 0,
           metrics: {},
+          metricsSuppressed: 0,
           keysAppeared: [],
           keysResolved: [],
         },
@@ -424,6 +500,7 @@ describe("renderFleetDigest", () => {
           predecessorCreatedAt: 0,
           comparisonSpanMs: 0,
           metrics: {},
+          metricsSuppressed: 0,
           keysAppeared: [],
           keysResolved: [],
         },
@@ -450,6 +527,7 @@ describe("renderFleetDigest", () => {
           predecessorCreatedAt: 0,
           comparisonSpanMs: 0,
           metrics: {},
+          metricsSuppressed: 1,
           keysAppeared: [],
           keysResolved: [],
         },
@@ -457,6 +535,35 @@ describe("renderFleetDigest", () => {
     });
     expect(md).toContain("5");
     expect(md).toMatch(/threshold/i);
+  });
+
+  // I4 red-prove: a job that changed AND had a metric withheld below the threshold must disclose
+  // the withholding, naming the threshold — today nothing prints when `status` is "changed".
+  test("a withheld metric is disclosed even on a job reported as changed", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [
+        {
+          jobId: "j1",
+          agentMethod: "agents.ghost",
+          configured: true,
+          status: "changed",
+          minDelta: 5,
+          currentBriefId: "c",
+          currentCreatedAt: 0,
+          predecessorBriefId: "p",
+          predecessorCreatedAt: 0,
+          comparisonSpanMs: 0,
+          metrics: { big: { before: 10, after: 20, delta: 10 } },
+          metricsSuppressed: 1,
+          keysAppeared: [],
+          keysResolved: [],
+        },
+      ],
+    });
+    expect(md).toMatch(/1 metric withheld below digest_min_delta = 5/);
   });
 
   /**
@@ -476,6 +583,7 @@ describe("renderFleetDigest", () => {
       predecessorCreatedAt: 0,
       comparisonSpanMs: 0,
       metrics: {},
+      metricsSuppressed: 0,
       keysAppeared: [],
       keysResolved: [],
       ...overrides,
@@ -562,11 +670,24 @@ describe("renderFleetDigest", () => {
       jobs: [],
       notCompared: {
         ...empty,
-        firstObservation: [{ jobId: "new-job", briefId: "b1", createdAt: 0 }],
+        firstObservation: [{ jobId: "new-job", briefId: "b1", createdAt: 0, configured: true }],
       },
     });
     expect(md).toContain("First observation: 1");
     expect(md).toContain("- new-job — one brief so far, nothing to compare");
+  });
+
+  test("an unconfigured firstObservation entry is marked", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: {
+        ...empty,
+        firstObservation: [{ jobId: "retired", briefId: "b1", createdAt: 0, configured: false }],
+      },
+    });
+    expect(md).toContain("- retired [unconfigured] — one brief so far, nothing to compare");
   });
 
   test("a populated notSummarizable entry renders its role and reason", () => {
@@ -577,7 +698,13 @@ describe("renderFleetDigest", () => {
       notCompared: {
         ...empty,
         notSummarizable: [
-          { jobId: "j2", briefId: "b2", role: "current", reason: "unreadable agents.ghost brief" },
+          {
+            jobId: "j2",
+            briefId: "b2",
+            role: "current",
+            reason: "unreadable agents.ghost brief",
+            configured: true,
+          },
         ],
       },
     });
@@ -585,12 +712,36 @@ describe("renderFleetDigest", () => {
     expect(md).toContain("- j2 (current) — unreadable agents.ghost brief");
   });
 
+  test("an unconfigured notSummarizable entry is marked", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: {
+        ...empty,
+        notSummarizable: [
+          {
+            jobId: "retired",
+            briefId: "b2",
+            role: "current",
+            reason: "unreadable agents.ghost brief",
+            configured: false,
+          },
+        ],
+      },
+    });
+    expect(md).toContain("- retired [unconfigured] (current) — unreadable agents.ghost brief");
+  });
+
   test("a populated noBriefInWindow entry renders its configured agent", () => {
     const md = renderFleetDigest({
       windowMs: 1000,
       generatedAt: 0,
       jobs: [],
-      notCompared: { ...empty, noBriefInWindow: [{ jobId: "j3", agent: "ghost" }] },
+      notCompared: {
+        ...empty,
+        noBriefInWindow: [{ jobId: "j3", agent: "ghost", configured: true }],
+      },
     });
     expect(md).toContain("No brief in window: 1");
     expect(md).toContain("- j3 (ghost) — configured, produced nothing");
@@ -603,10 +754,29 @@ describe("renderFleetDigest", () => {
       jobs: [],
       notCompared: {
         ...empty,
-        agentChanged: [{ jobId: "j4", from: "agents.catchup", to: "agents.ghost" }],
+        agentChanged: [
+          { jobId: "j4", from: "agents.catchup", to: "agents.ghost", configured: true },
+        ],
       },
     });
     expect(md).toContain("Agent changed: 1");
     expect(md).toContain("- j4 — agents.catchup → agents.ghost, not comparable");
+  });
+
+  test("an unconfigured agentChanged entry is marked", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: {
+        ...empty,
+        agentChanged: [
+          { jobId: "retired", from: "agents.catchup", to: "agents.ghost", configured: false },
+        ],
+      },
+    });
+    expect(md).toContain(
+      "- retired [unconfigured] — agents.catchup → agents.ghost, not comparable",
+    );
   });
 });

@@ -311,6 +311,11 @@ export class FleetStore {
    *
    * `expires_at > now` on every arm, for the same reason `listBriefs` carries it: retention that a
    * read surface ignores is not retention.
+   *
+   * `jobIdsWithBriefsInWindow`, below, MUST agree with `current`'s `created_at <= now` bound — both
+   * are read against the same window and both feed the same digest, so if one admits a future-dated
+   * row and the other excludes it, a job lands in the union with no `current` this query can find,
+   * and reports as `noBriefInWindow` for a job that in fact produced a brief.
    */
   briefPairForJob(q: { jobId: string; windowStartMs: number; now: number }): {
     current: FleetBriefRow | undefined;
@@ -339,14 +344,22 @@ export class FleetStore {
     return { current, predecessor: oldestInWindow };
   }
 
-  /** Distinct job ids with a live brief inside the window — half of the digest's job union. */
+  /**
+   * Distinct job ids with a live brief inside the window — half of the digest's job union.
+   *
+   * `created_at <= now` MUST match `briefPairForJob`'s `current` bound: without it, a future-dated
+   * row (an NTP correction moving the clock backwards after a brief was written) puts a job in this
+   * union while `briefPairForJob` finds no `current` for it — the two window queries disagreeing
+   * about what is "in the window", surfacing as a false `noBriefInWindow` entry for a job that did
+   * in fact produce a brief.
+   */
   jobIdsWithBriefsInWindow(q: { windowStartMs: number; now: number }): string[] {
     const rows = this.db
       .query(
         `SELECT DISTINCT job_id FROM fleet_brief
-          WHERE created_at >= ? AND expires_at > ? ORDER BY job_id ASC`,
+          WHERE created_at >= ? AND created_at <= ? AND expires_at > ? ORDER BY job_id ASC`,
       )
-      .all(q.windowStartMs, q.now) as ReadonlyArray<{ job_id: string }>;
+      .all(q.windowStartMs, q.now, q.now) as ReadonlyArray<{ job_id: string }>;
     return rows.map((r) => r.job_id);
   }
 

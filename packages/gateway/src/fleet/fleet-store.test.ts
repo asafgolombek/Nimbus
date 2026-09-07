@@ -346,4 +346,14 @@ describe("jobIdsWithBriefsInWindow", () => {
     insertBrief({ jobId: "old", createdAt: 500 });
     expect(store.jobIdsWithBriefsInWindow({ windowStartMs: 1000, now: 9999 })).toEqual(["a", "b"]);
   });
+
+  // I1 red-prove: `briefPairForJob`'s `current` arm carries `created_at <= now` (an NTP correction
+  // can leave a future-dated row whose `expires_at` is future too, so it passes the retention
+  // filter alone). This query must agree, or a future-dated brief puts a job in the union while
+  // `briefPairForJob` then finds no `current` for it — reported as `noBriefInWindow` for a job
+  // that in fact produced a brief.
+  test("excludes a future-dated brief, matching briefPairForJob's own bound", () => {
+    insertBrief({ jobId: "j", createdAt: 99_000 });
+    expect(store.jobIdsWithBriefsInWindow({ windowStartMs: 1000, now: 5000 })).toEqual([]);
+  });
 });

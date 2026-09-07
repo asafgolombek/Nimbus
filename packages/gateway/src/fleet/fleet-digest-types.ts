@@ -45,23 +45,40 @@ export interface FleetJobDigest {
   /** current − predecessor. NOT the window: § 2.1 lets these differ per job. */
   readonly comparisonSpanMs: number;
   readonly metrics: Readonly<Record<string, FleetMetricDelta>>;
+  /**
+   * Count of metrics withheld by `digest_min_delta` on THIS job, regardless of `status` (spec § 6).
+   * A metric can be suppressed even when the job also changed some other way — `status` alone
+   * cannot carry that, since `changed` says nothing about what else was withheld.
+   */
+  readonly metricsSuppressed: number;
   readonly keysAppeared: readonly string[];
   readonly keysResolved: readonly string[];
 }
 
+/**
+ * `configured` on every population, not only `FleetJobDigest`: a job that produced briefs but is no
+ * longer in config (spec § 5.1) can land in ANY of these four, not only the compared-job path, and
+ * the `[unconfigured]` marker is what stops a reader inferring it will run again tonight.
+ */
 export interface FleetDigestNotCompared {
   readonly firstObservation: readonly {
     readonly jobId: string;
     readonly briefId: string;
     readonly createdAt: number;
+    readonly configured: boolean;
   }[];
   readonly notSummarizable: readonly {
     readonly jobId: string;
     readonly briefId: string;
     readonly role: "current" | "predecessor";
     readonly reason: string;
+    readonly configured: boolean;
   }[];
-  readonly noBriefInWindow: readonly { readonly jobId: string; readonly agent: string }[];
+  readonly noBriefInWindow: readonly {
+    readonly jobId: string;
+    readonly agent: string;
+    readonly configured: boolean;
+  }[];
   /**
    * The job kept its name but was pointed at a different agent, so the pair straddles two brief
    * shapes. Its OWN population, not folded into `notSummarizable`: both briefs read perfectly
@@ -72,6 +89,7 @@ export interface FleetDigestNotCompared {
     readonly jobId: string;
     readonly from: string;
     readonly to: string;
+    readonly configured: boolean;
   }[];
 }
 

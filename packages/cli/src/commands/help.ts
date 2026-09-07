@@ -83,8 +83,9 @@ PRIVACY & AUDIT
                               (off by default; enable with [computer_use] enabled = true —
                                browser driver not shipped yet, sessions refuse)
   nimbus computer sessions | close <id>   List / close computer-use sessions
-  nimbus fleet status | list | briefs | show <id> | run <job> [--force]   Overnight agent fleet
-                              (off by default; enable with [fleet] enabled = true + a [[fleet.job]])
+  nimbus fleet status | list | briefs | show <id> | run <job> [--force] | digest [--since <dur>]
+                              Overnight agent fleet (off by default; enable with
+                              [fleet] enabled = true + a [[fleet.job]])
   nimbus security scan        Local security scan (secrets, vulnerable deps, risky IaC)
   nimbus data export|import|delete   Encrypted bundle export/import; per-service deletion
   nimbus vault set|get|delete|list   Secrets (OS keyring only — never config, never logs)

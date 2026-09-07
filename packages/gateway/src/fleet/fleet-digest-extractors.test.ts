@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { compareSummaries } from "./fleet-digest.ts";
 import { summarizeBrief } from "./fleet-digest-extractors.ts";
 
 const base = { agentVersion: 1, generatedAt: 0, latencyMs: 0, gaps: [] };
@@ -19,6 +20,35 @@ describe("ghost extractor keys on IDENTITY only", () => {
     expect(after?.keys).toEqual(["p1"]);
     expect(before?.metrics["rank_medium"]).toBe(1);
     expect(after?.metrics["rank_high"]).toBe(1);
+  });
+
+  // I2 red-prove: a band shift must show up as what it is (spec § 4.4's worked example) — a
+  // count moving from 1 to 0 — not as a fabricated schema change. `bandCounts` today only emits
+  // `prefix_<band>` for bands that actually occur, so a band that drops to zero occurrences
+  // vanishes from the metrics object entirely and `compareSummaries` reports it one-sided
+  // ("no longer reported") instead of a real 1 -> 0 delta.
+  test("a peer moving high<->medium reports rank_medium as 1 -> 0, not (no longer reported)", () => {
+    const mk = (ranks: string[]) =>
+      JSON.stringify({
+        ...base,
+        kind: "ghost",
+        query: { file: "a.ts" },
+        startEntityId: null,
+        findings: ranks.map((rank, i) => ({
+          peerId: `p${String(i)}`,
+          expert: null,
+          rank,
+          context: [],
+          suggestedContact: "",
+        })),
+      });
+    const before = summarizeBrief("agents.ghost", mk(["high", "medium"]));
+    const after = summarizeBrief("agents.ghost", mk(["high", "high"]));
+    expect(before).toBeDefined();
+    expect(after).toBeDefined();
+    if (before === undefined || after === undefined) throw new Error("unreachable");
+    const cmp = compareSummaries(before, after, 1);
+    expect(cmp.metrics["rank_medium"]).toEqual({ before: 1, after: 0, delta: -1 });
   });
 });
 

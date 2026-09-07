@@ -1,3 +1,10 @@
+import type {
+  ConflictType,
+  ExpertFinding,
+  ExpertiseRank,
+  ImpactCategory,
+  WhyLane,
+} from "@nimbus-dev/sdk";
 import {
   isCatchupBrief,
   isConflictBrief,
@@ -20,12 +27,40 @@ function summary(keys: readonly string[], metrics: Record<string, number>): Brie
   return { keys: [...keys].sort(codeUnitCompare), metrics: Object.freeze({ ...metrics }) };
 }
 
-/** Counts occurrences of `band` values under `prefix_<band>` keys. */
-function bandCounts(prefix: string, bands: readonly string[]): Record<string, number> {
+/**
+ * Counts occurrences of `band` values under `prefix_<band>` keys — pre-seeded at zero for EVERY
+ * member of `vocabulary`, not only the bands that occur in `bands`.
+ *
+ * Without the pre-seed, a band that drops to zero occurrences simply has no key at all, and
+ * `compareSummaries` then reports it as a one-sided metric ("no longer reported") rather than a
+ * real `1 -> 0` delta — asserting a schema change that never happened (spec § 4.4's worked
+ * example: a peer's rank moving `medium -> high` must show up as `rank_medium: 1 -> 0`, not as
+ * `rank_medium` vanishing from the metrics object).
+ */
+function bandCounts<B extends string>(
+  prefix: string,
+  bands: readonly B[],
+  vocabulary: readonly B[],
+): Record<string, number> {
   const out: Record<string, number> = {};
+  for (const v of vocabulary) out[`${prefix}_${v}`] = 0;
   for (const b of bands) out[`${prefix}_${b}`] = (out[`${prefix}_${b}`] ?? 0) + 1;
   return out;
 }
+
+/**
+ * Kept next to the extractor each vocabulary belongs to (spec § I2). Each is a `Record<Union,
+ * true>` rather than a hand-typed array literal so a member ADDED to the SDK union and forgotten
+ * here is a compile error naming the missing key, not a silently incomplete vocabulary — the same
+ * totality shape `FLEET_ELIGIBILITY`/`FLEET_DIGEST_EXTRACTORS` already use.
+ */
+const GHOST_RANK_VOCAB: Readonly<Record<ExpertiseRank, true>> = {
+  high: true,
+  medium: true,
+  low: true,
+  none: true,
+};
+const GHOST_RANKS: readonly ExpertiseRank[] = Object.keys(GHOST_RANK_VOCAB) as ExpertiseRank[];
 
 const ghost: FleetDigestExtractor = (f) => {
   if (!isGhostBrief(f)) return undefined;
@@ -37,6 +72,7 @@ const ghost: FleetDigestExtractor = (f) => {
       ...bandCounts(
         "rank",
         f.findings.map((x) => x.rank),
+        GHOST_RANKS,
       ),
     },
   );
@@ -64,6 +100,17 @@ const catchup: FleetDigestExtractor = (f) => {
   });
 };
 
+/** `ExpertFinding["confidence"]` has no exported alias of its own — derived rather than retyped. */
+type ExpertConfidence = ExpertFinding["confidence"];
+const EXPERT_CONFIDENCE_VOCAB: Readonly<Record<ExpertConfidence, true>> = {
+  high: true,
+  medium: true,
+  low: true,
+};
+const EXPERT_CONFIDENCES: readonly ExpertConfidence[] = Object.keys(
+  EXPERT_CONFIDENCE_VOCAB,
+) as ExpertConfidence[];
+
 const expert: FleetDigestExtractor = (f) => {
   if (!isExpertBrief(f)) return undefined;
   return summary(
@@ -74,10 +121,19 @@ const expert: FleetDigestExtractor = (f) => {
       ...bandCounts(
         "confidence",
         f.ranked.map((r) => r.confidence),
+        EXPERT_CONFIDENCES,
       ),
     },
   );
 };
+
+const CONFLICT_TYPE_VOCAB: Readonly<Record<ConflictType, true>> = {
+  open_pr: true,
+  assigned_ticket: true,
+  recent_commit: true,
+  open_branch: true,
+};
+const CONFLICT_TYPES: readonly ConflictType[] = Object.keys(CONFLICT_TYPE_VOCAB) as ConflictType[];
 
 const conflicts: FleetDigestExtractor = (f) => {
   if (!isConflictBrief(f)) return undefined;
@@ -91,6 +147,7 @@ const conflicts: FleetDigestExtractor = (f) => {
       ...bandCounts(
         "type",
         f.collisions.map((c) => c.collisionType),
+        CONFLICT_TYPES,
       ),
     },
   );
@@ -119,6 +176,17 @@ const huddle: FleetDigestExtractor = (f) => {
   return summary(keys, { peers: f.contributions.length, prs, tickets, incidents });
 };
 
+const IMPACT_CATEGORY_VOCAB: Readonly<Record<ImpactCategory, true>> = {
+  service: true,
+  pipeline: true,
+  dashboard: true,
+  oncall_rotation: true,
+  downstream_repo: true,
+};
+const IMPACT_CATEGORIES: readonly ImpactCategory[] = Object.keys(
+  IMPACT_CATEGORY_VOCAB,
+) as ImpactCategory[];
+
 const impact: FleetDigestExtractor = (f) => {
   if (!isImpactBrief(f)) return undefined;
   return summary(
@@ -128,10 +196,21 @@ const impact: FleetDigestExtractor = (f) => {
       ...bandCounts(
         "category",
         f.affected.map((a) => a.category),
+        IMPACT_CATEGORIES,
       ),
     },
   );
 };
+
+const WHY_LANE_VOCAB: Readonly<Record<WhyLane, true>> = {
+  authorship: true,
+  pull_request: true,
+  ticket: true,
+  discussion: true,
+  driver: true,
+  downstream: true,
+};
+const WHY_LANES: readonly WhyLane[] = Object.keys(WHY_LANE_VOCAB) as WhyLane[];
 
 const why: FleetDigestExtractor = (f) => {
   if (!isWhyBrief(f)) return undefined;
@@ -144,6 +223,7 @@ const why: FleetDigestExtractor = (f) => {
       ...bandCounts(
         "lane",
         f.findings.map((x) => x.lane),
+        WHY_LANES,
       ),
     },
   );

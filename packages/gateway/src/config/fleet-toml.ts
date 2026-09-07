@@ -172,9 +172,15 @@ export function parseNimbusTomlFleetJobs(source: string): NimbusFleetJobToml[] {
         // turns the threshold inside out and reports MORE than no threshold at all. There is no
         // reading of it that means what someone writing it would intend.
         if (n < 1) {
+          // Named the same way every sibling refusal in this parser does (`${name} requires
+          // agent`, `${name} requires interval_seconds > 0`): `cur.name` is whatever has been
+          // parsed so far in THIS block, so it is present whenever `name` precedes
+          // `digest_min_delta` in the file — the ordinary case, and the one every example in this
+          // repo's own docs uses. A `digest_min_delta` line written before `name` still throws,
+          // just without a name to show; that is a parser-order limitation, not a silent bug.
           throw new FleetConfigError(
-            `[[fleet.job]] digest_min_delta must be >= 1 (got ${String(n)}); a zero would report ` +
-              `every metric, including unchanged ones`,
+            `[[fleet.job]] ${cur.name ?? "(unnamed)"} digest_min_delta must be >= 1 ` +
+              `(got ${String(n)}); a zero would report every metric, including unchanged ones`,
           );
         }
         cur.digestMinDelta = n;

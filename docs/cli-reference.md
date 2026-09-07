@@ -1618,18 +1618,22 @@ already in flight"* (the scheduler's re-entrancy guard fired; no `fleet_run` row
 nimbus fleet digest [--since <duration>] [--json]
 ```
 
-Prints what moved since the window began — each configured job's current brief compared against
+Prints what moved since the window began — every job in the **union** of currently configured
+`[[fleet.job]]` blocks and any job that produced a brief inside the window, each compared against
 its most recent predecessor before the window, with the comparison and non-comparison entirely
-local (SQLite in, markdown out; no model call). `--since` accepts the same duration syntax as
+local (SQLite in, markdown out; no model call). A job that produced briefs but has since been
+removed from config is still reported — never silently dropped — marked `[unconfigured]` so a
+reader cannot infer it will run again tonight. `--since` accepts the same duration syntax as
 elsewhere (`5m`, `1h`, `90d`) and defaults to `24h`; an unparseable or non-positive value is a usage
 error, exit `1`, same as any other malformed flag on this command.
 
 An **empty digest is not an error** — a quiet night (nothing changed, or nothing has run twice yet)
 and a broken fleet must not look the same to a script that checks the exit status, so `digest`
 always exits `0` when it successfully reaches the store. A job with only one brief in the window
-(no predecessor to compare against), a brief whose findings JSON does not match its agent's shape,
-and a job that changed which agent it runs between the two compared briefs are each reported under
-`## Not compared`, not treated as failures.
+(no predecessor to compare against), a configured job that produced no brief inside the window at
+all, a brief whose findings JSON does not match its agent's shape, and a job that changed which
+agent it runs between the two compared briefs are each reported under `## Not compared`, not
+treated as failures.
 
 **Exit codes** (`nimbus fleet` only): `0` ok — including a `yielded` run, which is a host-activity
 boundary stopping a run early rather than a failure, and including an empty digest; `1` usage; `2`

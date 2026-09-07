@@ -174,6 +174,14 @@ describe("[[fleet.job]] digest_min_delta", () => {
     expect(() => parseNimbusTomlFleetJobs(job("digest_min_delta = -2"))).toThrow(FleetConfigError);
   });
 
+  // Named the same way every sibling refusal in this parser is (`${name} requires agent`): with
+  // several `[[fleet.job]]` blocks in one file, an unnamed refusal costs the owner a search.
+  test("refuses below 1, naming the job", () => {
+    expect(() => parseNimbusTomlFleetJobs(job("digest_min_delta = 0"))).toThrow(
+      /\[\[fleet\.job\]\] j digest_min_delta/,
+    );
+  });
+
   test("a genuine agent param still reaches params", () => {
     expect(parseNimbusTomlFleetJobs(job('file = "src/a.ts"'))[0]?.params).toEqual({
       file: "src/a.ts",

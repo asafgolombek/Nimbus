@@ -10,19 +10,27 @@ import type {
 } from "./fleet-digest-types.ts";
 import type { FleetStore } from "./fleet-store.ts";
 
-type Compared = Pick<FleetJobDigest, "status" | "metrics" | "keysAppeared" | "keysResolved">;
+type Compared = Pick<
+  FleetJobDigest,
+  "status" | "metrics" | "metricsSuppressed" | "keysAppeared" | "keysResolved"
+>;
 
 /**
  * Pure comparison of two brief summaries into the diff fields of a `FleetJobDigest`. No I/O, no
  * database — the caller (Task 8) supplies the identity fields (job id, brief ids, timestamps).
  *
- * Three rules, each load-bearing (spec § 6):
+ * Four rules, each load-bearing (spec § 6):
  *  1. A key change (appeared/resolved) is NEVER suppressed by `minDelta` — it is not a magnitude.
  *  2. A metric present on only one side is reported as `{ before: null, after: null, delta: null }`
  *     on the missing side, never synthesized into a fabricated `0 -> N` jump — and it is reported
  *     regardless of `minDelta`, since there is no delta to compare against the threshold.
  *  3. A suppressed-by-threshold change must not read as "nothing happened": the status is
  *     `unchanged_within_threshold`, distinct from `unchanged`.
+ *  4. `metricsSuppressed` counts every withheld metric UNCONDITIONALLY — not only when the whole
+ *     job is otherwise unchanged. A job can have one metric clear the threshold (reported, and
+ *     `status: "changed"`) and another withheld below it in the SAME comparison; without a count
+ *     that survives the `changed` branch, the withheld metric leaves no trace anywhere in the
+ *     digest — neither the markdown nor the JSON says a metric was suppressed at all.
  */
 export function compareSummaries(
   before: BriefSummary,
@@ -35,7 +43,7 @@ export function compareSummaries(
   const keysResolved = [...b].filter((k) => !a.has(k)).sort(codeUnitCompare);
 
   const metrics: Record<string, FleetMetricDelta> = {};
-  let suppressed = false;
+  let metricsSuppressed = 0;
   const names = [...new Set([...Object.keys(before.metrics), ...Object.keys(after.metrics)])].sort(
     codeUnitCompare,
   );
@@ -53,7 +61,7 @@ export function compareSummaries(
     const delta = av - bv;
     if (delta === 0) continue;
     if (Math.abs(delta) < minDelta) {
-      suppressed = true;
+      metricsSuppressed += 1;
       continue;
     }
     metrics[name] = { before: bv, after: av, delta };
@@ -64,8 +72,13 @@ export function compareSummaries(
   return {
     // A suppressed metric must not read as "nothing happened": the status names the threshold's
     // involvement so a reader cannot mistake a hidden change for no change.
-    status: changed ? "changed" : suppressed ? "unchanged_within_threshold" : "unchanged",
+    status: changed
+      ? "changed"
+      : metricsSuppressed > 0
+        ? "unchanged_within_threshold"
+        : "unchanged",
     metrics: Object.freeze(metrics),
+    metricsSuppressed,
     keysAppeared,
     keysResolved,
   };
@@ -108,23 +121,29 @@ export function buildFleetDigest(deps: {
       windowStartMs,
       now: deps.now,
     });
+    const configuredHere = cfg !== undefined;
     if (current === undefined) {
       // Configured but no brief landed in the window at all — reported with the CONFIGURED agent
       // name, since there is no brief to read one from.
-      noBriefInWindow.push({ jobId, agent: cfg?.agent ?? "unknown" });
+      noBriefInWindow.push({ jobId, agent: cfg?.agent ?? "unknown", configured: configuredHere });
       continue;
     }
     if (predecessor === undefined) {
       // One brief only: reporting it as "all new" would fabricate a change against a baseline
-      // that never existed (spec § 5.2).
-      firstObservation.push({ jobId, briefId: current.id, createdAt: current.createdAt });
+      // that never existed (spec § 5).
+      firstObservation.push({
+        jobId,
+        briefId: current.id,
+        createdAt: current.createdAt,
+        configured: configuredHere,
+      });
       continue;
     }
     if (current.agentMethod !== predecessor.agentMethod) {
       // Same job name, different agent — the owner repointed it. Both briefs are readable, but
       // their metric namespaces are disjoint, so comparing them would report EVERY metric as
       // one-sided and every key as churn: a wall of movement describing a config edit, not the
-      // index. Refused with its own disclosure rather than diffed (spec § 5.3).
+      // index. Refused with its own disclosure rather than diffed (spec § 5).
       //
       // Deliberately takes precedence over summarizability: this fires BEFORE either brief is
       // even passed to `summarizeBrief`, so a `current` brief that is both under the new agent
@@ -132,7 +151,12 @@ export function buildFleetDigest(deps: {
       // "also unreadable" signal. That is still correct — the comparison is impossible either
       // way, and "the agent changed" is the more actionable fact for a reader than "also, the
       // new brief doesn't parse".
-      agentChanged.push({ jobId, from: predecessor.agentMethod, to: current.agentMethod });
+      agentChanged.push({
+        jobId,
+        from: predecessor.agentMethod,
+        to: current.agentMethod,
+        configured: configuredHere,
+      });
       continue;
     }
     const after = summarizeBrief(current.agentMethod, current.findingsJson);
@@ -146,6 +170,7 @@ export function buildFleetDigest(deps: {
           briefId: current.id,
           role: "current",
           reason: `unreadable ${current.agentMethod} brief`,
+          configured: configuredHere,
         });
       }
       if (before === undefined) {
@@ -154,6 +179,7 @@ export function buildFleetDigest(deps: {
           briefId: predecessor.id,
           role: "predecessor",
           reason: `unreadable ${predecessor.agentMethod} brief`,
+          configured: configuredHere,
         });
       }
       continue;
@@ -203,6 +229,15 @@ function cell(v: number | null): string {
 }
 
 /**
+ * The `[unconfigured]` marker (spec § 5.1), shared by every job section AND all four
+ * `notCompared` populations — a job removed from config can land in any of them, and the marker
+ * is what stops a reader inferring it will run again tonight.
+ */
+function unconfiguredMarker(configured: boolean): string {
+  return configured ? "" : " [unconfigured]";
+}
+
+/**
  * Neutralise Markdown structure in a value that came from config or from indexed content.
  *
  * Finding keys embed titles from real items (`conflicts` keys on `…:title`), so a pipe breaks the
@@ -240,7 +275,7 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
   );
 
   for (const j of d.jobs) {
-    out.push(`## ${mdSafe(j.jobId)}${j.configured ? "" : " [unconfigured]"}`, "");
+    out.push(`## ${mdSafe(j.jobId)}${unconfiguredMarker(j.configured)}`, "");
     const status =
       j.status === "unchanged_within_threshold"
         ? `unchanged within threshold (digest_min_delta = ${String(j.minDelta)})`
@@ -249,6 +284,18 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
       `${mdSafe(j.agentMethod)} · compared over ${humanDuration(j.comparisonSpanMs)} · ${status}`,
       "",
     );
+    if (j.metricsSuppressed > 0) {
+      // Distinct from `status`: a job reported "changed" can STILL have withheld a metric below
+      // the threshold, and that must not vanish just because something else cleared the bar
+      // (spec § 6). Reads alongside `unchanged_within_threshold` too, without repeating it — that
+      // status names the threshold's involvement in general; this line names how many metrics and
+      // the same threshold value, which the status text alone does not disclose.
+      const n = j.metricsSuppressed;
+      out.push(
+        `${String(n)} metric${n === 1 ? "" : "s"} withheld below digest_min_delta = ${String(j.minDelta)}`,
+        "",
+      );
+    }
 
     if (Object.keys(j.metrics).length > 0) {
       out.push("| metric | before | after | delta |", "| --- | --- | --- | --- |");
@@ -283,16 +330,24 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
   out.push("## Not compared", "");
   out.push(`First observation: ${String(nc.firstObservation.length)}`);
   for (const e of nc.firstObservation)
-    out.push(`- ${mdSafe(e.jobId)} — one brief so far, nothing to compare`);
+    out.push(
+      `- ${mdSafe(e.jobId)}${unconfiguredMarker(e.configured)} — one brief so far, nothing to compare`,
+    );
   out.push(`Not summarizable: ${String(nc.notSummarizable.length)}`);
   for (const e of nc.notSummarizable)
-    out.push(`- ${mdSafe(e.jobId)} (${e.role}) — ${mdSafe(e.reason)}`);
+    out.push(
+      `- ${mdSafe(e.jobId)}${unconfiguredMarker(e.configured)} (${e.role}) — ${mdSafe(e.reason)}`,
+    );
   out.push(`No brief in window: ${String(nc.noBriefInWindow.length)}`);
   for (const e of nc.noBriefInWindow)
-    out.push(`- ${mdSafe(e.jobId)} (${mdSafe(e.agent)}) — configured, produced nothing`);
+    out.push(
+      `- ${mdSafe(e.jobId)}${unconfiguredMarker(e.configured)} (${mdSafe(e.agent)}) — configured, produced nothing`,
+    );
   out.push(`Agent changed: ${String(nc.agentChanged.length)}`);
   for (const e of nc.agentChanged)
-    out.push(`- ${mdSafe(e.jobId)} — ${mdSafe(e.from)} → ${mdSafe(e.to)}, not comparable`);
+    out.push(
+      `- ${mdSafe(e.jobId)}${unconfiguredMarker(e.configured)} — ${mdSafe(e.from)} → ${mdSafe(e.to)}, not comparable`,
+    );
   out.push("");
 
   return out.join("\n");

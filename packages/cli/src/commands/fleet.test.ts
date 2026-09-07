@@ -579,6 +579,18 @@ describe("nimbus fleet digest", () => {
     expect(parseFleetArgs(["digest", "--since", "banana"])).toBeUndefined();
   });
 
+  // `parseDurationToMs("0s")` parses cleanly to 0 — this is a usage error via the `windowMs <= 0`
+  // check, not a parse failure, so it must be red-proved separately from "banana" above.
+  test("rejects a zero-length window", () => {
+    expect(parseFleetArgs(["digest", "--since", "0s"])).toBeUndefined();
+  });
+
+  // `--since` as the final token has no value to read — `rest[i + 1]` is `undefined` — and must
+  // route to the same usage-error path as every other malformed flag on this command.
+  test("rejects --since as the final token with no value", () => {
+    expect(parseFleetArgs(["digest", "--since"])).toBeUndefined();
+  });
+
   // Uses the file's existing `sinkSpy()` helper (fleet.test.ts:60) and the real
   // `runFleetCommand(client, cmd, sink)` signature — NOT a `deps` object, which does not exist.
   const digestResult = {
