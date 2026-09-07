@@ -357,9 +357,10 @@ describe("malformed input never throws", () => {
 });
 ```
 
-The `"constructor"` case is not padding: the method string comes from a database column, so a
-prototype-chain lookup would resolve it to a function. Task 4's `Object.hasOwn` guard is what makes
-this pass.
+The `"constructor"` case is not padding: the method string comes from a database column, so a bare
+`PARTIAL[agentMethod]` resolves it up the prototype chain to `Object` — a callable that returns its
+argument, making `summarizeBrief` hand back a raw parsed brief as though it were a `BriefSummary`.
+The `Object.hasOwn` guard in Step 3 is what makes this pass.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -452,6 +453,11 @@ const PARTIAL: Partial<Record<string, FleetDigestExtractor>> = {
  * rather than drop it (spec § 4.3).
  */
 export function summarizeBrief(agentMethod: string, findingsJson: string): BriefSummary | undefined {
+  // `Object.hasOwn` BEFORE indexing, never a bare `PARTIAL[agentMethod]`. The method string comes
+  // from a database column, and a plain object resolves "constructor" up its prototype chain to
+  // `Object` — a truthy "extractor" that returns its argument, so summarizeBrief would hand back a
+  // raw parsed brief as if it were a BriefSummary. Same reasoning as `resolveFleetAgentMethod`.
+  if (!Object.hasOwn(PARTIAL, agentMethod)) return undefined;
   const extract = PARTIAL[agentMethod];
   if (extract === undefined) return undefined;
   let parsed: unknown;
@@ -883,7 +889,10 @@ export const FLEET_DIGEST_EXTRACTORS = {
 } satisfies Readonly<Record<EligibleAgentMethod, FleetDigestExtractor>>;
 ```
 
-Delete `PARTIAL` and change `summarizeBrief`'s lookup to use `Object.hasOwn(FLEET_DIGEST_EXTRACTORS, agentMethod)` before indexing — `hasOwn`, never `in`, because `agentMethod` comes from a database column and `in` would resolve `"constructor"` against the prototype. This mirrors `resolveFleetAgentMethod`'s existing reasoning in `agents-rpc.ts`.
+Delete `PARTIAL` and repoint `summarizeBrief`'s lookup at `FLEET_DIGEST_EXTRACTORS`. The
+`Object.hasOwn` guard is ALREADY there from Task 2 — keep it, and only change which map it and the
+index read from. (It was written in Task 2 rather than here because the prototype-chain hole exists
+the moment `summarizeBrief` indexes any plain object with a database-sourced string.)
 
 - [ ] **Step 4: Run the tests and typecheck**
 
