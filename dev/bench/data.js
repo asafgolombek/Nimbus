@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788798930674,
+  "lastUpdate": 1788809554109,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "86aae5cc8d4e10c064d3e35fbe54903cecaa4594",
-          "message": "docs(plan): VS Code extension repo extraction plan + review (#712)\n\n## Summary\n\nAdds the implementation plan to extract `packages/vscode-extension` into\na standalone `nimbus-agent/nimbus-vscode` repo, plus the review that\ndrove it. **Docs only** — no code or workflow changes.\n\n-\n`docs/superpowers/plans/2026-06-22-vscode-extension-repo-extraction.md`\n— step-by-step plan (Phase 0 client fix → stand up new repo → standalone\nbuild/CI → hygiene fixes → release → remove from monorepo).\n-\n`docs/superpowers/plans/2026-06-22-vscode-extension-repo-extraction-review.md`\n— the review (prior 4-point pass + an empirically-verified second pass).\n\n## Key finding (review B1 — empirically verified)\n\nThe published `@nimbus-dev/client@0.2.3` ships an unrewritten\n`\"@nimbus-dev/sdk\": \"workspace:*\"` dependency, so it is **uninstallable\noutside the monorepo**:\n\n\\`\\`\\`\n$ bun add @nimbus-dev/client@0.2.3\nerror: @nimbus-dev/sdk@workspace:* failed to resolve   (exit 1)\n\\`\\`\\`\n\n`npm publish` does not rewrite the `workspace:` protocol. The plan\ntherefore opens with a **Phase 0** that patches `publish-client.yml` to\npin internal deps to concrete semver, republishes `client@0.2.4`, and\nverifies standalone install — a hard gate before any extraction work.\n\n## Scope\n\nThis PR only lands the planning docs; executing the plan (new repo,\nMarketplace publish, monorepo removal) is separate, gated work described\nwithin.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Added comprehensive planning documentation for VS Code extension\nrepository extraction, including implementation phases, verification\ncheckpoints, and standalone release procedures.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-22T19:44:44+03:00",
-          "tree_id": "ce250a02f02ad446271474ff00b847ce18d4faee",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/86aae5cc8d4e10c064d3e35fbe54903cecaa4594"
-        },
-        "date": 1782148184548,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 289.6322915999972,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 285.37828344999434,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 328.50468954999997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e6050fabfa49b8390f5f3ccd8005624c1b80188",
+          "message": "docs(spec): propose GET /v1/items/resolve-ids — an item id back to its reference (#1464)\n\n## Summary\n\n**Contract proposal only — no implementation in this branch.** A design\ndoc asking for one new bearer-authed read, `GET /v1/items/resolve-ids`,\nwhich maps indexed item ids back to the references they came from. It is\nthe inverse of `GET /v1/items/resolve`, which has mapped URL → item\nsince the clip surface shipped.\n\n**Why it is needed now.** The browser client renders agent briefs as\nstructure rather than prose (phase C8 in `nimbus-web-clipper`; `why`,\n`glossary` and `decisions` shipped in v0.6.0 and the release after).\nSeveral findings name other indexed items **by id with no URL** —\n`ExpertFinding.evidence[].itemId`, `ImpactFinding.affectedItemId`,\n`CatchupItem.itemId`. So four of the browser's seven lanes render titles\nthat look like references, are not, and cannot be made into references\nby any client-side means. The client slice that renders those lanes is\ndesigned and ships either way; with this route it ships with links\ninstead of dead text.\n\n## The argument that should lead review\n\nThe reflexive objection to an id-keyed read is that it is an enumeration\noracle. **That door is already open, wider, and unauthenticated** —\n`packages/gateway/src/ipc/http-route-auth.ts:48-49`:\n\n```ts\n  \"GET /v1/items\": { kind: \"public\" },\n  \"GET /v1/items/*\": { kind: \"public\" },\n```\n\n`GET /v1/items/{id}` has no bearer gate at all and returns the entire\nrow, including `body`, `metadata` and `author_id`. This proposal is a\n`resolve`-scoped read of six named fields — no body, no metadata, no\nauthor. **Strictly less disclosure than the status quo.** The only thing\nit adds is arity.\n\nSo the discussion worth having is about arity and cost, not about\ndisclosure.\n\n## Shape\n\nFollows #1447 (`resolve-file`) deliberately, so there is nothing novel\nto adjudicate:\n\n- Existing **`resolve` scope** — it reads, it runs nothing, no egress\nrow, **no re-pairing**.\n- **No version floor.** Route presence is the capability signal, probed\nvia the 404 that fires before auth when the clips surface is unmounted.\nA floor constant has to be raised by hand forever; presence cannot\ndrift.\n- **No schema change, no migration, no OpenAPI entry** — `item.id` is\nalready the primary key, and this stays off `HTTP_ROUTES` like every\nother clip-scoped bearer read.\n- Response is `ResolveCandidate` + `modified_at` **verbatim**, so the\nclient already has the type, the parser and the renderer.\n\n## Three decisions argued rather than assumed\n\nEach is a place a reviewer will reach for a precedent that does not\nquite transfer, so §5 argues them explicitly:\n\n1. **`RESOLVE_IDS_MAX_BATCH = 100`, borrowing `RESOLVE_CANDIDATE_CAP`'s\nrationale but not its magnitude.** That cap is 5 — right for a\ndisambiguation menu a human reads, hopeless here, since `catchup` alone\nadmits `PER_SERVICE_QUOTA = 50` items *per service*\n(`packages/gateway/src/agents/catchup.ts:12`) across several sections in\none brief. A cap near 5 would refuse the largest consumer on its\nordinary path.\n2. **Refuse over the cap rather than clamp.** The repo has both\npostures. Silently dropping ids here means silently dropping *links* —\nthe reader sees some references and not others with nothing to say why.\nNote `resolve`'s own \"empty list plus `truncated: true`\" posture rests\non a truncated menu implying the right answer is among those shown; an\nid map has no ranking, so that argument does not transfer.\n3. **An unindexed id is absent from the response, not null.** \"Not in\nthe index\" and \"indexed, no source URL\" are different facts a client\nrenders differently.\n\n## One divergence from the sibling, flagged deliberately\n\nThe response returns the bare `url` column, matching\n`resolve-by-url.ts:58` — **with one exception**: where `url` is null and\n`canonical_url` is not, it returns `canonical_url`. The fallback fires\nexactly where the sibling would have returned nothing, so no caller ever\nsees a *different* URL for the same row — only a URL where it would\notherwise have had none.\n\nThis is the **opposite** precedence from the row's own `resolve_key`,\nwhich is canonical-first, and that is intentional: `resolve_key` exists\nto make two spellings of an address match, so it wants the normalized\nform; this field exists to be clicked, so it wants the address the\nprovider published. Called out because it is the one place a reviewer\nmay reasonably prefer strict parity instead.\n\n## Alternatives considered (§9)\n\n- **Have the client call the public `GET /v1/items/{id}` per id.**\nRejected: far more data than it needs, unauthenticated where the rest of\nits surface is scoped, one round trip per reference, and outside the\nclip contract the client is built against — it would be reaching around\nits own boundary.\n- **Put URLs into the agent briefs themselves.** Arguably tidier, since\nthe agents hold the rows. Rejected as the larger change: it alters what\nagents *return*, which is a three-repo chain through the SDK's published\nbrief types, and inflates every brief with data most consumers do not\nrender.\n\n## Related Issue\n\n<!-- No tracking issue yet — happy to open one if you'd like this\ntriaged that way. -->\n\n## Type of Change\n\n- [x] Documentation only\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors — unaffected, no\nsource changed\n- [x] `bun run lint` passes (Biome) — unaffected, no source changed\n- [x] All existing tests pass (`bun test`) — unaffected, no source\nchanged\n- [x] New behaviour is covered by tests — n/a, no behaviour in this\nbranch\n- [x] No `any` types introduced\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction — n/a\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] Does not touch `docs/README.md`\n\n## Testing\n\nDocs-only, so the gates that apply are the docs gates, both run in the\nworktree:\n\n- `bun run lint:markdown` — 171 files, **0 issues** (clean at baseline\ntoo, so the delta is this branch's)\n- `bun run audit:doc-refs` — **1464 refs across 81 docs, all resolve**\n\n## Notes for Reviewers\n\n**The proposal was reviewed and amended before this PR opened**; §11\nrecords the disposition. Two findings changed the contract — the batch\ncap above, and the URL column, where both the original draft *and* the\nreview had it backwards until `resolve-by-url.ts:58` was actually read.\nA review recommendation to include the module layout and implementation\ncode was **declined**: the gateway owns its implementation, and a\nconsumer arriving with the code already written has pre-empted the\ndecision it came to ask for. The behavioural requirements that code\nencoded are captured as contract instead.\n\nIf the shape is acceptable, I am happy to implement it — or to hand it\nover, since the client half is independent and ships either way.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01StU1MQg9BjZzthYFue7TPr\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- Added a batched endpoint for resolving item IDs into reference\nmetadata, including service, type, title, URL, and modification time.\n- Supports up to 100 IDs per request, removes duplicates, preserves\ndeterministic ordering, and omits unknown IDs.\n  - Added scoped authorization for the endpoint.\n\n- **Documentation**\n- Documented request validation, response behavior, URL fallback rules,\nauthorization, and integration requirements.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T22:19:35+03:00",
+          "tree_id": "67f0b9458eb4046d9011eedc9cfbd85bd1bf835a",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1e6050fabfa49b8390f5f3ccd8005624c1b80188"
+        },
+        "date": 1788809551039,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 348.29987810000165,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 338.14703449999286,
             "unit": "ms"
           }
         ]
