@@ -179,6 +179,17 @@ export interface FleetDigestNotCompared {
     readonly reason: string;
   }[];
   readonly noBriefInWindow: readonly { readonly jobId: string; readonly agent: string }[];
+  /**
+   * The job kept its name but was pointed at a different agent, so the pair straddles two brief
+   * shapes. Its OWN population, not folded into `notSummarizable`: both briefs read perfectly
+   * well: what failed is the comparison, and calling that "not summarizable" would send a reader
+   * looking for a corrupt row that does not exist.
+   */
+  readonly agentChanged: readonly {
+    readonly jobId: string;
+    readonly from: string;
+    readonly to: string;
+  }[];
 }
 
 export interface FleetDigestResult {
@@ -916,6 +927,15 @@ describe("briefPairForJob implements spec § 2.1", () => {
     expect(pair.predecessor).toBeUndefined();
   });
 
+  test("a future-dated brief is never selected as current", () => {
+    // An NTP correction moving the clock backwards leaves rows ahead of `now`, and their expiry is
+    // ahead too, so the retention filter alone does not exclude them.
+    insertBrief({ jobId: "j", createdAt: 1200 });
+    insertBrief({ jobId: "j", createdAt: 99_000 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 1000, now: 5000 });
+    expect(pair.current?.createdAt).toBe(1200);
+  });
+
   test("expired briefs are invisible to both halves", () => {
     insertBrief({ jobId: "j", createdAt: 500, expiresAt: 600 });
     insertBrief({ jobId: "j", createdAt: 1200 });
@@ -998,9 +1018,14 @@ Then the two public reads:
     current: FleetBriefRow | undefined;
     predecessor: FleetBriefRow | undefined;
   } {
+    // `created_at <= now` is not redundant with `expires_at > now`: a future-dated row (an NTP
+    // correction moving the clock backwards after a brief was written) has a future expiry too, so
+    // it passes the retention filter and would be selected as `current` — reporting a brief from
+    // outside the window as this window's newest.
     const current = this.queryOne(
-      `WHERE job_id = ? AND created_at >= ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1`,
-      [q.jobId, q.windowStartMs, q.now],
+      `WHERE job_id = ? AND created_at >= ? AND created_at <= ? AND expires_at > ?
+       ORDER BY created_at DESC LIMIT 1`,
+      [q.jobId, q.windowStartMs, q.now, q.now],
     );
     if (current === undefined) return { current: undefined, predecessor: undefined };
     const before = this.queryOne(
@@ -1337,6 +1362,18 @@ describe("buildFleetDigest assembles the job union", () => {
     expect(r.notCompared.notSummarizable[0]).toMatchObject({ jobId: "j1", role: "predecessor" });
   });
 
+  test("a job repointed at a different agent is NOT diffed across shapes", () => {
+    insertBrief({ jobId: "j1", agentMethod: "agents.catchup", createdAt: 4000, findings: catchupFindings() });
+    insertBrief({ jobId: "j1", agentMethod: "agents.ghost", createdAt: 4500, findings: ghostFindings(["p1"]) });
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.jobs).toEqual([]);
+    expect(r.notCompared.agentChanged).toEqual([
+      { jobId: "j1", from: "agents.catchup", to: "agents.ghost" },
+    ]);
+    // NOT in notSummarizable: both briefs read fine, the comparison is what failed.
+    expect(r.notCompared.notSummarizable).toEqual([]);
+  });
+
   test("SPEC § 1: differing markdown with identical findings is UNCHANGED", () => {
     // The whole basis of the design. A synthesized brief differs run to run on an unchanged index,
     // so if this ever reports "changed" the comparison has drifted onto brief_markdown.
@@ -1385,6 +1422,7 @@ export function buildFleetDigest(deps: {
   const firstObservation: { jobId: string; briefId: string; createdAt: number }[] = [];
   const notSummarizable: { jobId: string; briefId: string; role: "current" | "predecessor"; reason: string }[] = [];
   const noBriefInWindow: { jobId: string; agent: string }[] = [];
+  const agentChanged: { jobId: string; from: string; to: string }[] = [];
 
   for (const jobId of ids) {
     const cfg = configured.get(jobId);
@@ -1395,6 +1433,14 @@ export function buildFleetDigest(deps: {
     }
     if (predecessor === undefined) {
       firstObservation.push({ jobId, briefId: current.id, createdAt: current.createdAt });
+      continue;
+    }
+    if (current.agentMethod !== predecessor.agentMethod) {
+      // Same job name, different agent — the owner repointed it. Both briefs are readable, but
+      // their metric namespaces are disjoint, so comparing them would report EVERY metric as
+      // one-sided and every key as churn: a wall of movement describing a config edit, not the
+      // index. Refused with its own disclosure rather than diffed.
+      agentChanged.push({ jobId, from: predecessor.agentMethod, to: current.agentMethod });
       continue;
     }
     const after = summarizeBrief(current.agentMethod, current.findingsJson);
@@ -1468,7 +1514,7 @@ git commit -m "feat(fleet): assemble the digest over the union of configured and
 
 ```ts
 describe("renderFleetDigest", () => {
-  const empty = { firstObservation: [], notSummarizable: [], noBriefInWindow: [] };
+  const empty = { firstObservation: [], notSummarizable: [], noBriefInWindow: [], agentChanged: [] };
 
   test("the preamble states the window AND that predecessors may predate it", () => {
     const md = renderFleetDigest({ windowMs: 86_400_000, generatedAt: 0, jobs: [], notCompared: empty });
@@ -1482,6 +1528,26 @@ describe("renderFleetDigest", () => {
     expect(md).toContain("First observation: 0");
     expect(md).toContain("Not summarizable: 0");
     expect(md).toContain("No brief in window: 0");
+    expect(md).toContain("Agent changed: 0");
+  });
+
+  test("the default window renders as 24h, not 1.0d", () => {
+    // The 24h boundary sits on the HOURS side: the default window is exactly 86_400_000 and
+    // "the last 1.0d" is a worse way to say "the last 24h".
+    const md = renderFleetDigest({ windowMs: 86_400_000, generatedAt: 0, jobs: [], notCompared: empty });
+    expect(md).toContain("24h");
+    expect(md).not.toContain("1.0d");
+  });
+
+  test("a week-long comparison span renders as 7d", () => {
+    const md = renderFleetDigest({
+      windowMs: 86_400_000, generatedAt: 0, notCompared: empty,
+      jobs: [{ jobId: "weekly", agentMethod: "agents.ghost", configured: true, status: "unchanged",
+        minDelta: 1, currentBriefId: "c", currentCreatedAt: 0, predecessorBriefId: "p",
+        predecessorCreatedAt: 0, comparisonSpanMs: 7 * 86_400_000, metrics: {},
+        keysAppeared: [], keysResolved: [] }],
+    });
+    expect(md).toContain("7d");
   });
 
   test("an unchanged job gets a line, never silent omission", () => {
@@ -1526,9 +1592,17 @@ Expected: FAIL — `renderFleetDigest` is not exported.
 - [ ] **Step 3: Implement**
 
 ```ts
-function hours(ms: number): string {
+/**
+ * Hours up to two days, days beyond. The 24h boundary belongs on the HOURS side: the default
+ * window is exactly 24h and "the last 1.0d" is a worse way to say "the last 24h". Whole values
+ * drop the decimal, so a weekly job reads "7d" rather than "7.0d".
+ */
+function humanDuration(ms: number): string {
   const h = ms / 3_600_000;
-  return h >= 24 ? `${(h / 24).toFixed(1)}d` : `${h.toFixed(1)}h`;
+  if (h < 1) return `${String(Math.round(ms / 60_000))}m`;
+  if (h < 48) return Number.isInteger(h) ? `${String(h)}h` : `${h.toFixed(1)}h`;
+  const d = h / 24;
+  return Number.isInteger(d) ? `${String(d)}d` : `${d.toFixed(1)}d`;
 }
 
 function cell(v: number | null): string {
@@ -1547,7 +1621,7 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
   // The preamble qualifies EVERY count below it, so it sits above all of them rather than beside
   // one — the placement I31 requires of `negotiate`'s window clause, for the same reason.
   out.push(
-    `Window: the last ${hours(d.windowMs)}. Each job is compared against its own previous brief, ` +
+    `Window: the last ${humanDuration(d.windowMs)}. Each job is compared against its own previous brief, ` +
       `which may be older than the window above; the comparison span is given per job.`,
     "",
   );
@@ -1558,7 +1632,7 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
       j.status === "unchanged_within_threshold"
         ? `unchanged within threshold (digest_min_delta = ${String(j.minDelta)})`
         : j.status;
-    out.push(`${j.agentMethod} · compared over ${hours(j.comparisonSpanMs)} · ${status}`, "");
+    out.push(`${j.agentMethod} · compared over ${humanDuration(j.comparisonSpanMs)} · ${status}`, "");
 
     const names = Object.keys(j.metrics);
     if (names.length > 0) {
@@ -1584,6 +1658,8 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
   for (const e of nc.notSummarizable) out.push(`- ${e.jobId} (${e.role}) — ${e.reason}`);
   out.push(`No brief in window: ${String(nc.noBriefInWindow.length)}`);
   for (const e of nc.noBriefInWindow) out.push(`- ${e.jobId} (${e.agent}) — configured, produced nothing`);
+  out.push(`Agent changed: ${String(nc.agentChanged.length)}`);
+  for (const e of nc.agentChanged) out.push(`- ${e.jobId} — ${e.from} → ${e.to}, not comparable`);
   out.push("");
 
   return out.join("\n");
@@ -1598,7 +1674,7 @@ Then change `buildFleetDigest`'s return type from `Omit<FleetDigestResult, "mark
     windowMs: deps.windowMs,
     generatedAt: deps.now,
     jobs,
-    notCompared: { firstObservation, notSummarizable, noBriefInWindow },
+    notCompared: { firstObservation, notSummarizable, noBriefInWindow, agentChanged },
   };
   // One computation, two shapes. Rendering from `result` rather than from the locals is what makes
   // it impossible for `--json` and the printed digest to disagree about what moved.
@@ -1647,8 +1723,8 @@ describe("fleet.digest", () => {
     expect((res.result as { windowMs: number }).windowMs).toBe(86_400_000);
   });
 
-  test("rejects a non-integer or negative windowMs", async () => {
-    await expect(dispatchFleetRpc("fleet.digest", { windowMs: -1 }, ctx(NOW))).rejects.toThrow(FleetRpcError);
+  test.each([-1, 0, 1.5, "24h"])("rejects windowMs = %p", async (windowMs) => {
+    await expect(dispatchFleetRpc("fleet.digest", { windowMs }, ctx(NOW))).rejects.toThrow(FleetRpcError);
   });
 
   test("fails cleanly when the store is absent", async () => {
@@ -1679,7 +1755,14 @@ function handleDigest(params: unknown, ctx: FleetRpcCtx): FleetDigestResult {
   if (store === undefined) {
     throw new FleetRpcError(-32603, "fleet: no brief store available");
   }
-  const windowMs = optInt(params, "windowMs") ?? DEFAULT_DIGEST_WINDOW_MS;
+  // `optInt` rejects negatives but ACCEPTS 0, and `?? DEFAULT` does not catch it — a zero would
+  // set windowStartMs to now and silently return an empty digest. Refused for the same reason
+  // `digest_min_delta = 0` is: there is no reading of it that means what the caller intended.
+  const raw = optInt(params, "windowMs");
+  if (raw !== undefined && raw <= 0) {
+    throw new FleetRpcError(-32602, "fleet: windowMs must be a positive integer");
+  }
+  const windowMs = raw ?? DEFAULT_DIGEST_WINDOW_MS;
   return buildFleetDigest({
     store,
     jobs: ctx.jobs ?? [],
@@ -1741,22 +1824,51 @@ describe("nimbus fleet digest", () => {
     expect(parseFleetArgs(["digest", "--since", "banana"])).toBeUndefined();
   });
 
-  test("prints the markdown and exits 0", async () => {
-    const code = await runFleetCommand({ sub: "digest", windowMs: 1000, json: false }, deps);
-    expect(code).toBe(0);
-    expect(sink.out).toHaveBeenCalledWith(expect.stringContaining("Fleet digest"));
+  // Uses the file's existing `sinkSpy()` helper (fleet.test.ts:60) and the real
+  // `runFleetCommand(client, cmd, sink)` signature — NOT a `deps` object, which does not exist.
+  const digestResult = {
+    windowMs: 86_400_000,
+    generatedAt: 0,
+    markdown: "# Fleet digest
+",
+    jobs: [],
+    notCompared: { firstObservation: [], notSummarizable: [], noBriefInWindow: [], agentChanged: [] },
+  };
+
+  test("calls fleet.digest with the parsed window and prints the markdown", async () => {
+    let seen: unknown;
+    const client: FleetIpc = {
+      call: async (_m, params) => {
+        seen = params;
+        return digestResult;
+      },
+    };
+    const { out, sink } = sinkSpy();
+    const code = await runFleetCommand(client, { sub: "digest", windowMs: 86_400_000, json: false }, sink);
+    expect(code).toBe(FLEET_EXIT_CODES.ok);
+    expect(seen).toEqual({ windowMs: 86_400_000 });
+    expect(out.join("")).toContain("# Fleet digest");
   });
 
   test("--json emits the structured result", async () => {
-    const code = await runFleetCommand({ sub: "digest", windowMs: 1000, json: true }, deps);
-    expect(code).toBe(0);
-    expect(JSON.parse(sink.lastOut())).toMatchObject({ windowMs: 1000 });
+    const client: FleetIpc = { call: async () => digestResult };
+    const { out, sink } = sinkSpy();
+    const code = await runFleetCommand(client, { sub: "digest", windowMs: 1000, json: true }, sink);
+    expect(code).toBe(FLEET_EXIT_CODES.ok);
+    expect(JSON.parse(out.join(""))).toMatchObject({ windowMs: 86_400_000 });
   });
 
-  test("an empty window is NOT an error", async () => {
+  test("an empty digest is NOT an error", async () => {
     // A quiet night and a broken fleet must not look the same to a script.
-    const code = await runFleetCommand({ sub: "digest", windowMs: 1000, json: false }, emptyDeps);
-    expect(code).toBe(0);
+    const client: FleetIpc = {
+      call: async () => ({ ...digestResult, markdown: "# Fleet digest
+
+## Not compared
+" }),
+    };
+    const { sink } = sinkSpy();
+    const code = await runFleetCommand(client, { sub: "digest", windowMs: 1000, json: false }, sink);
+    expect(code).toBe(FLEET_EXIT_CODES.ok);
   });
 });
 ```
@@ -1800,15 +1912,33 @@ and to `parseFleetArgs`:
 And to `runFleetCommand`:
 
 ```ts
-      case "digest": {
-        const res = await deps.client.request("fleet.digest", { windowMs: parsed.windowMs });
-        const r = res as FleetDigestResult;
-        deps.sink.out(parsed.json ? JSON.stringify(r, null, 2) : r.markdown);
-        // Zero even when nothing was compared: a quiet night and a broken fleet must not look the
-        // same to a script that checks the exit status.
-        return 0;
-      }
+      case "digest":
+        return await runDigest(client, cmd, sink);
 ```
+
+And the helper beside the other five, matching their shape exactly — `client.call` (not `request`),
+a trailing newline, and `FLEET_EXIT_CODES.ok` rather than a bare `0`:
+
+```ts
+async function runDigest(
+  c: FleetIpc,
+  cmd: Extract<ParsedFleetArgs, { sub: "digest" }>,
+  sink: OutcomeSink,
+): Promise<number> {
+  const r = (await c.call("fleet.digest", { windowMs: cmd.windowMs })) as FleetDigestResultShape;
+  // `JSON.stringify(r)` with no indent, matching all four existing --json paths in this file.
+  sink.out(cmd.json ? `${JSON.stringify(r)}
+` : `${r.markdown}
+`);
+  // ok even when nothing was compared: a quiet night and a broken fleet must not look the same to
+  // a script that checks the exit status.
+  return FLEET_EXIT_CODES.ok;
+}
+```
+
+Declare `FleetDigestResultShape` locally alongside the file's existing `FleetStatusResultShape` and
+`FleetJobStateShape` — the CLI does not import gateway types, so it restates the wire shape the way
+its neighbours do.
 
 - [ ] **Step 4: Run the tests**
 

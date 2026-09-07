@@ -268,7 +268,13 @@ and its reason:
   only "not summarizable" cannot tell a broken new brief from a broken old one, and those need
   different responses);
 - **no brief in window** — the job is configured but produced nothing in the window, which is a
-  scheduling fact the digest is the right place to surface.
+  scheduling fact the digest is the right place to surface;
+- **agent changed** — the job kept its name but was repointed at a different agent, so the pair
+  straddles two brief shapes. Their metric namespaces are disjoint, so comparing them would report
+  every metric as one-sided and every key as churn — a wall of movement describing a config edit
+  rather than the index. This is its OWN population rather than a *not summarizable* entry, because
+  both briefs read perfectly well: what failed is the comparison, and the wrong label would send a
+  reader hunting for a corrupt row that does not exist.
 
 ### 5.1 The job set is a UNION, and retired jobs are still reported
 
