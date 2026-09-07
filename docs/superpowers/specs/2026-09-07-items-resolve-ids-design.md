@@ -102,6 +102,26 @@ projection `GET /v1/items/resolve`'s `found` arm already returns
 browser already has the type, the parser and the renderer for this shape, so
 consuming it costs a call site rather than a new model.
 
+### Which URL column, and one deliberate divergence
+
+The sibling route selects the bare `url` column
+(`packages/gateway/src/index/resolve-by-url.ts:58`), not a coalesce. This route
+matches it — a response that claimed to be the same projection while quietly
+applying different precedence would be worse than an honest difference.
+
+The one divergence: **when `url` is null and `canonical_url` is not, return
+`canonical_url`.** A reference the reader can follow beats no reference, and the
+fallback only ever fires where the sibling would have returned null anyway, so
+no caller sees a *different* URL for the same row — only a URL where it would
+otherwise have had none.
+
+Note this is the opposite precedence from the row's own `resolve_key`, which is
+derived canonical-first. That is correct: `resolve_key` exists to make two
+spellings of the same address match, so it wants the normalized form. This field
+exists to be clicked, so it wants the address the provider actually published.
+Flagged explicitly because it is the one place a reviewer may reasonably prefer
+strict parity with the sibling instead.
+
 **An id that is not indexed is simply absent from `items`.** It is not an error
 and not a null entry. Absent and `url: null` are different facts and the client
 renders them differently: absent means "the index does not hold this", `url:
@@ -116,9 +136,9 @@ this exact call for `WhyItemSubject.url`, and its reasoning applies verbatim: a
 non-null type "would force it to substitute the URL it was *asked* with for the
 one the item *has*, which is a fabricated field inside a subject."
 
-Where both `url` and `canonical_url` exist, return the same precedence the row's
-own `resolve_key` is derived from — canonical over raw — rather than inventing a
-second rule.
+`null` therefore survives all the way to the reader, who sees the title as plain
+text rather than a link — the same rule the browser already applies to every
+reference it renders.
 
 ### Errors
 
@@ -126,7 +146,7 @@ second rule.
 | --- | --- | --- |
 | clips surface unmounted | 404 | `{ "error": "resolve_disabled" }` |
 | no `id` parameter, or all blank | 400 | `{ "error": "missing_id" }` |
-| more ids than the cap | 400 | `{ "error": "too_many_ids" }` |
+| more than `RESOLVE_IDS_MAX_BATCH` raw ids | 400 | `{ "error": "too_many_ids" }` |
 | token lacks `resolve` | 403 | the standard scope-gap body |
 
 The 404 is the capability signal (§7) and must come **before** the auth check,
@@ -147,17 +167,41 @@ input, since `POST /v1/clips/related` already takes a browser-supplied item id.
 De-duplicate before binding, join back by id, and bind every value as a
 parameter — never interpolate ids into the `IN (…)` list.
 
-### The cap, and refusing rather than truncating
+**Count the raw parameters before de-duplicating.** Checking the cap after
+de-duplication would let a caller send fifty thousand copies of one id and pay
+only the parsing and set-building cost — cheap for them, not for the gateway.
+The order is: read `getAll("id")`, refuse if the *raw* count is over the cap,
+then trim and drop blanks, then refuse as `missing_id` if nothing survives, then
+de-duplicate.
 
-`RESOLVE_CANDIDATE_CAP`'s rationale (`resolve-by-url.ts`) is the precedent and
-the reason:
+**Return the rows in a deterministic order** (`ORDER BY id`). `IN (…)` does not
+preserve parameter order, and callers join by id rather than by position, so
+ordering carries no meaning — which is exactly why it should be stable rather
+than incidental, so a wire response is reproducible in tests across platforms.
+
+### The cap: `RESOLVE_IDS_MAX_BATCH = 100`
+
+`RESOLVE_CANDIDATE_CAP`'s rationale (`resolve-by-url.ts`) is why there is a cap
+at all:
 
 > Candidate lists are capped: rung 3 trims path segments and can match broadly,
 > so an uncapped list would turn a mis-trimmed URL into a bulk index read over a
 > `resolve`-scoped token.
 
-A `?id=` list is that risk in a more direct form, so it takes a cap. SQLite's
-bind-parameter ceiling is not the binding constraint; the token scope is.
+A `?id=` list is that risk in a more direct form. SQLite's bind-parameter
+ceiling (32,766) is not the binding constraint; the token scope is.
+
+**Borrow that rationale, not its magnitude.** `RESOLVE_CANDIDATE_CAP` is **5**,
+which is right for a disambiguation menu a human reads and hopeless here:
+`catchup` alone admits up to `PER_SERVICE_QUOTA = 50` items **per service**
+(`packages/gateway/src/agents/catchup.ts:12`), across several sections in one
+brief. A cap anywhere near 5 would refuse the single largest consumer on its
+ordinary path — a caps-are-good instinct producing a route that does not work.
+
+**100** clears a dense `catchup` brief with room, sits three orders of magnitude
+under the bind ceiling, and stays well inside any URL-length limit. A client
+holding more than that chunks; the client is the one that knows which references
+are worth resolving.
 
 **Over the cap, refuse with 400 rather than clamping.** The repo has both
 postures — `parsePositiveInt` clamps a `limit`, `nimbus media allow-remote`
@@ -229,6 +273,12 @@ place with `nimbus clip scopes` — the same story as every other scoped read.
 
 - **Token verification.** Routes through the standard scoped-clip-token path;
   never a hand-rolled scope check.
+- **I13 does not apply, and that is the point.** I13 governs HTTP *write* routes
+  (`WRITE_ROUTE_ALLOWLIST` + bearer auth, `docs/SECURITY-INVARIANTS.md`). This is
+  a read: it stays off that allowlist and mounts in the bearer-authed GET family
+  instead. Named here because "new HTTP route" is the trigger a reviewer will
+  reach for I13 on, and the answer is that it is the wrong invariant for this
+  one.
 - **Route auth table.** A new `ROUTE_KEY_*` constant, an entry
   `{ kind: "clip", scope: "resolve" }`, and a member added to the read-route
   union — the union exists so passing a raw request path is a compile error
@@ -240,6 +290,11 @@ place with `nimbus clip scopes` — the same story as every other scoped read.
 - **Disclosure guard.** An exact-key-set assertion on the response, so a widened
   internal row cannot leak.
 - **The unmounted branch.** A test that the 404 fires before auth.
+
+The integration test belongs beside its siblings as
+`packages/gateway/test/integration/http/items-resolve-ids-route.test.ts` —
+`items-resolve-route.test.ts` and `items-resolve-file-route.test.ts` are already
+there, and #1447 established the shape.
 
 ## 9. Alternatives considered
 
@@ -273,3 +328,56 @@ existing rule for every reference it renders.
 It is one call per lane expansion, bounded by the cap, on a surface that is
 already polling. No new destination: the browser's only network target remains
 the gateway on loopback.
+
+## 11. Review disposition
+
+Reviewed against
+[`2026-09-07-items-resolve-ids-design-review.md`](./2026-09-07-items-resolve-ids-design-review.md).
+Each finding was checked against the gateway source before being accepted.
+
+**Accepted.**
+
+| finding | verified against | resolution |
+| --- | --- | --- |
+| Q2.1 the cap must clear a real brief | `catchup.ts:12` — `PER_SERVICE_QUOTA = 50` per service | §5 now names `RESOLVE_IDS_MAX_BATCH = 100` and separates the precedent's *rationale* from its magnitude |
+| Q2.2 count raw parameters before de-duplicating | — (reasoning, not a code claim) | §5: the four-step order, with the reason a post-dedup check is cheap for the caller and not for the gateway |
+| Q2.3 deterministic ordering | `IN (…)` does not preserve parameter order | §5: `ORDER BY id`, framed as reproducibility rather than meaning |
+| Q2.4 concrete URL selection | `resolve-by-url.ts:58` | §4 — but with the precedence **inverted**, see below |
+| I13 is the write-route invariant | `docs/SECURITY-INVARIANTS.md:242` | §8: named as the invariant a reviewer will reach for and why it does not apply |
+
+**Q2.1 is the one that mattered.** The original draft cited
+`RESOLVE_CANDIDATE_CAP` as "the precedent" without naming a number. That cap is
+**5**. A reader taking the precedent for a magnitude would have shipped a route
+that refuses `catchup` — the single largest consumer — on its ordinary path. The
+draft was not wrong so much as silent in a place where silence reads as guidance.
+
+**Accepted problem, opposite fix.**
+
+- **Q2.4 recommended `COALESCE(canonical_url, url)`** — canonical first, matching
+  how the row's `resolve_key` is derived. Rejected in that direction, on evidence
+  the review did not check: `resolve-by-url.ts:58` selects the **bare `url`
+  column**, so canonical-first would have made this response semantically
+  different from the sibling projection it claims to be field-for-field. The
+  original draft made the same error, in prose. §4 now matches the sibling and
+  falls back to `canonical_url` **only when `url` is null** — the fallback fires
+  exactly where the sibling would have returned nothing, so no caller ever sees a
+  different URL for the same row. `resolve_key` wants the normalized form because
+  it exists to make two spellings match; this field wants the published address
+  because it exists to be clicked.
+
+**Declined.**
+
+- **§3's module layout and implementation code.** This document is a contract
+  proposal, and its own header says no code lands in this branch. The gateway
+  owns the wire and its implementation; a consumer that arrives with the module
+  already written has pre-empted the decision it came to ask for. The
+  *behavioural* requirements that code encoded — the cap, the parse order, the
+  ordering, the exact projection — are captured above as contract, which is the
+  part a consumer legitimately has an opinion about.
+
+**Noted.**
+
+- The review's §5.3 places the integration test at
+  `packages/gateway/src/ipc/http-server.test.ts`. That file does exist, but the
+  per-route convention is `test/integration/http/<route>-route.test.ts`, where
+  both resolve siblings already live. §8 now says so.
