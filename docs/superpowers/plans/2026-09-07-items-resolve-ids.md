@@ -64,19 +64,33 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-Read `packages/gateway/src/index/resolve-by-url.test.ts` first and reuse its database-seeding idiom rather than inventing one.
+`resolve-by-url.test.ts` is the sibling to match, and it seeds with a **hand-written lightweight DDL** naming only the columns under test — not the real schema. Follow that idiom, but **it must declare `canonical_url`**, which the sibling omits because it never reads it. `resolveItemsByIds` selects `COALESCE(url, canonical_url)`, so copying the sibling's DDL verbatim fails with `no such column: canonical_url`.
+
+(Importing the real schema from `packages/gateway/src/index/unified-item-v3-sql.ts` is the alternative. Either is defensible; the lightweight form matches the neighbour and keeps the fixture readable.)
 
 ```ts
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { RESOLVE_IDS_MAX_BATCH, resolveItemsByIds } from "./resolve-ids.ts";
 
+type Row = {
+  id: string; service: string; type: string; title: string;
+  url: string | null; canonical_url: string | null; modified_at: number;
+};
+
 function seed(): Database {
   const db = new Database(":memory:");
-  // Use the project's real schema application, exactly as resolve-by-url.test.ts does —
-  // a hand-written CREATE TABLE here would drift from the migrations.
-  applySchema(db); // replace with whatever resolve-by-url.test.ts calls
-  const insert = (row: Record<string, unknown>) => { /* per that file's helper */ };
+  // Lightweight DDL in the sibling's style — every column this module reads, plus
+  // `canonical_url`, which the sibling has no reason to declare and this one does.
+  db.exec(`CREATE TABLE item (id TEXT PRIMARY KEY, service TEXT, type TEXT, title TEXT,
+    url TEXT, canonical_url TEXT, modified_at INTEGER)`);
+  const insert = (r: Row) =>
+    db
+      .query(
+        `INSERT INTO item (id, service, type, title, url, canonical_url, modified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(r.id, r.service, r.type, r.title, r.url, r.canonical_url, r.modified_at);
   insert({ id: "github:acme/web#1", service: "github", type: "pull_request",
            title: "Auth rewrite", url: "https://example.test/pr/1",
            canonical_url: null, modified_at: 1_700_000_000_000 });
@@ -245,20 +259,26 @@ git commit -m "feat(index): resolve item ids back to their references"
 
 ---
 
-### Task 2: Route auth wiring
+### Task 2: Route auth, the handler, and its mount
 
 **Files:**
 
 - Modify: `packages/gateway/src/ipc/http-route-auth.ts` (constants near `:22-23`, `HTTP_ROUTE_AUTH` near `:80`, `ClipReadRouteKey` at `:154-165`)
+- Modify: `packages/gateway/src/ipc/http-server.ts` (handler beside `handleItemsResolveFile` at `:672`; mount at `:1146-1148`)
+- Test: `packages/gateway/src/ipc/http-route-auth.test.ts`
 
 **Interfaces:**
 
-- Consumes: nothing from Task 1.
-- Produces: `ROUTE_KEY_ITEMS_RESOLVE_IDS = "GET /v1/items/resolve-ids"`, its `{ kind: "clip", scope: "resolve" }` entry, and its union member.
+- Consumes: `resolveItemsByIds`, `RESOLVE_IDS_MAX_BATCH` (Task 1); the existing `requireScopedClipToken` and `json` helpers.
+- Produces: `ROUTE_KEY_ITEMS_RESOLVE_IDS = "GET /v1/items/resolve-ids"`, its `{ kind: "clip", scope: "resolve" }` entry, its `ClipReadRouteKey` union member, and the served route.
 
-> **Three completeness tests enforce this**, so a route added without its table
-> entry fails the suite rather than failing open. That is the point of doing this
-> as its own task: it is the safety wiring, and it should be reviewable alone.
+> **The auth entry and the mount cannot be separate commits, and this is not a
+> style preference.** `http-route-auth.test.ts`'s *"no table entry is a route
+> that no longer exists"* test source-scans `http-server.ts` for route literals
+> and reports any `HTTP_ROUTE_AUTH` key whose path it cannot find. Adding the
+> table entry without the mount puts this route in that `stale` list and the
+> suite goes red. An earlier draft of this plan split them and hedged about it;
+> the scanner settles it.
 
 - [ ] **Step 1: Add the constant, the entry, and the union member**
 
@@ -282,32 +302,7 @@ And in the union (`:154-165`), which exists so passing a raw request path to `en
   | typeof ROUTE_KEY_ITEMS_RESOLVE_IDS
 ```
 
-- [ ] **Step 2: Run the route-auth suite**
-
-Run: `bun test packages/gateway/src/ipc/http-route-auth.test.ts`
-Expected: PASS. Note the scanner also fails if a table entry exists for a route no handler serves — so at this point the entry is present and Task 3 adds the literal it scans for. If the suite objects to an entry without a route, do Tasks 2 and 3 as one commit rather than fighting it, and say so in your report.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add packages/gateway/src/ipc/http-route-auth.ts
-git commit -m "feat(http): scope resolve-ids under the existing resolve scope"
-```
-
----
-
-### Task 3: The handler and its mount
-
-**Files:**
-
-- Modify: `packages/gateway/src/ipc/http-server.ts` (handler beside `handleItemsResolveFile` at `:672`; mount at `:1146-1148`)
-
-**Interfaces:**
-
-- Consumes: `resolveItemsByIds`, `RESOLVE_IDS_MAX_BATCH` (Task 1); `ROUTE_KEY_ITEMS_RESOLVE_IDS` (Task 2); the existing `requireScopedClipToken` and `json` helpers.
-- Produces: the served route.
-
-- [ ] **Step 1: Add the handler**
+- [ ] **Step 2: Add the handler**
 
 Mirror `handleItemsResolveFile` (`:672`) closely — it is the newest sibling and the shape reviewers expect:
 
@@ -354,7 +349,7 @@ async function handleItemsResolveIds(
 }
 ```
 
-- [ ] **Step 2: Mount it inline in the bearer-authed GET dispatcher**
+- [ ] **Step 3: Mount it inline in the bearer-authed GET dispatcher**
 
 Beside the two existing resolve mounts (`:1146-1148`):
 
@@ -368,21 +363,32 @@ Beside the two existing resolve mounts (`:1146-1148`):
 
 **Never in `dispatchReadOnlyDataGet`** — that table's `"/v1/items/*"` entry is `{ kind: "public" }` with no bearer gate, so routing through it would serve scoped output to any local process.
 
-- [ ] **Step 3: Run the route-auth and server suites**
+- [ ] **Step 4: Add the scope parity assertion**
+
+`http-route-auth.test.ts` already asserts the scope for its neighbours; add the matching one so this route's scope is pinned by name rather than only by the completeness scan:
+
+```ts
+  test("the resolve-ids route requires the resolve scope", () => {
+    expect(HTTP_ROUTE_AUTH[ROUTE_KEY_ITEMS_RESOLVE_IDS]).toEqual({ kind: "clip", scope: "resolve" });
+    expect(clipScopeFor(ROUTE_KEY_ITEMS_RESOLVE_IDS)).toBe("resolve");
+  });
+```
+
+- [ ] **Step 5: Run the ipc suite**
 
 Run: `bun test packages/gateway/src/ipc/ && bun run typecheck && bun run lint`
-Expected: PASS, including the three completeness tests.
+Expected: PASS, including all three completeness tests. A `stale` failure here means the mount in Step 3 is missing or its literal does not match the table key exactly.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/gateway/src/ipc/http-server.ts
-git commit -m "feat(http): serve GET /v1/items/resolve-ids"
+git add packages/gateway/src/ipc/http-route-auth.ts packages/gateway/src/ipc/http-server.ts packages/gateway/src/ipc/http-route-auth.test.ts
+git commit -m "feat(http): serve GET /v1/items/resolve-ids under the resolve scope"
 ```
 
 ---
 
-### Task 4: Route integration tests
+### Task 3: Route integration tests
 
 **Files:**
 
@@ -440,7 +446,7 @@ git commit -m "test(http): pin resolve-ids' disclosure, caps and capability sign
 
 ---
 
-### Task 5: Documentation
+### Task 4: Documentation
 
 **Files:**
 
@@ -474,10 +480,53 @@ git commit -m "docs: record resolve-ids as a local read that appends no egress"
 
 ## Self-Review
 
-**Spec coverage.** §4's request shape → Task 3; its response and the six fields → Tasks 1, 3, 4. The URL-column divergence → Task 1's two dedicated tests. Absent-vs-null → Task 1 and Task 4. §4's error table → Task 3, each pinned in Task 4. §5's batching, cap, raw-count-first and ordering → Tasks 1 and 3, pinned in both suites. §5's flat-path and never-in-the-public-table rules → Task 3 Step 2. §6's "not egress" → Task 4's ledger delta and Task 5 Step 1. §7's rollout → Task 4's two 404 tests. §8's compliance list → Tasks 2, 3, 4.
+**Spec coverage.** §4's request shape → Task 2; its response and the six fields → Tasks 1, 2, 3. The URL-column divergence → Task 1's two dedicated tests. Absent-vs-null → Tasks 1 and 3. §4's error table → Task 2, each pinned in Task 3. §5's batching, cap, raw-count-first and ordering → Tasks 1 and 2, pinned in both suites. §5's flat-path and never-in-the-public-table rules → Task 2 Step 3. §6's "not egress" → Task 3's ledger delta and Task 4 Step 1. §7's rollout → Task 3's two 404 tests. §8's compliance list → Tasks 2 and 3.
 
 **Deliberately absent:** no migration task (no schema change), no OpenAPI task (this route stays off `HTTP_ROUTES`, like every clip-scoped bearer read), no scope task (`resolve` already exists, so no re-pairing).
 
 **Type consistency.** `resolveItemsByIds(db, ids)` returns `ResolvedItemRef[]` in Task 1 and is consumed under that name in Task 3. `RESOLVE_IDS_MAX_BATCH` is defined once in Task 1 and imported by Task 3 rather than re-declared. `ROUTE_KEY_ITEMS_RESOLVE_IDS` is introduced in Task 2 and used in Task 3. The six-field key set is written identically in Task 1's projection test and Task 4's disclosure guard.
 
-**Known adjustments an implementer should expect.** Task 1's test seeding is written against `resolve-by-url.test.ts`'s helper, which must be read rather than assumed — the placeholder `applySchema`/`insert` names in Step 1 are explicitly marked to be replaced with whatever that file actually uses. Task 2 may not be independently green if the route-auth scanner rejects a table entry with no matching handler literal; the step says to fold Tasks 2 and 3 into one commit if so, rather than working around the scanner.
+**Known adjustments an implementer should expect.** Task 1's seeding DDL is written out in full rather than deferred to the sibling's helper, because the sibling's DDL omits `canonical_url` and copying it would fail on this module's `COALESCE`. The three `stats`-free row shapes are transcribed from the real `item` table; if a column has since been renamed, the schema is the authority and the plan is wrong.
+
+**One task boundary is set by a test, not by taste.** The route-auth entry and the handler mount are a single task because `http-route-auth.test.ts`'s stale-entry scanner reports any `HTTP_ROUTE_AUTH` key whose path literal is absent from `http-server.ts` — so an auth-only commit is red by construction, and a task that cannot be green alone is not a task.
+
+## Review disposition
+
+Reviewed against
+[`2026-09-07-items-resolve-ids-review.md`](./2026-09-07-items-resolve-ids-review.md).
+Each finding was checked against the gateway source before being accepted.
+
+**Accepted — both were real defects.**
+
+| finding | verified against | resolution |
+| --- | --- | --- |
+| F2.1 the seeding DDL lacks `canonical_url` | `resolve-by-url.test.ts:6-8` — a hand-written `CREATE TABLE item (…)` with no `canonical_url` | Task 1 Step 1 now writes the DDL out in full, `canonical_url` included, and names the schema constant as the alternative |
+| F2.2 the auth entry cannot ship without the mount | `http-route-auth.test.ts:101-114` — the stale-entry scanner reports any `HTTP_ROUTE_AUTH` key whose path literal is absent from `http-server.ts` | Tasks 2 and 3 **merged into one**; the plan is four tasks now |
+
+**F2.1 caught a false statement, not just a gap.** The draft told the
+implementer to seed "exactly as `resolve-by-url.test.ts` does" and described that
+file as applying the real schema. It does not — it hand-writes a lightweight
+DDL naming only the columns it reads, and `canonical_url` is not among them.
+Following the instruction as written would have produced `no such column:
+canonical_url` on this module's `COALESCE`.
+
+**F2.2 was hedged where it should have been decided.** The draft said to fold
+the two tasks together "if the suite objects". The scanner does not object
+conditionally — an auth-only commit is red by construction, so a task that
+cannot be green alone is not a task. Merged rather than annotated.
+
+**Accepted as an addition.**
+
+- **S2.1** — a named scope assertion for the new route, beside the ones its
+  neighbours already have. Added as Task 2 Step 4. The completeness scan proves
+  an entry *exists*; this proves it says `resolve`.
+
+**Noted, no change.**
+
+- **S2.2** confirms the egress assertion should be a count *delta* rather than
+  `=== 0`, and points at `items-resolve-file-route.test.ts:335` as the
+  precedent. The plan already specified a delta, and says why — this is a
+  confirmation, and a welcome one.
+- **F2.3** is an assessment of the two-tier cap rather than a finding. The
+  layering it describes — a raw-count refusal at the HTTP layer and a throw in
+  the lookup — is what the plan already specifies.
