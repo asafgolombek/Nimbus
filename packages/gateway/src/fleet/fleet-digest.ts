@@ -3,6 +3,7 @@ import { codeUnitCompare } from "../util/code-unit-compare.ts";
 import { summarizeBrief } from "./fleet-digest-extractors.ts";
 import type {
   BriefSummary,
+  FleetDigestNotCompared,
   FleetDigestResult,
   FleetJobDigest,
   FleetMetricDelta,
@@ -92,15 +93,13 @@ export function buildFleetDigest(deps: {
   ].sort(codeUnitCompare);
 
   const jobs: FleetJobDigest[] = [];
-  const firstObservation: { jobId: string; briefId: string; createdAt: number }[] = [];
-  const notSummarizable: {
-    jobId: string;
-    briefId: string;
-    role: "current" | "predecessor";
-    reason: string;
-  }[] = [];
-  const noBriefInWindow: { jobId: string; agent: string }[] = [];
-  const agentChanged: { jobId: string; from: string; to: string }[] = [];
+  // Derived from `FleetDigestNotCompared` rather than restated inline — that type is the single
+  // definition of these shapes; structural checking at the return statement below catches drift
+  // either way, but there is no reason to keep a second copy of it here.
+  const firstObservation: FleetDigestNotCompared["firstObservation"][number][] = [];
+  const notSummarizable: FleetDigestNotCompared["notSummarizable"][number][] = [];
+  const noBriefInWindow: FleetDigestNotCompared["noBriefInWindow"][number][] = [];
+  const agentChanged: FleetDigestNotCompared["agentChanged"][number][] = [];
 
   for (const jobId of ids) {
     const cfg = configured.get(jobId);
@@ -126,6 +125,13 @@ export function buildFleetDigest(deps: {
       // their metric namespaces are disjoint, so comparing them would report EVERY metric as
       // one-sided and every key as churn: a wall of movement describing a config edit, not the
       // index. Refused with its own disclosure rather than diffed (spec § 5.3).
+      //
+      // Deliberately takes precedence over summarizability: this fires BEFORE either brief is
+      // even passed to `summarizeBrief`, so a `current` brief that is both under the new agent
+      // AND independently corrupt is absorbed into this disclosure with no separate
+      // "also unreadable" signal. That is still correct — the comparison is impossible either
+      // way, and "the agent changed" is the more actionable fact for a reader than "also, the
+      // new brief doesn't parse".
       agentChanged.push({ jobId, from: predecessor.agentMethod, to: current.agentMethod });
       continue;
     }

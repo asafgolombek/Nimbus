@@ -231,6 +231,23 @@ describe("buildFleetDigest assembles the job union", () => {
     expect(r.notCompared.notSummarizable[0]).toMatchObject({ jobId: "j1", role: "predecessor" });
   });
 
+  test("both sides unreadable produce TWO notSummarizable entries, one per role", () => {
+    insertBrief({ jobId: "j1", agentMethod: "agents.ghost", createdAt: 4000, findingsJson: "{{{" });
+    insertBrief({ jobId: "j1", agentMethod: "agents.ghost", createdAt: 4500, findingsJson: "}}}" });
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.notCompared.notSummarizable).toHaveLength(2);
+    expect(r.notCompared.notSummarizable).toContainEqual(
+      expect.objectContaining({ jobId: "j1", role: "current" }),
+    );
+    expect(r.notCompared.notSummarizable).toContainEqual(
+      expect.objectContaining({ jobId: "j1", role: "predecessor" }),
+    );
+    expect(r.jobs).toEqual([]);
+    expect(r.notCompared.firstObservation).toEqual([]);
+    expect(r.notCompared.noBriefInWindow).toEqual([]);
+    expect(r.notCompared.agentChanged).toEqual([]);
+  });
+
   test("a job repointed at a different agent is NOT diffed across shapes", () => {
     insertBrief({
       jobId: "j1",
