@@ -338,7 +338,9 @@ Everything else follows the standard triple. These break from it in a way worth 
 | `packages/gateway/src/fleet/fleet-synthesis-router.ts` | `wrapFleetSynthesisRouter` — invariant `I38`; guards BOTH `resolveForSynthesis` and `generateMarkdown`, locality DERIVED from `provider.isLocal` (`I34`) |
 | `packages/gateway/src/fleet/fleet-store.ts` | The V60 tables' sole accessor; `expires_at` is filtered on the READ path, not only by the prune |
 | `packages/gateway/src/index/fleet-v60-sql.ts` | V60 `fleet_job_state` / `fleet_run` / `fleet_brief` migration SQL |
-| `packages/cli/src/commands/fleet.ts` | `nimbus fleet status\|list\|briefs\|show\|run` + its own exit-code vocabulary (`FLEET_EXIT_CODES`) |
+| `packages/cli/src/commands/fleet.ts` | `nimbus fleet status\|list\|briefs\|show\|run\|digest` + its own exit-code vocabulary (`FLEET_EXIT_CODES`) |
+| `packages/gateway/src/fleet/fleet-digest.ts` | The change digest: pair selection, `compareSummaries`, and the Markdown renderer (`mdSafe` neutralises pipes/newlines from indexed titles) |
+| `packages/gateway/src/fleet/fleet-digest-extractors.ts` | The ELEVEN per-agent extractors + `FLEET_DIGEST_EXTRACTORS`, total over `EligibleAgentMethod` — a twelfth eligible agent is a compile error until its extractor exists |
 | `packages/gateway/src/ipc/agents-rpc.ts` `FLEET_ELIGIBILITY` | TOTAL over the served `agents.*` methods — 11 eligible; `negotiate` is `deferred`, NOT eligible |
 
 ## Top-level docs
