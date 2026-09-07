@@ -241,7 +241,7 @@ git commit -m "feat(fleet): derive the eligible-agent set from FLEET_ELIGIBILITY
 **Interfaces:**
 
 - Consumes: `BriefSummary`, `FleetDigestExtractor` (Task 1); `isCatchupBrief`, `isExpertBrief`, `isGhostBrief`, `isJanitorBrief` from `../agents/_lib/findings.ts`.
-- Produces: `FLEET_DIGEST_EXTRACTORS` (partial in this task, completed in Task 4) and `summarizeBrief(agentMethod: string, findingsJson: string): BriefSummary | undefined`.
+- Produces: `summarizeBrief(agentMethod: string, findingsJson: string): BriefSummary | undefined`, plus a module-scoped `PARTIAL` map that Task 3 extends and Task 4 replaces with the exported, compiler-checked `FLEET_DIGEST_EXTRACTORS`. The name in THIS task is `PARTIAL`, not `FLEET_DIGEST_EXTRACTORS`.
 
 **Shapes you need** (verified against `@nimbus-dev/sdk`):
 
@@ -296,6 +296,17 @@ describe("janitor encodes booleans as KEYS, not metrics", () => {
     expect(summarizeBrief("agents.janitor", mk(false))?.keys).toEqual(["peer:p1"]);
     expect(summarizeBrief("agents.janitor", mk(true))?.metrics["idle"]).toBeUndefined();
   });
+
+  test("proposalSuppressed is keyed too, never metric-encoded", () => {
+    const mk = (proposalSuppressed: boolean) =>
+      JSON.stringify({
+        ...base, kind: "janitor", query: { resourceRef: "r", idleDays: 30 },
+        idle: false, proposalSuppressed, cleanupAction: null, peersClear: 0, peersTouched: [],
+      });
+    expect(summarizeBrief("agents.janitor", mk(true))?.keys).toEqual(["proposal_suppressed"]);
+    expect(summarizeBrief("agents.janitor", mk(false))?.keys).toEqual([]);
+    expect(summarizeBrief("agents.janitor", mk(true))?.metrics["proposal_suppressed"]).toBeUndefined();
+  });
 });
 
 describe("catchup and expert", () => {
@@ -347,6 +358,17 @@ describe("malformed input never throws", () => {
     ["a bare primitive", JSON.stringify(7)],
     ["null", JSON.stringify(null)],
   ])("%s yields undefined", (_label, json) => {
+    expect(summarizeBrief("agents.ghost", json)).toBeUndefined();
+  });
+
+  test("a guard-passing brief with a malformed nested item yields undefined, not a throw", () => {
+    // The SDK guards check that `findings` is an ARRAY, not the shape of its items, so this
+    // legacy-shaped row passes isGhostBrief and then blows up inside the extractor.
+    const json = JSON.stringify({
+      ...base, kind: "ghost", query: { file: "a.ts" }, startEntityId: null,
+      findings: [{ peerId: "p1", rank: "high" }], // no `context`
+    });
+    expect(() => summarizeBrief("agents.ghost", json)).not.toThrow();
     expect(summarizeBrief("agents.ghost", json)).toBeUndefined();
   });
 
@@ -466,7 +488,22 @@ export function summarizeBrief(agentMethod: string, findingsJson: string): Brief
   } catch {
     return undefined;
   }
-  return extract(parsed);
+  try {
+    return extract(parsed);
+  } catch {
+    // The SDK guards validate the OUTER shape only: `isGhostBrief` accepts a brief whose
+    // `findings` is an array without checking the items, so a legacy-shaped row whose finding
+    // lacks `context` passes the guard and then throws inside the extractor. Verified by probe.
+    //
+    // A throw here would escape `buildFleetDigest` and take down the whole digest over one bad
+    // row — the opposite of the design, which is to DISCLOSE that one brief as not summarizable.
+    // Stated tradeoff, accepted deliberately: this also catches genuine bugs in extractor logic
+    // and reports them as unreadable data. That is the right trade because the alternative is an
+    // unattended crash, and because the `Not compared` section makes the outcome visible rather
+    // than silent. Per-item narrowing in all eleven extractors would be the other route; it is
+    // eleven times the surface and one forgotten field reopens the hole.
+    return undefined;
+  }
 }
 ```
 
