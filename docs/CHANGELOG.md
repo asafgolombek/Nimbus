@@ -8,6 +8,37 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-09-08 — Overnight sub-agent fleets, PR 2a: the change digest.** `nimbus fleet digest
+  [--since <duration>] [--json]` over the new `fleet.digest` IPC method — a local, deterministic
+  Markdown report of what moved between each fleet job's newest brief and its predecessor.
+  **No schema migration** (V60 already carried every column), **no new invariant**, **no new egress
+  class**, and **no model call at any point** — the last is what keeps the digest outside I38 by
+  construction rather than by check, and an LLM-written digest is a stated non-goal: the surface's
+  whole value is being mechanically true.
+  **What is compared:** the deterministic `findings_json`, never `brief_markdown`. A synthesised
+  brief differs run to run on an unchanged index, so diffing the human-readable column would report
+  "changed" on essentially every comparison — the same renderer-versus-rewrite split **I31** draws
+  for disclosure, applied to comparison.
+  **How:** eleven per-agent extractors reduce a brief to identity `keys` and named `metrics`, and
+  their map is **compiler-enforced total over the eligible agents** — `EligibleAgentMethod` is
+  derived from `FLEET_ELIGIBILITY` via `satisfies`, so flipping a twelfth agent to `eligible` fails
+  the build (`TS2741`) until its extractor exists. A key encodes IDENTITY only: `ghost` keys on
+  `peerId` alone, never `peerId:rank`, because a mutable band folded into a key reports a shift as
+  one resolution plus one arrival.
+  **The predecessor is the newest brief BEFORE the window**, not the immediately preceding one —
+  the naive rule silently narrows a 24-hour digest to the last inter-run gap for any sub-daily job.
+  **Five outcomes, all disclosed:** a job digest, or one of `first observation` / `not summarizable`
+  / `no brief in window` / `agent changed`, each rendered even as an explicit zero, and each
+  carrying an `[unconfigured]` marker when the job has been deleted from config. The job set is the
+  UNION of configured jobs and jobs with briefs in the window: walking config alone drops overnight
+  work when a job block is deleted in the morning, and walking briefs alone drops the
+  "configured but never ran" fact.
+  **`digest_min_delta`** (per job, default 1, refused below 1) bounds numeric movement only — a
+  finding appearing or resolving is never suppressed, and a metric withheld by the threshold is
+  counted and named rather than silently dropped.
+  Design: [`2026-09-07-fleet-change-digest-design.md`](./superpowers/specs/2026-09-07-fleet-change-digest-design.md).
+  **NOT shipped:** subject enumeration (PR 2b) — the owner still names each job's subject in config.
+
 - **2026-09-07 — Overnight sub-agent fleets, PR 1 of 2: standing agent jobs on idle local
   hardware.** `nimbus fleet status | list | briefs | show <id> | run <job> [--force]` over the new
   `fleet.*` IPC namespace, backed by schema **V60** (`fleet_job_state` / `fleet_run` /

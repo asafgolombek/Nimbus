@@ -1,6 +1,32 @@
 # S2 — Fleet Change Digest (PR 2a of the overnight-fleet row)
 
-> **Status: DESIGNED 2026-09-07, not implemented.** Nothing in this document exists in the code yet.
+> **Status: IMPLEMENTED 2026-09-08** (designed 2026-09-07). `nimbus fleet digest`, the eleven
+> per-agent extractors, the comparison, the renderer and the `fleet.digest` IPC method all exist.
+> No schema migration, no new invariant, no new egress class — as designed.
+>
+> **Four things the implementation changed in this document's own design**, each found by review
+> and folded back here rather than left to drift:
+>
+> - § 5 gained a FOURTH `Not compared` population, `agentChanged`. A job repointed at a different
+>   agent straddles two brief shapes whose metric namespaces are disjoint, so comparing them would
+>   report every metric as one-sided and every key as churn. It is its own population rather than a
+>   `notSummarizable` entry because both briefs read fine — it is the comparison that failed.
+> - § 4.4's band rule needed a mechanism, not just a rule. `bandCounts` originally emitted only the
+>   bands that occurred, so a peer moving `medium → high` made `rank_medium` vanish and read as
+>   extractor drift — the exact mislabelling § 4.4 exists to prevent, on § 4.4's own worked example.
+>   Band vocabularies are now pre-seeded at zero from the closed SDK unions.
+> - § 5.1's `[unconfigured]` marker had to reach all FIVE outcomes, not just the job sections: a
+>   config-deleted job appearing in any of the four `Not compared` populations read as though it
+>   would run again tonight.
+> - § 6's threshold disclosure had to cover the MIXED case. A suppressed metric left no trace at all
+>   when the job also changed some other way — `metricsSuppressed` now records it in both output
+>   shapes.
+>
+> **One thing this document did not anticipate at all:** finding keys embed titles from indexed
+> content, so an ordinary PR title containing a pipe broke the table it rendered into, and one
+> containing a newline forged a heading outright. `mdSafe` now neutralises both. That is a
+> disclosure-integrity concern of exactly the kind § 1 draws from I31, and it was invisible until
+> there was real rendered output to look at.
 >
 > **Slot:** [Spine S2 — Local Compute Fleet](../../roadmap.md#active), the row *"[NEW] Overnight
 > sub-agent fleets on zero-marginal local compute"*, which shipped
@@ -85,10 +111,12 @@ last inter-run gap, so a digest headed "since 24h ago" would report one hour of 
 what fixes that, and it preserves the property the naive rule was reaching for: a **weekly** job's
 predecessor is still a week old, because "newest before the window" is not bounded below.
 
-**The predecessor's exact timestamp and age are disclosed in the job's own section header**, not
-only in the preamble. The window is uniform across the digest but the comparison span is not — one
-job may be reporting a day and another a week — so the span belongs next to the numbers it
-qualifies.
+**The comparison SPAN is disclosed in the job's own section header**, not only in the preamble. The
+window is uniform across the digest but the span is not — one job may be reporting a day and another
+a week — so it belongs next to the numbers it qualifies. *(As implemented, the header carries the
+span (`compared over 7d`) and the exact predecessor timestamp is on the JSON result as
+`predecessorCreatedAt`. An earlier draft of this line promised both in the header; the span is what
+a reader needs to interpret the counts, and the timestamp is one `--json` away.)*
 
 ---
 
