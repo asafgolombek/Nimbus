@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788809554109,
+  "lastUpdate": 1788814551080,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1b228abeddefa0668b15632b0bee8abe8b9233a4",
-          "message": "chore(main): release sdk 1.2.0 (#714)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[1.2.0](https://github.com/nimbus-agent/Nimbus/compare/sdk-v1.1.2...sdk-v1.2.0)\n(2026-06-22)\n\n\n### Features\n\n* **apple:** iCloud Mail + Calendar connector (Phase 6 Slice 9-E)\n([#711](https://github.com/nimbus-agent/Nimbus/issues/711))\n([58c69e0](https://github.com/nimbus-agent/Nimbus/commit/58c69e09fba285b03b94eed60f69751103da1bf3))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).",
-          "timestamp": "2026-06-22T20:00:11+03:00",
-          "tree_id": "1577d744fe298cd96872fcf1fdaa5c7ebbc60dfc",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/1b228abeddefa0668b15632b0bee8abe8b9233a4"
-        },
-        "date": 1782149126149,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 290.6011737499997,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 294.27878074999535,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 338.14703449999286,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8531752330d23551738d815e9f6e2d6d72e75f77",
+          "message": "feat(http): GET /v1/items/resolve-ids — an item id back to its reference (#1465)\n\n## Summary\n\nImplements `GET /v1/items/resolve-ids` — the reverse of `GET\n/v1/items/resolve`. Given item ids, it returns each one's reference:\n`id`, `service`, `type`, `title`, `url`, `modified_at`. Nothing else.\n\nIt exists because ids inside an agent brief currently render as dead\ntext. The `glossary`, `decisions` and `ownership` lanes carry item URLs;\n`expert`, `impact`, `catchup` and `why` carry ids only, and a reader\ncannot follow an id. This route is what turns those into links.\n\nDesign and plan landed in #1464; this is the build.\n\n## Why this discloses less than what is already public\n\n`http-route-auth.ts` has `\"GET /v1/items\"` and `\"GET /v1/items/*\"` as `{\nkind: \"public\" }`. This route is **bearer-authed** under the existing\n`resolve` scope and returns **six fields**, built one at a time with no\nspread. There is no field a caller can reach here that those two routes\ndo not already hand out unauthenticated. No new scope, no migration, no\nOpenAPI entry, no `WRITE_ROUTE_ALLOWLIST` row — it is a read.\n\nThe integration test asserts the **exact sorted key set**, not that the\nsix are present, so a leaked `body_preview` fails the suite rather than\npassing it.\n\n## Three behaviours that are contract, not implementation detail\n\n**The cap counts raw `?id=` parameters, before de-duplicating.** 100\nmax; over it is `400 too_many_ids`, never a silent clamp — dropping ids\nmeans dropping links. Counting after de-duplication would be cheap for a\ncaller sending fifty thousand copies of one id and expensive for the\ngateway, so there is a test for exactly that: 101 copies of a *single*\nid must be refused. **The plan had this backwards** in Task 1's sample\ncode, contradicting its own Global Constraint and spec §5; the\nimplementer caught it by reading the prose against the code. `e7306e6c`\ncorrects the plan.\n\n**`404 resolve_disabled` fires before the auth check.** An unmounted\nclips surface plus a *bad* token still answers 404, not 401. This is the\ncapability signal a browser probes: it reads 404 as \"gateway older than\nthis route\" and withholds its links silently, where a 401 would turn a\nquiet degradation into a visible error. Two separate tests, one of which\nsends a real bad token.\n\n**`COALESCE(url, canonical_url)` — bare `url` first.** Deliberately the\nopposite precedence from `resolve_key`. `resolve-by-url.ts:58` selects\nthe bare `url`, and this response claims to be that projection\nfield-for-field; the fallback fires only where the sibling would have\nreturned nothing. #1464's committed review note recommends the reverse\nand is wrong — it carries a banner saying so.\n\n## Absent is not null\n\nAn unindexed id is **omitted from the response**. Not an error, not a\nnull entry. `url: null` means \"indexed, no URL\"; absence means \"not\nindexed\". One test carries both facts in a single request so neither can\npass on the other's behalf.\n\n## No egress\n\nNo outbound request of any kind, so no egress row — asserted as a\n**count delta across the request** rather than `=== 0`, which would also\npass on a ledger that merely happened to be empty.\n`egress-coverage.ts`'s route enumeration is updated to say so.\n\n## Checklist\n\n- [x] `bun run typecheck`\n- [x] `bun run lint` (biome, `--error-on-warnings`, 3057 files)\n- [x] `bun run lint:markdown` (173 files, 0 issues)\n- [x] `bun run audit:doc-refs` (1464 refs, all resolve)\n- [x] No absolute `file:///` links\n- [x] Every id bound as a parameter — never interpolated into the `IN\n(…)` list\n- [x] No `any`\n\n25 tests: 11 unit over a real in-memory database, 14 integration over\nthe served route.\n\n## Notes for reviewers\n\nEach task passed its own scoped review, then the whole branch was\nreviewed again as a unit. The reviews were asked to construct the\ncounterfactual for each assertion rather than confirm green — the\n101-copies test was verified to actually fail against a\nde-duplicate-first implementation, rather than merely passing against\nthis one.\n\nThe final review found no defect in shipped behaviour but five gaps\nworth naming, all fixed in `92dc3673` and `4772e028`:\n\n- **No 401 test against a *mounted* server.** An implementation gating\non scope only when a token was present would have served all six fields\nto any unauthenticated process on loopback, and every test here would\nstill have passed — the 403 test supplies a token, both 404 tests run\nunmounted. The shipped code was already correct\n(`requireScopedClipToken` 401s on an absent token before any scope\ncheck); only the pin was missing. Two tests now cover it, and they were\nverified to fail against that broken gate.\n- **A constraint that contradicted itself.** Spec §5 is titled *\"A count\nis not a size, and the size limit is not ours to enforce\"* and its body\nthen claimed the route refuses an over-budget query string. The heading\nis right — an over-long request line never reaches a handler — so the\nprose was corrected rather than a byte check added. There is no\ndenial-of-service the 100-cap does not already close.\n- **A test that could not fail:** the injection test's \"table is still\nthere\" assertion re-seeded a fresh `:memory:` database.\n- `http-api-test-server.ts`'s header still enumerated two routes where\nit now serves three.\n- The `--scopes` table in `cli-reference.md` described `resolve` as one\nroute, and was additionally missing its `egress` row entirely.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01StU1MQg9BjZzthYFue7TPr\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- Added `GET /v1/items/resolve-ids` for authenticated batch lookup of\nitem metadata.\n- Supports up to 100 requested IDs per request; unknown IDs are omitted\nand duplicate results are removed.\n- Requires the `resolve` permission and performs local index lookups\nwithout outbound network activity.\n\n- **Documentation**\n- Updated API, scope, changelog, and egress documentation for the new\nendpoint and its request limits.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T23:42:55+03:00",
+          "tree_id": "68c8a68c2974de7fee7f6c28576f7b11c271e289",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/8531752330d23551738d815e9f6e2d6d72e75f77"
+        },
+        "date": 1788814547432,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 342.0317137000053,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 340.67150615000355,
             "unit": "ms"
           }
         ]
