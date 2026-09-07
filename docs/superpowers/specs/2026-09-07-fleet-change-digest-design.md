@@ -20,6 +20,12 @@
 > [S2 — Overnight Sub-Agent Fleets](./2026-09-06-s2-overnight-agent-fleets-design.md) (the
 > substrate: `FLEET_ELIGIBILITY`'s total-map shape, V60, I38), and invariant **I31**'s
 > renderer-versus-rewrite split, which § 1 applies to a different problem.
+>
+> **Reviewed 2026-09-07** — see
+> [`…-design-review.md`](./2026-09-07-fleet-change-digest-design-review.md). Eight findings folded
+> in; two of the review's own claims are corrected rather than adopted (§ 4.4). The finding that
+> changed the design is § 2's predecessor rule, which was wrong for any job whose interval is
+> shorter than the window.
 
 ---
 
@@ -59,11 +65,30 @@ So the unit is **(job, subject)**, and today — with the owner naming each job'
 the subject is a fixed property of the job, so the unit is effectively the job id. § 3 explains why
 that needs no schema to express yet.
 
-**Each job's newest brief in the window is compared against that job's own immediately-preceding
-brief, whether or not the predecessor falls inside the window.** Restricting the predecessor to the
-window would make any job whose interval exceeds the window read as brand-new on every digest — a
-weekly job would be "first ever" seven days running. The predecessor's age is disclosed alongside
-the comparison, so a reader can see they are looking at a week's movement rather than a day's.
+### 2.1 Picking the pair
+
+The **current** brief is the job's newest inside the window. The **predecessor** is chosen by a rule
+with two cases, and getting this wrong in either direction produces a digest that lies about the
+period it covers:
+
+1. **The newest brief created strictly BEFORE the window**, when one exists. This is what makes the
+   digest report *the window's* movement: for a job running hourly against a 24h window, the pair is
+   `23:00 today` against `23:00 yesterday`, not `23:00` against `22:00`.
+2. **Otherwise the OLDEST brief inside the window**, provided it is not the current brief itself.
+   This covers a job that first ran partway through the window — there is no before-window brief, but
+   there is still real movement to report.
+3. **Otherwise `first observation`** — one brief in all of history, nothing to compare against.
+
+The naive rule — "the immediately preceding brief, whenever it was" — is correct only for jobs whose
+interval is at least the window. For anything sub-daily it silently narrows a 24-hour digest to the
+last inter-run gap, so a digest headed "since 24h ago" would report one hour of movement. Case 1 is
+what fixes that, and it preserves the property the naive rule was reaching for: a **weekly** job's
+predecessor is still a week old, because "newest before the window" is not bounded below.
+
+**The predecessor's exact timestamp and age are disclosed in the job's own section header**, not
+only in the preamble. The window is uniform across the digest but the comparison span is not — one
+job may be reporting a day and another a week — so the span belongs next to the numbers it
+qualifies.
 
 ---
 
@@ -111,6 +136,13 @@ them loses information the digest needs. A finding that appeared is a *set* chan
 reporting whatever its size; a count that moved is a *magnitude* change and is the only kind a
 threshold can meaningfully apply to (§ 6).
 
+**A boolean is a key, never a metric.** `JanitorBrief.idle` is the obvious temptation — encode it as
+`idle: 0 | 1` and let it ride the metric path. That is a trap: § 6's threshold suppresses metric
+movement below `digest_min_delta`, so any job configured with a delta of 2 or more would
+*permanently* suppress an idle flip, which is the single most meaningful thing a janitor brief has
+to say. Booleans go in `keys` — present when true, absent when false — where § 6 guarantees they are
+never threshold-suppressed. The same rule covers any future flag.
+
 ### 4.2 The map is total over the ELIGIBLE agents, and the compiler enforces it
 
 `FLEET_ELIGIBILITY` classifies all fifteen served `agents.*` methods; eleven are `eligible`. Only
@@ -153,7 +185,7 @@ one hop further, instead of adding a second hand-maintained list beside it. A pa
 generic fallback was considered and rejected for exactly the reason PR 1 rejected an exclusion
 `Set`: it fails open, and the failure is silent.
 
-### 4.3 Extractors guard; they do not cast
+### 4.3 Extractors guard; they do not cast — and eight of the guards already exist
 
 The parameter is `unknown` because that is what it honestly is: `findings_json` is a TEXT column,
 and a row written by an older gateway can legitimately not match today's brief shape. Each extractor
@@ -161,10 +193,54 @@ validates the fields it reads and returns `undefined` when they are absent or wr
 never `as`-casting into the expected shape. This follows the repo's standing rule for external JSON
 and non-negotiable 7.
 
+**Most of that validation is already written and must be reused rather than re-implemented.**
+`agents/_lib/findings.ts` re-exports nine brief type guards from `@nimbus-dev/sdk` —
+`isCatchupBrief`, `isConflictBrief`, `isExpertBrief`, `isGhostBrief`, `isHuddleBrief`,
+`isImpactBrief`, `isJanitorBrief`, `isPreflightBrief`, `isWhyBrief`. Eight of those cover eligible
+agents (`isPreflightBrief` covers an excluded one), so **eight of the eleven extractors open with an
+SDK guard** and hand-roll nothing.
+
+The remaining three — `glossary`, `decisions`, `ownership` — have no guard, because their brief
+types are gateway-local (`agents/_lib/{glossary,decisions,ownership}-types.ts`) rather than SDK
+types. Those three hand-roll a narrow structural check covering only the fields their extractor
+reads. Deliberately narrow: a full-shape validator for a type that already typechecks everywhere
+else in the process would be a second definition of the same thing, free to drift from the first.
+
 **An unsummarizable brief is disclosed, not dropped.** The digest reports the count and the reason,
 because a silent drop under-reports precisely when the schema moved underneath the reader — the
 moment the digest is least trustworthy is the moment it would say the least. Malformed JSON on the
 row is handled the same way: `JSON.parse` failure yields `undefined`, and never propagates.
+
+### 4.4 The one rule every key must obey
+
+**A key encodes IDENTITY only. Anything that can change while the finding stays the same thing
+belongs in `metrics`, never in the key.**
+
+This is the rule that decides every per-agent extractor, and it is easy to get wrong in a way that
+looks reasonable. A key that folds in a mutable attribute turns *one changed thing* into *one
+resolved plus one appeared* — the digest then reports churn that did not happen, and buries the
+change that did.
+
+The concrete case, which the design review got wrong: `GhostFinding` is
+`{ peerId, expert, rank, context, suggestedContact }`, and `rank` is `ExpertiseRank` — a confidence
+band (`high | medium | low | none`), not an ordinal position. Keying on `peerId:rank` means a peer
+whose band moves `medium → high` vanishes from the key set and reappears under a new key, reported
+as one resolution and one arrival for what is a single peer becoming more expert. The key is
+`peerId`; the bands are counted in metrics, where a band shift shows up as what it is.
+
+The review's own table is internally inconsistent on exactly this point: `ExpertFinding` has the
+identical identity-plus-band shape (`personId` + `confidence`), and there the review correctly keys
+on `personId` alone. Two agents, one shape, two different rules — which is the tell that the rule
+had not been stated. It is stated here so all eleven extractors answer to it.
+
+**Composite keys where no identity field exists.** Some findings genuinely have no id — a
+`ConflictFinding` is `{ peerId, who, service, collisionType, title, … }` with nothing unique — so
+the key is a composite of the fields that identify *which collision this is*. Where a composite must
+include a mutable field (a title), that is a stated bound rather than a solved problem: **retitling
+an item reads as one finding resolving and another appearing.** Preferring a nullable id here would
+be worse, not better — a `WhyFinding.entityId` that is `null` on some findings and populated on
+others produces a key that changes when the id arrives, which is the same phantom churn with an
+extra failure mode. So `why` keys on `lane:title` deliberately, as the review proposed.
 
 ---
 
@@ -187,9 +263,30 @@ digest is indistinguishable from a job that never ran.
 and its reason:
 
 - **first observation** — the job has exactly one brief, so there is nothing to compare against;
-- **not summarizable** — § 4.3's shape or parse failures, named by job and agent;
+- **not summarizable** — § 4.3's shape or parse failures, named by job and agent, and stating
+  whether it was the *current* or the *predecessor* brief that could not be read (a reader who sees
+  only "not summarizable" cannot tell a broken new brief from a broken old one, and those need
+  different responses);
 - **no brief in window** — the job is configured but produced nothing in the window, which is a
   scheduling fact the digest is the right place to surface.
+
+### 5.1 The job set is a UNION, and retired jobs are still reported
+
+The set of jobs the digest walks is the union of:
+
+1. jobs currently configured in `nimbus.toml`, and
+2. distinct `job_id`s with a brief inside the window.
+
+Neither alone is correct, and each fails in a different direction. Walking only the config drops
+work that actually happened: delete or rename a `[[fleet.job]]` block in the morning and the briefs
+it produced overnight vanish from the digest with no disclosure — the digest would silently omit
+real findings because of an edit made after they were found. Walking only the briefs drops the
+scheduling fact: a configured job that never ran would simply be absent, which is the `no brief in
+window` population above.
+
+A job present in the briefs but absent from config is rendered with an explicit
+**`[unconfigured]`** marker. It is not filtered out, and it is not shown as if it were still
+scheduled — the marker is what stops a reader inferring the job will run again tonight.
 
 These are disclosure, so they are built by the renderer from the data rather than assembled by any
 caller, and they are present even when empty (as an explicit zero), because a section that vanishes
@@ -215,6 +312,26 @@ true rather than aspirational, and it is forward-compatible with a richer form.
 does not mark the job unchanged — a job whose only movement is below the threshold is reported as
 unchanged-within-threshold, naming the threshold, so a reader cannot mistake a suppressed change for
 no change.
+
+**Refused below 1, and for a different reason than `retention_days`.** `digest_min_delta = 0` would
+admit every metric whose absolute delta is `>= 0` — that is, every metric, including the ones that
+did not move — so a zero turns the threshold inside out and makes the digest report *more* than no
+threshold at all. There is no reading of it that means what someone writing it would intend, so it
+is a `FleetConfigError` naming the key rather than a silent clamp. Note this is a *narrower*
+justification than the one PR 1 needed for `retention_days`, where a zero destroyed data; here it
+only produces a nonsense report. Both refuse; the reasons are not interchangeable and the config
+comment should not imply they are.
+
+### 6.1 A metric that exists on only one side of the comparison
+
+Extractors change. When one gains a metric, the predecessor brief — summarized by today's extractor
+but built from an older brief shape — may simply not have it.
+
+**Do not synthesize a delta.** A metric present in `after` and absent in `before` is reported as
+`new metric: N`, not as `0 → N`; a metric present in `before` and absent in `after` is reported as
+`metric no longer reported`, not as `N → 0`. The synthesized form is worse than useless: it asserts
+movement of exactly the size of the current value, which is indistinguishable from a real jump from
+zero, and it would fire on every job the first night after any extractor gained a field.
 
 ---
 
@@ -260,6 +377,60 @@ containing no runs at all is **not** an error — it is a legitimate answer ("th
 rendered as such and exiting zero. Reserving a non-zero code for "nothing to report" would make a
 quiet night indistinguishable from a broken one in any script that checks the status.
 
+`--since` is parsed with the existing `parseDurationToMs` (`packages/cli/src/lib/parse-duration.ts`)
+rather than a second duration vocabulary, and `--json` is added because it is already the
+convention on this command group, not because this subcommand is special.
+
+### 8.1 The IPC result is structured; the Markdown is one field of it
+
+`fleet.digest` returns data, not a rendered string with the data thrown away. The CLI renders the
+Markdown for a human; `--json` hands back the same result for a script; and both come from one
+computation, so the two can never disagree about what moved.
+
+```ts
+interface FleetMetricDelta {
+  readonly before: number | null; // null = metric absent on that side (§ 6.1)
+  readonly after: number | null;
+  readonly delta: number | null;  // null when either side is absent — never synthesized
+}
+
+interface FleetJobDigest {
+  readonly jobId: string;
+  readonly agentMethod: string;
+  readonly configured: boolean;   // false = the [unconfigured] marker of § 5.1
+  readonly status: "changed" | "unchanged" | "unchanged_within_threshold";
+  readonly minDelta: number;
+  readonly currentBriefId: string;
+  readonly currentCreatedAt: number;
+  readonly predecessorBriefId: string;
+  readonly predecessorCreatedAt: number;
+  readonly comparisonSpanMs: number;   // current − predecessor, NOT the window (§ 2.1)
+  readonly metrics: Readonly<Record<string, FleetMetricDelta>>;
+  readonly keysAppeared: readonly string[];
+  readonly keysResolved: readonly string[];
+}
+```
+
+`FleetDigestResult` carries `windowMs`, `generatedAt`, the rendered `markdown`, the `jobs` array,
+and a `notCompared` object holding § 5's three populations. The predecessor fields on
+`FleetJobDigest` are non-optional and that is deliberate: a job with no predecessor is not a
+`FleetJobDigest` with holes in it, it is a `notCompared.firstObservation` entry, so the type makes
+the invalid state unrepresentable rather than documenting it.
+
+`comparisonSpanMs` is named for what it is rather than `predecessorAgeMs`, because § 2.1 lets it
+differ from the window per job — a consumer that assumed it equalled `windowMs` would be wrong for
+every weekly job.
+
+**Ordering is deterministic and locale-independent.** Job sections, metric rows, and the
+`keysAppeared` / `keysResolved` lists are all sorted with `codeUnitCompare`
+(`packages/gateway/src/util/code-unit-compare.ts`), never `localeCompare` — otherwise the same
+database renders differently on two machines and a digest diffed against yesterday's saved copy
+shows movement that is purely collation.
+
+**`now` is injected, not read.** `FleetRpcCtx` already carries `now: () => number`
+(`ipc/fleet-rpc.ts:44`); the digest takes it from there, so every window boundary in the tests is a
+fixed number rather than a race against the clock.
+
 `fleet-digest.ts` and `fleet-digest-extractors.ts` are split rather than combined because they have
 different reasons to change and very different shapes of test: the extractors are eleven small
 table-driven shape functions, the comparison is one algorithm with edge cases. Keeping the eleven
@@ -304,14 +475,23 @@ red-proved by removing an entry.
 
 **Comparison.** The cases that actually bite, each with a real `fleet_brief` row behind it:
 
-- predecessor **older than the window** — compared, and its age disclosed;
+- predecessor **older than the window** — compared, and its span disclosed;
+- **sub-daily job, many briefs in one window** — the pair is the newest in-window against the newest
+  *before* the window, NOT against the run an hour earlier. This is § 2.1's whole reason to exist,
+  so it is red-proved by reverting to the naive rule and watching the reported span collapse;
+- **job whose first brief falls inside the window** — case 2, oldest-in-window as predecessor;
 - **first-ever brief** — lands in `Not compared` as *first observation*, never as "everything is new";
-- **unsummarizable predecessor** — the pair is `Not compared`, and the *reason* distinguishes it from
-  a first observation;
+- **unsummarizable predecessor vs. unsummarizable current** — both land in `Not compared`, and the
+  entries are distinguishable by role;
 - **job absent from the window** — reported, not silently omitted;
+- **job in the briefs but no longer in config** — reported with `configured: false`, never filtered;
 - **identical summaries** — reported as unchanged;
 - **movement below `digest_min_delta`** — reported as unchanged-within-threshold naming the
-  threshold, and specifically NOT reported as unchanged.
+  threshold, and specifically NOT reported as unchanged;
+- **a key appearing while a metric moves below the threshold** — the key still reports; the
+  threshold must not suppress it;
+- **a metric present on one side only** — reported as new / no-longer-reported, with `delta: null`,
+  and specifically NOT as `0 → N`.
 
 **A control that can actually fail.** The threshold tests use a default other than the value under
 test wherever possible. A test that sets `digest_min_delta` to its own default proves nothing, which
@@ -332,12 +512,34 @@ is the exact defect #1462 had to correct in `remote_call_budget = 0 stays legal`
 - The `satisfies`-derived eligible subset typechecks, rejects a non-eligible member, and fails the
   build on a missing extractor (§ 4.2, probe run and red-proved).
 
-**Assumed, to be confirmed during implementation:**
+- Nine brief type guards (`isCatchupBrief` … `isWhyBrief`) are re-exported from `@nimbus-dev/sdk` by
+  `agents/_lib/findings.ts`; eight cover eligible agents. `glossary`, `decisions` and `ownership`
+  have none, their brief types being gateway-local (§ 4.3).
+- `codeUnitCompare`, `parseDurationToMs` and `FleetRpcCtx.now` all exist at the paths § 8 cites, and
+  `--json` is already present in `packages/cli/src/commands/fleet.ts`.
 
-- That each of the eleven eligible briefs actually contains a field stable enough to serve as a
-  finding *key*. Where one does not, that agent's extractor returns metrics only and an empty key
-  set — a legitimate outcome, but it must be a stated per-agent finding rather than a silent empty
-  list, since an always-empty key set looks identical to "nothing appeared or resolved".
-- That the digest's read stays cheap at retention scale. The corpus is bounded by
-  `retention_days` (default 14) and re-parsing it per digest is expected to be trivial, but the
-  number has not been measured.
+**Resolved since the first draft** — the review's § 3.1 audited all eleven eligible brief shapes and
+found every one carries usable identity keys and counts, which closes this document's original
+open assumption. Two of its per-agent proposals are corrected rather than adopted, and the
+corrections are the reason § 4.4 exists at all:
+
+- **`ghost` must key on `peerId`, not `peerId:rank`** — `rank` is a mutable confidence band, so
+  folding it into the key reports a band shift as a resolution plus an arrival (§ 4.4).
+- **`impact`'s identity field is `affectedItemId`** — the review names an `entityId` that
+  `ImpactFinding` does not have, and its `(or :title)` fallback is unnecessary since a stable id is
+  present on every finding.
+- **`janitor`'s `idle` is a key, not a `0 | 1` metric** — as a metric it is silently suppressed by
+  any `digest_min_delta >= 2` (§ 4.1).
+
+**The review's metric NAMES are a starting point, not a contract.** Its table proposes some forty
+metric names across eleven agents; those are settled per extractor during implementation with the
+actual brief shape in front of us, and this document deliberately does not freeze them. Locking a
+vocabulary that large into a design doc before writing a line of it produces names that are wrong
+in ways nobody notices until the extractor is written, and a spec that then disagrees with the code.
+
+**Still assumed, to be confirmed during implementation:**
+
+- That the digest's read stays cheap at retention scale. The review argues it is two indexed
+  B-tree seeks per job over a table bounded by `retention_days`, which matches the V60 index, but
+  **no measurement has been taken** — the review's sub-2ms figure is an estimate, not a benchmark,
+  and is recorded here as such.
