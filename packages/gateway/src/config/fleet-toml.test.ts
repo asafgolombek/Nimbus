@@ -179,4 +179,19 @@ describe("[[fleet.job]] digest_min_delta", () => {
       file: "src/a.ts",
     });
   });
+
+  test("a malformed value falls through to the default rather than throwing", () => {
+    // Writing a number the parser can read and refuse is a DIFFERENT act from writing nonsense:
+    // `digest_min_delta = 0` is a config error, `digest_min_delta = "abc"` is a typo that should
+    // leave the key at its default, exactly as every sibling key in this parser behaves.
+    for (const raw of [
+      'digest_min_delta = "abc"',
+      "digest_min_delta = 1.5",
+      "digest_min_delta = 3abc",
+    ]) {
+      const j = parseNimbusTomlFleetJobs(job(raw))[0];
+      expect(j?.digestMinDelta).toBe(1);
+      expect(j?.params).toEqual({});
+    }
+  });
 });
