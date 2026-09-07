@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788797562950,
+  "lastUpdate": 1788798930674,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "58c69e09fba285b03b94eed60f69751103da1bf3",
-          "message": "feat(apple): iCloud Mail + Calendar connector (Phase 6 Slice 9-E) (#711)\n\n## Summary\n\nShips the first-party **`apple`** MCP connector: indexes iCloud **Mail\n(IMAP)** + iCloud **Calendar (CalDAV)** into the local index and exposes\n**4 HITL-gated write tools** (`apple_mail_send`,\n`apple_mail_draft_create`, `apple_calendar_event_create`,\n`apple_calendar_event_delete`). This is the **Apple Mail/Calendar** item\n(E) of Phase 6 Slice 9.\n\nPlan: `docs/superpowers/plans/2026-06-21-slice9-apple-mail-calendar.md`\n· Design:\n`docs/superpowers/specs/2026-06-21-slice9-apple-mail-calendar-design.md`\n\n## Architecture\n\n- One AGPL package `packages/mcp-connectors/apple` (stdio MCP server).\n**Mail reuses** the shared `imap-tool-kit` + the gateway's existing IMAP\nsync engine.\n- **Calendar** adds the codebase's first CalDAV path: a pure in-repo\n**iCalendar build/parse module in `@nimbus-dev/sdk`** (`icalendar.ts`,\nshared by connector + gateway — no parser duplication) + an injectable\n`CalDavClient`/transport whose real (tsdav, network) implementation is\nconfined to the coverage-excluded `server.ts` and a thin gateway\ntransport shell.\n- **Writes ride the generic email/calendar dispatch path**\n(`payload.mcpToolId = \"apple_*\"`, `action.type` = the existing\n`email.send` / `email.draft.create` / `calendar.event.create` /\n`calendar.event.delete`), protected by the **existing executor I2 HITL\ngate** — **no new invariant**, no\n`connector-write-registry`/I26/D20/SECURITY-INVARIANTS edits.\n\n## Non-negotiables / privacy\n\n- **No plaintext credentials** — single iCloud app-specific password\n(Vault keys `apple.icloud_email` / `apple.icloud_app_password`) injected\nas env vars by the lazy-mesh spawner; SMTP transport uses `requireTLS`.\n- **Forced sender** — mail writes pin `From` to the authenticated iCloud\naddress.\n- **Metadata-only PII contract** — mail = headers + attachment metadata\n+ ≤2000-char preview (never bodies/bytes); calendar =\nsummary/start/end/location/organizer/status/recurrence + ≤2000-char\nnotes + attendee emails.\n- Cross-platform (no OS gate). `apple:email` routes to 1536-dim\nembeddings; `apple:event` stays 384-dim.\n\n## Verification (full ship gate)\n\n- Rebased onto `main` **after Workday (#709) landed**; resolved all 7\nshared registration-site conflicts (catalog, secrets-manifest,\nrate-limiter, 3× lazy-mesh, assemble-sync) keeping both `workday` and\n`apple`.\n- ✅ `typecheck` (all 86 packages) · `build` · biome (verified on all\ntouched files) · jscpd 3.97% · doc-refs · package-readmes ·\ninvariants/D11 · exclusion-parity · boundaries · cross-platform.\n- ✅ **Coverage-floor: Docker-Linux-authoritative lcov → `ok` (baseline\n`{}`, every new non-excluded file ≥85% line / ≥80% branch).**\n- ✅ Whole-branch code review (subagent): rebase integrity PASS; 3\nfindings + 1 minor, **all fixed** (D11 vault-key listing +\n`readConnectorSecret`, base64 draft CTE, CalDAV filename sanitization,\nSMTP `requireTLS`).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Apple iCloud Mail + Calendar connector now available, indexing emails\nand calendar events with metadata-only previews and attachment metadata.\n* Email and calendar write operations (send, draft creation, event\nmanagement) require user confirmation before execution.\n  * Cross-platform support (Windows, macOS, Linux).\n\n* **Documentation**\n* Added comprehensive design specifications and implementation plans for\nthe connector.\n  * Updated roadmap and changelog with connector delivery information.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-22T16:33:18Z",
-          "tree_id": "f1d7d8a6a2e93f658a33df20186ab2ae52d51272",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/58c69e09fba285b03b94eed60f69751103da1bf3"
-        },
-        "date": 1782147298954,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 297.63269614999734,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 295.0218050500022,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 320.53995719999983,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6f28a8015c829355615820bd01301a112cc923d0",
+          "message": "chore: release main (#1463)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>7.12.0</summary>\n\n##\n[7.12.0](https://github.com/nimbus-agent/Nimbus/compare/v7.11.0...v7.12.0)\n(2026-09-07)\n\n\n### Features\n\n* **fleet:** overnight sub-agent fleets on local compute — S2 PR 1 of 2\n([#1458](https://github.com/nimbus-agent/Nimbus/issues/1458))\n([d47d52e](https://github.com/nimbus-agent/Nimbus/commit/d47d52e220b56293e94628c091bac662404eb816))\n\n\n### Bug Fixes\n\n* **fleet:** close the five follow-ups from the overnight-fleet merge\n([#1462](https://github.com/nimbus-agent/Nimbus/issues/1462))\n([bf0559b](https://github.com/nimbus-agent/Nimbus/commit/bf0559b56c52ab79c9c48e94fd1d2ce1e649aa67))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-07T16:24:19Z",
+          "tree_id": "cf62471046f52ae74d73f03c82e43ae8bae9b79c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6f28a8015c829355615820bd01301a112cc923d0"
+        },
+        "date": 1788798926969,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.7720899000036,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 328.50468954999997,
             "unit": "ms"
           }
         ]
