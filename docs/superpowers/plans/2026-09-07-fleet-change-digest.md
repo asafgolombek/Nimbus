@@ -1281,10 +1281,21 @@ In `flush`, default it: `jobs.push({ name, agent, intervalSeconds, params, diges
 Run: `bun test packages/gateway/src/config/fleet-toml.test.ts && bun run typecheck`
 Expected: PASS. Typecheck may flag other construction sites of `NimbusFleetJobToml` in tests — fix them by adding `digestMinDelta: 1`.
 
-- [ ] **Step 5: Red-prove the reserved-key trap**
+- [ ] **Step 5: Red-prove the reserved-key trap — by deleting the BRANCH, not the Set entry**
 
-Remove `"digest_min_delta"` from `JOB_RESERVED`. Re-run.
+Delete the whole `else if (kv.key === "digest_min_delta") { … }` arm. Re-run.
 Expected: "does NOT leak into agent params" FAILS with `{ digestMinDelta: 5 }`. Restore.
+
+**Removing the `JOB_RESERVED` entry alone proves nothing, and it is worth knowing why.** The
+dedicated arm sits ABOVE the generic `else if (!JOB_RESERVED.has(kv.key))` sweep, so the key never
+reaches the Set test — the entry is control-flow-inert the moment the arm exists, exactly as
+`name`, `agent` and `interval_seconds` already are (all three are in the Set and all three are
+intercepted earlier).
+
+**The entry stays anyway,** for the same reason those three are there: `JOB_RESERVED` reads as the
+list of keys that are not agent params, and a reader checking whether a key can reach an agent
+looks at the Set. Leaving `digest_min_delta` out would make that list quietly wrong, and would let
+a future refactor that removes the dedicated arm reopen the leak with nothing to catch it.
 
 - [ ] **Step 6: Commit**
 
