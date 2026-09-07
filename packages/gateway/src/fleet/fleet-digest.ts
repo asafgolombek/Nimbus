@@ -1,5 +1,13 @@
+import type { NimbusFleetJobToml } from "../config/fleet-toml.ts";
 import { codeUnitCompare } from "../util/code-unit-compare.ts";
-import type { BriefSummary, FleetJobDigest, FleetMetricDelta } from "./fleet-digest-types.ts";
+import { summarizeBrief } from "./fleet-digest-extractors.ts";
+import type {
+  BriefSummary,
+  FleetDigestResult,
+  FleetJobDigest,
+  FleetMetricDelta,
+} from "./fleet-digest-types.ts";
+import type { FleetStore } from "./fleet-store.ts";
 
 type Compared = Pick<FleetJobDigest, "status" | "metrics" | "keysAppeared" | "keysResolved">;
 
@@ -59,5 +67,111 @@ export function compareSummaries(
     metrics: Object.freeze(metrics),
     keysAppeared,
     keysResolved,
+  };
+}
+
+/**
+ * Walks the UNION of configured jobs and jobs with a live brief in the window (spec § 5.1) — not
+ * either half alone: config-only drops overnight work when a job block is deleted in the morning,
+ * briefs-only drops the "configured but never ran" fact. Sorts every outcome into a job digest or
+ * one of four `notCompared` populations; never drops a job silently.
+ */
+export function buildFleetDigest(deps: {
+  store: FleetStore;
+  jobs: readonly NimbusFleetJobToml[];
+  windowMs: number;
+  now: number;
+}): Omit<FleetDigestResult, "markdown"> {
+  const windowStartMs = deps.now - deps.windowMs;
+  const configured = new Map(deps.jobs.map((j) => [j.name, j]));
+  const ids = [
+    ...new Set([
+      ...configured.keys(),
+      ...deps.store.jobIdsWithBriefsInWindow({ windowStartMs, now: deps.now }),
+    ]),
+  ].sort(codeUnitCompare);
+
+  const jobs: FleetJobDigest[] = [];
+  const firstObservation: { jobId: string; briefId: string; createdAt: number }[] = [];
+  const notSummarizable: {
+    jobId: string;
+    briefId: string;
+    role: "current" | "predecessor";
+    reason: string;
+  }[] = [];
+  const noBriefInWindow: { jobId: string; agent: string }[] = [];
+  const agentChanged: { jobId: string; from: string; to: string }[] = [];
+
+  for (const jobId of ids) {
+    const cfg = configured.get(jobId);
+    const { current, predecessor } = deps.store.briefPairForJob({
+      jobId,
+      windowStartMs,
+      now: deps.now,
+    });
+    if (current === undefined) {
+      // Configured but no brief landed in the window at all — reported with the CONFIGURED agent
+      // name, since there is no brief to read one from.
+      noBriefInWindow.push({ jobId, agent: cfg?.agent ?? "unknown" });
+      continue;
+    }
+    if (predecessor === undefined) {
+      // One brief only: reporting it as "all new" would fabricate a change against a baseline
+      // that never existed (spec § 5.2).
+      firstObservation.push({ jobId, briefId: current.id, createdAt: current.createdAt });
+      continue;
+    }
+    if (current.agentMethod !== predecessor.agentMethod) {
+      // Same job name, different agent — the owner repointed it. Both briefs are readable, but
+      // their metric namespaces are disjoint, so comparing them would report EVERY metric as
+      // one-sided and every key as churn: a wall of movement describing a config edit, not the
+      // index. Refused with its own disclosure rather than diffed (spec § 5.3).
+      agentChanged.push({ jobId, from: predecessor.agentMethod, to: current.agentMethod });
+      continue;
+    }
+    const after = summarizeBrief(current.agentMethod, current.findingsJson);
+    const before = summarizeBrief(predecessor.agentMethod, predecessor.findingsJson);
+    if (after === undefined || before === undefined) {
+      // Both sides are checked, and both reported when both fail: a reader responds differently
+      // to a broken NEW brief than to a broken OLD one, so the role is part of the disclosure.
+      if (after === undefined) {
+        notSummarizable.push({
+          jobId,
+          briefId: current.id,
+          role: "current",
+          reason: `unreadable ${current.agentMethod} brief`,
+        });
+      }
+      if (before === undefined) {
+        notSummarizable.push({
+          jobId,
+          briefId: predecessor.id,
+          role: "predecessor",
+          reason: `unreadable ${predecessor.agentMethod} brief`,
+        });
+      }
+      continue;
+    }
+    const minDelta = cfg?.digestMinDelta ?? 1;
+    jobs.push({
+      jobId,
+      agentMethod: current.agentMethod,
+      configured: cfg !== undefined,
+      minDelta,
+      currentBriefId: current.id,
+      currentCreatedAt: current.createdAt,
+      predecessorBriefId: predecessor.id,
+      predecessorCreatedAt: predecessor.createdAt,
+      // The PAIR's span, not the window — those differ per job (spec § 2.1).
+      comparisonSpanMs: current.createdAt - predecessor.createdAt,
+      ...compareSummaries(before, after, minDelta),
+    });
+  }
+
+  return {
+    windowMs: deps.windowMs,
+    generatedAt: deps.now,
+    jobs,
+    notCompared: { firstObservation, notSummarizable, noBriefInWindow, agentChanged },
   };
 }

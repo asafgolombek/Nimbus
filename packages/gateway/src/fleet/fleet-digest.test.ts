@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { compareSummaries } from "./fleet-digest.ts";
+import { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, test } from "bun:test";
+import type { NimbusFleetJobToml } from "../config/fleet-toml.ts";
+import { FLEET_V60_SQL } from "../index/fleet-v60-sql.ts";
+import { buildFleetDigest, compareSummaries } from "./fleet-digest.ts";
+import { FleetStore } from "./fleet-store.ts";
 
 const s = (keys: string[], metrics: Record<string, number>) => ({ keys, metrics });
 
@@ -43,6 +47,17 @@ describe("compareSummaries", () => {
     expect(dropped.metrics["n"]).toEqual({ before: 7, after: null, delta: null });
   });
 
+  // Task 7 review carry-over: every existing one-sided case uses a non-zero present value, so a
+  // regression from `av ?? null` to `av || null` (which would coerce a present ZERO to `null`,
+  // same as absent) would slip past every test above. Several real extractors emit legitimate
+  // zeros (`huddle`'s tickets/incidents, `janitor`'s peers_clear), so this is realistic input.
+  test("a one-sided metric whose present side is ZERO is not coerced to absent", () => {
+    const added = compareSummaries(s([], {}), s([], { n: 0 }), 1);
+    expect(added.metrics["n"]).toEqual({ before: null, after: 0, delta: null });
+    const dropped = compareSummaries(s([], { n: 0 }), s([], {}), 1);
+    expect(dropped.metrics["n"]).toEqual({ before: 0, after: null, delta: null });
+  });
+
   test("a one-sided metric is reported regardless of minDelta", () => {
     const r = compareSummaries(s([], {}), s([], { n: 1 }), 1000);
     expect(r.metrics["n"]).toBeDefined();
@@ -83,5 +98,198 @@ describe("compareSummaries", () => {
     const r = compareSummaries(s([], { small: 10, big: 10 }), s([], { small: 12, big: 20 }), 5);
     expect(r.metrics).toEqual({ big: { before: 10, after: 20, delta: 10 } });
     expect(r.status).toBe("changed");
+  });
+});
+
+describe("buildFleetDigest assembles the job union", () => {
+  let db: Database;
+  let store: FleetStore;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.run("PRAGMA foreign_keys = ON");
+    db.exec(FLEET_V60_SQL);
+    store = new FleetStore(db);
+  });
+
+  function job(name: string, agent: string, digestMinDelta = 1): NimbusFleetJobToml {
+    return { name, agent, intervalSeconds: 3600, params: {}, digestMinDelta };
+  }
+
+  const ghostBase = { agentVersion: 1, generatedAt: 0, latencyMs: 0, gaps: [] };
+
+  function ghostFindings(peerIds: string[]): string {
+    return JSON.stringify({
+      ...ghostBase,
+      kind: "ghost",
+      query: { file: "a.ts" },
+      startEntityId: null,
+      findings: peerIds.map((p) => ({
+        peerId: p,
+        expert: null,
+        rank: "medium",
+        context: [],
+        suggestedContact: "",
+      })),
+    });
+  }
+
+  function catchupFindings(): string {
+    return JSON.stringify({
+      ...ghostBase,
+      kind: "catchup",
+      query: { sinceMs: 0 },
+      selfPersonId: null,
+      involvement: {
+        ownedServices: [],
+        activeRepos: [],
+        incidentServices: [],
+        collaboratorPersonIds: [],
+      },
+      sections: [],
+    });
+  }
+
+  /**
+   * Opens its own run per call, following `fleet-store.test.ts`'s `insertBrief` shape — sharing
+   * one `runId` across a whole test added an extra `fleet_run` row that broke a neighbouring test
+   * earlier in this plan.
+   */
+  function insertBrief(b: {
+    jobId: string;
+    agentMethod: string;
+    createdAt: number;
+    findings?: string;
+    findingsJson?: string;
+    markdown?: string;
+  }): void {
+    const runId = store.openRun({
+      startedAt: b.createdAt,
+      hostPower: "ac",
+      hostIdleMs: 0,
+      hostSource: "measured",
+      remoteCallBudget: 0,
+    });
+    store.recordBrief({
+      runId,
+      jobId: b.jobId,
+      agentMethod: b.agentMethod,
+      briefMarkdown: b.markdown ?? "x",
+      findingsJson: b.findings ?? b.findingsJson ?? "{}",
+      synthesisJson: null,
+      createdAt: b.createdAt,
+      expiresAt: b.createdAt + 86_400_000,
+    });
+  }
+
+  test("a configured job with no brief in window lands in noBriefInWindow", () => {
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.notCompared.noBriefInWindow).toEqual([{ jobId: "j1", agent: "ghost" }]);
+    expect(r.jobs).toEqual([]);
+  });
+
+  test("a job with briefs but no config is reported with configured:false", () => {
+    insertBrief({
+      jobId: "retired",
+      agentMethod: "agents.ghost",
+      createdAt: 4000,
+      findings: ghostFindings(["p1"]),
+    });
+    insertBrief({
+      jobId: "retired",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings: ghostFindings(["p1", "p2"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [], windowMs: 1000, now: 5000 });
+    expect(r.jobs).toHaveLength(1);
+    expect(r.jobs[0]?.configured).toBe(false);
+    expect(r.jobs[0]?.keysAppeared).toEqual(["p2"]);
+  });
+
+  test("a single brief lands in firstObservation, not as all-new", () => {
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings: ghostFindings(["p1"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.jobs).toEqual([]);
+    expect(r.notCompared.firstObservation[0]?.jobId).toBe("j1");
+  });
+
+  test("an unreadable brief is disclosed with its ROLE, not dropped", () => {
+    insertBrief({ jobId: "j1", agentMethod: "agents.ghost", createdAt: 4000, findingsJson: "{{{" });
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings: ghostFindings(["p1"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.notCompared.notSummarizable[0]).toMatchObject({ jobId: "j1", role: "predecessor" });
+  });
+
+  test("a job repointed at a different agent is NOT diffed across shapes", () => {
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.catchup",
+      createdAt: 4000,
+      findings: catchupFindings(),
+    });
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings: ghostFindings(["p1"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.jobs).toEqual([]);
+    expect(r.notCompared.agentChanged).toEqual([
+      { jobId: "j1", from: "agents.catchup", to: "agents.ghost" },
+    ]);
+    // NOT in notSummarizable: both briefs read fine, the comparison is what failed.
+    expect(r.notCompared.notSummarizable).toEqual([]);
+  });
+
+  test("SPEC § 1: differing markdown with identical findings is UNCHANGED", () => {
+    // The whole basis of the design. A synthesized brief differs run to run on an unchanged index,
+    // so if this ever reports "changed" the comparison has drifted onto brief_markdown.
+    const findings = ghostFindings(["p1"]);
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      createdAt: 4000,
+      findings,
+      markdown: "# One phrasing",
+    });
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings,
+      markdown: "# Totally different prose",
+    });
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.jobs[0]?.status).toBe("unchanged");
+  });
+
+  test("comparisonSpanMs is the pair's span, not the window", () => {
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      createdAt: 1000,
+      findings: ghostFindings([]),
+    });
+    insertBrief({
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      createdAt: 4500,
+      findings: ghostFindings(["p1"]),
+    });
+    const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
+    expect(r.jobs[0]?.comparisonSpanMs).toBe(3500);
+    expect(r.windowMs).toBe(1000);
   });
 });
