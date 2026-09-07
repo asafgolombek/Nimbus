@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788755652241,
+  "lastUpdate": 1788797562950,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cac512b8f03a0b7efdac3137c158c54ee33ae245",
-          "message": "chore(main): release 0.16.0 (#710)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.16.0](https://github.com/nimbus-agent/Nimbus/compare/v0.15.0...v0.16.0)\n(2026-06-21)\n\n\n### Features\n\n* **slice9:** Workday connector (read-only) —\nworkers/time-off/job-postings + RaaS reports\n([#709](https://github.com/nimbus-agent/Nimbus/issues/709))\n([2646918](https://github.com/nimbus-agent/Nimbus/commit/2646918570aaa52e1477765fe169df3433bdba25))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Workday connector now available with read-only access to workers,\ntime-off, job-postings, and RaaS reports.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
-          "timestamp": "2026-06-21T20:22:36+03:00",
-          "tree_id": "10252a0ab43ead16dc48c565d2f86ef4d3597d9e",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/cac512b8f03a0b7efdac3137c158c54ee33ae245"
-        },
-        "date": 1782063268534,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 297.9386302999974,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 300.0038898499985,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 326.9370704000088,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf0559b56c52ab79c9c48e94fd1d2ce1e649aa67",
+          "message": "fix(fleet): close the five follow-ups from the overnight-fleet merge (#1462)\n\n## Summary\n\nThe five follow-ups recorded when the overnight-fleet row merged in\n#1458, plus the fixes from a review of this branch itself.\n\n- **`[fleet] retention_days` refuses below 1.** `pruneRuns` deletes rows\nwith `started_at <= cutoff`, so a zero-retention run pruned its own\nrecord on completion and `runOnce` returned a runId naming no row. The\nbound is raised for that key ONLY — `remote_call_budget = 0` is what\n`allow_remote = false` implies and is the shipped default, and\n`min_idle_seconds = 0` reads as \"no idle requirement\".\n- **`audit:status-drift` now sees ceiling RANGES.** It caught none of\nthe ten stale invariant ceilings found while shipping I38, because the\nceiling is almost always written as `I1–I38` or `D10–D28` rather than\nthe one phrasing it matched. Its silence was evidence about its scan\nset, not about the claims.\n- **A withheld remote provider is now disclosed on the brief itself.**\nI38's row claimed this and it was not true: the wrapper withholds the\nprovider, and the runner reports `no_eligible_provider` with no detail —\nthe same answer a machine with no model configured gets.\n- **D28 can now see the egress classification it was blind to.** Its\nmap-key alternative required a quoted `\"fleet\":` while the shipped map\nwrites it bare, so a copy-paste of the real line into a fourth file\npassed.\n- **The composed I38 path is exercised.** A run now spends its budget\nthrough the real synthesis runner on job one and is withheld on job two.\n\n## Related Issue\n\nNone — these are the follow-ups recorded in #1458's own review.\n\n## Linked Discussion\n\nNone.\n\n## Type of Change\n\n- [x] Bug fix (non-breaking change that fixes an issue)\n- [x] Test improvement\n\n**One config value changes meaning, and it is called out rather than\nburied:** `[fleet] retention_days = 0` was accepted and is now refused.\nIt is not marked breaking because the fleet is default-off, shipped in\n#1458 the same day, and a zero there produced a run that deleted its own\nrecord — there is no working configuration being taken away. A user who\nsomehow set it gets a loud config error naming the key, and the gateway\nstill boots with the fleet off.\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes\n- [x] All existing tests pass\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced\n- [x] No credentials, tokens, or secret values in logs, IPC, config, or\nfixtures\n- [x] Platform-specific code is behind `PlatformServices` — untouched by\nthis branch\n- [x] The HITL consent gate has not been weakened\n\n## Coverage\n\n`engine/` and `vault/` are untouched, so neither gate applies.\n\n## Testing\n\n`bun run preflight:fast` green. 629 tests across the fleet and config\nsuites pass. Every behavioural change is red-proved by reverting it and\nconfirming the covering test fails:\n\n- the shared-arm raise fails `min_idle_seconds`, and dropping the key\nfrom the switch fails the non-default assertion\n- injecting a stale range in two newly-covered surfaces fails\n`audit:status-drift`\n- swapping the per-job delta for the raw counter fails exactly the delta\ntest\n- copying the real egress line into a fourth file fails\n`audit:invariants`\n- replacing the wrapper with the raw router fails three tests together\n\n## Notes for Reviewers\n\n**A claim in this branch's own history is retracted in it.** Commit\n`bea3c273` says `bun run lint` was RED on `main` and that #1458 passed a\ngate it should have failed. That is false. Biome reports `useTemplate`\nat INFO severity and `--error-on-warnings` escalates warn, not info, so\nthe gate exits 0 — in CI too. The template-literal edit stands as a\ncosmetic cleanup. Raising `useTemplate` to error in `biome.json` would\nmake the original claim true, but that is a repo-wide decision and is\ndeliberately not taken here.\n\n**Three claims this branch falsified were fixed in it, after a review\ncaught them:** the D28 block comment still said the rule could not see\nthe real egress line, twenty lines above the alternative that now sees\nit; and `CLAUDE.md` plus `GEMINI.md` carried the same bound, \"there is\nNO per-brief disclosure\", and \"the composed path is not exercised end to\nend\" — all three untrue once this landed. `docs/SECURITY-INVARIANTS.md`\nhad been rewritten and its two mirrors had not.\n\n**A control test could not fail, and now says what it does and does not\ncatch.** `remote_call_budget = 0 stays legal` was added to prove the\nraised bound did not spread to a sibling key, but the default IS zero,\nso the mutation leaves the merged config reading zero either way.\n`min_idle_seconds`, whose default is 900, is what actually catches it.\n\n**Deliberate design choice worth a look:** the per-brief disclosure does\nNOT add a `SynthesisAttempt` reason variant, which was the obvious\nroute. That union is on the path every brief in this repo takes, so a\nnew arm makes each existing consumer's exhaustiveness a question to\nre-answer for a fact only the fleet can produce or read. The wrapper\nrecords the withholding on the budget and the invoker writes a per-job\ncount onto the fleet's own provenance; reader and writer are both inside\n`fleet/`.\n\n**Bounds still stated rather than closed:** the disclosure names that a\nremote provider was withheld and how often, not which of its two causes\napplied; `audit:status-drift` compares only the highest range per file;\nand the composed test drives the real runner but not a real agent.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01QcyA4M6fQsoqNUnzANxjzH\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- Fleet synthesis now reports when remote providers were withheld,\nincluding only the count for the current run.\n- Fleet retention settings now require at least one day, while\nzero-minute idle and zero remote-call budgets remain supported.\n- Status auditing now detects stale invariant and rule-range references\nacross supported documentation surfaces.\n\n- **Bug Fixes**\n- Improved fleet classification checks to recognize additional valid\nconfiguration syntax while avoiding unrelated map and list entries.\n\n- **Documentation**\n- Updated security and infrastructure documentation to reflect current\nfleet synthesis, detection coverage, and roadmap status.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T15:59:58Z",
+          "tree_id": "7c736cd5f0abd738312718138a93f2823d986836",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bf0559b56c52ab79c9c48e94fd1d2ce1e649aa67"
+        },
+        "date": 1788797559854,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 327.34947665000584,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 320.53995719999983,
             "unit": "ms"
           }
         ]
