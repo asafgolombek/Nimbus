@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { LEGACY_SCOPES } from "../../../src/clips/api-scopes.ts";
 import { upsertIndexedItem } from "../../../src/index/item-store.ts";
+import { RESOLVE_IDS_MAX_BATCH } from "../../../src/index/resolve-ids.ts";
 import {
   startServerWithClipToken,
   startServerWithoutClipsVault,
@@ -186,7 +187,7 @@ describe("GET /v1/items/resolve-ids (integration)", () => {
     const { port, token, stop } = await startServerWithClipToken(["resolve"]);
     try {
       // RESOLVE_IDS_MAX_BATCH + 1 DISTINCT ids.
-      const ids = Array.from({ length: 101 }, (_, i) => `x:${i}`);
+      const ids = Array.from({ length: RESOLVE_IDS_MAX_BATCH + 1 }, (_, i) => `x:${i}`);
       const res = await get(port, token, idsQuery(ids));
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "too_many_ids" });
@@ -201,10 +202,34 @@ describe("GET /v1/items/resolve-ids (integration)", () => {
   test("400 too_many_ids on 101 copies of a single id", async () => {
     const { port, token, stop } = await startServerWithClipToken(["resolve"]);
     try {
-      const ids = Array.from({ length: 101 }, () => "github:web#482");
+      const ids = Array.from({ length: RESOLVE_IDS_MAX_BATCH + 1 }, () => "github:web#482");
       const res = await get(port, token, idsQuery(ids));
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "too_many_ids" });
+    } finally {
+      stop();
+    }
+  });
+
+  test("401s an unknown token", async () => {
+    const { port, stop } = await startServerWithClipToken(["resolve"]);
+    try {
+      const res = await get(port, "not-a-real-token", idsQuery(["github:web#482"]));
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
+    } finally {
+      stop();
+    }
+  });
+
+  // Distinct from the bad-token case above: no header at all takes `bearerToken`'s own
+  // "absent or wrong scheme" branch, returning undefined before `verifyApiToken` is ever called.
+  test("401s a request with no Authorization header at all", async () => {
+    const { port, stop } = await startServerWithClipToken(["resolve"]);
+    try {
+      const res = await get(port, undefined, idsQuery(["github:web#482"]));
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
     } finally {
       stop();
     }

@@ -107,6 +107,12 @@ describe("resolveItemsByIds", () => {
     expect(resolveItemsByIds(seed(), [])).toEqual([]);
   });
 
+  // This pin is weaker than it reads: SQLite answers an `IN (…)` lookup in primary-key index
+  // order regardless of `ORDER BY`, and neither the seed order above nor the requested-id order
+  // here differs from the sorted order, so this would likely still pass with `ORDER BY id`
+  // deleted from the query. No seeding or request order distinguishes the two paths. `ORDER BY
+  // id` stays anyway — it is still a wire contract (two deterministic orders are still two
+  // different responses) — and this test stays as the closest available pin, not a stronger one.
   test("orders deterministically by id", () => {
     const rows = resolveItemsByIds(seed(), ["nimbus:brief-7", "github:acme/web#1", "jira:PLAT-9"]);
     expect(rows.map((r) => r.id)).toEqual([...rows.map((r) => r.id)].sort());
@@ -118,10 +124,13 @@ describe("resolveItemsByIds", () => {
   });
 
   test("treats an id containing SQL syntax as data, not as SQL", () => {
-    const rows = resolveItemsByIds(seed(), ["github:acme/web#1'); DROP TABLE item; --"]);
+    const db = seed();
+    const rows = resolveItemsByIds(db, ["github:acme/web#1'); DROP TABLE item; --"]);
     expect(rows).toEqual([]);
-    // The table is still there.
-    expect(resolveItemsByIds(seed(), ["jira:PLAT-9"])).toHaveLength(1);
+    // The table is still there — reuses the SAME `db` handle above, not a fresh `seed()`. A fresh
+    // `seed()` constructs a brand-new `:memory:` database and would pass even if the first call
+    // had dropped the table, proving nothing.
+    expect(resolveItemsByIds(db, ["jira:PLAT-9"])).toHaveLength(1);
   });
 
   test("throws above the batch cap counted before de-duplication", () => {
