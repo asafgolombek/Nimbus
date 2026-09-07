@@ -623,7 +623,10 @@ mod tests {
         // exec/computer/media: a scan over every entry so a later one-off addition (e.g.
         // `fleet.status`) is caught here rather than only by the total staying unchanged.
         for m in ALLOWED_METHODS {
-            assert!(!m.starts_with("fleet."), "fleet.* must never be Tauri-exposed (I7): {m}");
+            assert!(
+                !m.starts_with("fleet."),
+                "fleet.* must never be Tauri-exposed (I7): {m}"
+            );
         }
     }
 
