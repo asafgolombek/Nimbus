@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788814551080,
+  "lastUpdate": 1788817385903,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5abd57573a28d67ab676852eaac0ddb2d6e85541",
-          "message": "chore(main): release client 0.2.4 (#713)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.2.4](https://github.com/nimbus-agent/Nimbus/compare/client-v0.2.3...client-v0.2.4)\n(2026-06-22)\n\n\n### Dependencies\n\n* The following workspace dependencies were updated\n  * dependencies\n    * @nimbus-dev/sdk bumped to 1.2.0\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n  * Updated client package to version 0.2.4\n  * Updated SDK dependency to version 1.2.0\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
-          "timestamp": "2026-06-22T20:19:49+03:00",
-          "tree_id": "83a89cd25f787b39c83b6f37a161860cd3a7e10c",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/5abd57573a28d67ab676852eaac0ddb2d6e85541"
-        },
-        "date": 1782150127999,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 300.7437449500023,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 302.2079078499919,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 340.67150615000355,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "243733018b14161caa67a82d73f83ade2fa66a19",
+          "message": "chore: release main (#1466)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>7.13.0</summary>\n\n##\n[7.13.0](https://github.com/nimbus-agent/Nimbus/compare/v7.12.0...v7.13.0)\n(2026-09-07)\n\n\n### Features\n\n* **http:** GET /v1/items/resolve-ids — an item id back to its reference\n([#1465](https://github.com/nimbus-agent/Nimbus/issues/1465))\n([8531752](https://github.com/nimbus-agent/Nimbus/commit/8531752330d23551738d815e9f6e2d6d72e75f77))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-07T21:32:36Z",
+          "tree_id": "efed6a338448283bc7c068109706f9867662c74f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/243733018b14161caa67a82d73f83ade2fa66a19"
+        },
+        "date": 1788817382037,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 274.4442321999999,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 278.5965130500055,
             "unit": "ms"
           }
         ]
