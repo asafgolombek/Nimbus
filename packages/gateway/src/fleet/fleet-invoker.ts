@@ -100,6 +100,24 @@ function sessionIdOf(value: unknown): string | undefined {
   return typeof id === "string" && id !== "" ? id : undefined;
 }
 
+/**
+ * Attach the fleet's own disclosure to a brief's synthesis provenance.
+ *
+ * I38's row claimed budget exhaustion is disclosed per brief. It was not: the wrapper withholds the
+ * provider, `synthesis-llm.ts` reports `no_eligible_provider` with no detail, and that is the same
+ * answer a machine with no model configured gets. Rather than widen `SynthesisAttempt` — a union
+ * every brief in this repo flows through — the fleet records the fact on its OWN row, where the
+ * only reader is the fleet.
+ *
+ * `withheldForThisJob` is a DELTA, not the running total: the budget is per-run and spans several
+ * jobs, so the raw counter would attribute an earlier job's refusals to this brief.
+ */
+function withFleetDisclosure(synthesis: unknown, withheldForThisJob: number): string | null {
+  if (withheldForThisJob <= 0) return synthesis === null ? null : JSON.stringify(synthesis);
+  const base = synthesis === null || typeof synthesis !== "object" ? {} : synthesis;
+  return JSON.stringify({ ...base, fleetRemoteWithheld: withheldForThisJob });
+}
+
 function readReady(p: unknown): { brief: string | null; findings: unknown; synthesis: unknown } {
   const isObj = p !== null && typeof p === "object";
   const brief = isObj && "brief" in p && typeof p.brief === "string" ? p.brief : null;
@@ -148,6 +166,9 @@ export function buildFleetInvoker(deps: FleetInvokerDeps): FleetInvoker {
         deps.router === undefined ? undefined : wrapFleetSynthesisRouter(deps.router, deps.budget),
     });
 
+    // Snapshot BEFORE the job so the disclosure below is this job's refusals, not the run's.
+    const withheldAtStart = deps.budget.withheld();
+
     return await new Promise<FleetJobOutcome>((resolve) => {
       let settled = false;
       let expected: string | undefined;
@@ -181,7 +202,10 @@ export function buildFleetInvoker(deps: FleetInvokerDeps): FleetInvoker {
             status: "done",
             briefMarkdown: r.brief,
             findingsJson: JSON.stringify(r.findings),
-            synthesisJson: r.synthesis === null ? null : JSON.stringify(r.synthesis),
+            synthesisJson: withFleetDisclosure(
+              r.synthesis,
+              deps.budget.withheld() - withheldAtStart,
+            ),
           });
         } else if (m.endsWith(".briefError")) {
           settle({ status: "failed", error: readError(p) });
