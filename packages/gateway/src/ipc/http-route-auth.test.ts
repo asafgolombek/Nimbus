@@ -7,6 +7,7 @@ import {
   HTTP_ROUTE_AUTH,
   insufficientScopeBody,
   ROUTE_KEY_ITEMS_RESOLVE,
+  ROUTE_KEY_ITEMS_RESOLVE_IDS,
 } from "./http-route-auth.ts";
 import { WRITE_ROUTE_ALLOWLIST } from "./http-write-routes.ts";
 
@@ -212,6 +213,14 @@ describe("http-route-auth", () => {
   test("the resolve route requires the resolve scope", () => {
     expect(HTTP_ROUTE_AUTH[ROUTE_KEY_ITEMS_RESOLVE]).toEqual({ kind: "clip", scope: "resolve" });
     expect(clipScopeFor(ROUTE_KEY_ITEMS_RESOLVE)).toBe("resolve");
+  });
+
+  test("the resolve-ids route requires the resolve scope", () => {
+    expect(HTTP_ROUTE_AUTH[ROUTE_KEY_ITEMS_RESOLVE_IDS]).toEqual({
+      kind: "clip",
+      scope: "resolve",
+    });
+    expect(clipScopeFor(ROUTE_KEY_ITEMS_RESOLVE_IDS)).toBe("resolve");
   });
 
   test("the items-fetch route requires its OWN fetch scope, distinct from resolve", () => {
