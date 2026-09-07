@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788707869568,
+  "lastUpdate": 1788755652241,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2646918570aaa52e1477765fe169df3433bdba25",
-          "message": "feat(slice9): Workday connector (read-only) — workers/time-off/job-postings + RaaS reports (#709)\n\n## Phase 6 Slice 9 (sub-project B) — Workday connector (read-only)\n\nA read-only first-party MCP connector that indexes a tenant's HR data\ninto the local SQLite + embedding index: **org chart / workers,\ntime-off, job postings** (REST) plus admin-configured **RaaS reports**.\nMirrors the Mendeley OAuth lazy-mesh pattern.\n\n**No new security invariant · no schema migration · no HITL · not on the\nteam-credential rail.** Invariant count stays I1–I29.\n\n**Spec:**\n[`docs/superpowers/specs/2026-06-21-slice9-workday-connector-design.md`](docs/superpowers/specs/2026-06-21-slice9-workday-connector-design.md)\n· **Plan:**\n[`docs/superpowers/plans/2026-06-21-slice9-workday-connector.md`](docs/superpowers/plans/2026-06-21-slice9-workday-connector.md)\n\n### What it does\n- **Item types (4, all new):** `workday:worker`, `workday:time_off`,\n`workday:job_posting`, `workday:report`.\n- **Tenant-specific OAuth 2.0:** Workday's authorize/token endpoints\nembed the tenant (`/ccx/oauth2/<tenant>/token`), which the static\n`OAUTH_PROVIDERS` map can't express — handled by a\n`makeWorkdayDescriptor({tenantHost, tenant})` factory + a\n`resolveOAuthDescriptor` indirection at the registry's descriptor-build\nsites (zero behavior change for every other provider).\n- **Config:** env vars `NIMBUS_OAUTH_WORKDAY_CLIENT_ID` / `_SECRET`,\n`NIMBUS_WORKDAY_TENANT_HOST`, `NIMBUS_WORKDAY_TENANT`; only\n`workday.oauth` (token bundle) in the Vault; optional\n`[[connectors.workday.reports]]` RaaS config in `nimbus.toml`.\n- **Live MCP tools:** `workday_list` / `workday_get` / `workday_search`\n(workers); time-off / job-postings / RaaS reports are indexed by the\nGateway sync (queryable via `nimbus search`), not exposed as separate\ntools.\n\n### Security model\n- **Directory-safe PII allowlist** (`workday-field-allowlist.ts`):\nmappers emit only an explicit allowlist\n(name/title/manager/team/dept/location/work-contact/dates);\ncompensation, SSN/national-id, home address, personal contact, leave\nreasons, and the job-description body are **never indexed**. A contract\ntest fails CI if a forbidden field is ever mapped. RaaS rows get an\nexplicit per-report `fields` allowlist (admin-controlled) plus an\nalways-on PII denylist heuristic backstop.\n- **RaaS egress guard:** a configured report URL is fetched only if its\nhost equals the tenant host (`sameTenantHost`, fail-closed); off-tenant\nURLs are never fetched and report hosts are never added to the sandbox\nallowlist.\n- **Sandbox (I15):** the connector spawns via `wrapServerSpec` +\n`manifestWithExtraNetworkHosts(\"workday\", [host])` — only the tenant\nhost is added to the network allowlist.\n- **Read-only:** no write tools (`assertNoRowDataTools` + no-write\ncontract tests), no HITL action types.\n- The index-side allowlist governs the **index**; the live read tools\nreturn raw API data (envelope-wrapped, I11) bounded by the API's\nresponse — documented in the README/spec.\n\n### Verification (all green locally before push)\n- typecheck (all packages), biome (2919 files), `lint:markdown`, and all\nstatic audits: doc-refs, openapi-drift, **boundaries** (gateway does not\nimport mcp-connectors), **invariants** (incl. D11 vault-key allow-list),\n**any**, cross-platform, package-readmes, exclusion-parity, jscpd\nduplication.\n- Full test suite: **12850 pass** (986 files). Workday-specific suites\ncover mappers (PII drops), allowlist, OAuth descriptor, sync (per-domain\nisolation, cursor resume, RaaS same-host), and the spawn.\n- **Coverage-floor (Docker-Linux authoritative):** ok — 0 files\nbaselined; every new file clears ≥85% line / ≥80% branch.\n- Built via subagent-driven development with a per-task review gate + a\nfinal whole-branch review (verdict: ready to merge).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n* Added a new first-party, read-only Workday connector that indexes\n`worker`, `time_off`, `job_posting`, and optional `report` data (via\nReporting-as-a-Service).\n* Enabled tenant-specific Workday OAuth2 authentication and added\nWorkday connector support across connector registration, OAuth handling,\nand lazy connector startup.\n* Implemented directory-safe PII allowlisting/filtering and introduced\nstructured sync cursoring for Workday data ingestion.\n* **Documentation**\n* Added Workday connector README and updated changelog/roadmap entries.\n* **Tests**\n* Added connector, sync, field-policy, and configuration parsing\ncoverage for Workday behavior.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-21T15:58:15Z",
-          "tree_id": "02ad5b32745d96493a2e19da33edf35af05d7b61",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/2646918570aaa52e1477765fe169df3433bdba25"
-        },
-        "date": 1782058639498,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 305.85383239999936,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 304.8835868499911,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 332.13739884999234,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d47d52e220b56293e94628c091bac662404eb816",
+          "message": "feat(fleet): overnight sub-agent fleets on local compute — S2 PR 1 of 2 (#1458)\n\n## Summary\n\nSpine S2, PR 1 of 2 of the *overnight sub-agent fleets on zero-marginal\nlocal compute* row. Runs the existing read-only agents on a schedule\nwhile the machine is genuinely idle, and persists the briefs so the\nmorning read is instant instead of a cold thirty-second wait.\n\nDefault OFF twice over: `[fleet] enabled = false`, and no jobs run\nwithout an explicit `[[fleet.job]]` block.\n\nWhat lands:\n\n- **`HostActivity`** — a new PAL power/idle probe with three per-OS\nbackends behind a factory. Admission blocks on `battery`; it does not\nrequire `ac`, because a desktop or server has no battery and answers\n`unknown`. An unmeasurable idle signal admits and is disclosed as\n`power_only` rather than silently claiming a check it did not make.\n- **Schema V60** — `fleet_job_state`, `fleet_run`, `fleet_brief`. A run\nrow is self-describing: `unattempted = in_scope - attempted -\nskipped_not_due`.\n- **Invariant I38 + static rule D28** — an unattended run reaches a\nnon-local model only with `[fleet] allow_remote` and remaining budget. A\nfrontier key configured for interactive use grants the fleet nothing on\nits own.\n- **A derived `fleet` caller identity** — on the `ClientKind` union,\ndeliberately absent from `RECOGNISED`, so no local process on the socket\ncan file work under that attribution.\n- **`fleet.*` IPC and `nimbus fleet`** — status, list, briefs, show,\nrun. LAN-forbidden, absent from the Tauri renderer allowlist.\n- **`agent_fleet`** — the sixth `[policy.capabilities.ai_v2]` org\nlockoff, read through the live `EnforcedPolicy` accessor so a policy\ninstalled after boot still disables it.\n- **`[embedding] pause_on_battery` finally works.** It has parsed,\ndefaulted to `true`, and had no consumer since it was added. It now\npauses the embedding backfill per batch on all three runtime legs, and\nis documented in the user-facing config reference for the first time.\n\n## Related Issue\n\nNone — this implements the `[NEW] Overnight sub-agent fleets` row in\n`docs/roadmap.md` § Active.\n\n## Linked Discussion\n\nNone.\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n- [x] Documentation only — three false claims corrected, see Notes\n\nNot marked breaking. Every signature change is confined to\n`packages/gateway`, which is `private: true` and has no published\nsurface, and there is nothing an existing user must do to keep working.\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes\n- [x] All existing tests pass\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced\n- [x] No credentials, tokens, or secret values in logs, IPC, config, or\nfixtures\n- [x] Platform-specific code is behind `PlatformServices` — the three\nbackends sit behind `createHostActivity`, and a circular import between\nthe factory and its backends was caught and broken with a leaf types\nmodule\n- [x] The HITL consent gate has not been weakened. The fleet reads and\nreports: no writes, no autonomous action, no standing approvals. Agents\nwith owner-machine side effects are refused by a total eligibility map\n\n## Coverage\n\n`engine/` and `vault/` are untouched, so neither gate applies.\n\nThree coverage-floor exclusions were added, each citing the existing\n`platform/sandbox/sandbox-runner.ts` precedent and naming the pure\nhelpers that **are** covered, so the exemption is scoped rather than a\nblanket pass. `host-activity/linux.ts` was deliberately **not** exempted\n— its injectable root makes it testable on any OS.\n\n## Testing\n\n- Full `bun run test:ci` green.\n- `bun run preflight` on Windows: 38 of 39 gates green. The single red\nis `audit:coverage-floor`, with 6 violations in 4 files this branch\nnever touched.\n- `bun run verify:docker --full` on Linux, which is the authoritative\nrunner for that gate: **`audit:coverage-floor` reports 0 violations.**\nThe Windows numbers are machine noise.\n- Every task was reviewed, and every fix was red-proved by reverting the\nchange and confirming the covering test fails.\n\n## Notes for Reviewers\n\n**Two bounds are stated rather than closed, deliberately.**\n\n1. I38's **per-run** disclosure is accurate — `remote_calls_made` and\n`remote_call_budget` are persisted. Its **per-brief** disclosure is not:\nthe router withholds the provider once the budget is spent, so the\nrunner returns `no_eligible_provider` with no detail, indistinguishable\nfrom \"no provider configured\". Closing it needs a reason channel on the\nshared brief path.\n2. D28's regex requires a quoted `\"fleet\":` key, but the real egress map\nwrites it unquoted — so two of its three allow-listed files contain\nnothing the rule can see. Widening it would false-positive on the CLI\ncommand map. Capability confinement is the primary defense here; D28 is\nthe backstop.\n\n**One optional follow-up:** `retention_days = 0` is accepted, and a\nzero-retention run now deletes its own row. Pre-existing shape; worth a\nclamp.\n\n**What did not ship:** PR 2 — subject enumeration, change thresholds,\nthe digest. `negotiate` is classified `deferred` rather than eligible.\nLinux idle is never measured, so admission there is power-only and says\nso per run. The composed I38 path is proven at the wrapper and at the\ninvoker separately, not end to end; that bound is written into the\ninvariant row.\n\n**Worth knowing about how this was built.** Fourteen defects in the\nimplementation plan were found by the implementers, not by the plan's\nauthor — including an invoker that would have failed every production\nrun, an IPC context never wired so the whole surface would have answered\n\"Method not found\" while every unit test passed, and a migration\nregistered but never run. Ten tests that could not fail were found and\nfixed, one of them guarding I38 itself: the entire invariant block would\nhave passed against a wrapper that refused everything unconditionally.\nThree false claims in committed documents were corrected, and the\ninvariant ceiling was stale in ten files. Reviewers may find it useful\nto read the diff with that history in mind.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01QcyA4M6fQsoqNUnzANxjzH\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T04:20:47Z",
+          "tree_id": "43af6abd17f083d8e6a4d62d14e672bea89bbf15",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d47d52e220b56293e94628c091bac662404eb816"
+        },
+        "date": 1788755648851,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 326.6537267999964,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 326.9370704000088,
             "unit": "ms"
           }
         ]
