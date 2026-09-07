@@ -69,7 +69,10 @@ describe("EligibleAgentMethod is derived, not restated", () => {
     // @ts-expect-error preflight is excluded_side_effects, so it must not be assignable.
     const bad: EligibleAgentMethod = "agents.preflight";
     expect(ok).toBe("agents.ghost");
-    expect(bad).toBe("agents.preflight");
+    // `expect<string>`, not a bare `expect`: the @ts-expect-error suppresses the ASSIGNMENT, but
+    // `bad`'s DECLARED type is still EligibleAgentMethod, so a bare `expect(bad).toBe("agents.
+    // preflight")` errors on this line for an unrelated reason and masks the assertion above it.
+    expect<string>(bad).toBe("agents.preflight");
   });
 
   test("the derived set matches FLEET_ELIGIBILITY at runtime too", () => {
@@ -87,8 +90,12 @@ The `@ts-expect-error` is the load-bearing assertion: it fails the build if `age
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `bun test packages/gateway/src/fleet/fleet-digest-types.test.ts`
+Run: `bun run typecheck`
 Expected: FAIL — `Cannot find module './fleet-digest-types.ts'`.
+
+**Not `bun test`.** This file's only cross-file reference is a TYPE-ONLY import, which Bun erases
+before module resolution — so `bun test` passes with the target file absent and proves nothing. For
+a types-only task the typecheck is the red-prove; the test run is not.
 
 - [ ] **Step 3: Change `FLEET_ELIGIBILITY` to `satisfies`**
 
@@ -209,7 +216,11 @@ Expected: PASS, and typecheck clean.
 - [ ] **Step 6: Red-prove the derivation**
 
 Temporarily revert `satisfies` back to the annotation form. Run `bun run typecheck`.
-Expected: the `@ts-expect-error` in the test now reports **"Unused '@ts-expect-error' directive"** — because with a widened type `EligibleAgentMethod` is `never`, nothing is assignable, and the error the directive expected is a different one. Restore `satisfies` and confirm typecheck is clean again.
+Expected: the build BREAKS. Do not match on a specific message — the observed failure is two
+cascading errors on `ok` and `expect(ok)` (once `EligibleAgentMethod` collapses to `never`, the
+valid assignment stops compiling), and the `@ts-expect-error` directive stays "used" throughout.
+What Step 6 proves is that the annotation form fails the build and `satisfies` fixes it, NOT that a
+particular diagnostic appears. Restore `satisfies` and confirm typecheck is clean again.
 
 - [ ] **Step 7: Commit**
 
