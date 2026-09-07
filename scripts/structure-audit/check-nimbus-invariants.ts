@@ -980,8 +980,15 @@ const D28_FLEET_KIND_ALLOWED = [
   "packages/gateway/src/egress/egress-bearing-kinds.ts",
   "packages/gateway/src/fleet/fleet-invoker.ts",
 ];
+// The final alternative is the UNQUOTED map key, and it is pinned to a `null` VALUE on purpose.
+// `fleet:` alone is how a CLI command map and a config object also name the namespace, which is why
+// the rule previously stayed clear of the unquoted form altogether — but that left it unable to see
+// the one line it most needs to: `egress-bearing-kinds.ts`'s real `fleet: null` classification, so a
+// copy-paste of it into a fourth file passed. The value discriminates precisely: an egress
+// classification is `null`, a command map entry is a function reference, and a forbid-list entry is
+// a bare array element with no colon at all.
 const D28_FLEET_KIND_RE =
-  /\w*[Kk]ind\s*[:=]\s*"fleet"|:\s*ClientKind\s*=\s*"fleet"|"fleet"\s+as\s+ClientKind|\bdeclare\s*\([^)]*,\s*"fleet"|"fleet"\s*:\s*(?:null|")/;
+  /\w*[Kk]ind\s*[:=]\s*"fleet"|:\s*ClientKind\s*=\s*"fleet"|"fleet"\s+as\s+ClientKind|\bdeclare\s*\([^)]*,\s*"fleet"|"fleet"\s*:\s*(?:null|")|\bfleet\s*:\s*null\b/;
 
 export function checkFleetClientKindConfinement(files: readonly FileEntry[]): Violation[] {
   const out: Violation[] = [];

@@ -1980,6 +1980,32 @@ describe("D28 — fleet ClientKind confinement (I38)", () => {
 
   // ---- positive: one per assignment shape the rule claims to cover -------------------------
 
+  test("flags the REAL egress classification shape copy-pasted elsewhere", () => {
+    // The rule could not see this until the unquoted-key alternative was added: the map-key
+    // alternative required a QUOTED `"fleet":`, while the shipped map writes it bare.
+    expect(
+      flagged([
+        file(
+          ROGUE,
+          `export const M = {
+  fleet: null,
+};`,
+        ),
+      ]),
+    ).toBe(true);
+  });
+
+  test("does NOT flag a command-map entry — the value is what discriminates", () => {
+    // `fleet:` also names the namespace in the CLI command map. Pinning the alternative to a
+    // `null` value is what keeps the rule off it; a bare `fleet:` rule would false-positive here
+    // and get weakened until it caught nothing.
+    expect(flagged([file(ROGUE, `const H = { fleet: runFleet, exec: runExec };`)])).toBe(false);
+  });
+
+  test("does NOT flag a bare forbid-list element", () => {
+    expect(flagged([file(ROGUE, `const F = new Set(["clip", "fleet", "exec"]);`)])).toBe(false);
+  });
+
   test("flags an object-literal property — the copy-paste case", () => {
     expect(flagged([file(ROGUE, `const caller = { clientId: id, kind: "fleet" };`)])).toBe(true);
   });
@@ -2031,10 +2057,15 @@ describe("D28 — fleet ClientKind confinement (I38)", () => {
     expect(flagged([file(ROGUE, union)])).toBe(false);
   });
 
-  test("does not flag the unquoted `fleet: null` egress map entry", () => {
+  test("the unquoted `fleet: null` egress entry is allow-listed in EGRESS, flagged elsewhere", () => {
+    // INVERTED deliberately. This test previously asserted the rule flagged NEITHER file, which
+    // encoded a real limitation as if it were intent: the map-key alternative required a QUOTED
+    // `"fleet":` while the shipped map writes it bare, so a copy-paste of the real egress
+    // classification into any file passed. The alternative is now pinned to a `null` VALUE, which
+    // separates an egress classification from a command-map entry without matching a bare string.
     const entry = `  chatops: null,\n  fleet: null,\n});`;
-    expect(flagged([file(EGRESS, entry)])).toBe(false);
-    expect(flagged([file(ROGUE, entry)])).toBe(false);
+    expect(flagged([file(EGRESS, entry)])).toBe(false); // allow-listed: this is its home
+    expect(flagged([file(ROGUE, entry)])).toBe(true); // the copy-paste the rule exists to catch
   });
 
   test("does not flag FLEET_ELIGIBILITY — `preflight` contains `fleet` as a substring", () => {
