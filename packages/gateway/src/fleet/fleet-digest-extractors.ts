@@ -101,5 +101,20 @@ export function summarizeBrief(
   } catch {
     return undefined;
   }
-  return extract(parsed);
+  try {
+    return extract(parsed);
+  } catch {
+    // The SDK guards validate the OUTER shape only: `isGhostBrief` accepts a brief whose
+    // `findings` is an array without checking the items, so a legacy-shaped row whose finding
+    // lacks `context` passes the guard and then throws inside the extractor. Verified by probe.
+    //
+    // A throw here would escape `buildFleetDigest` and take down the whole digest over one bad
+    // row — the opposite of the design, which is to DISCLOSE that one brief as not summarizable.
+    // Stated tradeoff, accepted deliberately: this also catches genuine bugs in extractor logic
+    // and reports them as unreadable data. That is the right trade because the alternative is an
+    // unattended crash, and because the `Not compared` section makes the outcome visible rather
+    // than silent. Per-item narrowing in all eleven extractors would be the other route; it is
+    // eleven times the surface and one forgotten field reopens the hole.
+    return undefined;
+  }
 }

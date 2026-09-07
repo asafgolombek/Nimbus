@@ -39,6 +39,25 @@ describe("janitor encodes booleans as KEYS, not metrics", () => {
     expect(summarizeBrief("agents.janitor", mk(false))?.keys).toEqual(["peer:p1"]);
     expect(summarizeBrief("agents.janitor", mk(true))?.metrics["idle"]).toBeUndefined();
   });
+
+  test("proposalSuppressed is keyed too, never metric-encoded", () => {
+    const mk = (proposalSuppressed: boolean) =>
+      JSON.stringify({
+        ...base,
+        kind: "janitor",
+        query: { resourceRef: "r", idleDays: 30 },
+        idle: false,
+        proposalSuppressed,
+        cleanupAction: null,
+        peersClear: 0,
+        peersTouched: [],
+      });
+    expect(summarizeBrief("agents.janitor", mk(true))?.keys).toEqual(["proposal_suppressed"]);
+    expect(summarizeBrief("agents.janitor", mk(false))?.keys).toEqual([]);
+    expect(
+      summarizeBrief("agents.janitor", mk(true))?.metrics["proposal_suppressed"],
+    ).toBeUndefined();
+  });
 });
 
 describe("catchup and expert", () => {
@@ -108,5 +127,19 @@ describe("malformed input never throws", () => {
   test("an unknown agent method yields undefined without parsing", () => {
     expect(summarizeBrief("agents.nope", "{}")).toBeUndefined();
     expect(summarizeBrief("constructor", "{}")).toBeUndefined();
+  });
+
+  test("a guard-passing brief with a malformed nested item yields undefined, not a throw", () => {
+    // The SDK guards check that `findings` is an ARRAY, not the shape of its items, so this
+    // legacy-shaped row passes isGhostBrief and then blows up inside the extractor.
+    const json = JSON.stringify({
+      ...base,
+      kind: "ghost",
+      query: { file: "a.ts" },
+      startEntityId: null,
+      findings: [{ peerId: "p1", rank: "high" }], // no `context`
+    });
+    expect(() => summarizeBrief("agents.ghost", json)).not.toThrow();
+    expect(summarizeBrief("agents.ghost", json)).toBeUndefined();
   });
 });
