@@ -1,8 +1,12 @@
 import {
   isCatchupBrief,
+  isConflictBrief,
   isExpertBrief,
   isGhostBrief,
+  isHuddleBrief,
+  isImpactBrief,
   isJanitorBrief,
+  isWhyBrief,
 } from "../agents/_lib/findings.ts";
 import { codeUnitCompare } from "../util/code-unit-compare.ts";
 import type { BriefSummary, FleetDigestExtractor } from "./fleet-digest-types.ts";
@@ -71,12 +75,83 @@ const expert: FleetDigestExtractor = (f) => {
   );
 };
 
+const conflicts: FleetDigestExtractor = (f) => {
+  if (!isConflictBrief(f)) return undefined;
+  return summary(
+    f.collisions.map((c) => `${c.peerId}:${c.collisionType}:${c.service}:${c.title}`),
+    {
+      collisions_total: f.collisions.length,
+      ...bandCounts(
+        "type",
+        f.collisions.map((c) => c.collisionType),
+      ),
+    },
+  );
+};
+
+const huddle: FleetDigestExtractor = (f) => {
+  if (!isHuddleBrief(f)) return undefined;
+  // FederatedItemLite carries no id, so the key composes the fields that identify WHICH item.
+  // Retitling therefore reads as a resolve plus an appear — the stated bound of spec § 4.4.
+  const keys: string[] = [];
+  let prs = 0;
+  let tickets = 0;
+  let incidents = 0;
+  for (const c of f.contributions) {
+    for (const [kind, items] of [
+      ["pr", c.prs],
+      ["ticket", c.tickets],
+      ["incident", c.incidents],
+    ] as const) {
+      for (const i of items) keys.push(`${c.peerId}:${kind}:${i.service}:${i.title}`);
+    }
+    prs += c.prs.length;
+    tickets += c.tickets.length;
+    incidents += c.incidents.length;
+  }
+  return summary(keys, { peers: f.contributions.length, prs, tickets, incidents });
+};
+
+const impact: FleetDigestExtractor = (f) => {
+  if (!isImpactBrief(f)) return undefined;
+  return summary(
+    f.affected.map((a) => `${a.category}:${a.affectedItemId}`),
+    {
+      affected_total: f.affected.length,
+      ...bandCounts(
+        "category",
+        f.affected.map((a) => a.category),
+      ),
+    },
+  );
+};
+
+const why: FleetDigestExtractor = (f) => {
+  if (!isWhyBrief(f)) return undefined;
+  // `lane:title`, NOT `entityId`: that field is `string | null`, so a key built on it changes the
+  // moment an id arrives — the same phantom churn with an extra failure mode (spec § 4.4).
+  return summary(
+    f.findings.map((x) => `${x.lane}:${x.title}`),
+    {
+      findings_total: f.findings.length,
+      ...bandCounts(
+        "lane",
+        f.findings.map((x) => x.lane),
+      ),
+    },
+  );
+};
+
 /** Completed in Tasks 3 and 4; typed as a partial record until then. */
 const PARTIAL: Partial<Record<string, FleetDigestExtractor>> = {
   "agents.catchup": catchup,
+  "agents.conflicts": conflicts,
   "agents.expert": expert,
   "agents.ghost": ghost,
+  "agents.huddle": huddle,
+  "agents.impact": impact,
   "agents.janitor": janitor,
+  "agents.why": why,
 };
 
 /**

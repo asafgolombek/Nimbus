@@ -143,3 +143,119 @@ describe("malformed input never throws", () => {
     expect(summarizeBrief("agents.ghost", json)).toBeUndefined();
   });
 });
+
+describe("impact keys on the stable affectedItemId", () => {
+  test("category and id compose the key; per-category counts are metrics", () => {
+    const json = JSON.stringify({
+      ...base,
+      kind: "impact",
+      query: { fileOrPrUrl: "a.ts" },
+      startEntityId: null,
+      affected: [
+        {
+          category: "service",
+          affectedItemId: "svc1",
+          affectedTitle: "T",
+          serviceId: "s",
+          hops: 1,
+          pathSummary: "",
+        },
+        {
+          category: "dashboard",
+          affectedItemId: "d1",
+          affectedTitle: "D",
+          serviceId: "s",
+          hops: 2,
+          pathSummary: "",
+        },
+      ],
+    });
+    const s = summarizeBrief("agents.impact", json);
+    expect(s?.keys).toEqual(["dashboard:d1", "service:svc1"]);
+    expect(s?.metrics).toMatchObject({
+      affected_total: 2,
+      category_service: 1,
+      category_dashboard: 1,
+    });
+  });
+});
+
+describe("why keys on lane:title deliberately", () => {
+  test("a null entityId does not affect the key", () => {
+    const json = JSON.stringify({
+      ...base,
+      kind: "why",
+      query: { ref: "a.ts", line: null },
+      subject: null,
+      findings: [
+        {
+          lane: "authorship",
+          title: "Alice wrote it",
+          detail: "",
+          url: null,
+          occurredAt: null,
+          entityId: null,
+        },
+        { lane: "ticket", title: "NIM-1", detail: "", url: null, occurredAt: null, entityId: "e1" },
+      ],
+    });
+    const s = summarizeBrief("agents.why", json);
+    expect(s?.keys).toEqual(["authorship:Alice wrote it", "ticket:NIM-1"]);
+    expect(s?.metrics).toMatchObject({ findings_total: 2, lane_authorship: 1, lane_ticket: 1 });
+  });
+
+  test("STATED BOUND: retitling reads as one resolved plus one appeared", () => {
+    const mk = (title: string) =>
+      JSON.stringify({
+        ...base,
+        kind: "why",
+        query: { ref: "a.ts", line: null },
+        subject: null,
+        findings: [
+          { lane: "ticket", title, detail: "", url: null, occurredAt: null, entityId: "e1" },
+        ],
+      });
+    expect(summarizeBrief("agents.why", mk("NIM-1"))?.keys).toEqual(["ticket:NIM-1"]);
+    expect(summarizeBrief("agents.why", mk("NIM-1 renamed"))?.keys).toEqual([
+      "ticket:NIM-1 renamed",
+    ]);
+  });
+});
+
+describe("conflicts and huddle", () => {
+  test("conflicts compose peer, type, service and title", () => {
+    const json = JSON.stringify({
+      ...base,
+      kind: "conflict",
+      query: { file: "a.ts" },
+      startEntityId: null,
+      collisions: [
+        {
+          peerId: "p1",
+          who: null,
+          service: "github",
+          collisionType: "open_pr",
+          title: "PR 1",
+          snippet: "",
+          modifiedAt: 0,
+        },
+      ],
+    });
+    const s = summarizeBrief("agents.conflicts", json);
+    expect(s?.keys).toEqual(["p1:open_pr:github:PR 1"]);
+    expect(s?.metrics).toMatchObject({ collisions_total: 1, type_open_pr: 1 });
+  });
+
+  test("huddle keys each contributed item under its peer", () => {
+    const item = { title: "X", snippet: "", service: "github", modifiedAt: 0 };
+    const json = JSON.stringify({
+      ...base,
+      kind: "huddle",
+      query: { sinceMs: 0 },
+      contributions: [{ peerId: "p1", who: null, prs: [item], tickets: [], incidents: [] }],
+    });
+    const s = summarizeBrief("agents.huddle", json);
+    expect(s?.keys).toEqual(["p1:pr:github:X"]);
+    expect(s?.metrics).toMatchObject({ peers: 1, prs: 1, tickets: 0, incidents: 0 });
+  });
+});
