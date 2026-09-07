@@ -336,6 +336,7 @@ async function e2eUntil(cond: () => boolean, ms = 2000): Promise<void> {
 function e2eEnforcedPolicy(): EnforcedPolicy {
   return {
     retentionDays: 30,
+    retentionMinDays: 0,
     hitlRequired: new Set<string>(),
     quorum: new Map(),
     capabilitiesDisabled: new Set(),

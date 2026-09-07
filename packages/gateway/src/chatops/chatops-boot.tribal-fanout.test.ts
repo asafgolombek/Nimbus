@@ -49,6 +49,7 @@ const SCIM: Record<string, { externalId: string; email: string; active: boolean;
 function enforcedWith(channels: Record<string, ChatopsChannelBinding>): EnforcedPolicy {
   return {
     retentionDays: 30,
+    retentionMinDays: 0,
     hitlRequired: new Set<string>(),
     quorum: new Map(),
     capabilitiesDisabled: new Set(),

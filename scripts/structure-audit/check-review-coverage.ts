@@ -17,7 +17,10 @@
  *
  * Deliberately NOT checked: instruction CONTENT. The repos are different products
  * under different licences (the SDK must stay dependency-free; the gateway carries
- * I1-I35), so a shared-content assertion could only be satisfied by making the
+ * the whole security-invariant catalogue -- see docs/SECURITY-INVARIANTS.md for the
+ * current ceiling, deliberately NOT restated here: this comment said "I1-I35" while
+ * the catalogue had reached I38, and the exact number was never load-bearing for the
+ * argument), so a shared-content assertion could only be satisfied by making the
  * instructions vaguer. Per-repo content is the local test's job, in the repo that
  * owns it.
  *

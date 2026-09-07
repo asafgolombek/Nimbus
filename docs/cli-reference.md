@@ -1502,6 +1502,158 @@ revokes every vendor's active grant on that item.
 
 ---
 
+## Overnight Agent Fleets
+
+Standing, owner-configured agent jobs that run on idle local hardware and leave a brief waiting.
+**Shipped as PR 1 of 2 (2026-09-07); off by default.** Enable with `[fleet] enabled = true` plus at
+least one `[[fleet.job]]` block — both are required, and a config with `enabled = true` and no jobs
+is *enabled and not running*, which `nimbus fleet status` reports as two separate fields.
+
+Everything here is local: a fleet brief is written to SQLite and read back by you. Invariant
+**I38** pins an unattended run's synthesis to a LOCAL model unless `[fleet] allow_remote = true`
+AND the run's remaining call budget covers the call — a frontier key configured under
+`[llm.remote.<vendor>]` for interactive `nimbus ask` grants the fleet nothing on its own.
+
+**What did NOT ship in PR 1** — stated here because the gap is visible from the command line:
+there is no subject enumeration (you name the subject in each job's config, so `nimbus fleet` will
+not sweep every service on its own), no change/threshold notion, and no digest surface. Those are
+PR 2. `negotiate` is classified `deferred` rather than eligible, so it cannot be named as a job's
+`agent` today.
+
+### `nimbus fleet status`
+
+```bash
+nimbus fleet status [--json]
+```
+
+Prints the `[fleet]` config and a **live** host-activity probe. Touches neither the scheduler nor
+the store, so it answers truthfully when the fleet was never constructed at all:
+
+```text
+fleet: enabled (running)
+  jobs configured:    2
+  requires AC power:  true
+  min idle seconds:   900
+  allow remote:       false (budget 0)
+  retention days:     14
+  host power:         ac
+  host idle ms:       unknown
+```
+
+`host idle ms: unknown` is a real answer, not a failure. **Linux never measures user idle** — the
+backend reads `/sys/class/power_supply` for power and reports `idleMs: null` with
+`source: "power_only"` — because X11, Wayland and headless each answer differently and a server has
+no session to be idle from. Admission on Linux is therefore power-only, and every run row records
+`host_source` so a brief can never imply an idle check that was not performed.
+
+### `nimbus fleet list`
+
+```bash
+nimbus fleet list [--json]
+```
+
+Lists every **configured** job (from `[[fleet.job]]`), not only ones that have run, with its
+last-success timestamp and consecutive-failure count:
+
+```text
+morning-catchup  agent=catchup  interval=86400s  last success=2026-09-07T03:12:44.001Z  consecutive failures=0
+```
+
+### `nimbus fleet briefs`
+
+```bash
+nimbus fleet briefs [--limit N] [--job <name>] [--json]
+```
+
+Lists synthesised briefs, most recent first — id, job, agent method, creation time. `--limit`
+defaults to 20 and is capped at 500 **at the IPC boundary**, not in the CLI (a `brief_markdown`
+body can be tens of KB, so an unbounded limit is an unbounded response).
+
+Expiry is enforced **on the read path** — `expires_at > now` — as well as by the prune, so an
+expired brief is never returned even between prunes; a read surface that still returned one would
+make retention a lie. The physical delete runs at **gateway boot** and again at the **end of every
+fleet run**, never on a timer of its own — the boot pass runs **unconditionally**, with the fleet
+disabled and even when `[fleet]` failed to parse, and is therefore the only one a machine with the
+fleet turned off ever gets. Rows written
+while it was enabled exist either way, and retention must not hinge on today's typo. Org policy can
+raise `retention_days` but never lower it (`retentionMinDays`), and the floor is applied *before*
+the scheduler stamps each brief's `expires_at`, not only to the prune.
+
+### `nimbus fleet show <id>`
+
+```bash
+nimbus fleet show <briefId> [--json]
+```
+
+Prints one brief's full markdown body. A brief that never existed and one that has expired are
+**deliberately indistinguishable** (both exit `3`): a distinguishable "it expired" answer would
+itself be a retention disclosure.
+
+### `nimbus fleet run <job> [--force]`
+
+```bash
+nimbus fleet run morning-catchup
+nimbus fleet run morning-catchup --force
+```
+
+Runs one configured job right now, bypassing its schedule — both its `interval_seconds` and any
+failure backoff it is currently sitting in. NAMING the job is what does that: backoff exists to stop
+an unattended loop hammering a failing job, not to refuse an owner's explicit single request, and
+the run still records its outcome so backoff re-arms for the scheduled path. `--force` additionally
+bypasses the host-admission check (battery / user-active), and nothing else. Neither bypasses
+`[fleet] enabled`, org policy, agent eligibility, or the remote call budget — those refuse
+identically with or without them.
+
+```text
+completed: attempted 1, completed 1, skipped(not due) 0, unattempted 0
+```
+
+Two different refusals both report `deferred` and are told apart by the message: *"a fleet run is
+already in flight"* (the scheduler's re-entrancy guard fired; no `fleet_run` row was opened) versus
+*"the host is on battery or in use"* (a row was opened and admission then said no).
+
+**Exit codes** (`nimbus fleet` only): `0` ok — including a `yielded` run, which is a host-activity
+boundary stopping a run early rather than a failure; `1` usage; `2` fleet disabled or its store
+unavailable; `3` no such job or no such brief; `4` run deferred; `5` run failed.
+
+### `[fleet]` configuration
+
+```toml
+[fleet]
+enabled            = false   # DEFAULT OFF
+allow_remote       = false   # DEFAULT OFF; requires remote_call_budget > 0 or the config is REFUSED
+remote_call_budget = 0       # non-local synthesis calls PER RUN, reset at each run boundary
+min_idle_seconds   = 900     # ignored on a host that cannot measure idle (see above)
+require_ac_power   = true    # blocks on `battery`; `unknown` (desktop/VM/server) still admits
+retention_days     = 14      # org policy may RAISE this floor, never lower it
+
+[[fleet.job]]
+name             = "morning-catchup"
+agent            = "catchup"    # must be a fleet-ELIGIBLE agent; `negotiate` is deferred
+interval_seconds = 86400
+# any other key becomes a param passed to the agent, camel-cased on the way, e.g.:
+since_ms         = 86400000   # -> sinceMs, which `agents.catchup` reads
+```
+
+Refusals are loud rather than silent, on purpose. `allow_remote = true` with no budget is
+**refused** — an unbounded overnight remote grant must not be expressible. A `[[fleet.job]]` block
+missing `name`, `agent` or a positive `interval_seconds`, or repeating a `name`, is **refused**
+rather than dropped (dropping it silently would leave the owner believing a job runs) and rather
+than defaulted (a daily schedule they never chose). A malformed `[fleet]` config does not crash
+boot: the gateway logs loudly, constructs no scheduler, and comes up with the fleet off.
+
+**Eligible agents** (11 of the 15 served `agents.*` methods): `catchup`, `huddle`, `glossary`,
+`decisions`, `ownership`, `why`, `ghost`, `conflicts`, `impact`, `expert`, `janitor`. Excluded:
+`preflight` and `premortem` (side effects — a HITL prompt nobody is awake to answer, and durable
+watcher/tombstone writes), `whyPeek` (synchronous shape, never fires the completion notification
+the invoker awaits), and `negotiate` (**deferred** to PR 2). The map is TOTAL over the served
+methods, so a new agent does not compile until someone classifies it.
+
+**Org lockoff:** `[policy.capabilities.ai_v2] agent_fleet = false` in a signed `nimbus.policy.toml`
+halts the scheduler before any hardware probe (invariant I22, tighten-only).
+
+---
+
 ## Interactive Sessions
 
 ### `nimbus tui`
@@ -1923,6 +2075,7 @@ local_model        = "llama3.2" # Any pulled Ollama model name
 enabled = true
 provider = "local"              # local | openai
 # model = "all-MiniLM-L6-v2"
+# pause_on_battery = true       # default TRUE — see the note below
 
 [telemetry]
 enabled = false
@@ -1942,6 +2095,30 @@ endpoint = "https://telemetry.nimbus-agent.dev/v1/collect"
 [automation]
 # graph_conditions = true
 ```
+
+#### `[embedding] pause_on_battery` — what it does to a laptop
+
+**Default `true`, and as of 2026-09-07 it changes behaviour.** When the host reports `power =
+"battery"`, embedding **backfill** pauses — not aborts — and re-probes every 30 s, resuming the
+moment the machine is back on mains. Set it to `false` to backfill regardless of power.
+
+Three things worth knowing before you go looking for a bug:
+
+- **Only `battery` pauses.** `unknown` — a desktop, a VM, a host whose backend cannot answer —
+  proceeds. The promise the key makes is "do not drain my battery", not "do not embed unless you
+  can prove I am plugged in"; treating an unmeasurable host as discharging would switch semantic
+  search off on every machine that has no battery at all.
+- **It pauses, it does not abandon.** A paused backfill is still waiting, so it picks up where it
+  left off. Nothing re-triggers backfill after boot, which is why an early return would have meant
+  "stopped until the next gateway restart".
+- **This is backfill only.** Newly synced items still embed; what waits is the catch-up pass over
+  the existing index. If semantic search on a laptop suddenly stops improving, this key — plus
+  `nimbus fleet status`' `host power` line, which reads the same probe — is the first place to
+  look.
+
+Historical note, because it affects how you read older configs: the key parsed and defaulted to
+`true` from the day it was added and **nothing read it** until the overnight-fleet work gave it a
+consumer. On a build before that, setting it had no effect whatsoever.
 
 #### Cloud vendors — `[llm.remote.<vendor>]`
 

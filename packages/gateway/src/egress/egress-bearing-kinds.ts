@@ -37,6 +37,13 @@ export const EGRESS_BEARING_CLIENT_KINDS: Readonly<
   // would write TWO rows for ONE outbound event: exactly the double-count `outcome` was made a
   // marker to avoid. If the chatops post appender is ever removed, this must become "chatops".
   chatops: null,
+  // The SAME `null` as `cli`/`ui`, for the same reason. I29's second append path covers a brief
+  // handed to a model the CALLING CLIENT uses; a fleet brief is written to local SQLite and read
+  // by the owner on this machine. Unattendedness is not egress — egress is bytes crossing the
+  // boundary, not whether someone was watching them not cross it. A fleet run's REMOTE synthesis,
+  // when `[fleet] allow_remote` grants it, is ledgered by the `model` class at the provider
+  // (`egress/model-egress.ts`), which is where the bytes actually leave.
+  fleet: null,
 });
 
 /**

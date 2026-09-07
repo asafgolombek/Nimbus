@@ -4,7 +4,19 @@ export type InitMsg = {
   type: "init";
   dbPath: string;
   cacheDir: string;
-  toml: { chunkTokens: number; chunkOverlapTokens: number; backfillBatchSize: number };
+  toml: {
+    chunkTokens: number;
+    chunkOverlapTokens: number;
+    backfillBatchSize: number;
+    /**
+     * `[embedding] pause_on_battery`. OPTIONAL on the wire, and absent means `true` at the reader
+     * (`embedding-worker.ts`), matching `DEFAULT_NIMBUS_EMBEDDING_TOML`. Absent-means-pause is the
+     * conservative direction: the failure mode of a wrongly-paused backfill is a slower index, the
+     * failure mode of a wrongly-resumed one is the drained battery the key exists to prevent.
+     * The core itself never reads it — only the production `setup` that builds the pipeline does.
+     */
+    pauseOnBattery?: boolean;
+  };
 };
 
 export type EmbedTextsMsg = { type: "embed_texts"; id: string; texts: string[] };
@@ -29,7 +41,10 @@ export function isInMsg(data: unknown): data is InMsg {
       typeof m["cacheDir"] === "string" &&
       typeof toml?.["chunkTokens"] === "number" &&
       typeof toml?.["chunkOverlapTokens"] === "number" &&
-      typeof toml?.["backfillBatchSize"] === "number"
+      typeof toml?.["backfillBatchSize"] === "number" &&
+      // Optional, but never a lie: a non-boolean present value is a malformed message, not a
+      // default to be silently substituted.
+      (toml["pauseOnBattery"] === undefined || typeof toml["pauseOnBattery"] === "boolean")
     );
   }
   if (m["type"] === "embed_texts") {

@@ -46,6 +46,14 @@ const FORBIDDEN_OVER_LAN = new Set([
   // it, nor to ENUMERATE which artifacts the owner has already exposed (`media.grants.list`
   // writes nothing, but leaks exactly that).
   "media",
+  // S2 overnight agent fleets — the WHOLE namespace, matching exec/computer/media. `fleet.runNow`
+  // would let a paired peer spend the owner's CPU (and, under `[fleet] allow_remote`, the owner's
+  // frontier-model budget) on unattended work the owner is by definition not present to watch;
+  // `fleet.briefs`/`fleet.show` would hand that peer last night's synthesised answers over the
+  // owner's private index, which is the whole index restated in prose. There are no read verbs
+  // here worth preserving over the wire — a peer with a legitimate question has `federation.ask`,
+  // which goes through the I17 query gate.
+  "fleet",
   "audit", // exfiltration-class namespace
   "data", // exfiltration-class namespace
   "security", // exfiltration-class — credential locations must not leak to LAN peers

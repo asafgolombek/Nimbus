@@ -15,6 +15,7 @@ describe("egress-bearing client kinds", () => {
     expect(Object.keys(EGRESS_BEARING_CLIENT_KINDS).sort()).toEqual([
       "chatops",
       "cli",
+      "fleet",
       "http",
       "mcp",
       "ui",
@@ -56,5 +57,9 @@ describe("egress-bearing client kinds", () => {
   test("chatops is not client-declarable — it is server-constructed like http", () => {
     const store = new ClientKindStore();
     expect(store.declare("c1", "chatops")).toBe("unknown");
+  });
+
+  test("a fleet brief appends nothing — it never leaves the machine", () => {
+    expect(egressSourceTypeForClientKind("fleet")).toBeNull();
   });
 });

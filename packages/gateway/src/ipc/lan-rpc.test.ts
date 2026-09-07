@@ -96,6 +96,29 @@ describe("checkLanMethodAllowed", () => {
     },
   );
 
+  /**
+   * The whole `fleet` namespace, for two independent reasons: `fleet.runNow` spends the owner's
+   * CPU (and, under `[fleet] allow_remote`, their frontier budget) on unattended work, and
+   * `fleet.briefs`/`fleet.show` hand back last night's synthesised answers over the private index.
+   * Asserted on the MESSAGE, not just the class, because the namespace forbid and the write gate
+   * throw the same `LanError` — a `toThrow(LanError)` alone would pass if `fleet` were merely
+   * write-gated, which is exactly what this must not be.
+   *
+   * These methods are served from Task 9 onward; the forbid is deliberately in place first, since
+   * `checkLanMethodAllowed` is a pure string check and a namespace that arrives already closed
+   * cannot be opened by an oversight in the commit that adds the handlers.
+   */
+  test.each(["fleet.runNow", "fleet.briefs", "fleet.show", "fleet.status"])(
+    "%s is not callable over LAN regardless of grant-write",
+    (method) => {
+      for (const writeAllowed of [true, false]) {
+        expect(() => checkLanMethodAllowed(method, { peerId: "p", writeAllowed })).toThrow(
+          /not callable over LAN/,
+        );
+      }
+    },
+  );
+
   test("rejects connector.addMcp even with writeAllowed false (also forbidden, not just write-gated)", () => {
     expect(() =>
       checkLanMethodAllowed("connector.addMcp", { peerId: "p", writeAllowed: false }),

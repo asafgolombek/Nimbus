@@ -33,6 +33,7 @@ import type { ChatopsRpcCtx } from "../chatops-rpc.ts";
 import type { ComputerRpcCtx } from "../computer-rpc.ts";
 import type { EgressRpcCtx } from "../egress-rpc.ts";
 import type { ExecRpcCtx } from "../exec-rpc.ts";
+import type { FleetRpcCtx } from "../fleet-rpc.ts";
 import type { BoxKeypair } from "../lan-crypto.ts";
 import type { PairingWindow } from "../lan-pairing.ts";
 import type { LanServer } from "../lan-server.ts";
@@ -161,6 +162,12 @@ export type CreateIpcServerOptions = {
   // Present only when assembled at boot; the dispatcher skips cleanly when unset. egress.prune is
   // NOT Tauri-exposed (I7 — mutation/RCE-class surface); only the 4 read verbs are renderer-callable.
   egressRpcCtx?: EgressRpcCtx;
+  // Overnight agent fleet (S2). The dependency seam behind the fleet.* IPC namespace (status, list,
+  // briefs, show, runNow). `store`/`config`/`jobs` are always present once assembled at boot;
+  // `scheduler` is present only when `[fleet] enabled` and at least one job is configured — absent
+  // otherwise, and fleet.runNow refuses rather than silently doing nothing. The whole namespace is
+  // LAN-forbidden (I5, `FORBIDDEN_OVER_LAN`) and absent from the Tauri allowlist (I7).
+  fleetRpcCtx?: FleetRpcCtx;
   // Glossary (S1 Local Brain). The dependency seam behind the glossary.* IPC namespace
   // (refresh, rebuild — both long-running jobs, see ipc/glossary-rpc.ts). Always present
   // once assembled at boot; when [glossary].enabled is false, the refresher reports

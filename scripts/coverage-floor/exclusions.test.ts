@@ -32,6 +32,21 @@ describe("isExempt — platform-specific PAL files", () => {
     expect(isExempt("packages/gateway/src/platform/sandbox/linux.ts")).toBe(true);
     expect(isExempt("packages/gateway/src/platform/sandbox/darwin.ts")).toBe(true);
   });
+  test("host-activity.ts IS exempt — same per-OS dispatcher shape as sandbox-runner.ts", () => {
+    // A five-line `switch (platform())` with three dynamic-import arms: one arm per runner, so the
+    // file reads 40% line on EVERY OS including Linux. Cites `sandbox/sandbox-runner.ts`.
+    expect(isExempt("packages/gateway/src/platform/host-activity.ts")).toBe(true);
+  });
+  test("host-activity/{darwin,win32}.ts are exempt — pmset/ioreg spawn and bun:ffi dlopen", () => {
+    expect(isExempt("packages/gateway/src/platform/host-activity/darwin.ts")).toBe(true);
+    expect(isExempt("packages/gateway/src/platform/host-activity/win32.ts")).toBe(true);
+  });
+  test("host-activity/linux.ts is NOT exempt — injectable `root`, so testable on any OS", () => {
+    // The mirror of the platform/linux.ts rule above. `createLinuxHostActivity(root)` takes its
+    // sysfs root as an argument, so nothing about it is Linux-only at test time, and it is the arm
+    // the CI-Linux runner actually takes. A floor failure here is a gap to close, not to exempt.
+    expect(isExempt("packages/gateway/src/platform/host-activity/linux.ts")).toBe(false);
+  });
   test("vault/factory.ts IS exempt (async per-OS dispatcher; only one switch arm reachable per CI run)", () => {
     expect(isExempt("packages/gateway/src/vault/factory.ts")).toBe(true);
   });

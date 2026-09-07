@@ -87,7 +87,7 @@ function makeBridge(): EmbeddingRuntime {
   const bridge = tryCreateEmbeddingWorkerBridge(
     ":memory:",
     DATA_DIR,
-    { chunkTokens: 256, chunkOverlapTokens: 32, backfillBatchSize: 8 },
+    { chunkTokens: 256, chunkOverlapTokens: 32, backfillBatchSize: 8, pauseOnBattery: false },
     logger,
   );
   if (bridge === null) {
@@ -111,7 +111,7 @@ describe("tryCreateEmbeddingWorkerBridge", () => {
     const bridge = tryCreateEmbeddingWorkerBridge(
       ":memory:",
       DATA_DIR,
-      { chunkTokens: 256, chunkOverlapTokens: 32, backfillBatchSize: 8 },
+      { chunkTokens: 256, chunkOverlapTokens: 32, backfillBatchSize: 8, pauseOnBattery: false },
       logger,
     );
     expect(bridge).toBeNull();
@@ -534,7 +534,7 @@ describe("tryCreateEmbeddingWorkerBridge", () => {
     const bridge = tryCreateEmbeddingWorkerBridge(
       ":memory:",
       DATA_DIR,
-      { chunkTokens: 256, chunkOverlapTokens: 32, backfillBatchSize: 8 },
+      { chunkTokens: 256, chunkOverlapTokens: 32, backfillBatchSize: 8, pauseOnBattery: false },
       logger,
     );
     const elapsedMs = Date.now() - start;

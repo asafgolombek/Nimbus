@@ -23,6 +23,7 @@ import {
   runExec,
   runExpertCli,
   runExtension,
+  runFleet,
   runGhostCli,
   runGlossaryCommand,
   runHuddleCli,
@@ -168,6 +169,13 @@ async function dispatchCommand(command: string, args: string[]): Promise<void> {
   }
   if (command === "bench") {
     process.exitCode = await runBench(args);
+    return;
+  }
+  // Not in COMMAND_HANDLERS: `runFleet` returns `Promise<number>` (mirroring `runBench`), and the
+  // generic path below discards a handler's return value — that would silently keep
+  // `process.exitCode` at 0 no matter what a fleet run actually did.
+  if (command === "fleet") {
+    process.exitCode = await runFleet(args);
     return;
   }
   const handler = COMMAND_HANDLERS[command];

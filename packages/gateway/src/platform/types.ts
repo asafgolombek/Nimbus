@@ -3,6 +3,7 @@ import type { ConnectorWriteContext } from "../connectors/connector-write-transp
 import type { LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import type { EmbeddingReadiness } from "../embedding/embedding-readiness.ts";
 import type { ExecutorDelegationDep, ExecutorPolicyDep } from "../engine/executor.ts";
+import type { FleetScheduler } from "../fleet/fleet-scheduler.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import type { IPCServer } from "../ipc/index.ts";
 import type { LlmRegistry } from "../llm/registry.ts";
@@ -10,6 +11,7 @@ import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
 import type { NimbusVault } from "../vault/index.ts";
 import type { AgentVendor } from "./assemble.ts";
+import type { HostActivity } from "./host-activity.ts";
 import type { PlatformPaths } from "./paths.ts";
 import type { SandboxRunner } from "./sandbox/sandbox-runner.ts";
 
@@ -44,6 +46,14 @@ export interface PlatformServices {
    */
   agentVendor?: AgentVendor;
   sandboxRunner: SandboxRunner;
+  /** Host power/idle state, used by the fleet scheduler and by `[embedding] pause_on_battery`. */
+  hostActivity: HostActivity;
+  /**
+   * The overnight agent fleet's 60-second tick. ABSENT — not a disabled instance — when `[fleet]
+   * enabled` is false or no `[[fleet.job]]` is configured, which is the default on both counts, so
+   * `undefined` here means nothing was constructed rather than something is idling.
+   */
+  fleetScheduler?: FleetScheduler;
   /** Credential-aware deps for the connector write dispatcher (warehouse/BI ∪ GitOps/ML; wrapped in index.ts). */
   connectorWriteDeps: ConnectorWriteContext;
   // Owner-side delegated HITL (Slice 2, I20). Present when federation is enabled: the executor gate

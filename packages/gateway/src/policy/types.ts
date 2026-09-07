@@ -52,6 +52,7 @@ export const AI_V2_CAPABILITIES = [
   "tool_generation",
   "multimodal_input",
   "local_finetuning",
+  "agent_fleet",
 ] as const;
 
 /** Where a persisted policy came from. */

@@ -18,6 +18,19 @@ export interface LocalBaseline {
 export interface EnforcedPolicy {
   readonly connectorAllow?: readonly string[];
   readonly retentionDays: number;
+  /**
+   * The ORG POLICY retention floor on its own (`0` when ungoverned) -- deliberately NOT the same
+   * number as `retentionDays` above, which is that floor already merged with the LOCAL baseline
+   * (`auditCfg.toolCallLogRetentionDays`, default 90).
+   *
+   * A subsystem that carries its OWN local retention window -- the fleet's `[fleet] retention_days`
+   * is the first -- must take `max()` against THIS, never against `retentionDays`: doing the latter
+   * would silently stretch a configured `retention_days = 14` to the audit log's 90-day default on
+   * every ungoverned machine, which is not a floor, it is a different subsystem's window leaking
+   * across. Carried on `EnforcedPolicy` rather than read off the active `OrgPolicy` so enforcement
+   * still reads only the resolved policy (I22).
+   */
+  readonly retentionMinDays: number;
   readonly hitlRequired: ReadonlySet<string>;
   readonly quorum: ReadonlyMap<string, QuorumRule>;
   readonly auditShipTo?: string;
@@ -60,6 +73,7 @@ export function computeEnforced(policy: OrgPolicy, base: LocalBaseline): Enforce
   return {
     ...(policy.connectors.allow === undefined ? {} : { connectorAllow: policy.connectors.allow }),
     retentionDays: Math.max(base.retentionDays, policy.retention.minDays),
+    retentionMinDays: policy.retention.minDays,
     hitlRequired,
     quorum,
     capabilitiesDisabled,
@@ -146,6 +160,9 @@ export class PolicyGate {
     if (this.active === undefined) {
       return {
         retentionDays: this.baseline.retentionDays,
+        // Ungoverned: there is no org floor at all, so nothing is raised. `0`, never the local
+        // baseline -- a local window is not an org requirement.
+        retentionMinDays: 0,
         hitlRequired: new Set(this.baseline.hitlRequired),
         quorum: new Map(this.baseline.quorum),
         chatops: { channels: new Map(), ownership: new Map() },

@@ -207,7 +207,7 @@ EnforcedPolicy         += capabilitiesDisabled: ReadonlySet<string>   // union
 
 The gate reads `EnforcedPolicy.capabilitiesDisabled.has("code_execution")` — never raw policy TOML (I22).
 
-The field serves all five `ai_v2` capabilities (`code_execution`, `computer_use`, `tool_generation`, `multimodal_input`, `local_finetuning`), not just this one, so later S2 rows inherit it.
+The field serves every `ai_v2` capability, not just this one, so later S2 rows inherit it. There were five when this was written (`code_execution`, `computer_use`, `tool_generation`, `multimodal_input`, `local_finetuning`); `agent_fleet` became the sixth on 2026-09-07. Derive the list from `AI_V2_CAPABILITIES` in `packages/gateway/src/policy/types.ts` — nothing audits a restatement of it.
 
 ---
 

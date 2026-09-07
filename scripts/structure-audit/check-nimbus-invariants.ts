@@ -930,6 +930,90 @@ export function checkRunConfinedConfinement(files: readonly FileEntry[]): Violat
   return out;
 }
 
+// D28 (I38): the `fleet` ClientKind literal — the attribution that marks a call as unattended,
+// owner-configured fleet work — may appear only where it is DEFINED, where its egress status is
+// DECIDED, and in the one invoker that legitimately wears it. A second file naming it would be a
+// second path able to file briefs under that attribution without passing the scheduler's config,
+// policy, admission and I38 budget checks. Mirrors D23's runConfined confinement. Tests exempt.
+//
+// WHAT THIS RULE COVERS, and what it does not — stated plainly, in the style of D26(b), because a
+// rule that implies completeness is worse than one that names its own edge. It matches the literal
+// only where it is being ASSIGNED as a client kind:
+//   * an object-literal property or a plain assignment — `kind: "fleet"`, `callerKind = "fleet"`
+//     (any identifier ending in `kind`/`Kind`);
+//   * a `ClientKind`-typed declaration — `const k: ClientKind = "fleet"`;
+//   * a `ClientKind` assertion — `"fleet" as ClientKind`;
+//   * a `ClientKindStore.declare(...)` second argument — `store.declare(id, "fleet")`;
+//   * a quoted `"fleet":` map key whose value is `null` or a string, i.e. a second copy of the
+//     egress classification.
+// Each is checked against the line AND against that line joined with the next, so a formatter that
+// breaks `kind:` from its literal does not slip past.
+//
+// It deliberately does NOT match a BARE `"fleet"` string. The word is a legitimate namespace token
+// elsewhere — the LAN forbid-list (`ipc/lan-rpc.ts`) and the CLI command map both name it with no
+// `ClientKind` involved — and a bare-string rule would false-positive on those, then be weakened or
+// allow-listed until it caught nothing. A narrow rule that fires is worth more than a broad one
+// that gets disarmed.
+//
+// WHAT THE ALLOW-LIST IMPLIES AND THE RULE DOES NOT DELIVER — the narrower reading, checked
+// against the three files rather than inferred from the list's length. Only ONE of the three
+// allow-listed files contains a shape this regex can see: `fleet-invoker.ts`'s `kind: "fleet"`.
+// `client-kind.ts` holds the union MEMBER (`| "fleet" |`), which matches no alternative above, and
+// `egress-bearing-kinds.ts` writes the map entry UNQUOTED (`fleet: null`), while the map-key
+// alternative requires a QUOTED `"fleet":`. So the allow-list entries for those two are precautions
+// against a shape they do not currently contain, and — the consequence worth stating — a
+// copy-paste of the REAL egress classification line into a fourth file would NOT be caught. The
+// quoted-key alternative catches a hand-written `"fleet": null` map, not the one this repo ships.
+// Widening to the unquoted `fleet:` form is not obviously right: `fleet:` is also how a CLI command
+// map and a config object name the namespace, which is the false-positive class this rule
+// deliberately stays clear of. Recorded as the rule's edge rather than closed.
+//
+// RESIDUAL BOUND: a regex cannot see every construction. An indirection
+// (`const K = "fleet"; { kind: K }`), a computed key, or a value arriving from JSON all evade it —
+// the same class of hole D23 carries and that D26(a) had to close at the import instead. The
+// PRIMARY defense is capability confinement: the `ClientKind` value is only reachable where the
+// scheduler builds its caller descriptor, and `RECOGNISED` in `client-kind.ts` independently
+// refuses `fleet` as a client-DECLARED kind, so the socket path is closed by construction rather
+// than by this scan. This rule is the backstop for the copy-paste case, not the boundary.
+const D28_FLEET_KIND_ALLOWED = [
+  "packages/gateway/src/ipc/server/client-kind.ts",
+  "packages/gateway/src/egress/egress-bearing-kinds.ts",
+  "packages/gateway/src/fleet/fleet-invoker.ts",
+];
+const D28_FLEET_KIND_RE =
+  /\w*[Kk]ind\s*[:=]\s*"fleet"|:\s*ClientKind\s*=\s*"fleet"|"fleet"\s+as\s+ClientKind|\bdeclare\s*\([^)]*,\s*"fleet"|"fleet"\s*:\s*(?:null|")/;
+
+export function checkFleetClientKindConfinement(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (D28_FLEET_KIND_ALLOWED.includes(f.relPath)) continue;
+    const stripped = stripComments(f.contents).split("\n");
+    const original = f.contents.split("\n");
+    for (let i = 0; i < stripped.length; i++) {
+      const line = stripped[i] ?? "";
+      const next = stripped[i + 1] ?? "";
+      // The line alone, else the line joined with its successor. The joined form counts ONLY when
+      // the successor does not match on its own: otherwise a violation sitting wholly on line i+1
+      // would be reported twice — once here, at the wrong line number, and again at its own index.
+      // The first line has to actually contribute for the window to mean anything.
+      let matched = D28_FLEET_KIND_RE.test(line);
+      if (!matched && !D28_FLEET_KIND_RE.test(next)) {
+        matched = D28_FLEET_KIND_RE.test(`${line} ${next}`);
+      }
+      if (matched) {
+        out.push({
+          rule: "D28-fleet-client-kind",
+          file: f.relPath,
+          line: i + 1,
+          snippet: (original[i] ?? "").trim(),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 // D26(a) (I35): `performActuation` — the primitive that turns a model-proposed action into a real
 // interaction with the host — may be CALLED only from the computer-use gate (which performs the
 // config/policy checks, the sandbox assertion, the envelope check, the structural classification,
@@ -1874,6 +1958,13 @@ export const RULE_ANCHORS: readonly string[] = [
   // constructor rule skips as its own definition and whose presence would therefore prove nothing.
   // Same shape as the D23 and D22(f) anchors above.
   "packages/gateway/src/multimodal/build-media-pass-deps.ts",
+  // D28 — anchored on the ONE production file allowed to wear the `fleet` ClientKind, a file the
+  // rule SCANS (it is on the allow-list, so it is read and then permitted). NOT client-kind.ts:
+  // that file DEFINES the union, and its presence in the scanned set would prove nothing about
+  // whether the rule can see the invoker. Same shape as the D23 and D22(f)/(g) anchors above —
+  // without an anchor of its own, D28 would report clean while scanning nothing the moment
+  // `iterateSourceFiles()` stopped reaching `fleet/`.
+  "packages/gateway/src/fleet/fleet-invoker.ts",
 ];
 
 /** Fail loudly when the scanned set cannot support the rules about to run. */
@@ -2068,6 +2159,13 @@ async function run(): Promise<void> {
       );
     }
     if (v.length > 0) exit = 1;
+    const fleetKindViolations = checkFleetClientKindConfinement(files);
+    for (const e of fleetKindViolations) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D28 fleet ClientKind breach — the unattended-fleet attribution is named outside client-kind.ts/egress-bearing-kinds.ts/fleet-invoker.ts, a second path able to file briefs as fleet work without the scheduler's checks (I38): ${e.snippet}`,
+      );
+    }
+    if (fleetKindViolations.length > 0) exit = 1;
   }
   if (mode === "binary-only" || mode === "all") {
     const actuationViolations = checkActuationConfinement(files);

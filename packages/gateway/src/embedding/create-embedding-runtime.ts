@@ -8,6 +8,7 @@ import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import type { BackfillGate } from "./backfill-gate.ts";
 import { tryCreateRoutingEmbeddingRuntime } from "./create-routing-runtime.ts";
 import { createDeferredEmbeddingRuntime } from "./deferred-runtime.ts";
 import type { EmbeddingRuntime } from "./embedding-runtime.ts";
@@ -19,40 +20,54 @@ import { tryCreateEmbeddingWorkerBridge } from "./worker-bridge.ts";
 
 type OpenAIEmbedderFactory = (options: CreateOpenAIEmbedderOptions) => Promise<Embedder>;
 
-type RoutingRuntimeFactory = (
-  db: Database,
-  paths: PlatformPaths,
-  logger: Logger,
-  slice: { chunkTokens: number; chunkOverlapTokens: number; backfillBatchSize: number },
-  vault: NimbusVault,
-) => Promise<EmbeddingRuntime | null>;
+/**
+ * The slice of `[embedding]` every backfill-capable runtime needs. `pauseOnBattery` rides along
+ * because the WORKER runtime cannot be handed a gate function (it lives in another realm and
+ * builds its own from this flag); the two in-process runtimes take the built gate instead.
+ */
+type EmbeddingSlice = {
+  chunkTokens: number;
+  chunkOverlapTokens: number;
+  backfillBatchSize: number;
+  pauseOnBattery: boolean;
+};
 
-type WorkerBridgeFactory = (
-  dbPath: string,
-  dataDir: string,
-  slice: { chunkTokens: number; chunkOverlapTokens: number; backfillBatchSize: number },
-  logger: Logger,
-) => EmbeddingRuntime | null;
+/**
+ * Both factory seams are `typeof` the real function rather than a hand-written restatement of its
+ * shape. A second copy is exactly how an injected fake ends up agreeing with a contract production
+ * never sees — and this file has two trailing test-only params (`createEmbedder`, `checkVec`) plus
+ * a trailing `opts` to get wrong. A shorter fake stays assignable, so tests are unaffected.
+ */
+type RoutingRuntimeFactory = typeof tryCreateRoutingEmbeddingRuntime;
+
+type WorkerBridgeFactory = typeof tryCreateEmbeddingWorkerBridge;
+
+/**
+ * The third leg's seam, added for the same reason the other two exist: without it the two
+ * `createLazyEmbeddingRuntime` call sites below are unobservable, because reaching them for real
+ * needs either a MiniLM download or a loaded `sqlite-vec` — so the argument they pass could stop
+ * travelling and no test would notice.
+ */
+type LazyRuntimeFactory = typeof createLazyEmbeddingRuntime;
 
 /** Optional DI overrides – pass only in tests. */
 export type EmbeddingRuntimeOverrides = {
   openaiEmbedderFactory?: OpenAIEmbedderFactory;
   routingRuntimeFactory?: RoutingRuntimeFactory;
   workerBridgeFactory?: WorkerBridgeFactory;
+  lazyRuntimeFactory?: LazyRuntimeFactory;
 };
 
 async function tryCreateOpenAIEmbeddingRuntime(
   db: Database,
   paths: PlatformPaths,
   logger: Logger,
-  slice: {
-    chunkTokens: number;
-    chunkOverlapTokens: number;
-    backfillBatchSize: number;
-  },
+  slice: EmbeddingSlice,
   tomlEmbedding: NimbusEmbeddingToml,
   vault: NimbusVault,
   openaiEmbedderFactory: OpenAIEmbedderFactory = createOpenAIEmbedder,
+  backfillGate?: BackfillGate,
+  lazyFactory: LazyRuntimeFactory = createLazyEmbeddingRuntime,
 ): Promise<EmbeddingRuntime | null> {
   let apiKey = processEnvGet("OPENAI_API_KEY")?.trim() ?? "";
   if (apiKey === "") {
@@ -80,7 +95,9 @@ async function tryCreateOpenAIEmbeddingRuntime(
         dimensions: 1536,
       }),
     );
-    return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice, embedder);
+    return lazyFactory(db, paths.dataDir, logger, slice, embedder, undefined, {
+      backfillGate,
+    });
   } catch (err) {
     logger.warn(
       {
@@ -127,6 +144,7 @@ export function createEmbeddingRuntimeNonBlocking(
   envAllowsEmbeddings: boolean,
   vault: NimbusVault,
   overrides?: EmbeddingRuntimeOverrides,
+  backfillGate?: BackfillGate,
 ): EmbeddingRuntime | null {
   if (!embeddingRuntimeWanted(db, tomlEmbedding, envAllowsEmbeddings)) {
     return null;
@@ -141,6 +159,7 @@ export function createEmbeddingRuntimeNonBlocking(
         envAllowsEmbeddings,
         vault,
         overrides,
+        backfillGate,
       ),
     fallbackModel: LOCAL_EMBEDDING_MODEL_ID,
     fallbackDims: 384,
@@ -161,23 +180,35 @@ export async function createEmbeddingRuntime(
   envAllowsEmbeddings: boolean,
   vault: NimbusVault,
   overrides?: EmbeddingRuntimeOverrides,
+  backfillGate?: BackfillGate,
 ): Promise<EmbeddingRuntime | null> {
   if (!embeddingRuntimeWanted(db, tomlEmbedding, envAllowsEmbeddings)) {
     return null;
   }
 
-  const slice = {
+  const slice: EmbeddingSlice = {
     chunkTokens: tomlEmbedding.chunkTokens,
     chunkOverlapTokens: tomlEmbedding.chunkOverlapTokens,
     backfillBatchSize: tomlEmbedding.backfillBatchSize,
+    // Carried for the WORKER leg, which builds its own gate in its own realm.
+    pauseOnBattery: tomlEmbedding.pauseOnBattery,
   };
+
+  // `backfillGate` is `[embedding] pause_on_battery`'s consumer, BUILT BY THE CALLER rather than
+  // here: it owns a cancellable poll timer, and the only place that can register a teardown for it
+  // is `platform/assemble.ts`, which holds `sidecarStops`. `undefined` — every current test, and
+  // any embedded use — keeps the old never-pause behaviour rather than silently acquiring a
+  // dependency it cannot tear down.
 
   const routingFactory = overrides?.["routingRuntimeFactory"] ?? tryCreateRoutingEmbeddingRuntime;
   const workerFactory = overrides?.["workerBridgeFactory"] ?? tryCreateEmbeddingWorkerBridge;
   const openaiFactory = overrides?.["openaiEmbedderFactory"] ?? createOpenAIEmbedder;
+  const lazyFactory = overrides?.["lazyRuntimeFactory"] ?? createLazyEmbeddingRuntime;
 
   if (tomlEmbedding.provider === "hybrid") {
-    const hybrid = await routingFactory(db, paths, logger, slice, vault);
+    const hybrid = await routingFactory(db, paths, logger, slice, vault, undefined, undefined, {
+      backfillGate,
+    });
     if (hybrid !== null) {
       return hybrid;
     }
@@ -191,6 +222,8 @@ export async function createEmbeddingRuntime(
       tomlEmbedding,
       vault,
       openaiFactory,
+      backfillGate,
+      lazyFactory,
     );
   }
 
@@ -199,5 +232,7 @@ export async function createEmbeddingRuntime(
   if (worker !== null) {
     return worker;
   }
-  return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice);
+  return lazyFactory(db, paths.dataDir, logger, slice, undefined, undefined, {
+    backfillGate,
+  });
 }

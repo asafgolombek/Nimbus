@@ -1102,6 +1102,71 @@ const EXTERNAL_EXCLUDED_AGENT_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The served agent methods, as a TYPE. `AGENTS_RPC_HANDLERS` itself stays unexported — handing the
+ * map out would let another file invoke an agent directly, a bypass D22(d) cannot see. A type
+ * export carries no runtime value, so it grants no such ability while still letting
+ * `FLEET_ELIGIBILITY` be total over exactly this set.
+ */
+export type AgentMethod = keyof typeof AGENTS_RPC_HANDLERS;
+
+export type FleetEligibility = "eligible" | "excluded_side_effects" | "excluded_shape" | "deferred";
+
+/**
+ * Which agents an UNATTENDED, owner-configured fleet run may invoke.
+ *
+ * TOTAL over `AgentMethod` on purpose: a sixteenth agent does not compile until someone classifies
+ * it. An exclusion `Set` fails OPEN — a new agent would silently become fleet-eligible.
+ *
+ * NOT `EXTERNAL_EXCLUDED_AGENT_METHODS`. That set was reasoned about for an ARBITRARY NETWORK
+ * CALLER; a fleet is a different principal — owner-configured in advance, absent when it fires.
+ * The overlap is large and the justification is not transferable.
+ */
+export const FLEET_ELIGIBILITY: Readonly<Record<AgentMethod, FleetEligibility>> = Object.freeze({
+  // Queues HITL consent prompts on the owner's machine (I24). At 03:00 that is a prompt nobody
+  // is there to answer — worse than the HTTP case it is already excluded for.
+  "agents.preflight": "excluded_side_effects",
+  // NOT a pure read: `runPremortem` writes paused `watcher` rows and a proposal tombstone, and
+  // `repropose: true` deletes tombstones. Nightly, that accumulates state nobody asked for.
+  "agents.premortem": "excluded_side_effects",
+  // Synchronous: returns its payload directly and never calls `notify`, so it cannot settle the
+  // completion promise the invoker waits on.
+  "agents.whyPeek": "excluded_shape",
+  // No side effects and the shape fits — but `--person` makes it a dossier builder, and SCHEDULED
+  // dossier-building is a different proposition from an owner running it once. Revisit in PR 2
+  // alongside subject enumeration.
+  "agents.negotiate": "deferred",
+  "agents.catchup": "eligible",
+  "agents.huddle": "eligible",
+  "agents.glossary": "eligible",
+  "agents.decisions": "eligible",
+  "agents.ownership": "eligible",
+  "agents.why": "eligible",
+  "agents.ghost": "eligible",
+  "agents.conflicts": "eligible",
+  "agents.impact": "eligible",
+  "agents.expert": "eligible",
+  "agents.janitor": "eligible",
+});
+
+/**
+ * The `agents.*` method a fleet job may invoke for a config-supplied agent name, or null.
+ *
+ * `Object.hasOwn`, never `in` — the name comes from `nimbus.toml` and `in` would resolve
+ * `"constructor"` against the prototype. Same reasoning as `resolveExternalAgentMethod`.
+ *
+ * Returns `AgentMethod`, not `string`: the caller hands this straight to `dispatchAgentsRpc`, and
+ * the narrower type is what stops a raw, unresolved method string being passed there instead. The
+ * single assertion sits immediately after the `Object.hasOwn` guard that establishes it — the
+ * membership check IS the narrowing, TypeScript just cannot see it through a template literal.
+ */
+export function resolveFleetAgentMethod(agent: string): AgentMethod | null {
+  const method = `${AGENTS_METHOD_PREFIX}${agent}`;
+  if (!Object.hasOwn(AGENTS_RPC_HANDLERS, method)) return null;
+  const served = method as AgentMethod;
+  return FLEET_ELIGIBILITY[served] === "eligible" ? served : null;
+}
+
+/**
  * The agent names every external surface accepts — today `POST /v1/agents/{agent}` and
  * `GET /v1/agents` publish exactly this set; ChatOps consumes the same names rather than deciding
  * its own.

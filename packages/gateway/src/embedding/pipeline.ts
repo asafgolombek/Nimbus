@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
 import { dbRun, dbStmtRun } from "../db/write.ts";
+import type { BackfillGate } from "./backfill-gate.ts";
 import { type ChunkOptions, chunkText, itemTextForEmbedding } from "./chunker.ts";
 import { SUPPORTED_EMBEDDING_DIMS } from "./routing.ts";
 import type { Embedder, EmbeddingPipeline, IndexedItem } from "./types.ts";
@@ -26,6 +27,15 @@ export type SqliteEmbeddingPipelineOptions = {
   backfillConcurrency?: number;
   logger?: Logger;
   chunkOptions?: Partial<ChunkOptions>;
+  /**
+   * Consulted before EVERY backfill batch — `[embedding] pause_on_battery`'s enforcement point.
+   *
+   * Per BATCH rather than per item: a batch is the unit the surrounding loop can re-select, so
+   * stopping between batches leaves nothing half-written, while a per-item check would probe the
+   * host up to 50 times for one page of work. Absent (the default) means never pause, which is
+   * what every caller that predates the key gets.
+   */
+  backfillGate?: BackfillGate;
 };
 
 /**
@@ -58,6 +68,7 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
   private readonly backfillConcurrency: number;
   private readonly logger: Logger | undefined;
   private readonly chunkOptions: Partial<ChunkOptions> | undefined;
+  private readonly backfillGate: BackfillGate | undefined;
   private readonly vecTable: string;
 
   constructor(options: SqliteEmbeddingPipelineOptions) {
@@ -70,6 +81,7 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
     );
     this.logger = options.logger;
     this.chunkOptions = options.chunkOptions;
+    this.backfillGate = options.backfillGate;
     if (!SUPPORTED_EMBEDDING_DIMS.has(this.embedder.dims)) {
       throw new Error(`unsupported embedding dim: ${String(this.embedder.dims)}`);
     }
@@ -198,6 +210,9 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
     let done = 0;
 
     while (true) {
+      // Before the SELECT, not after it: a paused gate must not hold a page of rows for however
+      // long the machine stays on battery, and re-reading them on resume costs one query.
+      if (this.backfillGate !== undefined && !(await this.backfillGate())) return;
       const rows = this.db
         .query(
           `SELECT i.id AS id, i.service AS service, i.type AS type,
@@ -249,6 +264,7 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
     let done = 0;
 
     while (true) {
+      if (this.backfillGate !== undefined && !(await this.backfillGate())) return;
       const rows = this.db
         .query(
           `SELECT i.id AS id, i.service AS service, i.type AS type,

@@ -820,3 +820,192 @@ describe("createEmbeddingRuntimeNonBlocking", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// `[embedding] pause_on_battery` — the wiring, as distinct from the gate's own behaviour.
+//
+// The gate is unit-tested in `backfill-gate.test.ts` and the loop it stops in `pipeline.test.ts`.
+// What NEITHER of those can catch is this factory failing to hand it on: a gate that is correct
+// and a loop that honours it still leave the key inert if the argument never travels. These tests
+// assert the argument arrives, on each of the three runtime legs: the WORKER bridge (which
+// takes the flag, not the gate), the HYBRID routing runtime, and the LAZY runtime — reached
+// both from the `openai` provider and from the local fallback, which are two distinct call
+// sites and are therefore covered separately.
+// ---------------------------------------------------------------------------
+
+describe("createEmbeddingRuntime — pause_on_battery wiring", () => {
+  test("the WORKER leg receives pauseOnBattery in its slice (the default provider's leg)", async () => {
+    const h = makeHarness({ migrateTo: 30 });
+    try {
+      let seen: boolean | undefined;
+      await createEmbeddingRuntime(
+        h.db,
+        h.paths,
+        silentLogger,
+        defaultToml("local"),
+        true,
+        h.vault,
+        {
+          workerBridgeFactory: (_dbPath, _dataDir, slice) => {
+            seen = slice.pauseOnBattery;
+            return { terminate: () => {} } as unknown as EmbeddingRuntime;
+          },
+        },
+      );
+      // `provider = "local"` is the DEFAULT, so this leg is the one a stock install actually uses.
+      // It cannot be handed a gate FUNCTION (it lives in another realm), so it carries the flag.
+      expect(seen).toBe(true);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("the worker leg carries a FALSE flag through unchanged, not a default", async () => {
+    const h = makeHarness({ migrateTo: 30 });
+    try {
+      let seen: boolean | undefined;
+      const toml = { ...defaultToml("local"), pauseOnBattery: false };
+      await createEmbeddingRuntime(h.db, h.paths, silentLogger, toml, true, h.vault, {
+        workerBridgeFactory: (_dbPath, _dataDir, slice) => {
+          seen = slice.pauseOnBattery;
+          return { terminate: () => {} } as unknown as EmbeddingRuntime;
+        },
+      });
+      expect(seen).toBe(false);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("the HYBRID leg receives the gate itself", async () => {
+    const h = makeHarness({ migrateTo: 30, setOpenaiKey: true });
+    try {
+      let seenGate: unknown;
+      const gate = async (): Promise<boolean> => true;
+      await createEmbeddingRuntime(
+        h.db,
+        h.paths,
+        silentLogger,
+        defaultToml("hybrid"),
+        true,
+        h.vault,
+        {
+          routingRuntimeFactory: async (_db, _paths, _logger, _slice, _vault, _ce, _cv, opts) => {
+            seenGate = opts?.backfillGate;
+            return { terminate: () => {} } as unknown as EmbeddingRuntime;
+          },
+        },
+        gate,
+      );
+      expect(seenGate).toBe(gate);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("the LAZY leg receives the gate on the openai path", async () => {
+    const h = makeHarness({ migrateTo: 30, setOpenaiKey: true });
+    try {
+      let seenGate: unknown;
+      const gate = async (): Promise<boolean> => true;
+      await createEmbeddingRuntime(
+        h.db,
+        h.paths,
+        silentLogger,
+        defaultToml("openai"),
+        true,
+        h.vault,
+        {
+          openaiEmbedderFactory: async () => makeFakeEmbedder(),
+          lazyRuntimeFactory: (_db, _dataDir, _logger, _slice, _pre, _create, opts) => {
+            seenGate = opts?.backfillGate;
+            return { terminate: () => {} } as unknown as EmbeddingRuntime;
+          },
+        },
+        gate,
+      );
+      expect(seenGate).toBe(gate);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("the LAZY leg receives the gate on the LOCAL-FALLBACK path too (a separate call site)", async () => {
+    const h = makeHarness({ migrateTo: 30 });
+    try {
+      let seenGate: unknown;
+      const gate = async (): Promise<boolean> => true;
+      await createEmbeddingRuntime(
+        h.db,
+        h.paths,
+        silentLogger,
+        defaultToml("local"),
+        true,
+        h.vault,
+        {
+          // No worker: `provider = "local"` then falls through to the lazy runtime, which is a
+          // DIFFERENT `createLazyEmbeddingRuntime(...)` literal from the openai one above. One
+          // test covering the other literal would prove nothing about this one.
+          workerBridgeFactory: () => null,
+          lazyRuntimeFactory: (_db, _dataDir, _logger, _slice, _pre, _create, opts) => {
+            seenGate = opts?.backfillGate;
+            return { terminate: () => {} } as unknown as EmbeddingRuntime;
+          },
+        },
+        gate,
+      );
+      expect(seenGate).toBe(gate);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("an absent gate leaves the HYBRID leg with the old never-pause behaviour", async () => {
+    const h = makeHarness({ migrateTo: 30, setOpenaiKey: true });
+    try {
+      let seenGate: unknown = "unset";
+      await createEmbeddingRuntime(
+        h.db,
+        h.paths,
+        silentLogger,
+        defaultToml("hybrid"),
+        true,
+        h.vault,
+        {
+          routingRuntimeFactory: async (_db, _paths, _logger, _slice, _vault, _ce, _cv, opts) => {
+            seenGate = opts?.backfillGate;
+            return { terminate: () => {} } as unknown as EmbeddingRuntime;
+          },
+        },
+      );
+      expect(seenGate).toBeUndefined();
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("an absent gate leaves the LAZY leg with the old never-pause behaviour", async () => {
+    const h = makeHarness({ migrateTo: 30 });
+    try {
+      let seenGate: unknown = "unset";
+      await createEmbeddingRuntime(
+        h.db,
+        h.paths,
+        silentLogger,
+        defaultToml("local"),
+        true,
+        h.vault,
+        {
+          workerBridgeFactory: () => null,
+          lazyRuntimeFactory: (_db, _dataDir, _logger, _slice, _pre, _create, opts) => {
+            seenGate = opts?.backfillGate;
+            return { terminate: () => {} } as unknown as EmbeddingRuntime;
+          },
+        },
+      );
+      expect(seenGate).toBeUndefined();
+    } finally {
+      h.cleanup();
+    }
+  });
+});

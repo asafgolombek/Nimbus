@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { processEnvGet } from "../platform/env-access.ts";
+import { parseBool } from "./toml-primitives.ts";
 
 export type NimbusTelemetryToml = {
   enabled: boolean;
@@ -20,17 +21,6 @@ function stripComment(line: string): string {
     return line;
   }
   return line.slice(0, hash);
-}
-
-function parseBool(raw: string): boolean | undefined {
-  const s = raw.trim().toLowerCase();
-  if (s === "true") {
-    return true;
-  }
-  if (s === "false") {
-    return false;
-  }
-  return undefined;
 }
 
 function parseString(raw: string): string {

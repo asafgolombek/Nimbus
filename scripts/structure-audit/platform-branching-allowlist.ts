@@ -145,6 +145,26 @@ export const PLATFORM_BRANCHING_ALLOWLIST: readonly PlatformFileEntry[] = [
     why: "PAL dispatch; no coverage-threshold gate targets src/platform",
   },
   {
+    file: "packages/gateway/src/platform/host-activity.ts",
+    gate: "none",
+    why: "selects the per-OS HostActivity probe backend; no coverage-threshold gate targets src/platform (the Sandbox gate's test path is scoped to src/platform/sandbox specifically, one directory down)",
+  },
+  {
+    file: "packages/gateway/src/platform/host-activity/win32.ts",
+    gate: "none",
+    why: "kernel32/user32 FFI power+idle probe; same gap as host-activity.ts beside it",
+  },
+  {
+    file: "packages/gateway/src/platform/host-activity/darwin.ts",
+    gate: "none",
+    why: "pmset/ioreg power+idle probe; same gap as host-activity.ts beside it",
+  },
+  {
+    file: "packages/gateway/src/platform/host-activity/linux.ts",
+    gate: "none",
+    why: "sysfs power_supply scan; same gap as host-activity.ts beside it",
+  },
+  {
     file: "packages/gateway/src/platform/gateway-log-file.ts",
     gate: "none",
     why: "per-OS log path",
