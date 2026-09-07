@@ -375,6 +375,37 @@ describe("gateway-local briefs", () => {
     });
   });
 
+  test("a malformed ownership target is a shape failure, not coverage mode", () => {
+    const coverage = {
+      lastPassAt: null,
+      lastDurationMs: 0,
+      rootsTotal: 1,
+      rootsCovered: 1,
+      rootsWithRemote: 0,
+      filesCovered: 1,
+      filesExcluded: 0,
+      servicesBound: 0,
+      ownersEmitted: 0,
+      entitiesReaped: 0,
+    };
+    const withTarget = (target: unknown) =>
+      JSON.stringify({
+        ...base,
+        kind: "ownership",
+        query: { path: null, service: null, itemUrl: null },
+        target,
+        parentDirectory: null,
+        service: null,
+        coverage,
+      });
+    // null is the ONLY legitimate empty case.
+    expect(summarizeBrief("agents.ownership", withTarget(null))?.keys).toEqual([]);
+    // These are corrupted rows and must NOT be reported as "no owners".
+    expect(summarizeBrief("agents.ownership", withTarget("oops"))).toBeUndefined();
+    expect(summarizeBrief("agents.ownership", withTarget([]))).toBeUndefined();
+    expect(summarizeBrief("agents.ownership", withTarget(7))).toBeUndefined();
+  });
+
   test("decisions keys on entry id", () => {
     const json = JSON.stringify({
       ...base,

@@ -238,10 +238,21 @@ const ownership: FleetDigestExtractor = (f) => {
     "entitiesReaped",
   ]);
   if (n === undefined) return undefined;
-  // `target` is legitimately null in coverage mode — an EMPTY key set, not a failure.
-  const target = rec(o["target"]);
-  const owners = target === undefined ? [] : stringsAt(target["owners"], "externalId");
-  if (owners === undefined) return undefined;
+  // `target` is legitimately NULL in coverage mode — an empty key set, not a failure. But `rec()`
+  // also returns undefined for a string, a number and an array, and those are genuine shape
+  // failures. Test for `null` EXPLICITLY so the two are not conflated: silently reporting a
+  // corrupted target as "no owners" would be this extractor telling a comfortable lie, when the
+  // file's whole doctrine is to disclose an unreadable brief as not summarizable.
+  const rawTarget = o["target"];
+  let owners: string[];
+  if (rawTarget === null) {
+    owners = [];
+  } else {
+    const target = rec(rawTarget);
+    const got = target === undefined ? undefined : stringsAt(target["owners"], "externalId");
+    if (got === undefined) return undefined;
+    owners = got;
+  }
   return summary(owners, {
     roots_total: n.rootsTotal,
     roots_covered: n.rootsCovered,
@@ -272,6 +283,20 @@ export const FLEET_DIGEST_EXTRACTORS = {
 } satisfies Readonly<Record<EligibleAgentMethod, FleetDigestExtractor>>;
 
 /**
+ * `Object.hasOwn`, never `in` — the method string comes from a database column, and `in` resolves
+ * "constructor" up the prototype chain to `Object`, a truthy "extractor" that returns its argument.
+ *
+ * A PREDICATE rather than a cast at the call site: the check and the index are the same object
+ * here, so the narrowing is expressible and does not need asserting. (That is what distinguishes
+ * this from `resolveFleetAgentMethod`, whose `hasOwn` runs against `AGENTS_RPC_HANDLERS` while its
+ * index is into `FLEET_ELIGIBILITY` — two objects, so the predicate form is unavailable there and
+ * a documented assertion is the honest option. The precedent does not transfer.)
+ */
+function isEligibleAgentMethod(m: string): m is EligibleAgentMethod {
+  return Object.hasOwn(FLEET_DIGEST_EXTRACTORS, m);
+}
+
+/**
  * Parse-then-extract. `JSON.parse` failure and shape mismatch are the SAME outcome (`undefined`)
  * because the caller's response to both is identical: disclose the brief as not summarizable
  * rather than drop it (spec § 4.3).
@@ -280,15 +305,8 @@ export function summarizeBrief(
   agentMethod: string,
   findingsJson: string,
 ): BriefSummary | undefined {
-  // `Object.hasOwn` BEFORE indexing, never a bare `FLEET_DIGEST_EXTRACTORS[agentMethod]`. The
-  // method string comes from a database column, and a plain object resolves "constructor" up its
-  // prototype chain to `Object` — a truthy "extractor" that returns its argument, so
-  // summarizeBrief would hand back a raw parsed brief as if it were a BriefSummary. Same
-  // reasoning as `resolveFleetAgentMethod`.
-  if (!Object.hasOwn(FLEET_DIGEST_EXTRACTORS, agentMethod)) return undefined;
-  // The `hasOwn` check above IS the narrowing; TypeScript cannot see it through a plain `string`
-  // index the way it would a template literal. Same idiom as `resolveFleetAgentMethod`.
-  const extract = FLEET_DIGEST_EXTRACTORS[agentMethod as EligibleAgentMethod];
+  if (!isEligibleAgentMethod(agentMethod)) return undefined;
+  const extract = FLEET_DIGEST_EXTRACTORS[agentMethod];
   let parsed: unknown;
   try {
     parsed = JSON.parse(findingsJson);
