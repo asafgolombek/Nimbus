@@ -230,3 +230,47 @@ describe("auditStatusDrift — the I13 write surface across docs AND skills", ()
     expect(result.errors.some((e) => e.includes("nimbus-federation-identity.md"))).toBe(false);
   });
 });
+
+describe("ceiling ranges", () => {
+  // The narrow phrasing check caught NONE of the ten stale copies found while shipping I38, because
+  // the ceiling is almost always written as a range. These pin the widened form.
+  const withRules = (extra: Record<string, string>): Record<string, string> =>
+    inSync({
+      "scripts/structure-audit/check-nimbus-invariants.ts": "const a = /D10/; const b = /D22/;\n",
+      ...extra,
+    });
+
+  test("a stale I-range in a newly covered surface is caught", () => {
+    const root = makeRepo(withRules({ ".coderabbit.yaml": "review: invariants I1-I25\n" }));
+    const r = auditStatusDrift(root);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join("\n")).toMatch(/\.coderabbit\.yaml.*I25.*I27/s);
+  });
+
+  test("a stale D-range is caught against the auditor's own highest rule", () => {
+    const root = makeRepo(
+      withRules({ ".claude/commands/nimbus-file-map.md": "static rules D10–D19\n" }),
+    );
+    const r = auditStatusDrift(root);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join("\n")).toMatch(/nimbus-file-map\.md.*D19.*D22/s);
+  });
+
+  test("the SPLIT form is accepted — only the highest upper bound is the ceiling", () => {
+    // `I1–I27` with a reserved number written as `I1–I20, I22–I27` states one ceiling in two
+    // ranges. Flagging the first would make the honest form unwritable.
+    const root = makeRepo(withRules({ "docs/README.md": "invariants I1–I20, I22–I27 are live\n" }));
+    expect(auditStatusDrift(root).ok).toBe(true);
+  });
+
+  test("a bare COUNT is deliberately not matched", () => {
+    // The live count is not the ceiling whenever a number is reserved, so comparing them would
+    // report a correct count as stale. This is the ambiguity the module header warns about.
+    const root = makeRepo(withRules({ "docs/README.md": "32 live security invariants\n" }));
+    expect(auditStatusDrift(root).ok).toBe(true);
+  });
+
+  test("an absent optional surface is skipped, not reported", () => {
+    expect(auditStatusDrift(makeRepo(withRules({}))).ok).toBe(true);
+  });
+});

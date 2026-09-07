@@ -66,10 +66,34 @@ export function parseNimbusTomlFleet(source: string): NimbusFleetToml {
         break;
       }
       case "remote_call_budget":
-      case "min_idle_seconds":
-      case "retention_days": {
+      case "min_idle_seconds": {
+        // Zero is MEANINGFUL for both and must stay expressible: `remote_call_budget = 0` is what
+        // `allow_remote = false` implies and is what DEFAULT_FLEET_CONFIG ships, and
+        // `min_idle_seconds = 0` reads as "no idle requirement". Only `retention_days` below
+        // raises the bound.
         const n = parseIntDec(kv.valRaw);
         if (n !== undefined && n >= 0) out[camel(kv.key)] = n;
+        break;
+      }
+      case "retention_days": {
+        // Refused below 1 rather than defaulted. `fleet-store.ts`'s `pruneRuns` deletes rows with
+        // `started_at <= cutoff`, so at retention 0 the prune a run performs on completion removes
+        // that same run — `runOnce` then returns a runId naming no row, and the durable record the
+        // rest of this subsystem is built to keep honest is gone the moment it is written. There is
+        // no safe reading of 0, so it is a config error rather than a silent fallback to 14.
+        //
+        // A MALFORMED value still falls through to the default, as the keys above do: writing a
+        // number we can read and refuse is a different act from writing nonsense.
+        const n = parseIntDec(kv.valRaw);
+        if (n !== undefined) {
+          if (n < 1) {
+            throw new FleetConfigError(
+              `[fleet] retention_days must be >= 1 (got ${String(n)}); a zero or negative ` +
+                `retention makes a run prune its own record on completion`,
+            );
+          }
+          out["retentionDays"] = n;
+        }
         break;
       }
       default:

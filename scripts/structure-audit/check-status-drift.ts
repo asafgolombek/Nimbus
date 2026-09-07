@@ -49,6 +49,83 @@ function readAll(repoRoot: string, rels: readonly string[]): string[] | undefine
   return out;
 }
 
+/**
+ * Surfaces that state an invariant or static-rule CEILING AS A RANGE — `I1–I38`, `I1–I27, I29–I38`,
+ * `D10–D28` — rather than in the "invariants through I<N>" phrasing the loop above matches.
+ *
+ * This list exists because the range form is how the ceiling is actually written almost everywhere,
+ * and the narrower phrasing check caught NONE of the ten stale copies found while shipping I38:
+ * seven were ranges in these files, and the gate's silence was evidence about its scan set rather
+ * than about the claims. The header's warning about ambiguity still holds and is why this stays a
+ * RANGE check — a bare count like "32 live security invariants" is deliberately NOT matched, since
+ * the live count is not the ceiling whenever a number is reserved. I28 is reserved today, so the
+ * count is 37 while the ceiling is I38, and a naive comparison would read a correct 37 as stale.
+ *
+ * Deliberately EXCLUDED, because rewriting them would falsify a record rather than de-rot a claim:
+ *   - `docs/superpowers/**` — dated design and plan documents describing what a past change did.
+ *   - `docs/CHANGELOG.md` — same, per release.
+ *   - `*.test.ts` — fixtures that assert on stale values on purpose.
+ *   - `scripts/structure-audit/check-nimbus-invariants.ts` — the D-rule source of truth itself.
+ *
+ * A listed file that does not exist is skipped rather than reported: unlike the three required
+ * status surfaces, these are optional and a fork may not carry them.
+ */
+const CEILING_RANGE_SURFACES: readonly string[] = [
+  "CLAUDE.md",
+  "GEMINI.md",
+  "docs/architecture.md",
+  "docs/README.md",
+  "docs/SECURITY-INVARIANTS.md",
+  ".github/SECURITY.md",
+  ".coderabbit.yaml",
+  ".claude/commands/nimbus-file-map.md",
+  ".claude/commands/nimbus-commands.md",
+  ".claude/commands/nimbus-tool-output-envelope.md",
+];
+
+/**
+ * The highest static rule `D<N>` the auditor implements. Derived from the enforcement site for the
+ * same reason the invariant ceiling is derived from `security-invariants.test.ts`: a rule that is
+ * documented but not implemented is the drift this gate exists to catch, so the code must be the
+ * source and the prose the thing checked against it.
+ */
+export function canonicalStaticRule(repoRoot: string): number | undefined {
+  const rel = "scripts/structure-audit/check-nimbus-invariants.ts";
+  if (!existsSync(join(repoRoot, rel))) return undefined;
+  return maxCapture(read(repoRoot, rel), /\bD(\d+)\b/g);
+}
+
+/**
+ * Every `X<a>–X<b>` range in `text` must end at `ceiling`. The UPPER bound is what a range asserts,
+ * and only the highest one is compared — `I1–I27, I29–I38` is two ranges stating one ceiling, and
+ * flagging `I27` there would make the honest split form unwritable.
+ */
+function rangeErrors(rel: string, text: string, letter: "I" | "D", ceiling: number): string[] {
+  // Note the capture: only the UPPER bound is captured, so `maxCapture`'s group-1 read is the end
+  // of the range and not its start. Capturing both and reading group 1 would compare `I1` against
+  // the ceiling and report every correct range as stale.
+  const re = new RegExp(`\\b${letter}\\d+\\s*[–—-]\\s*${letter}(\\d+)\\b`, "g");
+  const highest = maxCapture(text, re);
+  if (highest === undefined || highest === ceiling) return [];
+  return [
+    `${rel}: "${letter}…–${letter}${highest}" is stale — canonical highest ${
+      letter === "I" ? "invariant" : "static rule"
+    } is ${letter}${ceiling}`,
+  ];
+}
+
+function checkCeilingRanges(repoRoot: string, invI: number | undefined): string[] {
+  const out: string[] = [];
+  const maxD = canonicalStaticRule(repoRoot);
+  for (const rel of CEILING_RANGE_SURFACES) {
+    if (!existsSync(join(repoRoot, rel))) continue;
+    const text = read(repoRoot, rel);
+    if (invI !== undefined) out.push(...rangeErrors(rel, text, "I", invI));
+    if (maxD !== undefined) out.push(...rangeErrors(rel, text, "D", maxD));
+  }
+  return out;
+}
+
 /** Highest integer captured by `re` (global, one capture group) across `text`. */
 function maxCapture(text: string, re: RegExp): number | undefined {
   let max: number | undefined;
@@ -397,6 +474,8 @@ export function auditStatusDrift(repoRoot: string): AuditResult {
       }
     }
   }
+
+  errors.push(...checkCeilingRanges(repoRoot, invI));
 
   // docs/SECURITY-INVARIANTS.md — the canonical invariant doc.
   const secInvRel = "docs/SECURITY-INVARIANTS.md";
