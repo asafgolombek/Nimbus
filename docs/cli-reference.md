@@ -1571,8 +1571,10 @@ body can be tens of KB, so an unbounded limit is an unbounded response).
 
 Expiry is enforced **on the read path** — `expires_at > now` — as well as by the prune, so an
 expired brief is never returned even between prunes; a read surface that still returned one would
-make retention a lie. The physical delete runs **once per gateway boot**, not on a timer, and runs
-**unconditionally**: with the fleet disabled, and even when `[fleet]` failed to parse. Rows written
+make retention a lie. The physical delete runs at **gateway boot** and again at the **end of every
+fleet run**, never on a timer of its own — the boot pass runs **unconditionally**, with the fleet
+disabled and even when `[fleet]` failed to parse, and is therefore the only one a machine with the
+fleet turned off ever gets. Rows written
 while it was enabled exist either way, and retention must not hinge on today's typo. Org policy can
 raise `retention_days` but never lower it (`retentionMinDays`), and the floor is applied *before*
 the scheduler stamps each brief's `expires_at`, not only to the prune.
@@ -1594,9 +1596,13 @@ nimbus fleet run morning-catchup
 nimbus fleet run morning-catchup --force
 ```
 
-Runs one configured job right now, bypassing its interval. `--force` additionally bypasses the
-host-admission check (battery / user-active). It does **not** bypass `[fleet] enabled`, org policy,
-agent eligibility, or the remote call budget — those refuse identically with or without it.
+Runs one configured job right now, bypassing its schedule — both its `interval_seconds` and any
+failure backoff it is currently sitting in. NAMING the job is what does that: backoff exists to stop
+an unattended loop hammering a failing job, not to refuse an owner's explicit single request, and
+the run still records its outcome so backoff re-arms for the scheduled path. `--force` additionally
+bypasses the host-admission check (battery / user-active), and nothing else. Neither bypasses
+`[fleet] enabled`, org policy, agent eligibility, or the remote call budget — those refuse
+identically with or without them.
 
 ```text
 completed: attempted 1, completed 1, skipped(not due) 0, unattempted 0
@@ -1625,8 +1631,8 @@ retention_days     = 14      # org policy may RAISE this floor, never lower it
 name             = "morning-catchup"
 agent            = "catchup"    # must be a fleet-ELIGIBLE agent; `negotiate` is deferred
 interval_seconds = 86400
-# any other key becomes a param passed to the agent, e.g.:
-since_days       = 1
+# any other key becomes a param passed to the agent, camel-cased on the way, e.g.:
+since_ms         = 86400000   # -> sinceMs, which `agents.catchup` reads
 ```
 
 Refusals are loud rather than silent, on purpose. `allow_remote = true` with no budget is

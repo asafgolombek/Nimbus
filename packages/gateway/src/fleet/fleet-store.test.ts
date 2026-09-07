@@ -231,8 +231,9 @@ describe("FleetStore", () => {
   });
 
   test("an expired brief is excluded from both reads even though its row still exists", () => {
-    // Pruning only runs at gateway boot — on a long-running gateway a brief past its `expires_at`
-    // stays in the table until the next restart, and a read surface that still returned it would
+    // Pruning runs at gateway boot and at the end of each fleet RUN — so on a gateway whose fleet
+    // is disabled, or simply between runs, a brief past its `expires_at` is still in the table,
+    // and a read surface that still returned it would
     // make retention a lie. This proves the exclusion happens on READ, independent of `pruneBriefs`
     // ever having run: the row is left in place deliberately (no prune call in this test at all).
     const runId = store.openRun({

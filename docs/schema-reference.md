@@ -861,9 +861,12 @@ CREATE TABLE IF NOT EXISTS fleet_job_state (
 --     configured" from "wanted to run and was stopped short".
 --   remote_calls_made -- how many NON-LOCAL synthesis calls this run actually spent, recorded
 --     beside the cap it HAD. **No CLI subcommand reads this column today** -- `nimbus fleet` has no
---     per-run view (that is PR 2's digest); it is queryable directly and is the durable half of
---     I38's two-record disclosure, the other being the per-brief refusal sentence carried in
---     `fleet_brief.synthesis_json`.
+--     per-run view (that is PR 2's digest); it is queryable directly and is the ONLY place I38's
+--     budget disclosure lands. There is no per-brief half: `wrapFleetSynthesisRouter` names the
+--     exhausted budget only at `generateMarkdown`, which the production runner never reaches --
+--     it resolves first, and the exhausted budget has already withheld the provider, so the brief
+--     records `no_eligible_provider` with no detail, indistinguishable from "no provider was
+--     configured". Stated as a bound on I38's row in docs/SECURITY-INVARIANTS.md.
 --   remote_call_budget -- the EFFECTIVE cap this run had, not the raw config number. The two
 --     differ when `[fleet] allow_remote = false`, where the effective cap is 0 whatever
 --     `remote_call_budget` says in nimbus.toml. The budget is PER RUN and is reset at each run
@@ -890,11 +893,14 @@ CREATE TABLE IF NOT EXISTS fleet_run (
 -- is a silent no-op that leaves orphans forever. `expires_at` is enforced on the READ path
 -- (fleet-store.ts filters `expires_at > now` in listBriefs/getBrief) as well as by the retention
 -- prune -- a read surface that still returned an expired brief would make retention a lie. The
--- physical delete runs ONCE PER GATEWAY BOOT (platform/assemble.ts's assembleFleetRuntime), not on
--- a timer, and runs UNCONDITIONALLY -- with the fleet disabled, and even when [fleet] failed to
--- parse -- because rows written while it was enabled exist either way. `pruneRuns` runs FIRST and
--- the cascade takes each run's briefs with it, which is what stops fleet_run growing a row per
--- 60-second tick forever. Org policy's `retentionMinDays` can RAISE `[fleet] retention_days` but
+-- physical delete runs at GATEWAY BOOT (platform/assemble.ts's assembleFleetRuntime) and again at
+-- the END OF EVERY RUN (FleetScheduler's `close`, on every exit path including `deferred`, since
+-- every exit opened a row), never on a timer of its own. The boot pass runs UNCONDITIONALLY -- with
+-- the fleet disabled, and even when [fleet] failed to parse -- because rows written while it was
+-- enabled exist either way. `pruneRuns` runs FIRST in both places and the cascade takes each run's
+-- briefs with it, which is what stops fleet_run growing a row per 60-second tick: openRun happens
+-- before the admission check, so an enabled fleet writes one row per tick whether or not a job ran,
+-- and waiting for a restart to collect them meant ~43,000 rows on a gateway up a month. Org policy's `retentionMinDays` can RAISE `[fleet] retention_days` but
 -- never lower it, and the floor is applied before the scheduler stamps `expires_at`, not only to
 -- the prune -- flooring only the prune would leave an org-mandated 30-day brief marked to expire
 -- in 7 and deleted by the next pass.
@@ -906,7 +912,8 @@ CREATE TABLE IF NOT EXISTS fleet_brief (
     agent_method   TEXT NOT NULL,   -- e.g. "agents.catchup"
     brief_markdown TEXT,
     findings_json  TEXT NOT NULL,
-    synthesis_json TEXT,            -- carries I38's per-brief refusal sentence when one applies
+    synthesis_json TEXT,            -- the SynthesisAttempt provenance; see remote_calls_made
+                                    -- above for why it does NOT disclose budget exhaustion
     created_at     INTEGER NOT NULL,
     expires_at     INTEGER NOT NULL
 ) WITHOUT ROWID;

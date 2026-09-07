@@ -118,7 +118,13 @@ export interface FleetStatusResult {
   readonly probe: HostActivityProbe;
 }
 
-/** Reports config + a live host probe. Never touches the scheduler or the store. */
+/**
+ * Reports config + a live host probe. Never touches the STORE, and reads the scheduler only for
+ * its PRESENCE (`running`) — it never calls into it. That is what lets this answer truthfully when
+ * no scheduler was constructed at all: disabled by config, disabled by org policy, or simply no
+ * `[[fleet.job]]` blocks. `enabled` and `running` are separate fields for the same reason —
+ * enabled-with-no-jobs is a real state and must not read as "off".
+ */
 async function handleStatus(_params: unknown, ctx: FleetRpcCtx): Promise<FleetStatusResult> {
   const probe = await ctx.hostActivity.probe();
   return {

@@ -955,6 +955,19 @@ export function checkRunConfinedConfinement(files: readonly FileEntry[]): Violat
 // allow-listed until it caught nothing. A narrow rule that fires is worth more than a broad one
 // that gets disarmed.
 //
+// WHAT THE ALLOW-LIST IMPLIES AND THE RULE DOES NOT DELIVER — the narrower reading, checked
+// against the three files rather than inferred from the list's length. Only ONE of the three
+// allow-listed files contains a shape this regex can see: `fleet-invoker.ts`'s `kind: "fleet"`.
+// `client-kind.ts` holds the union MEMBER (`| "fleet" |`), which matches no alternative above, and
+// `egress-bearing-kinds.ts` writes the map entry UNQUOTED (`fleet: null`), while the map-key
+// alternative requires a QUOTED `"fleet":`. So the allow-list entries for those two are precautions
+// against a shape they do not currently contain, and — the consequence worth stating — a
+// copy-paste of the REAL egress classification line into a fourth file would NOT be caught. The
+// quoted-key alternative catches a hand-written `"fleet": null` map, not the one this repo ships.
+// Widening to the unquoted `fleet:` form is not obviously right: `fleet:` is also how a CLI command
+// map and a config object name the namespace, which is the false-positive class this rule
+// deliberately stays clear of. Recorded as the rule's edge rather than closed.
+//
 // RESIDUAL BOUND: a regex cannot see every construction. An indirection
 // (`const K = "fleet"; { kind: K }`), a computed key, or a value arriving from JSON all evade it —
 // the same class of hole D23 carries and that D26(a) had to close at the import instead. The

@@ -20,7 +20,8 @@ export function powerFromAcLineStatus(status: number): HostPower {
 
 /**
  * `dlopen` ONCE at construction, not per probe. The scheduler probes on a 60-second tick and again
- * between every job, so a per-call `dlopen` would re-resolve the symbol tables thousands of times
+ * at each job BOUNDARY within a run (before every job after the first, unless `--force` was given),
+ * so a per-call `dlopen` would re-resolve the symbol tables thousands of times
  * a night and — since nothing ever calls `.close()` on the returned library — accumulate handles
  * for the life of the gateway. That makes it a leak, not just waste.
  *

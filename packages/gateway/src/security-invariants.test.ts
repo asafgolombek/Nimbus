@@ -3636,7 +3636,23 @@ describe("I38 — an unattended fleet run reaches a non-local model only under g
     expect(budget.consume()).toBe(false);
   });
 
-  test("budget exhaustion mid-run is DISCLOSED — a named refusal, never a silent downgrade", async () => {
+  /**
+   * What this test proves and — read the last assertion — what it deliberately does NOT.
+   *
+   * Door 2 (`generateMarkdown`) refuses an exhausted budget with a NAMED error, and that is worth
+   * pinning: a warn-and-continue budget is a preference, and a preference is not an invariant.
+   *
+   * But door 2 is the second door, for a caller holding a provider it obtained some other way. The
+   * PRODUCTION runner (`agents/_lib/synthesis-llm.ts`) resolves FIRST, and door 1 has already
+   * withheld the provider by then — so the runner returns `{ok:false, reason:"no_eligible_provider"}`
+   * with no `detail`, indistinguishable on the brief row from "no provider was configured". The
+   * final assertion below is that silent path, asserted as the fact it is, NOT as disclosure.
+   *
+   * Per-BRIEF disclosure of budget exhaustion is therefore a STATED BOUND of I38, not a property
+   * this test establishes (see the I38 row in `docs/SECURITY-INVARIANTS.md`). The disclosure I38
+   * does deliver is PER RUN: `fleet_run.remote_calls_made` beside `remote_call_budget`.
+   */
+  test("an exhausted budget is a HARD refusal at door 2 and a silent withhold at door 1", async () => {
     const budget = createFleetRemoteBudget(true, 1);
     const calls: string[] = [];
     const wrapped = wrapFleetSynthesisRouter(
@@ -3659,7 +3675,9 @@ describe("I38 — an unattended fleet run reaches a non-local model only under g
       /exhausted its remote_call_budget/,
     );
     expect(calls).toEqual(["anthropic"]);
-    // And the exhausted budget closes door 1 too, so the next brief renders deterministically.
+    // Door 1 closes too — SILENTLY. `undefined` is the same answer the runner gets when no remote
+    // provider is configured at all, so the brief that results says nothing about the budget. This
+    // is the per-brief gap I38's row states as a bound; it is asserted here so a reader sees it.
     expect(await wrapped.resolveForSynthesis(true)).toBeUndefined();
   });
 

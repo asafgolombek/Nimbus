@@ -1817,8 +1817,9 @@ const streamReq: JSONRPCRequest = {
 //   `LOCAL_ONLY_SYNC_SERVICES`.
 
 // --- Overnight agent fleets (Spine S2, PR 1 of 2, 2026-09-07; V60, invariant I38, static D28) ---
-// fleet.status  — `[fleet]` config + a LIVE `HostActivity` probe. Deliberately touches neither the
-//   scheduler nor the store, so it answers truthfully when the fleet was never constructed at all
+// fleet.status  — `[fleet]` config + a LIVE `HostActivity` probe. Deliberately touches the store
+//   not at all and the scheduler only for its PRESENCE (`running`) — never calling into it — so it
+//   answers truthfully when the fleet was never constructed at all
 //   (disabled by config, disabled by org policy, or simply no `[[fleet.job]]` blocks). `enabled`
 //   and `running` are SEPARATE fields for that reason: enabled-with-no-jobs is a real state.
 // fleet.list    — every CONFIGURED job plus its `fleet_job_state` row (`null` when it has never run).
@@ -1828,8 +1829,10 @@ const streamReq: JSONRPCRequest = {
 // fleet.show    — one brief. Returns `{brief: null}` — never an error — for an id that never
 //   existed AND for one that has expired; the two are deliberately indistinguishable, since a
 //   distinguishable "it expired" answer is itself a retention disclosure.
-// fleet.runNow  — run one job now (`job`), optionally past host admission (`force`). `force` does
-//   NOT bypass `[fleet] enabled`, org policy, agent eligibility or the I38 remote budget.
+// fleet.runNow  — run one job now (`job`), optionally past host admission (`force`). TWO bypasses,
+//   two triggers: NAMING the job skips the SCHEDULE (its `interval_seconds` and any failure
+//   backoff), `force` skips HOST ADMISSION and nothing else. Neither bypasses `[fleet] enabled`,
+//   org policy, agent eligibility or the I38 remote budget.
 //
 // The WHOLE `fleet` namespace is FORBIDDEN_OVER_LAN (I5) and absent from the Tauri
 // `ALLOWED_METHODS` (I7) — namespace-level, so a future `fleet.*` verb is forbidden by default

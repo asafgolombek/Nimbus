@@ -534,7 +534,7 @@ describe("FleetScheduler.runOnce", () => {
     expect(summary.outcome).toBe("completed");
   });
 
-  test("force also overrides the interval and the backoff, but nothing above them", async () => {
+  test("force does NOT override the interval or the backoff — its scope is admission only", async () => {
     store.recordJobSuccess("a", NOW); // not due
     store.recordJobFailure("b", NOW, "boom"); // inside its backoff
     const ran: string[] = [];
@@ -545,8 +545,143 @@ describe("FleetScheduler.runOnce", () => {
         return done(job.name);
       },
     });
-    await s.runOnce({ force: true });
-    expect(ran).toEqual(["a", "b"]);
+    const summary = await s.runOnce({ force: true });
+    expect(ran).toEqual([]);
+    expect(summary.jobsSkippedNotDue).toBe(2);
+  });
+
+  // The schedule bypass keys on NAMING a job, not on `--force`. Two triggers, two scopes: a person
+  // asking for one job by name has made the scheduling decision themselves, while `--force` speaks
+  // only to host admission. A scheduled tick passes neither and is bound by both.
+  describe("naming a job bypasses the schedule, a tick does not", () => {
+    test("a named run of a not-yet-due job RUNS", async () => {
+      store.recordJobSuccess("a", NOW); // ran this instant; interval_seconds = 1
+      const ran: string[] = [];
+      const s = build({
+        probes: [AC_IDLE],
+        invoke: async (job) => {
+          ran.push(job.name);
+          return done(job.name);
+        },
+      });
+      const summary = await s.runOnce({ jobName: "a" });
+      expect(ran).toEqual(["a"]);
+      expect(summary.jobsAttempted).toBe(1);
+      expect(summary.jobsSkippedNotDue).toBe(0);
+    });
+
+    test("a named run of a job inside its backoff RUNS", async () => {
+      store.recordJobFailure("b", NOW, "boom"); // backoff armed, expires in the future
+      const ran: string[] = [];
+      const s = build({
+        probes: [AC_IDLE],
+        invoke: async (job) => {
+          ran.push(job.name);
+          return done(job.name);
+        },
+      });
+      const summary = await s.runOnce({ jobName: "b" });
+      expect(ran).toEqual(["b"]);
+      expect(summary.jobsAttempted).toBe(1);
+      expect(summary.jobsSkippedNotDue).toBe(0);
+    });
+
+    test("a scheduled tick runs NEITHER — both are still held by the schedule", async () => {
+      store.recordJobSuccess("a", NOW); // not due
+      store.recordJobFailure("b", NOW, "boom"); // inside its backoff
+      const ran: string[] = [];
+      const s = build({
+        probes: [AC_IDLE],
+        invoke: async (job) => {
+          ran.push(job.name);
+          return done(job.name);
+        },
+      });
+      const summary = await s.runOnce();
+      expect(ran).toEqual([]);
+      expect(summary.jobsAttempted).toBe(0);
+      expect(summary.jobsSkippedNotDue).toBe(2);
+    });
+
+    test("a named run still records its outcome, so backoff re-arms for the scheduled path", async () => {
+      store.recordJobFailure("b", NOW, "boom");
+      const s = build({
+        probes: [AC_IDLE],
+        invoke: async () => ({ status: "failed", error: "boom again" }) as const,
+      });
+      await s.runOnce({ jobName: "b" });
+      const state = store.loadJobState("b");
+      expect(state?.consecutiveFailures).toBe(2);
+      // And the scheduled path is still refused by that re-armed backoff.
+      const ran: string[] = [];
+      const s2 = build({
+        probes: [AC_IDLE],
+        invoke: async (job) => {
+          ran.push(job.name);
+          return done(job.name);
+        },
+      });
+      const tick = await s2.runOnce();
+      expect(ran).toEqual(["a"]);
+      expect(tick.jobsSkippedNotDue).toBe(1);
+    });
+  });
+
+  // Boot-only pruning left `fleet_run` growing one row per 60-second tick between restarts — every
+  // tick opens a row before admission is even checked, so ~1,440 a day on an enabled fleet and
+  // ~43,000 on a gateway up a month, none of them collected until the next restart.
+  describe("a run prunes past-retention rows at its own end, not only at boot", () => {
+    const staleRun = (): string =>
+      store.openRun({
+        startedAt: NOW - 30 * 86_400_000, // 30 days back, well outside a 14-day window
+        hostPower: "ac",
+        hostIdleMs: 0,
+        hostSource: "measured",
+        remoteCallBudget: 0,
+      });
+    const runCount = (id: string): number =>
+      (db.query(`SELECT COUNT(*) AS n FROM fleet_run WHERE id = ?`).get(id) as { n: number }).n;
+
+    test("a completed run collects them, and does not collect itself", async () => {
+      const stale = staleRun();
+      const s = build({
+        probes: [AC_IDLE],
+        invoke: async (job) => done(job.name),
+        config: { retentionDays: 14 },
+      });
+      const summary = await s.runOnce();
+      expect(runCount(stale)).toBe(0);
+      expect(runRow(requireRunId(summary)).outcome).toBe("completed");
+    });
+
+    test("a DEFERRED run collects them too — it opened a row like any other", async () => {
+      const stale = staleRun();
+      const s = build({
+        probes: [ON_BATTERY],
+        invoke: async (job) => done(job.name),
+        config: { retentionDays: 14 },
+      });
+      const summary = await s.runOnce();
+      expect(summary.outcome).toBe("deferred");
+      expect(runCount(stale)).toBe(0);
+    });
+
+    test("a run INSIDE the window survives — the prune is a window, not a truncation", async () => {
+      const recent = store.openRun({
+        startedAt: NOW - 86_400_000, // yesterday
+        hostPower: "ac",
+        hostIdleMs: 0,
+        hostSource: "measured",
+        remoteCallBudget: 0,
+      });
+      const s = build({
+        probes: [AC_IDLE],
+        invoke: async (job) => done(job.name),
+        config: { retentionDays: 14 },
+      });
+      await s.runOnce();
+      expect(runCount(recent)).toBe(1);
+    });
   });
 
   test("a disabled capability refuses even with force", async () => {
@@ -627,8 +762,11 @@ describe("FleetScheduler.runOnce", () => {
       config: { allowRemote: true, remoteCallBudget: 2 },
       remoteBudget: budget,
     });
-    const first = await s.runOnce({ force: true });
-    const second = await s.runOnce({ force: true });
+    // Named rather than forced: naming a job is what bypasses the schedule, so the second run is
+    // not refused as not-due by the first run's success. `--force` would not have helped here — its
+    // scope is host admission, and these probes admit already.
+    const first = await s.runOnce({ jobName: "a" });
+    const second = await s.runOnce({ jobName: "a" });
     expect(runRow(requireRunId(first)).remote_calls_made).toBe(2);
     // The load-bearing one: without the reset this is 0, and the run row would still claim a budget
     // of 2 it never had.
@@ -658,7 +796,7 @@ describe("FleetScheduler.runOnce", () => {
     // below runs the IDENTICAL harness with `allow_remote = true` and must record 2 — without it,
     // this test would pass for a scheduler that persists a hardcoded zero.
     const remote = { providerId: "anthropic", modelName: "opus", isLocal: false };
-    const runWith = async (allowRemote: boolean, cap: number): Promise<number> => {
+    const runWith = async (allowRemote: boolean, cap: number, suffix: string): Promise<number> => {
       const budget = createFleetRemoteBudget(allowRemote, cap);
       const router = wrapFleetSynthesisRouter(
         {
@@ -669,6 +807,12 @@ describe("FleetScheduler.runOnce", () => {
       );
       const s = build({
         probes: [AC_IDLE],
+        // Per-arm job NAMES, because both arms share the module-level store: reusing them would
+        // leave the second arm's jobs not-due from the first, attempting nothing, and make the
+        // positive control read 0 for a reason that has nothing to do with the budget. (Neither
+        // `--force` nor a job name fixes that here — `--force` no longer touches the schedule, and
+        // a named run would only run one of the two jobs the positive control counts.)
+        jobs: JOBS.map((j) => ({ ...j, name: `${j.name}-${suffix}` })),
         invoke: async (job) => {
           // What a fleet job's synthesis does: resolve, then generate if anything was resolved.
           const p = await router.resolveForSynthesis(true);
@@ -678,13 +822,10 @@ describe("FleetScheduler.runOnce", () => {
         config: { allowRemote, remoteCallBudget: cap },
         remoteBudget: budget,
       });
-      // `force` because both arms share the module-level store: the second call's jobs would
-      // otherwise be not-due from the first, attempt nothing, and make the positive control read
-      // 0 for a reason that has nothing to do with the budget.
-      return runRow(requireRunId(await s.runOnce({ force: true }))).remote_calls_made;
+      return runRow(requireRunId(await s.runOnce())).remote_calls_made;
     };
-    expect(await runWith(false, 0)).toBe(0);
-    expect(await runWith(true, 4)).toBe(2); // positive control: the same harness DOES count
+    expect(await runWith(false, 0, "off")).toBe(0);
+    expect(await runWith(true, 4, "on")).toBe(2); // positive control: the same harness DOES count
   });
 });
 

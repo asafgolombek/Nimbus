@@ -23,8 +23,12 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   silently inert on exactly the always-on hardware it targets. `FleetScheduler` ticks every 60 s
   behind a single-flight `inFlight` guard that serialises the tick, `--force` and a named run
   alike, honours each job's `interval_seconds` against its last **success**, backs a failing job
-  off exponentially (1 h base, capped at 24 h), and **yields** mid-run the moment admission flips
-  — a distinct outcome from `failed`, and exit code `0`. Jobs dispatch through `dispatchAgentsRpc`
+  off exponentially (1 h base, capped at 24 h), and **yields** mid-run when admission flips — at a
+  JOB BOUNDARY, since it re-probes between jobs rather than continuously: a run stops before the
+  next job, never mid-brief, a half-written brief being worse than an absent one. The re-probe is
+  skipped when nothing has been attempted yet (the run's opening probe already answered) and under
+  `--force` (an owner present at the keyboard has already overridden admission). `yielded` is a
+  distinct outcome from `failed`, and exit code `0`. Jobs dispatch through `dispatchAgentsRpc`
   under a gateway-set `fleet` `ClientKind` (absent from `RECOGNISED`, so no socket client can
   declare it) and the invoker awaits the completion **notification**, not the call, which returns
   before the brief exists. `FLEET_ELIGIBILITY` is TOTAL over the served `agents.*` methods — 11

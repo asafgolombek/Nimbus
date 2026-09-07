@@ -157,10 +157,19 @@ export class FleetScheduler {
   }
 
   /**
-   * One pass. `force` skips ADMISSION ONLY — the idle/power checks, which exist to protect the
-   * user's machine and which an owner typing the command is by definition present to override. It
-   * never skips the config kill-switch, the org-policy lockoff, agent eligibility (resolved inside
-   * the invoker) or I38's remote budget (enforced by the wrapped synthesis router).
+   * One pass. TWO different bypasses, with two different triggers — they are not interchangeable
+   * and neither widens into the other:
+   *
+   * - NAMING a job (`opts.jobName`) skips the SCHEDULE: both `interval_seconds` and the failure
+   *   backoff. A person typing `nimbus fleet run morning-catchup` has asked for that one job, once.
+   *   Backoff exists to stop an UNATTENDED loop hammering a failing job; it is not there to refuse
+   *   a human's explicit single request. The run still records its outcome, so backoff re-arms for
+   *   the scheduled path exactly as before.
+   * - `force` skips ADMISSION ONLY — the idle/power checks, which exist to protect the user's
+   *   machine and which an owner typing the command is by definition present to override.
+   *
+   * Neither skips the config kill-switch, the org-policy lockoff, agent eligibility (resolved
+   * inside the invoker) or I38's remote budget (enforced by the wrapped synthesis router).
    */
   async runOnce(opts?: FleetRunOptions): Promise<FleetRunSummary> {
     // Ordering mirrors I33: local kill-switch, then org policy, BOTH before any work — so a
@@ -195,7 +204,7 @@ export class FleetScheduler {
     }
     this.inFlight = true;
     try {
-      return await this.execute(jobs, opts?.force === true);
+      return await this.execute(jobs, opts?.force === true, jobName !== undefined);
     } finally {
       this.inFlight = false;
     }
@@ -211,6 +220,12 @@ export class FleetScheduler {
   private async execute(
     jobs: readonly NimbusFleetJobToml[],
     force: boolean,
+    /**
+     * True when the caller NAMED a job. Skips the schedule (interval + backoff) for that one run.
+     * Deliberately not `force`: the two bypasses have different triggers and different scopes, and
+     * a scheduled tick never sets either.
+     */
+    namedJob: boolean,
   ): Promise<FleetRunSummary> {
     const probe = await this.deps.hostActivity.probe();
     const admitted = this.admit(probe).admitted;
@@ -255,6 +270,15 @@ export class FleetScheduler {
         jobsSkippedNotDue: tally.skippedNotDue,
         remoteCallsMade: this.deps.remoteBudget.spent(),
       });
+      // Prune HERE as well as at boot, and on every exit including `deferred` — because every exit
+      // opened a row. `openRun` runs before the admission check, so an enabled fleet writes one
+      // `fleet_run` per 60-second tick whether or not any job ran: ~1,440 rows a day, ~43,000 on a
+      // gateway up a month, all of them waiting on the next restart to be collected. Same window
+      // as the boot prune (`config.retentionDays` is already policy-floored by
+      // `assembleFleetRuntime` before the scheduler is constructed), and the same order — runs
+      // first, so the FK cascade takes their briefs, then any brief that outlived its own run.
+      this.deps.store.pruneRuns(this.deps.now() - this.deps.config.retentionDays * 86_400_000);
+      this.deps.store.pruneBriefs(this.deps.now());
       return {
         runId,
         outcome,
@@ -280,9 +304,12 @@ export class FleetScheduler {
           if (!this.admit(again).admitted) return close("yielded");
         }
 
-        // Due check AND backoff, both inside `isJobDue`. `force` (an owner at a keyboard)
-        // overrides the schedule; it does not override the capability, eligibility or I38's budget.
-        if (!force && !isJobDue(job, this.deps.store.loadJobState(job.name), this.deps.now())) {
+        // Due check AND backoff, both inside `isJobDue`. NAMING a job (not `--force`) is what
+        // overrides the schedule: an owner asking for one job by name has made the decision this
+        // check exists to make on their behalf. It overrides neither the capability, nor
+        // eligibility, nor I38's budget. `--force` deliberately does NOT reach here — its scope is
+        // host admission, and a scheduled tick passes neither flag.
+        if (!namedJob && !isJobDue(job, this.deps.store.loadJobState(job.name), this.deps.now())) {
           tally.skippedNotDue += 1;
           continue;
         }

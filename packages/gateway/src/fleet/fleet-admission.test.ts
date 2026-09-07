@@ -47,7 +47,7 @@ test("unknown power admits — a desktop or server has no battery to report", ()
   ).toBe(true);
 });
 
-test("unknown power admits even when the user is demonstrably active — idle still decides", () => {
+test("unknown power does NOT admit a demonstrably active user — idle still decides", () => {
   // Guards the inverse defect of the one above: `power === "battery"` must be the ONLY power-based
   // refusal, but an `unknown` host must still lose to a measured idle signal below the threshold.
   const v = admitFleetRun({ power: "unknown", idleMs: 10_000, source: "measured" }, CONFIG);

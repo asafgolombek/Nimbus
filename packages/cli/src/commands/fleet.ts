@@ -24,10 +24,12 @@ const USAGE = `Usage: nimbus fleet <status|list|briefs|show|run> [options]
   list                          list every configured job and its last-run state
   briefs [--limit N] [--job ID] list synthesised briefs, most recent first
   show <id>                     print one brief's full markdown body
-  run <job> [--force]           run one configured job right now, bypassing its schedule
+  run <job> [--force]           run one configured job right now, bypassing its schedule — naming
+                                 the job skips both its interval and any failure backoff
 
   --json                        machine-readable output (every subcommand)
-  --force (run only)            run now even if the host is on battery or in use. Does NOT bypass
+  --force (run only)            run now even if the host is on battery or in use. That is ALL it
+                                 does: it does NOT bypass the schedule (naming the job does), nor
                                  [fleet] enabled, org policy, agent eligibility, or the remote call
                                  budget — those are refused the same way with or without --force.
 `;
