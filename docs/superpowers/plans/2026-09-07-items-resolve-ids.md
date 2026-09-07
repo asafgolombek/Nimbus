@@ -218,10 +218,13 @@ export type ResolvedItemRef = {
  * rather than clamping, because silently dropping ids drops links.
  */
 export function resolveItemsByIds(db: Database, ids: readonly string[]): ResolvedItemRef[] {
-  const unique = [...new Set(ids)];
-  if (unique.length > RESOLVE_IDS_MAX_BATCH) {
-    throw new Error(`resolveItemsByIds: ${unique.length} ids exceeds ${RESOLVE_IDS_MAX_BATCH}`);
+  // The cap is measured on the RAW list, before de-duplicating: a caller
+  // sending fifty thousand copies of one id must be refused, not collapsed
+  // into a one-row answer. See the Global Constraint of the same name.
+  if (ids.length > RESOLVE_IDS_MAX_BATCH) {
+    throw new Error(`resolveItemsByIds: ${ids.length} ids exceeds ${RESOLVE_IDS_MAX_BATCH}`);
   }
+  const unique = [...new Set(ids)];
   if (unique.length === 0) {
     return [];
   }
