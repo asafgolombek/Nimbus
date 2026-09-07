@@ -55,14 +55,15 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   `source: "power_only"`), so admission there is power-only and every run row discloses it. The
   design's § 12 CI-runner probe expectations remain expectations until the cross-platform legs run.
   And the I38 row's own stated bound holds: the two doors are proved at the wrapper and the invoker
-  is proved to USE the wrapper, but the composed path is not exercised end to end. Eleven `fix(...)`
-  commits plus one `test(...)` commit landed during implementation, and several closed a claim that
-  was not true rather than an ordinary bug: a migration that never ran because
-  `CURRENT_SCHEMA_VERSION` was not bumped with it; `fleet_run.remote_calls_made` recording 0 on
+  is proved to USE the wrapper, but the composed path is not exercised end to end. Several defects
+  closed during implementation were a claim that was not true rather than an ordinary bug, which is
+  why these bounds are written as narrowly as they are: a migration that never ran because
+  `CURRENT_SCHEMA_VERSION` was not bumped alongside it; `fleet_run.remote_calls_made` recording 0 on
   every run because the invoker spent against a different budget instance from the one the row
   read; `remote_call_budget` documented as per-run while behaving as per-process; an I38 row and
-  test block that claimed more than they delivered; and assertions that could not fail. That is why
-  these bounds are written as narrowly as they are. Design:
+  test block that claimed more coverage than they delivered; and assertions that could not fail.
+  Described by class rather than counted: an earlier draft gave a `fix`/`test` commit tally, and the
+  review round that read it added the commits that made it wrong. Design:
   [`2026-09-06-s2-overnight-agent-fleets-design.md`](./superpowers/specs/2026-09-06-s2-overnight-agent-fleets-design.md).
 - **2026-09-06 — the multimodal remote arm was answered by a real vendor for the first time.**
   Not a delivery — an acceptance run, recorded because it retires a claim the entry below could

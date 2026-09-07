@@ -57,11 +57,30 @@ function offButPresentCtx(): FleetRpcCtx {
 }
 
 describe("tryDispatchFleetRpc", () => {
-  test("a non-fleet method is skipped before the ctx is even consulted", async () => {
-    // The prefix guard must short-circuit: an `agents.*` call reaching a fleet ctx lookup would
-    // mean every dispatcher in the chain pays for every other dispatcher's wiring.
-    const out = await tryDispatchFleetRpc(makeCtx(offButPresentCtx()), "agents.catchup", {});
+  test("a non-fleet method never touches the fleet ctx — the prefix guard short-circuits first", async () => {
+    // This test needs an OBSERVABLE, not just a return value. Asserting `phase4RpcSkipped` alone
+    // cannot fail for the reason it names: `dispatchByMethod` misses on "agents.catchup" anyway,
+    // so deleting the `method.startsWith("fleet.")` guard leaves the assertion green. (It did.)
+    //
+    // The exploding getter is the observable. `ctx.options.fleetRpcCtx` is the FIRST thing
+    // `tryDispatchFleetRpc` reads after the guard, so reading it at all is exactly the behaviour
+    // the guard exists to prevent — and removing the guard turns this test red with a throw.
+    let reads = 0;
+    const ctx = makeCtx();
+    Object.defineProperty(ctx.options, "fleetRpcCtx", {
+      configurable: true,
+      get(): never {
+        reads += 1;
+        throw new Error("fleetRpcCtx must not be read for a non-fleet method");
+      },
+    });
+
+    const out = await tryDispatchFleetRpc(ctx, "agents.catchup", {});
+
     expect(out).toBe(phase4RpcSkipped);
+    // Asserted as a COUNT rather than "did not throw": a future guard that reads the ctx and then
+    // discards the value would still return the sentinel, and only the count would notice.
+    expect(reads).toBe(0);
   });
 
   test("a fleet method with NO fleet ctx wired skips rather than throwing", async () => {

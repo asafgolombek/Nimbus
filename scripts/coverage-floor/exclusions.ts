@@ -32,15 +32,26 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // on any single OS, so the file reads 2/5 = 40% line on EVERY runner, Linux included — no test can
   // lift it without injecting the platform, which would be a seam for the gate's benefit alone.
   { kind: "exact", path: "packages/gateway/src/platform/host-activity.ts" },
-  // The two OS BODIES that cannot load on CI Linux: `darwin.ts` spawns `pmset`/`ioreg`, `win32.ts`
-  // `dlopen`s kernel32/user32 through `bun:ffi`. Same class as `sandbox/{linux,darwin}.ts` above.
+  // The two OS BODIES that cannot execute on CI Linux. What is exempt is NARROWER than
+  // "these files", and naming it precisely is the point — an exclusion that undersells its own
+  // coverage is one someone later widens without noticing they are widening it:
   //
-  // What makes this honest rather than a blanket per-OS pass — and the distinction the 2026-08-01
-  // retirement of `sandbox/win32.ts` drew: the TESTABLE logic in both files is EXTRACTED and IS
-  // covered. `parseDarwinPower`, `parseDarwinIdleMs`, `idleMsFromTicks` and `powerFromAcLineStatus`
-  // are exported pure functions with assertions in `platform/host-activity.test.ts` (including the
-  // 49.7-day tick wrap). Only the spawn/FFI shells around them are exempt. If either file ever grows
-  // pure logic that is NOT extracted, retire its entry rather than widening the rationale.
+  //   * `darwin.ts` — ONLY `createDarwinHostActivity()`, which spawns the macOS binaries `pmset`
+  //     and `ioreg`. Its three other exports are all tested. `parseDarwinPower` and
+  //     `parseDarwinIdleMs` are pure and asserted in `platform/host-activity.test.ts`, and `run()`
+  //     — despite being the spawn wrapper — takes an injectable `DarwinSpawn` and has its own
+  //     tests in `platform/host-activity/darwin.test.ts`, which assert `windowsHide`'s VALUE and
+  //     the timer-cleanup path. So the exempt surface here is one composition function, not a
+  //     "spawn shell".
+  //   * `win32.ts` — ONLY `createWin32HostActivity()`'s `dlopen` of kernel32/user32 through
+  //     `bun:ffi` and the probe closure that calls those symbols. `idleMsFromTicks` and
+  //     `powerFromAcLineStatus` are pure, exported, and asserted in
+  //     `platform/host-activity.test.ts`, including the 49.7-day tick wrap.
+  //
+  // Same class as `sandbox/{linux,darwin}.ts` above, and the distinction the 2026-08-01 retirement
+  // of `sandbox/win32.ts` drew: testable logic is EXTRACTED and covered; only what genuinely needs
+  // the foreign OS is exempt. If either file grows logic that is NOT extracted and covered, retire
+  // its entry rather than widening this rationale.
   { kind: "exact", path: "packages/gateway/src/platform/host-activity/darwin.ts" },
   { kind: "exact", path: "packages/gateway/src/platform/host-activity/win32.ts" },
   // `host-activity/linux.ts` is deliberately NOT here. Its `root` is injectable (`createLinuxHost
