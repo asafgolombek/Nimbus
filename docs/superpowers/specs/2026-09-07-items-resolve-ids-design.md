@@ -198,10 +198,38 @@ which is right for a disambiguation menu a human reads and hopeless here:
 brief. A cap anywhere near 5 would refuse the single largest consumer on its
 ordinary path — a caps-are-good instinct producing a route that does not work.
 
-**100** clears a dense `catchup` brief with room, sits three orders of magnitude
-under the bind ceiling, and stays well inside any URL-length limit. A client
-holding more than that chunks; the client is the one that knows which references
-are worth resolving.
+**100** clears a dense `catchup` brief with room and sits three orders of
+magnitude under the bind ceiling. A client holding more than that chunks; the
+client is the one that knows which references are worth resolving.
+
+### A count is not a size, and the size limit is not ours to enforce
+
+`item.id` is unconstrained `TEXT` — `"<service>:<externalId>"` where the external
+id is connector-defined. A GitHub PR id is around twenty characters; a deep
+GitLab subgroup path is several times that. So **100 ids does not bound the
+request**: at 30 bytes per `&id=` pair the query string is ~3 KB, and at 120
+bytes per pair it is past 12 KB.
+
+That matters more than an ordinary cap, because **the gateway may never see an
+over-long request**. A URL past the server's own line limit is refused before any
+handler runs, so the client gets a transport error rather than the honest
+`too_many_ids` this route would otherwise return. A limit the route cannot
+enforce is a limit the client has to respect.
+
+The contract therefore states both, and says which one binds:
+
+- **Never more than `RESOLVE_IDS_MAX_BATCH` ids** — the route enforces this and
+  returns `400 { "error": "too_many_ids" }`.
+- **Never more than ~1,800 bytes of query string.** The client chunks by
+  whichever limit is reached first. 1,800 is chosen to sit under the ~2,000-byte
+  length that is safe on every server and proxy, rather than under the ~8,000
+  many allow — this is a loopback call where an extra round trip costs almost
+  nothing, and a request that dies in the socket costs a debugging session.
+
+The route should also refuse a query string over a stated byte budget where it
+does see one, so a client that ignores the guidance gets a 400 rather than a
+truncated answer. But the byte rule is guidance the client owns, and the spec
+says so rather than implying the gateway can police it.
 
 **Over the cap, refuse with 400 rather than clamping.** The repo has both
 postures — `parsePositiveInt` clamps a `limit`, `nimbus media allow-remote`

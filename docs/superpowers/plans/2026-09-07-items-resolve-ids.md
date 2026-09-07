@@ -20,6 +20,7 @@
 - **`RESOLVE_IDS_MAX_BATCH = 100`.** Not 5 — that is `RESOLVE_CANDIDATE_CAP`, whose *rationale* this borrows and whose *magnitude* would refuse `catchup` on its ordinary path (`PER_SERVICE_QUOTA = 50` per service, `packages/gateway/src/agents/catchup.ts:12`).
 - **Over the cap: refuse `400 { "error": "too_many_ids" }`.** Never clamp — silently dropping ids means silently dropping links.
 - **Count RAW `?id=` parameters before de-duplicating.** A post-dedup check is cheap for a caller sending fifty thousand copies of one id and not for the gateway.
+- **A count is not a size.** `item.id` is unbounded `TEXT`, so 100 ids can be 3 KB of query string or 12 KB. The client chunks by ~1,800 bytes as well as by count (spec §5); the route refuses an over-budget query string where it sees one, but an over-long URL may be rejected before any handler runs — that limit is the client's to respect.
 - **Response fields, exactly:** `id`, `service`, `type`, `title`, `url`, `modified_at`. Never `body`, `body_preview`, `metadata`, `author_id`, `external_id`, `synced_at`.
 - **`url` selection:** the bare `url` column, matching `resolve-by-url.ts:58` — **except** fall back to `canonical_url` where `url` is null. This is the opposite precedence from `resolve_key`, deliberately (spec §4).
 - **`url` stays nullable** all the way to the response. Never substitute, never omit the row because of it.
@@ -423,6 +424,10 @@ test("discloses exactly six fields", () => {
 });
 test("400 missing_id when no id parameter is given", /* also: only blank ids */);
 test("400 too_many_ids above the cap", /* RESOLVE_IDS_MAX_BATCH + 1 raw params */);
+test("400 too_many_ids on repeated ids above the cap", () => {
+  // The raw count is what is checked, so 101 copies of ONE id must be refused —
+  // de-duplicating first would let this through with a single-row answer.
+});
 test("403 for a token without the resolve scope", /* LEGACY_SCOPES */);
 test("404 resolve_disabled when the clips surface is unmounted", /* startServerWithoutClipsVault */);
 test("404 fires before auth", /* unmounted server + a bad token still 404s, not 401 */);

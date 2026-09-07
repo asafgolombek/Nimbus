@@ -8,6 +8,29 @@
 
 ---
 
+> **This is a review note, not guidance. Where it disagrees with the design
+> spec, the spec wins.**
+>
+> Every recommendation here was adjudicated in
+> [`../specs/2026-09-07-items-resolve-ids-design.md`](../specs/2026-09-07-items-resolve-ids-design.md)
+> §11 and in the plan's own disposition section. Three were accepted, one was
+> accepted with the fix inverted, and the rest are assessments. **Do not
+> implement from this file.**
+>
+> Two disagreements are deliberate and worth naming, because a reader who copied
+> the snippets below would ship the wrong behaviour:
+>
+> - **§2's SQL recommends `COALESCE(canonical_url, url)`** — canonical first.
+>   The spec requires the opposite: the bare `url`, falling back to
+>   `canonical_url` only when `url` is null, because the sibling route selects
+>   the bare column and this response claims to be that projection.
+> - **§2 offers `ORDER BY modified_at DESC, id ASC` as an alternative** to
+>   `ORDER BY id`. The spec picks `ORDER BY id`, singular — two deterministic
+>   orders are still two different wire responses.
+>
+> It is committed because this repo keeps review notes beside their specs, and
+> it is pruned when the feature ships.
+
 ## 1. Summary of Review
 
 The proposal and implementation plan for [`GET /v1/items/resolve-ids`](file:///C:/gitrep/Nimbus/.claude/worktrees/items-resolve-ids/docs/superpowers/plans/2026-09-07-items-resolve-ids.md) are clean, minimal, and fully compliant with gateway architectural and security invariants:
@@ -25,7 +48,7 @@ Below are specific technical nuances and recommendations to observe during imple
 
 ### F2.1: SQLite Seed Schema in Unit Tests (`canonical_url` column)
 
-* **Issue:** In Task 1 Step 1, the test setup notes:
+- **Issue:** In Task 1 Step 1, the test setup notes:
 
   ```ts
   // Use the project's real schema application, exactly as resolve-by-url.test.ts does —
@@ -33,7 +56,7 @@ Below are specific technical nuances and recommendations to observe during imple
   applySchema(db); // replace with whatever resolve-by-url.test.ts calls
   ```
 
-* **Context:** [`packages/gateway/src/index/resolve-by-url.test.ts`](file:///C:/gitrep/Nimbus/packages/gateway/src/index/resolve-by-url.test.ts#L7-L8) uses a lightweight custom DDL:
+- **Context:** [`packages/gateway/src/index/resolve-by-url.test.ts`](file:///C:/gitrep/Nimbus/packages/gateway/src/index/resolve-by-url.test.ts#L7-L8) uses a lightweight custom DDL:
 
   ```ts
   db.exec(`CREATE TABLE item (id TEXT PRIMARY KEY, service TEXT, type TEXT, title TEXT,
@@ -41,31 +64,31 @@ Below are specific technical nuances and recommendations to observe during imple
   ```
 
   Note that `resolve-by-url.test.ts` did not declare `canonical_url`.
-* **Correction:** Because `resolveItemsByIds` executes `SELECT id, service, type, title, COALESCE(url, canonical_url) AS url, modified_at FROM item`, copying `resolve-by-url.test.ts`'s DDL verbatim will cause SQLite to fail with `no such column: canonical_url`.
-* **Fix:** In `resolve-ids.test.ts`, ensure the in-memory test table explicitly includes `canonical_url TEXT`, or import [`UNIFIED_ITEM_V3_SCHEMA_SQL`](file:///C:/gitrep/Nimbus/packages/gateway/src/index/unified-item-v3-sql.ts#L16-L31) from `packages/gateway/src/index/unified-item-v3-sql.ts`.
+- **Correction:** Because `resolveItemsByIds` executes `SELECT id, service, type, title, COALESCE(url, canonical_url) AS url, modified_at FROM item`, copying `resolve-by-url.test.ts`'s DDL verbatim will cause SQLite to fail with `no such column: canonical_url`.
+- **Fix:** In `resolve-ids.test.ts`, ensure the in-memory test table explicitly includes `canonical_url TEXT`, or import [`UNIFIED_ITEM_V3_SCHEMA_SQL`](file:///C:/gitrep/Nimbus/packages/gateway/src/index/unified-item-v3-sql.ts#L16-L31) from `packages/gateway/src/index/unified-item-v3-sql.ts`.
 
 ---
 
 ### F2.2: Test Scanner Ordering Coupling in Task 2 vs Task 3
 
-* **Context:** [`packages/gateway/src/ipc/http-route-auth.test.ts`](file:///C:/gitrep/Nimbus/packages/gateway/src/ipc/http-route-auth.test.ts#L101-L114) includes the anti-stale test:
+- **Context:** [`packages/gateway/src/ipc/http-route-auth.test.ts`](file:///C:/gitrep/Nimbus/packages/gateway/src/ipc/http-route-auth.test.ts#L101-L114) includes the anti-stale test:
 
   ```ts
   test("no table entry is a route that no longer exists", async () => { ... });
   ```
 
   This scanner checks that every entry in `HTTP_ROUTE_AUTH` matches a string literal in [`http-server.ts`](file:///C:/gitrep/Nimbus/packages/gateway/src/ipc/http-server.ts).
-* **Observation:** Adding `[ROUTE_KEY_ITEMS_RESOLVE_IDS]: { kind: "clip", scope: "resolve" }` in Task 2 *before* mounting `if (url.pathname === "/v1/items/resolve-ids")` in Task 3 will cause `http-route-auth.test.ts` to fail because the route literal is not yet found in `http-server.ts`.
-* **Guidance:** Task 2 and Task 3 are closely coupled by design. Implementers should combine Task 2 and Task 3 edits into a single logical step/commit to keep CI and pre-commit test runs cleanly green.
+- **Observation:** Adding `[ROUTE_KEY_ITEMS_RESOLVE_IDS]: { kind: "clip", scope: "resolve" }` in Task 2 *before* mounting `if (url.pathname === "/v1/items/resolve-ids")` in Task 3 will cause `http-route-auth.test.ts` to fail because the route literal is not yet found in `http-server.ts`.
+- **Guidance:** Task 2 and Task 3 are closely coupled by design. Implementers should combine Task 2 and Task 3 edits into a single logical step/commit to keep CI and pre-commit test runs cleanly green.
 
 ---
 
 ### F2.3: Two-Tier Batch Cap Enforcement
 
-* **Assessment:** The plan employs a layered defense for the 100-item batch cap:
+- **Assessment:** The plan employs a layered defense for the 100-item batch cap:
   1. **HTTP Layer ([`handleItemsResolveIds`](file:///C:/gitrep/Nimbus/packages/gateway/src/ipc/http-server.ts)):** Inspects `url.searchParams.getAll("id").length > RESOLVE_IDS_MAX_BATCH` immediately, protecting the server against expensive parameter parsing and set construction when flooded with duplicate parameters.
   2. **Lookup Layer ([`resolveItemsByIds`](file:///C:/gitrep/Nimbus/packages/gateway/src/index/resolve-ids.ts)):** Asserts `unique.length > RESOLVE_IDS_MAX_BATCH`, preventing unbounded dynamic parameter lists in SQLite queries.
-* **Verdict:** This separation of concerns is robust and prevents algorithmic complexity attacks on the query parser.
+- **Verdict:** This separation of concerns is robust and prevents algorithmic complexity attacks on the query parser.
 
 ---
 
@@ -73,7 +96,7 @@ Below are specific technical nuances and recommendations to observe during imple
 
 ### S2.1: Parity Unit Tests in `http-route-auth.test.ts`
 
-* **Suggestion:** In [`packages/gateway/src/ipc/http-route-auth.test.ts`](file:///C:/gitrep/Nimbus/packages/gateway/src/ipc/http-route-auth.test.ts), add explicit scope assertions for `ROUTE_KEY_ITEMS_RESOLVE_IDS` alongside the existing tests for `ROUTE_KEY_ITEMS_RESOLVE`:
+- **Suggestion:** In [`packages/gateway/src/ipc/http-route-auth.test.ts`](file:///C:/gitrep/Nimbus/packages/gateway/src/ipc/http-route-auth.test.ts), add explicit scope assertions for `ROUTE_KEY_ITEMS_RESOLVE_IDS` alongside the existing tests for `ROUTE_KEY_ITEMS_RESOLVE`:
 
   ```ts
   test("the resolve-ids route requires the resolve scope", () => {
@@ -84,7 +107,7 @@ Below are specific technical nuances and recommendations to observe during imple
 
 ### S2.2: Egress Ledger Delta Assertion in Integration Tests
 
-* **Assessment:** Task 4 Step 1 specifies testing that the route appends no egress ledger rows:
+- **Assessment:** Task 4 Step 1 specifies testing that the route appends no egress ledger rows:
 
   ```ts
   const ledgerRows = (): number =>
@@ -94,7 +117,7 @@ Below are specific technical nuances and recommendations to observe during imple
   expect(ledgerRows()).toBe(before);
   ```
 
-* **Note:** Checking the delta across the request rather than `=== 0` avoids flakiness if boot-time markers or background migrations append ledger records. This matches the convention established in [`items-resolve-file-route.test.ts:335`](file:///C:/gitrep/Nimbus/packages/gateway/test/integration/http/items-resolve-file-route.test.ts#L335).
+- **Note:** Checking the delta across the request rather than `=== 0` avoids flakiness if boot-time markers or background migrations append ledger records. This matches the convention established in [`items-resolve-file-route.test.ts:335`](file:///C:/gitrep/Nimbus/packages/gateway/test/integration/http/items-resolve-file-route.test.ts#L335).
 
 ---
 
