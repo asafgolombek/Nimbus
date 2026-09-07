@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { NimbusFleetJobToml } from "../config/fleet-toml.ts";
 import { FLEET_V60_SQL } from "../index/fleet-v60-sql.ts";
 import { buildFleetDigest, compareSummaries, renderFleetDigest } from "./fleet-digest.ts";
+import type { FleetJobDigest } from "./fleet-digest-types.ts";
 import { FleetStore } from "./fleet-store.ts";
 
 const s = (keys: string[], metrics: Record<string, number>) => ({ keys, metrics });
@@ -456,5 +457,156 @@ describe("renderFleetDigest", () => {
     });
     expect(md).toContain("5");
     expect(md).toMatch(/threshold/i);
+  });
+
+  /**
+   * Base job for the populated-render tests below, so each test overrides only the fields it
+   * cares about rather than restating all thirteen every time.
+   */
+  function baseJob(overrides: Partial<FleetJobDigest> = {}): FleetJobDigest {
+    return {
+      jobId: "j1",
+      agentMethod: "agents.ghost",
+      configured: true,
+      status: "changed",
+      minDelta: 1,
+      currentBriefId: "c",
+      currentCreatedAt: 0,
+      predecessorBriefId: "p",
+      predecessorCreatedAt: 0,
+      comparisonSpanMs: 0,
+      metrics: {},
+      keysAppeared: [],
+      keysResolved: [],
+      ...overrides,
+    };
+  }
+
+  // --- Finding 1: untrusted strings must not be able to break table/structure. ---
+
+  test("a metric name containing a pipe keeps the table at four columns", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [baseJob({ metrics: { "weird|name": { before: 1, after: 2, delta: 1 } } })],
+    });
+    const row = md.split("\n").find((l) => l.includes("weird"));
+    expect(row).toBeDefined();
+    // Split on an UNESCAPED pipe only — an escaped `\|` must not count as a column delimiter.
+    // "| metric | before | after | delta |" splits into 6 pieces: leading "", 4 cells, trailing "".
+    const cols = (row ?? "").split(/(?<!\\)\|/);
+    expect(cols).toHaveLength(6);
+  });
+
+  test("a finding key containing a newline plus a forged heading does not produce a second heading", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [baseJob({ keysAppeared: ["p1:open_pr:github:Fix\n## Forged heading"] })],
+    });
+    // A newline in a finding key must not let it escape its bullet and become its own heading line.
+    expect(md).not.toMatch(/^## Forged heading$/m);
+  });
+
+  // --- Finding 2: assert the actual rendered text of the populated paths, not just no-throw. ---
+
+  test("a two-sided metric renders a plain delta row", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [baseJob({ metrics: { open_prs: { before: 10, after: 15, delta: 5 } } })],
+    });
+    expect(md).toContain("| open_prs | 10 | 15 | 5 |");
+  });
+
+  test("a one-sided metric shows (new metric) / (no longer reported) with an em dash, never 0 or null", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [
+        baseJob({
+          metrics: {
+            newer: { before: null, after: 7, delta: null },
+            gone: { before: 7, after: null, delta: null },
+          },
+        }),
+      ],
+    });
+    expect(md).toContain("| newer (new metric) | — | 7 | — |");
+    expect(md).toContain("| gone (no longer reported) | 7 | — | — |");
+    expect(md).not.toContain("| 0 |");
+    expect(md).not.toContain("null");
+  });
+
+  test("a populated Appeared and Resolved list renders the count and every entry", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [baseJob({ keysAppeared: ["p2"], keysResolved: ["p1"] })],
+    });
+    expect(md).toContain("Appeared (1):");
+    expect(md).toContain("- p2");
+    expect(md).toContain("Resolved (1):");
+    expect(md).toContain("- p1");
+  });
+
+  test("a populated firstObservation entry renders its bullet text", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: {
+        ...empty,
+        firstObservation: [{ jobId: "new-job", briefId: "b1", createdAt: 0 }],
+      },
+    });
+    expect(md).toContain("First observation: 1");
+    expect(md).toContain("- new-job — one brief so far, nothing to compare");
+  });
+
+  test("a populated notSummarizable entry renders its role and reason", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: {
+        ...empty,
+        notSummarizable: [
+          { jobId: "j2", briefId: "b2", role: "current", reason: "unreadable agents.ghost brief" },
+        ],
+      },
+    });
+    expect(md).toContain("Not summarizable: 1");
+    expect(md).toContain("- j2 (current) — unreadable agents.ghost brief");
+  });
+
+  test("a populated noBriefInWindow entry renders its configured agent", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: { ...empty, noBriefInWindow: [{ jobId: "j3", agent: "ghost" }] },
+    });
+    expect(md).toContain("No brief in window: 1");
+    expect(md).toContain("- j3 (ghost) — configured, produced nothing");
+  });
+
+  test("a populated agentChanged entry renders the from/to agent methods", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: {
+        ...empty,
+        agentChanged: [{ jobId: "j4", from: "agents.catchup", to: "agents.ghost" }],
+      },
+    });
+    expect(md).toContain("Agent changed: 1");
+    expect(md).toContain("- j4 — agents.catchup → agents.ghost, not comparable");
   });
 });

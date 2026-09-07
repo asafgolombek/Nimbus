@@ -202,11 +202,26 @@ function cell(v: number | null): string {
   return v === null ? "—" : String(v);
 }
 
+/**
+ * Neutralise Markdown structure in a value that came from config or from indexed content.
+ *
+ * Finding keys embed titles from real items (`conflicts` keys on `…:title`), so a pipe breaks the
+ * table row it lands in and a newline forges a heading or a bullet outright — a digest claiming a
+ * section it does not have. Reachable by an ordinary PR title, not just by an attacker.
+ *
+ * Deliberately minimal: collapse the line breaks that let a value escape its row, and escape the
+ * pipe that lets it escape its CELL. Not a general Markdown sanitiser — emphasis or a stray
+ * backtick renders oddly at worst and cannot forge structure.
+ */
+function mdSafe(s: string): string {
+  return s.replace(/\r\n|\r|\n/g, " ").replace(/\|/g, "\\|");
+}
+
 function metricRow(name: string, d: FleetMetricDelta): string {
   // A one-sided metric names WHY it is one-sided rather than showing a delta it does not have.
   const note =
     d.before === null ? " (new metric)" : d.after === null ? " (no longer reported)" : "";
-  return `| ${name}${note} | ${cell(d.before)} | ${cell(d.after)} | ${cell(d.delta)} |`;
+  return `| ${mdSafe(name)}${note} | ${cell(d.before)} | ${cell(d.after)} | ${cell(d.delta)} |`;
 }
 
 /**
@@ -225,34 +240,38 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
   );
 
   for (const j of d.jobs) {
-    out.push(`## ${j.jobId}${j.configured ? "" : " [unconfigured]"}`, "");
+    out.push(`## ${mdSafe(j.jobId)}${j.configured ? "" : " [unconfigured]"}`, "");
     const status =
       j.status === "unchanged_within_threshold"
         ? `unchanged within threshold (digest_min_delta = ${String(j.minDelta)})`
         : j.status;
     out.push(
-      `${j.agentMethod} · compared over ${humanDuration(j.comparisonSpanMs)} · ${status}`,
+      `${mdSafe(j.agentMethod)} · compared over ${humanDuration(j.comparisonSpanMs)} · ${status}`,
       "",
     );
 
     if (Object.keys(j.metrics).length > 0) {
       out.push("| metric | before | after | delta |", "| --- | --- | --- | --- |");
       // `Object.entries`, not `names[i]`: indexing a Record under noUncheckedIndexedAccess yields
-      // `FleetMetricDelta | undefined` and would need a cast that hides a real absence.
-      for (const [n, delta] of Object.entries(j.metrics)) out.push(metricRow(n, delta));
+      // `FleetMetricDelta | undefined` and would need a cast that hides a real absence. Sorted
+      // explicitly rather than trusted from insertion order: `compareSummaries` inserts in
+      // `codeUnitCompare` order today, but JS objects hoist integer-like string keys ahead of
+      // insertion order, so a metric literally named `"5"` would silently defeat that guarantee.
+      const entries = Object.entries(j.metrics).sort((a, b) => codeUnitCompare(a[0], b[0]));
+      for (const [n, delta] of entries) out.push(metricRow(n, delta));
       out.push("");
     }
     if (j.keysAppeared.length > 0) {
       out.push(
         `Appeared (${String(j.keysAppeared.length)}):`,
-        ...j.keysAppeared.map((k) => `- ${k}`),
+        ...j.keysAppeared.map((k) => `- ${mdSafe(k)}`),
         "",
       );
     }
     if (j.keysResolved.length > 0) {
       out.push(
         `Resolved (${String(j.keysResolved.length)}):`,
-        ...j.keysResolved.map((k) => `- ${k}`),
+        ...j.keysResolved.map((k) => `- ${mdSafe(k)}`),
         "",
       );
     }
@@ -264,14 +283,16 @@ export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): strin
   out.push("## Not compared", "");
   out.push(`First observation: ${String(nc.firstObservation.length)}`);
   for (const e of nc.firstObservation)
-    out.push(`- ${e.jobId} — one brief so far, nothing to compare`);
+    out.push(`- ${mdSafe(e.jobId)} — one brief so far, nothing to compare`);
   out.push(`Not summarizable: ${String(nc.notSummarizable.length)}`);
-  for (const e of nc.notSummarizable) out.push(`- ${e.jobId} (${e.role}) — ${e.reason}`);
+  for (const e of nc.notSummarizable)
+    out.push(`- ${mdSafe(e.jobId)} (${e.role}) — ${mdSafe(e.reason)}`);
   out.push(`No brief in window: ${String(nc.noBriefInWindow.length)}`);
   for (const e of nc.noBriefInWindow)
-    out.push(`- ${e.jobId} (${e.agent}) — configured, produced nothing`);
+    out.push(`- ${mdSafe(e.jobId)} (${mdSafe(e.agent)}) — configured, produced nothing`);
   out.push(`Agent changed: ${String(nc.agentChanged.length)}`);
-  for (const e of nc.agentChanged) out.push(`- ${e.jobId} — ${e.from} → ${e.to}, not comparable`);
+  for (const e of nc.agentChanged)
+    out.push(`- ${mdSafe(e.jobId)} — ${mdSafe(e.from)} → ${mdSafe(e.to)}, not comparable`);
   out.push("");
 
   return out.join("\n");
