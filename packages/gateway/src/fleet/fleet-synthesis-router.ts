@@ -11,6 +11,20 @@ export interface FleetRemoteBudget {
   /** Reserves one remote call. Returns false when none is left. */
   consume(): boolean;
   /**
+   * Record that a REMOTE provider was withheld — either because `allow_remote` is false or because
+   * the budget is spent.
+   *
+   * This exists so the withholding is DISCLOSABLE. Without it the fleet cannot tell its own briefs
+   * apart from ordinary ones: the wrapper returns `undefined` from `resolveForSynthesis`, and
+   * `agents/_lib/synthesis-llm.ts` turns that into `no_eligible_provider` with no detail — the same
+   * answer it gives when no provider is configured at all. I38's row claimed budget exhaustion was
+   * disclosed per brief; it was only disclosed per run, and this closes the difference without
+   * widening `SynthesisAttempt`, a union every brief in the repo flows through.
+   */
+  noteWithheld(): void;
+  /** How many times a remote provider was withheld since the last `reset`. */
+  withheld(): number;
+  /**
    * Returns the budget to its full cap.
    *
    * `[fleet] remote_call_budget` is documented PER RUN, and this is what makes that true.
@@ -31,6 +45,7 @@ export interface FleetRemoteBudget {
 
 export function createFleetRemoteBudget(allowRemote: boolean, budget: number): FleetRemoteBudget {
   let used = 0;
+  let withheldCount = 0;
   const cap = allowRemote ? Math.max(0, budget) : 0;
   return {
     allowRemote,
@@ -42,8 +57,16 @@ export function createFleetRemoteBudget(allowRemote: boolean, budget: number): F
       used += 1;
       return true;
     },
+    noteWithheld: () => {
+      withheldCount += 1;
+    },
+    withheld: () => withheldCount,
     reset: () => {
       used = 0;
+      // Reset with `used`, not separately: both describe one run, and a withholding count that
+      // outlived its run would attribute an earlier run's refusals to this one — the same
+      // per-process-vs-per-run confusion the reset itself exists to fix.
+      withheldCount = 0;
     },
   };
 }
@@ -81,7 +104,12 @@ export function wrapFleetSynthesisRouter(
     ): Promise<ResolvedSynthesisProvider | undefined> {
       const resolved = await inner.resolveForSynthesis(preferLocal);
       if (resolved === undefined || resolved.isLocal) return resolved;
-      return remoteAllowedNow() ? resolved : undefined;
+      if (remoteAllowedNow()) return resolved;
+      // Withholding is the graceful path — the runner falls back to the deterministic render — but
+      // it is indistinguishable downstream from "no provider configured". Record it so the fleet
+      // can say which happened.
+      budget.noteWithheld();
+      return undefined;
     },
 
     async generateMarkdown(

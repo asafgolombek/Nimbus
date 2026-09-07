@@ -202,7 +202,7 @@ async function runStatus(c: FleetIpc, json: boolean, sink: OutcomeSink): Promise
     return FLEET_EXIT_CODES.ok;
   }
   sink.out(
-    [
+    `${[
       `fleet: ${r.enabled ? "enabled" : "disabled"} (${r.running ? "running" : "not running"})`,
       `  jobs configured:    ${r.jobsConfigured}`,
       `  requires AC power:  ${r.requireAcPower}`,
@@ -211,7 +211,7 @@ async function runStatus(c: FleetIpc, json: boolean, sink: OutcomeSink): Promise
       `  retention days:     ${r.retentionDays}`,
       `  host power:         ${r.probe.power}`,
       `  host idle ms:       ${r.probe.idleMs ?? "unknown"}`,
-    ].join("\n") + "\n",
+    ].join("\n")}\n`,
   );
   return FLEET_EXIT_CODES.ok;
 }

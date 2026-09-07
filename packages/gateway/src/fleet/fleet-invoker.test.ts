@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { SynthesisRouter } from "../agents/_lib/synthesis-llm.ts";
 import type { NimbusFleetJobToml } from "../config/fleet-toml.ts";
 import { LocalIndex } from "../index/local-index.ts";
+import type { ResolvedSynthesisProvider } from "../llm/router.ts";
 import {
   buildDefaultFleetDispatch,
   buildFleetInvoker,
@@ -326,6 +327,8 @@ describe("buildFleetInvoker", () => {
       timeoutMs: 50,
       dispatch: buildDefaultFleetDispatch(async (_m, _p, ctx) => {
         ctx.notify("catchup.briefReady", { sessionId: "s1", brief: "unwrapped", findings: {} });
+        // The ENVELOPE, deliberately — this is the one test whose subject is the unwrapping, so
+        // the inner dispatcher must return what `dispatchAgentsRpc` really returns.
         return { kind: "hit", value: { sessionId: "s1" } };
       }),
     });
@@ -363,5 +366,197 @@ describe("buildFleetInvoker", () => {
 
   test("the default timeout is bounded but generous", () => {
     expect(DEFAULT_JOB_TIMEOUT_MS).toBe(600_000);
+  });
+});
+
+describe("per-brief remote-withholding disclosure (I38)", () => {
+  // I38's row claimed budget exhaustion is disclosed per brief. It was not: the wrapper withholds
+  // the provider and `synthesis-llm.ts` reports `no_eligible_provider` with no detail — the same
+  // answer a machine with no model configured gets. These pin the fleet-local disclosure that
+  // closes it without widening `SynthesisAttempt`.
+  const ready = (sessionId: string, synthesis: unknown) => ({
+    sessionId,
+    brief: "# b",
+    findings: {},
+    synthesis,
+  });
+
+  test("a withholding during the job lands on that brief's provenance", async () => {
+    const budget = createFleetRemoteBudget(false, 0);
+    const invoke = buildFleetInvoker({
+      db: new Database(":memory:"),
+      router: undefined,
+      budget,
+      timeoutMs: 50,
+      dispatch: async (_m, _p, ctx) => {
+        budget.noteWithheld(); // what wrapFleetSynthesisRouter does when it refuses a remote provider
+        ctx.notify("catchup.briefReady", ready("s1", { attempted: false }));
+        return { sessionId: "s1" };
+      },
+    });
+    const out = await invoke(JOB);
+    expect(out.status).toBe("done");
+    const s = JSON.parse((out as { synthesisJson: string }).synthesisJson) as Record<
+      string,
+      number
+    >;
+    expect(s["fleetRemoteWithheld"]).toBe(1);
+  });
+
+  test("no withholding leaves the provenance untouched", async () => {
+    // A `null` synthesis alone would NOT discriminate — it stays null through `readReady`'s
+    // pre-existing path whether or not the disclosure exists. The non-null case is what proves the
+    // provenance is passed through unmodified rather than merely absent.
+    const invoke = buildFleetInvoker(
+      deps(async (_m, _p, ctx) => {
+        ctx.notify("catchup.briefReady", ready("s1", null));
+        return { sessionId: "s1" };
+      }),
+    );
+    expect(((await invoke(JOB)) as { synthesisJson: string | null }).synthesisJson).toBeNull();
+
+    const withProv = buildFleetInvoker(
+      deps(async (_m, _p, ctx) => {
+        ctx.notify("catchup.briefReady", ready("s1", { attempted: true, model: "qwen" }));
+        return { sessionId: "s1" };
+      }),
+    );
+    const out = await withProv(JOB);
+    expect(JSON.parse((out as { synthesisJson: string }).synthesisJson)).toEqual({
+      attempted: true,
+      model: "qwen",
+    });
+  });
+
+  test("the count is this JOB's delta, not the run's running total", async () => {
+    // The budget is per-RUN and spans several jobs. Reading the raw counter would attribute an
+    // earlier job's refusals to this brief — the same per-run-vs-per-item confusion that made
+    // `remote_calls_made` a false record before it was fixed.
+    const budget = createFleetRemoteBudget(false, 0);
+    budget.noteWithheld();
+    budget.noteWithheld(); // two refusals from an EARLIER job in the same run
+    const invoke = buildFleetInvoker({
+      db: new Database(":memory:"),
+      router: undefined,
+      budget,
+      timeoutMs: 50,
+      dispatch: async (_m, _p, ctx) => {
+        budget.noteWithheld(); // exactly one belongs to THIS job
+        ctx.notify("catchup.briefReady", ready("s1", { attempted: false }));
+        return { sessionId: "s1" };
+      },
+    });
+    const out = await invoke(JOB);
+    const s = JSON.parse((out as { synthesisJson: string }).synthesisJson) as Record<
+      string,
+      number
+    >;
+    expect(s["fleetRemoteWithheld"]).toBe(1);
+  });
+});
+
+describe("COMPOSED I38 path — invoker → wrapped router → real synthesis runner", () => {
+  // Closes most of the bound the I38 row recorded. The two doors and the budget were exercised
+  // against the WRAPPER, and the invoker was separately proven to build its runner with the wrapper
+  // — but "proven separately" is not "proven composed". This drives the runner the invoker actually
+  // built, through `ctx.runner`, so door 1, the budget and the disclosure are exercised together.
+  const REMOTE: ResolvedSynthesisProvider = {
+    providerId: "anthropic",
+    modelName: "opus",
+    isLocal: false,
+  };
+
+  function allowRemoteConfigDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "fleet-composed-"));
+    // Without this the DEFAULT `synthesis = "local"` refuses a remote provider on its own, and the
+    // assertions below would hold for a reason unrelated to the fleet wrapper.
+    writeFileSync(join(dir, "nimbus.toml"), '[agents]\nsynthesis = "allow-remote"\n');
+    return dir;
+  }
+
+  test("the budget is spent through the REAL runner, and the second job is disclosed", async () => {
+    const generated: string[] = [];
+    const router: SynthesisRouter = {
+      resolveForSynthesis: async () => REMOTE,
+      generateMarkdown: async (_p, provider) => {
+        generated.push(provider.providerId);
+        return "# synthesised";
+      },
+    };
+    const budget = createFleetRemoteBudget(true, 1); // exactly one remote call for the run
+    const configDir = allowRemoteConfigDir();
+
+    const invoke = buildFleetInvoker({
+      db: new Database(":memory:"),
+      router,
+      budget,
+      configDir,
+      timeoutMs: 200,
+      dispatch: async (_m, _p, ctx) => {
+        // The runner the INVOKER built — `buildAgentSynthesisRunner` over the wrapped router.
+        if (ctx.runner !== undefined) await ctx.runner.run("prompt");
+        ctx.notify("catchup.briefReady", {
+          sessionId: "s1",
+          brief: "# b",
+          findings: {},
+          synthesis: { attempted: true },
+        });
+        return { sessionId: "s1" };
+      },
+    });
+
+    // First job: the budget covers it, so the remote provider is used for real.
+    const first = await invoke(JOB);
+    expect(first.status).toBe("done");
+    expect(generated).toEqual(["anthropic"]);
+    expect(budget.spent()).toBe(1);
+    expect(JSON.parse((first as { synthesisJson: string }).synthesisJson)).not.toHaveProperty(
+      "fleetRemoteWithheld",
+    );
+
+    // Second job, same run: the budget is spent, so door 1 withholds and the brief says so.
+    const second = await invoke(JOB);
+    expect(second.status).toBe("done");
+    expect(generated).toEqual(["anthropic"]); // no second remote call
+    const s = JSON.parse((second as { synthesisJson: string }).synthesisJson) as Record<
+      string,
+      number
+    >;
+    expect(s["fleetRemoteWithheld"]).toBe(1);
+  });
+
+  test("with allow_remote false the real runner never reaches a remote provider", async () => {
+    const generated: string[] = [];
+    const router: SynthesisRouter = {
+      resolveForSynthesis: async () => REMOTE,
+      generateMarkdown: async (_p, provider) => {
+        generated.push(provider.providerId);
+        return "# nope";
+      },
+    };
+    const invoke = buildFleetInvoker({
+      db: new Database(":memory:"),
+      router,
+      budget: createFleetRemoteBudget(false, 0),
+      configDir: allowRemoteConfigDir(),
+      timeoutMs: 200,
+      dispatch: async (_m, _p, ctx) => {
+        if (ctx.runner !== undefined) await ctx.runner.run("prompt");
+        ctx.notify("catchup.briefReady", {
+          sessionId: "s1",
+          brief: "# b",
+          findings: {},
+          synthesis: { attempted: true },
+        });
+        return { sessionId: "s1" };
+      },
+    });
+    const out = await invoke(JOB);
+    expect(generated).toEqual([]); // the invariant, through the composed path
+    const s = JSON.parse((out as { synthesisJson: string }).synthesisJson) as Record<
+      string,
+      number
+    >;
+    expect(s["fleetRemoteWithheld"]).toBe(1);
   });
 });

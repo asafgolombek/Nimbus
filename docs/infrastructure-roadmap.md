@@ -115,7 +115,7 @@ Design of record (archived on delivery — read via
 | --- | --- | --- | --- |
 | P1 | Org CI Foundation | ✅ done | The scheduled sweep goes red on drift: SHA-pins across the 8 public org repos, ruleset shape across the 5 active code repos — proven green end-to-end (run 30060920603) |
 | P2 | Release Train | ✅ done — both phases (run 30231918767) | `audit:release-staleness` goes red when a channel (brew/scoop/linux/winget) lags the published Release past the grace window, when a release phantoms, when an npm package is tagged but unpublished, or when a consumer's **lockfile-resolved** dependency lags npm `@latest`. Red-proved on a real phantom and on three real dependency edges; green after both, `OK (12 edges current)`. |
-| P3 | Review Layer | ✅ done — `review-coverage` green in sweep run 30518344699 | The monorepo carries a tuned `.coderabbit.yaml` whose `path_instructions` encode I1–I30, the triple rule and the PAL ban (#846), and `audit:review-coverage` now fails when any gated repo's `.coderabbit.yaml` goes missing, stops parsing, or goes **inert** (`auto_review.enabled` off, `base_branches` no longer covering `main`, or empty `path_instructions`). **Note:** the previously-stated gate ("an invariant violation is caught in CI") was already met — `_structure.yml` runs `audit:invariants` and all 17 static checks execute there; the one branch `--binary-only` excludes is a census that always exits 0. The real gap was that only *this* repo's review config was validated. |
+| P3 | Review Layer | ✅ done — `review-coverage` green in sweep run 30518344699 | The monorepo carries a tuned `.coderabbit.yaml` whose `path_instructions` encoded I1–I30 as of this delivery, the triple rule and the PAL ban (#846), and `audit:review-coverage` now fails when any gated repo's `.coderabbit.yaml` goes missing, stops parsing, or goes **inert** (`auto_review.enabled` off, `base_branches` no longer covering `main`, or empty `path_instructions`). **Note:** the previously-stated gate ("an invariant violation is caught in CI") was already met — `_structure.yml` runs `audit:invariants` and all 17 static checks execute there; the one branch `--binary-only` excludes is a census that always exits 0. The real gap was that only *this* repo's review config was validated. |
 | P4a | Main-CI concurrency | ✅ shipped | Every commit on `main` has a completed CI run |
 | P4b | Latency | ✅ done — `ci-latency` green in sweep run `30356357605` | `audit:ci-latency` tracks per-job execution, runner queue and DAG wait across the 9 org repos and fails when a job's execution regresses beyond its own measured noise band. Tuning followed the measurement, not the design of record's hunch: a push run demanded ~105 job slots against a pool granting 12-17, so the fix was cutting the fan-out (coverage gates 72 → 42 jobs, Linux-only except the 9 PAL-touching ones) and narrowing E2E's dependency edge — not the proposed cache tuning or sharding, which would have added jobs to the constrained pool. **Measured after, re-measured at n>1 on 2026-07-30: 105 → 77 jobs (4/4 runs), DAG wait 60.5 → 3.0 min median (n=15, and all 45 sampled E2E legs now gated by `ci-rust` — the edge the slice rewrote), non-macOS wall 23-89 → 16-38 min.** Wall clock measured as *last job in the run* did not improve (45 → 67 min median over 20+20 runs); instrumented, that tail is entirely the nine macOS PAL coverage gates queuing for scarce macOS runners, and it is unchanged at like congestion — see the progress log. `audit:coverage-gate-pal` keeps the platform classification honest, co-gates included. |
 | P5 | Org Legibility | ✅ done — both gates green (run 30231918767); dashboard decided against 2026-07-30 | `audit:secret-inventory` fails on any workflow secret missing from the credential registry **or** `ci-secrets.md`; `audit:actions-allowlist` fails on an unpermitted action **or** any workflow whose latest run ended in `startup_failure`. The second found a live nightly outage on its first correct run. |
@@ -677,7 +677,7 @@ criterion ("an invariant violation is caught in CI") needed no new work. What
 was genuinely missing was the *review* layer, in two halves.
 
 - **Half one — the monorepo's own config (#846, 2026-07-26).** The first
-  `.coderabbit.yaml` in the org, with `path_instructions` encoding I1–I30, the
+  `.coderabbit.yaml` in the org, with `path_instructions` encoding I1–I30 at the time, the
   triple rule and the PAL ban. `check-coderabbit-config.test.ts` validates it
   locally and deeply: that it parses, that every instruction's glob resolves to
   a real directory, that every cited `I<n>` exists as a heading in
@@ -704,7 +704,7 @@ was genuinely missing was the *review* layer, in two halves.
   config.
 - **Instruction CONTENT is deliberately NOT gated.** The five repos are
   different products under different licences — the SDK must stay
-  dependency-free, the gateway carries I1–I30 — so any shared-content assertion
+  dependency-free, the gateway carried I1–I30 then — so any shared-content assertion
   could only be satisfied by making every instruction vaguer. Content is the
   owning repo's local test's job. A gate that would degrade the thing it guards
   is not worth having.

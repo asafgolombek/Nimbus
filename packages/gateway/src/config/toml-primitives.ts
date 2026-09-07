@@ -81,8 +81,26 @@ export function parseBool(raw: string): boolean | undefined {
   return undefined;
 }
 
+/**
+ * A whole decimal integer, or `undefined`.
+ *
+ * `Number.parseInt` alone reads a PREFIX: it turns `1day` into `1`, `3abc` into `3` and `0x10` into
+ * `0`, so a config carrying a unit suffix TOML does not have would be silently half-read rather than
+ * rejected. That produced an inconsistency once `[fleet] retention_days` started refusing values
+ * below 1 — `retention_days = 0days` threw a config error while `retention_days = 1day` was
+ * accepted as 1 — and the general case is worse than the inconsistency: a value the writer clearly
+ * meant as something else is taken as a number nobody chose.
+ *
+ * The token must therefore be complete. A malformed value returns `undefined`, which every caller
+ * already treats as "leave the default alone", so this narrows what is ACCEPTED and changes nothing
+ * about how a rejection is handled.
+ */
+const DECIMAL_INT_RE = /^[+-]?\d+$/;
+
 export function parseIntDec(raw: string): number | undefined {
-  const n = Number.parseInt(raw.trim(), 10);
+  const t = raw.trim();
+  if (!DECIMAL_INT_RE.test(t)) return undefined;
+  const n = Number.parseInt(t, 10);
   return Number.isFinite(n) ? n : undefined;
 }
 

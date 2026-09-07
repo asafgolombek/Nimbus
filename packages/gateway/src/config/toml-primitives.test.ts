@@ -1,7 +1,8 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
   hasUnterminatedString,
+  parseIntDec,
   parseString,
   splitKeyValue,
   stripComment,
@@ -65,4 +66,33 @@ test("a genuinely unterminated string is reported", () => {
 test("a well-formed line is not reported as unterminated", () => {
   expect(hasUnterminatedString('a = "fine"')).toBe(false);
   expect(hasUnterminatedString(String.raw`a = "he said \"hi\""`)).toBe(false);
+});
+
+describe("parseIntDec rejects partial tokens", () => {
+  // `Number.parseInt` alone reads a PREFIX, so a value carrying a suffix TOML does not have was
+  // silently half-read. The inconsistency that surfaced it: once `[fleet] retention_days` refused
+  // values below 1, `0days` threw a config error while `1day` was accepted as 1.
+  test("a unit suffix is not a number", () => {
+    expect(parseIntDec("1day")).toBeUndefined();
+    expect(parseIntDec("0days")).toBeUndefined();
+    expect(parseIntDec("3abc")).toBeUndefined();
+  });
+
+  test("a hex literal is not a decimal integer", () => {
+    // Previously `0x10` read as 0 — the worst shape, since 0 is a meaningful value for several keys.
+    expect(parseIntDec("0x10")).toBeUndefined();
+  });
+
+  test("whole decimal tokens still parse, sign and surrounding space included", () => {
+    expect(parseIntDec("7")).toBe(7);
+    expect(parseIntDec("  12  ")).toBe(12);
+    expect(parseIntDec("-5")).toBe(-5);
+    expect(parseIntDec("+5")).toBe(5);
+    expect(parseIntDec("0")).toBe(0);
+  });
+
+  test("an empty or non-numeric value is still undefined", () => {
+    expect(parseIntDec("")).toBeUndefined();
+    expect(parseIntDec("abc")).toBeUndefined();
+  });
 });
