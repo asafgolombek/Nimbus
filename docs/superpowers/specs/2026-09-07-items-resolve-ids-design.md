@@ -214,22 +214,27 @@ That matters more than an ordinary cap, because **the gateway may never see an
 over-long request**. A URL past the server's own line limit is refused before any
 handler runs, so the client gets a transport error rather than the honest
 `too_many_ids` this route would otherwise return. A limit the route cannot
-enforce is a limit the client has to respect.
+enforce is a limit the client has to respect — the byte budget below is
+guidance the client owns outright, not a second check the handler also makes.
 
-The contract therefore states both, and says which one binds:
+The contract therefore states both, and says which one binds where:
 
-- **Never more than `RESOLVE_IDS_MAX_BATCH` ids** — the route enforces this and
-  returns `400 { "error": "too_many_ids" }`.
-- **Never more than ~1,800 bytes of query string.** The client chunks by
-  whichever limit is reached first. 1,800 is chosen to sit under the ~2,000-byte
-  length that is safe on every server and proxy, rather than under the ~8,000
-  many allow — this is a loopback call where an extra round trip costs almost
-  nothing, and a request that dies in the socket costs a debugging session.
+- **Never more than `RESOLVE_IDS_MAX_BATCH` ids.** The **route** owns this: it
+  counts raw `?id=` parameters and returns `400 { "error": "too_many_ids" }`
+  over the cap.
+- **Never more than ~1,800 bytes of query string.** The **client** owns this:
+  it chunks by whichever limit — count or bytes — is reached first. 1,800 is
+  chosen to sit under the ~2,000-byte length that is safe on every server and
+  proxy, rather than under the ~8,000 many allow — this is a loopback call
+  where an extra round trip costs almost nothing, and a request that dies in
+  the socket costs a debugging session.
 
-The route should also refuse a query string over a stated byte budget where it
-does see one, so a client that ignores the guidance gets a 400 rather than a
-truncated answer. But the byte rule is guidance the client owns, and the spec
-says so rather than implying the gateway can police it.
+The route does not also enforce the byte budget. There is no denial-of-service
+the count cap does not already close: 100 ids is bounded work for the handler
+whatever those ids weigh, so a byte check in the handler would be a hedge, not
+a decision the route needs to make. And it could not enforce one reliably even
+if it wanted to — the gateway may never see an over-long request to refuse, per
+above.
 
 **Over the cap, refuse with 400 rather than clamping.** The repo has both
 postures — `parsePositiveInt` clamps a `limit`, `nimbus media allow-remote`
