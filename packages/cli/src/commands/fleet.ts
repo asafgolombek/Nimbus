@@ -1,4 +1,5 @@
 import { jsonRpcErrorCode } from "@nimbus-dev/client";
+import { parseDurationToMs } from "../lib/parse-duration.ts";
 import { BATCH_RPC_TIMEOUT_MS } from "../lib/rpc-timeouts.ts";
 import { withGatewayIpc } from "../lib/with-gateway-ipc.ts";
 
@@ -18,7 +19,7 @@ export const FLEET_EXIT_CODES = {
   failed: 5,
 } as const;
 
-const USAGE = `Usage: nimbus fleet <status|list|briefs|show|run> [options]
+const USAGE = `Usage: nimbus fleet <status|list|briefs|show|run|digest> [options]
 
   status                        report [fleet] config and a live host-activity probe
   list                          list every configured job and its last-run state
@@ -26,6 +27,7 @@ const USAGE = `Usage: nimbus fleet <status|list|briefs|show|run> [options]
   show <id>                     print one brief's full markdown body
   run <job> [--force]           run one configured job right now, bypassing its schedule — naming
                                  the job skips both its interval and any failure backoff
+  digest [--since <duration>]   what moved since the window began (default 24h)
 
   --json                        machine-readable output (every subcommand)
   --force (run only)            run now even if the host is on battery or in use. That is ALL it
@@ -59,13 +61,19 @@ export interface FleetRunArgs {
   readonly force: boolean;
   readonly json: boolean;
 }
+export interface FleetDigestArgs {
+  readonly sub: "digest";
+  readonly windowMs: number;
+  readonly json: boolean;
+}
 
 export type ParsedFleetArgs =
   | FleetStatusArgs
   | FleetListArgs
   | FleetBriefsArgs
   | FleetShowArgs
-  | FleetRunArgs;
+  | FleetRunArgs
+  | FleetDigestArgs;
 
 /** Returns the flag's value, or `undefined` when absent or when the "value" is itself a flag. */
 function flagValue(args: readonly string[], name: string): string | undefined {
@@ -116,6 +124,22 @@ export function parseFleetArgs(argv: readonly string[]): ParsedFleetArgs | undef
       const job = rest[0];
       if (job === undefined || job.startsWith("--")) return undefined;
       return { sub: "run", job, force: rest.includes("--force"), json };
+    }
+    case "digest": {
+      const i = rest.indexOf("--since");
+      if (i === -1) return { sub: "digest", windowMs: 86_400_000, json };
+      const raw = rest[i + 1];
+      if (raw === undefined) return undefined;
+      let windowMs: number;
+      try {
+        windowMs = parseDurationToMs(raw);
+      } catch {
+        // Returning undefined routes to the existing print-USAGE-and-exit-1 path rather than
+        // inventing a second failure vocabulary for this one subcommand.
+        return undefined;
+      }
+      if (!Number.isInteger(windowMs) || windowMs <= 0) return undefined;
+      return { sub: "digest", windowMs, json };
     }
     default:
       return undefined;
@@ -182,6 +206,19 @@ interface FleetRunSummaryShape {
   readonly jobsCompleted: number;
   readonly jobsUnattempted: number;
   readonly jobsSkippedNotDue: number;
+}
+
+interface FleetDigestResultShape {
+  readonly windowMs: number;
+  readonly generatedAt: number;
+  readonly markdown: string;
+  readonly jobs: readonly unknown[];
+  readonly notCompared: {
+    readonly firstObservation: readonly unknown[];
+    readonly notSummarizable: readonly unknown[];
+    readonly noBriefInWindow: readonly unknown[];
+    readonly agentChanged: readonly unknown[];
+  };
 }
 
 /** Where rendered output goes. Injected so rendering is testable without a live process. */
@@ -316,6 +353,19 @@ async function runRun(c: FleetIpc, a: FleetRunArgs, sink: OutcomeSink): Promise<
   }
 }
 
+async function runDigest(
+  c: FleetIpc,
+  cmd: Extract<ParsedFleetArgs, { sub: "digest" }>,
+  sink: OutcomeSink,
+): Promise<number> {
+  const r = (await c.call("fleet.digest", { windowMs: cmd.windowMs })) as FleetDigestResultShape;
+  // `JSON.stringify(r)` with no indent, matching all four existing --json paths in this file.
+  sink.out(cmd.json ? `${JSON.stringify(r)}\n` : `${r.markdown}\n`);
+  // ok even when nothing was compared: a quiet night and a broken fleet must not look the same to
+  // a script that checks the exit status.
+  return FLEET_EXIT_CODES.ok;
+}
+
 /**
  * Translate a thrown gateway RPC error into an exit code. ONE definition, used for every
  * subcommand via `runFleetCommand`'s single catch — not just `run`: `fleet.show`/`fleet.briefs`
@@ -348,6 +398,8 @@ export async function runFleetCommand(
         return await runShow(client, cmd, sink);
       case "run":
         return await runRun(client, cmd, sink);
+      case "digest":
+        return await runDigest(client, cmd, sink);
     }
   } catch (e) {
     sink.err(`${e instanceof Error ? e.message : String(e)}\n`);

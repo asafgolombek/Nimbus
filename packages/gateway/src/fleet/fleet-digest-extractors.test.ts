@@ -142,6 +142,22 @@ describe("malformed input never throws", () => {
     expect(() => summarizeBrief("agents.ghost", json)).not.toThrow();
     expect(summarizeBrief("agents.ghost", json)).toBeUndefined();
   });
+
+  // Every non-ghost extractor's other tests above only ever feed it a WELL-FORMED brief of its
+  // own kind, so the guard's "this is not my kind" arm was exercised only for ghost. Each of
+  // these feeds the mismatched-kind shape to the OTHER seven, closing the same arm for them.
+  test.each([
+    "agents.catchup",
+    "agents.conflicts",
+    "agents.expert",
+    "agents.huddle",
+    "agents.impact",
+    "agents.janitor",
+    "agents.why",
+  ] as const)("%s rejects a brief of the wrong kind", (method) => {
+    const json = JSON.stringify({ ...base, kind: "not-a-real-brief-kind" });
+    expect(summarizeBrief(method, json)).toBeUndefined();
+  });
 });
 
 describe("impact keys on the stable affectedItemId", () => {
