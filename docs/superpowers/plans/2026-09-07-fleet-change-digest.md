@@ -779,6 +779,24 @@ describe("gateway-local briefs", () => {
     });
   });
 
+  test("a malformed ownership target is a shape failure, not coverage mode", () => {
+    const coverage = {
+      lastPassAt: null, lastDurationMs: 0, rootsTotal: 1, rootsCovered: 1, rootsWithRemote: 0,
+      filesCovered: 1, filesExcluded: 0, servicesBound: 0, ownersEmitted: 0, entitiesReaped: 0,
+    };
+    const withTarget = (target: unknown) =>
+      JSON.stringify({
+        ...base, kind: "ownership", query: { path: null, service: null, itemUrl: null },
+        target, parentDirectory: null, service: null, coverage,
+      });
+    // null is the ONLY legitimate empty case.
+    expect(summarizeBrief("agents.ownership", withTarget(null))?.keys).toEqual([]);
+    // These are corrupted rows and must NOT be reported as "no owners".
+    expect(summarizeBrief("agents.ownership", withTarget("oops"))).toBeUndefined();
+    expect(summarizeBrief("agents.ownership", withTarget([]))).toBeUndefined();
+    expect(summarizeBrief("agents.ownership", withTarget(7))).toBeUndefined();
+  });
+
   test("decisions keys on entry id", () => {
     const json = JSON.stringify({
       ...base, kind: "decisions",
@@ -892,10 +910,21 @@ const ownership: FleetDigestExtractor = (f) => {
     "servicesBound", "ownersEmitted", "entitiesReaped",
   ]);
   if (n === undefined) return undefined;
-  // `target` is legitimately null in coverage mode — an EMPTY key set, not a failure.
-  const target = rec(o["target"]);
-  const owners = target === undefined ? [] : stringsAt(target["owners"], "externalId");
-  if (owners === undefined) return undefined;
+  // `target` is legitimately NULL in coverage mode — an empty key set, not a failure. But `rec()`
+  // also returns undefined for a string, a number and an array, and those are genuine shape
+  // failures. Test for `null` EXPLICITLY so the two are not conflated: silently reporting a
+  // corrupted target as "no owners" would be this extractor telling a comfortable lie, when the
+  // file's whole doctrine is to disclose an unreadable brief as not summarizable.
+  const rawTarget = o["target"];
+  let owners: string[];
+  if (rawTarget === null) {
+    owners = [];
+  } else {
+    const target = rec(rawTarget);
+    const got = target === undefined ? undefined : stringsAt(target["owners"], "externalId");
+    if (got === undefined) return undefined;
+    owners = got;
+  }
   return summary(owners, {
     roots_total: n.rootsTotal,
     roots_covered: n.rootsCovered,
@@ -926,10 +955,40 @@ export const FLEET_DIGEST_EXTRACTORS = {
 } satisfies Readonly<Record<EligibleAgentMethod, FleetDigestExtractor>>;
 ```
 
-Delete `PARTIAL` and repoint `summarizeBrief`'s lookup at `FLEET_DIGEST_EXTRACTORS`. The
-`Object.hasOwn` guard is ALREADY there from Task 2 — keep it, and only change which map it and the
-index read from. (It was written in Task 2 rather than here because the prototype-chain hole exists
-the moment `summarizeBrief` indexes any plain object with a database-sourced string.)
+Delete `PARTIAL` and repoint `summarizeBrief`'s lookup at `FLEET_DIGEST_EXTRACTORS`.
+
+**The lookup becomes a TYPE PREDICATE, not a cast.** Once the map's type has eleven literal keys,
+`FLEET_DIGEST_EXTRACTORS[agentMethod]` no longer compiles for a plain `string`, and the obvious
+patch — `agentMethod as EligibleAgentMethod` — violates this plan's own "never an `as` cast on
+external data" constraint (the method string comes from a database column). Wrap the identical
+runtime check in a predicate instead, which is smaller than the cast it replaces:
+
+```ts
+/**
+ * `Object.hasOwn`, never `in` — the method string comes from a database column, and `in` resolves
+ * "constructor" up the prototype chain to `Object`, a truthy "extractor" that returns its argument.
+ *
+ * A PREDICATE rather than a cast at the call site: the check and the index are the same object
+ * here, so the narrowing is expressible and does not need asserting. (That is what distinguishes
+ * this from `resolveFleetAgentMethod`, whose `hasOwn` runs against `AGENTS_RPC_HANDLERS` while its
+ * index is into `FLEET_ELIGIBILITY` — two objects, so the predicate form is unavailable there and
+ * a documented assertion is the honest option. The precedent does not transfer.)
+ */
+function isEligibleAgentMethod(m: string): m is EligibleAgentMethod {
+  return Object.hasOwn(FLEET_DIGEST_EXTRACTORS, m);
+}
+```
+
+and in `summarizeBrief`:
+
+```ts
+  if (!isEligibleAgentMethod(agentMethod)) return undefined;
+  const extract = FLEET_DIGEST_EXTRACTORS[agentMethod];
+```
+
+The map is total over `EligibleAgentMethod`, so `extract` is not `| undefined` and any leftover
+`extract === undefined` branch is now provably unreachable — delete it rather than keeping a check
+no test can ever enter.
 
 - [ ] **Step 4: Run the tests and typecheck**
 
