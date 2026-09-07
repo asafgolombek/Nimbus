@@ -3539,6 +3539,7 @@ describe("I38 — an unattended fleet run reaches a non-local model only under g
     agent: "catchup",
     intervalSeconds: 1,
     params: {},
+    digestMinDelta: 1,
   };
 
   /**

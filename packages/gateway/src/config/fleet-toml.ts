@@ -24,6 +24,7 @@ export interface NimbusFleetJobToml {
   readonly agent: string;
   readonly intervalSeconds: number;
   readonly params: Readonly<Record<string, FleetJobParamValue>>;
+  readonly digestMinDelta: number;
 }
 
 export const DEFAULT_FLEET_CONFIG: NimbusFleetToml = Object.freeze({
@@ -42,7 +43,7 @@ function camel(key: string): string {
   return key.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
 }
 
-const JOB_RESERVED = new Set(["name", "agent", "interval_seconds"]);
+const JOB_RESERVED = new Set(["name", "agent", "interval_seconds", "digest_min_delta"]);
 
 export function parseNimbusTomlFleet(source: string): NimbusFleetToml {
   const out: Record<string, boolean | number> = {};
@@ -123,12 +124,13 @@ export function parseNimbusTomlFleetJobs(source: string): NimbusFleetJobToml[] {
         agent?: string;
         intervalSeconds?: number;
         params: Record<string, FleetJobParamValue>;
+        digestMinDelta?: number;
       }
     | undefined;
 
   const flush = (): void => {
     if (cur === undefined) return;
-    const { name, agent, intervalSeconds, params } = cur;
+    const { name, agent, intervalSeconds, params, digestMinDelta } = cur;
     cur = undefined;
     // A block with nothing in it is not a job; an INCOMPLETE one is a job the owner meant to
     // configure. Refuse the second rather than dropping it (they would believe it runs) or
@@ -143,7 +145,7 @@ export function parseNimbusTomlFleetJobs(source: string): NimbusFleetJobToml[] {
       throw new FleetConfigError(`[[fleet.job]] duplicate name: ${name}`);
     }
     seen.add(name);
-    jobs.push({ name, agent, intervalSeconds, params });
+    jobs.push({ name, agent, intervalSeconds, params, digestMinDelta: digestMinDelta ?? 1 });
   };
 
   for (const line of source.split(/\r?\n/)) {
@@ -162,6 +164,21 @@ export function parseNimbusTomlFleetJobs(source: string): NimbusFleetJobToml[] {
     else if (kv.key === "interval_seconds") {
       const n = parseIntDec(kv.valRaw);
       if (n !== undefined) cur.intervalSeconds = n;
+    } else if (kv.key === "digest_min_delta") {
+      const n = parseIntDec(kv.valRaw);
+      if (n !== undefined) {
+        // Refused below 1, and NOT for `retention_days`' reason. A zero admits every metric whose
+        // absolute delta is >= 0 — that is, every metric, including ones that did not move — so it
+        // turns the threshold inside out and reports MORE than no threshold at all. There is no
+        // reading of it that means what someone writing it would intend.
+        if (n < 1) {
+          throw new FleetConfigError(
+            `[[fleet.job]] digest_min_delta must be >= 1 (got ${String(n)}); a zero would report ` +
+              `every metric, including unchanged ones`,
+          );
+        }
+        cur.digestMinDelta = n;
+      }
     } else if (!JOB_RESERVED.has(kv.key)) {
       const n = parseIntDec(kv.valRaw);
       cur.params[camel(kv.key)] = n === undefined ? parseString(kv.valRaw) : n;

@@ -14,8 +14,8 @@ const AC_IDLE: HostActivityProbe = { power: "ac", idleMs: 3_600_000, source: "me
 const ON_BATTERY: HostActivityProbe = { power: "battery", idleMs: 3_600_000, source: "measured" };
 
 const JOBS: readonly NimbusFleetJobToml[] = [
-  { name: "a", agent: "catchup", intervalSeconds: 1, params: {} },
-  { name: "b", agent: "ownership", intervalSeconds: 1, params: {} },
+  { name: "a", agent: "catchup", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
+  { name: "b", agent: "ownership", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
 ];
 
 const NOW = 1_000_000;
@@ -131,7 +131,13 @@ function expectRowIsSelfDescribing(summary: FleetRunSummary): FleetRunRow {
 }
 
 describe("isJobDue", () => {
-  const job: NimbusFleetJobToml = { name: "a", agent: "catchup", intervalSeconds: 1, params: {} };
+  const job: NimbusFleetJobToml = {
+    name: "a",
+    agent: "catchup",
+    intervalSeconds: 1,
+    params: {},
+    digestMinDelta: 1,
+  };
 
   test("a job with no state at all is due", () => {
     expect(isJobDue(job, undefined, NOW)).toBe(true);
@@ -292,9 +298,9 @@ describe("FleetScheduler.runOnce", () => {
     // only ONE job was actually cut short. The spec calls a run that under-reports what it was
     // configured for a disclosure failure; over-reporting what it abandoned is the same failure.
     const jobs: readonly NimbusFleetJobToml[] = [
-      { name: "a", agent: "catchup", intervalSeconds: 1, params: {} },
-      { name: "b", agent: "ownership", intervalSeconds: 1, params: {} },
-      { name: "c", agent: "impact", intervalSeconds: 1, params: {} },
+      { name: "a", agent: "catchup", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
+      { name: "b", agent: "ownership", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
+      { name: "c", agent: "impact", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
     ];
     store.recordJobSuccess("a", NOW); // not due: zero elapsed against a 1 s interval
     const ran: string[] = [];
@@ -411,9 +417,9 @@ describe("FleetScheduler.runOnce", () => {
   // runs in one body, because a run leaves `fleet_job_state` behind and a later run in the same
   // database would be judged against the earlier one's successes.
   const THREE_JOBS: readonly NimbusFleetJobToml[] = [
-    { name: "a", agent: "catchup", intervalSeconds: 1, params: {} },
-    { name: "b", agent: "ownership", intervalSeconds: 1, params: {} },
-    { name: "c", agent: "impact", intervalSeconds: 1, params: {} },
+    { name: "a", agent: "catchup", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
+    { name: "b", agent: "ownership", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
+    { name: "c", agent: "impact", intervalSeconds: 1, params: {}, digestMinDelta: 1 },
   ];
 
   test("a COMPLETED run's row is self-describing", async () => {

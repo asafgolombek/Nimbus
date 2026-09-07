@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { parseNimbusTomlFleet, parseNimbusTomlFleetJobs } from "./fleet-toml.ts";
+import { describe, expect, test } from "bun:test";
+import { FleetConfigError, parseNimbusTomlFleet, parseNimbusTomlFleetJobs } from "./fleet-toml.ts";
 
 test("an absent [fleet] block is disabled with safe defaults", () => {
   const c = parseNimbusTomlFleet("");
@@ -68,6 +68,7 @@ test("parses multiple [[fleet.job]] blocks with flat params", () => {
     agent: "catchup",
     intervalSeconds: 86400,
     params: { sinceMs: 86400000, service: "github" },
+    digestMinDelta: 1,
   });
   expect(jobs[1]?.params).toEqual({});
 });
@@ -152,4 +153,30 @@ test("min_idle_seconds = 0 stays legal — it means no idle requirement", () => 
   expect(parseNimbusTomlFleet(["[fleet]", "min_idle_seconds = 0"].join("\n")).minIdleSeconds).toBe(
     0,
   );
+});
+
+describe("[[fleet.job]] digest_min_delta", () => {
+  const job = (extra: string) =>
+    `[[fleet.job]]\nname = "j"\nagent = "ghost"\ninterval_seconds = 3600\n${extra}\n`;
+
+  test("defaults to 1", () => {
+    expect(parseNimbusTomlFleetJobs(job(""))[0]?.digestMinDelta).toBe(1);
+  });
+
+  test("is read, and does NOT leak into agent params", () => {
+    const j = parseNimbusTomlFleetJobs(job("digest_min_delta = 5"))[0];
+    expect(j?.digestMinDelta).toBe(5);
+    expect(j?.params).toEqual({}); // the trap: it must not appear here
+  });
+
+  test("refuses below 1", () => {
+    expect(() => parseNimbusTomlFleetJobs(job("digest_min_delta = 0"))).toThrow(FleetConfigError);
+    expect(() => parseNimbusTomlFleetJobs(job("digest_min_delta = -2"))).toThrow(FleetConfigError);
+  });
+
+  test("a genuine agent param still reaches params", () => {
+    expect(parseNimbusTomlFleetJobs(job('file = "src/a.ts"'))[0]?.params).toEqual({
+      file: "src/a.ts",
+    });
+  });
 });
