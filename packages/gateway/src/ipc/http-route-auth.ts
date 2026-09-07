@@ -21,6 +21,7 @@ export const ROUTE_KEY_AGENTS_LIST = "GET /v1/agents";
 export const ROUTE_KEY_AGENT_RUN_GET = "GET /v1/agents/runs/*";
 export const ROUTE_KEY_ITEMS_RESOLVE = "GET /v1/items/resolve";
 export const ROUTE_KEY_ITEMS_RESOLVE_FILE = "GET /v1/items/resolve-file";
+export const ROUTE_KEY_ITEMS_RESOLVE_IDS = "GET /v1/items/resolve-ids";
 export const ROUTE_KEY_EGRESS_LIST = "GET /v1/egress";
 export const ROUTE_KEY_EGRESS_HEAD = "GET /v1/egress/head";
 export const ROUTE_KEY_EGRESS_VERIFY = "GET /v1/egress/verify";
@@ -78,6 +79,9 @@ export const HTTP_ROUTE_AUTH: Readonly<Record<string, RouteAuth>> = Object.freez
   // Resolves a forge file coordinate against the local graph. Same `resolve` scope as the read
   // above and for the same reason: it reads, it runs nothing, and it appends NO egress row.
   [ROUTE_KEY_ITEMS_RESOLVE_FILE]: { kind: "clip", scope: "resolve" },
+  // Maps indexed item ids back to their references. Same `resolve` scope as the two reads
+  // above and for the same reason: it reads, it runs nothing, and it appends NO egress row.
+  [ROUTE_KEY_ITEMS_RESOLVE_IDS]: { kind: "clip", scope: "resolve" },
   // The egress-ledger reads. Bearer reads under their own scope, appending no egress row of their
   // own — they READ the record, and a read that ledgered itself would inflate the number it exists
   // to report. `egress.prune`, the ledger's one sanctioned mutation, has no HTTP surface at all and
@@ -158,6 +162,7 @@ export type ClipReadRouteKey =
   | typeof ROUTE_KEY_AGENT_RUN_GET
   | typeof ROUTE_KEY_ITEMS_RESOLVE
   | typeof ROUTE_KEY_ITEMS_RESOLVE_FILE
+  | typeof ROUTE_KEY_ITEMS_RESOLVE_IDS
   | typeof ROUTE_KEY_EGRESS_LIST
   | typeof ROUTE_KEY_EGRESS_HEAD
   | typeof ROUTE_KEY_EGRESS_VERIFY

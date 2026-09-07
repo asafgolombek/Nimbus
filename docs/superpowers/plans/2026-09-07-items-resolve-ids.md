@@ -20,7 +20,7 @@
 - **`RESOLVE_IDS_MAX_BATCH = 100`.** Not 5 — that is `RESOLVE_CANDIDATE_CAP`, whose *rationale* this borrows and whose *magnitude* would refuse `catchup` on its ordinary path (`PER_SERVICE_QUOTA = 50` per service, `packages/gateway/src/agents/catchup.ts:12`).
 - **Over the cap: refuse `400 { "error": "too_many_ids" }`.** Never clamp — silently dropping ids means silently dropping links.
 - **Count RAW `?id=` parameters before de-duplicating.** A post-dedup check is cheap for a caller sending fifty thousand copies of one id and not for the gateway.
-- **A count is not a size.** `item.id` is unbounded `TEXT`, so 100 ids can be 3 KB of query string or 12 KB. The client chunks by ~1,800 bytes as well as by count (spec §5); the route refuses an over-budget query string where it sees one, but an over-long URL may be rejected before any handler runs — that limit is the client's to respect.
+- **A count is not a size, and the size limit is not the route's to enforce.** `item.id` is unbounded `TEXT`, so 100 ids can be 3 KB of query string or 12 KB. The **route** owns the count cap only; the **client** owns the ~1,800-byte query-string budget and chunks by whichever limit — count or bytes — is reached first (spec §5). There is no denial-of-service the count cap does not already close: 100 ids is bounded work whatever the ids weigh, so a byte check in the handler would be a hedge, not a decision — and the route could not enforce one reliably either way, since an over-long URL may be rejected before any handler runs.
 - **Response fields, exactly:** `id`, `service`, `type`, `title`, `url`, `modified_at`. Never `body`, `body_preview`, `metadata`, `author_id`, `external_id`, `synced_at`.
 - **`url` selection:** the bare `url` column, matching `resolve-by-url.ts:58` — **except** fall back to `canonical_url` where `url` is null. This is the opposite precedence from `resolve_key`, deliberately (spec §4).
 - **`url` stays nullable** all the way to the response. Never substitute, never omit the row because of it.
@@ -218,10 +218,13 @@ export type ResolvedItemRef = {
  * rather than clamping, because silently dropping ids drops links.
  */
 export function resolveItemsByIds(db: Database, ids: readonly string[]): ResolvedItemRef[] {
-  const unique = [...new Set(ids)];
-  if (unique.length > RESOLVE_IDS_MAX_BATCH) {
-    throw new Error(`resolveItemsByIds: ${unique.length} ids exceeds ${RESOLVE_IDS_MAX_BATCH}`);
+  // The cap is measured on the RAW list, before de-duplicating: a caller
+  // sending fifty thousand copies of one id must be refused, not collapsed
+  // into a one-row answer. See the Global Constraint of the same name.
+  if (ids.length > RESOLVE_IDS_MAX_BATCH) {
+    throw new Error(`resolveItemsByIds: ${ids.length} ids exceeds ${RESOLVE_IDS_MAX_BATCH}`);
   }
+  const unique = [...new Set(ids)];
   if (unique.length === 0) {
     return [];
   }

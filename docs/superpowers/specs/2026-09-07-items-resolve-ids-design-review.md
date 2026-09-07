@@ -9,6 +9,24 @@
 
 ---
 
+> **This is a review note, not guidance. Where it disagrees with the design
+> spec, the spec wins.**
+>
+> Every recommendation here was adjudicated in
+> [`2026-09-07-items-resolve-ids-design.md`](./2026-09-07-items-resolve-ids-design.md)
+> §11. **Do not implement from this file.**
+>
+> One disagreement is deliberate and worth naming, because a reader who copied
+> the snippet below would ship the wrong behaviour: **§2.4's SQL, repeated in
+> §3.1, recommends `COALESCE(canonical_url, url)`** — canonical first. The spec
+> requires the opposite: the bare `url`, falling back to `canonical_url` only
+> when `url` is null, because the sibling route
+> (`packages/gateway/src/index/resolve-by-url.ts:58`) selects the bare `url`
+> column and this response claims to be that projection field-for-field.
+>
+> It is committed because this repo keeps review notes beside their specs, and
+> it is pruned when the feature ships.
+
 ## 1. Executive Summary
 
 The target specification proposes a clean, necessary reverse-lookup endpoint (`GET /v1/items/resolve-ids`) to map indexed item IDs back to reference metadata (`id`, `service`, `type`, `title`, `url`, `modified_at`). This fills a critical capability gap for the browser client (`nimbus-web-clipper`), which currently renders dead-text titles for findings in four agent lanes (`expert`, `impact`, `catchup`, `why`).
