@@ -258,4 +258,145 @@ describe("conflicts and huddle", () => {
     expect(s?.keys).toEqual(["p1:pr:github:X"]);
     expect(s?.metrics).toMatchObject({ peers: 1, prs: 1, tickets: 0, incidents: 0 });
   });
+
+  test("huddle keys all three buckets, exercising the ticket and incident literals too", () => {
+    const pr = { title: "PR", snippet: "", service: "github", modifiedAt: 0 };
+    const ticket = { title: "T", snippet: "", service: "jira", modifiedAt: 0 };
+    const incident = { title: "I", snippet: "", service: "pagerduty", modifiedAt: 0 };
+    const json = JSON.stringify({
+      ...base,
+      kind: "huddle",
+      query: { sinceMs: 0 },
+      contributions: [
+        { peerId: "p1", who: null, prs: [pr], tickets: [ticket], incidents: [incident] },
+      ],
+    });
+    const s = summarizeBrief("agents.huddle", json);
+    expect(s?.keys).toEqual(["p1:incident:pagerduty:I", "p1:pr:github:PR", "p1:ticket:jira:T"]);
+    expect(s?.metrics).toMatchObject({ peers: 1, prs: 1, tickets: 1, incidents: 1 });
+  });
+
+  test("STATED BOUND: conflicts retitling reads as one resolved plus one appeared", () => {
+    const mk = (title: string) =>
+      JSON.stringify({
+        ...base,
+        kind: "conflict",
+        query: { file: "a.ts" },
+        startEntityId: null,
+        collisions: [
+          {
+            peerId: "p1",
+            who: null,
+            service: "github",
+            collisionType: "open_pr",
+            title,
+            snippet: "",
+            modifiedAt: 0,
+          },
+        ],
+      });
+    expect(summarizeBrief("agents.conflicts", mk("PR 1"))?.keys).toEqual([
+      "p1:open_pr:github:PR 1",
+    ]);
+    expect(summarizeBrief("agents.conflicts", mk("PR 1 renamed"))?.keys).toEqual([
+      "p1:open_pr:github:PR 1 renamed",
+    ]);
+  });
+});
+
+describe("gateway-local briefs", () => {
+  test("glossary keys on term and lifts stats to metrics", () => {
+    const json = JSON.stringify({
+      ...base,
+      kind: "glossary",
+      query: { term: null, limit: 20 },
+      mode: "list",
+      entries: [{ term: "vault" }, { term: "brief" }],
+      matchedVia: null,
+      suggestions: [],
+      stats: { total: 9, pending: 2, vetoed: 1, manual: 3, lastPassAt: null },
+    });
+    const s = summarizeBrief("agents.glossary", json);
+    expect(s?.keys).toEqual(["brief", "vault"]);
+    expect(s?.metrics).toMatchObject({
+      total: 9,
+      pending: 2,
+      vetoed: 1,
+      manual: 3,
+      entries_listed: 2,
+    });
+  });
+
+  test("ownership keys on owner externalId and is EMPTY in coverage mode", () => {
+    const coverage = {
+      lastPassAt: null,
+      lastDurationMs: 0,
+      rootsTotal: 2,
+      rootsCovered: 1,
+      rootsWithRemote: 1,
+      filesCovered: 40,
+      filesExcluded: 3,
+      servicesBound: 1,
+      ownersEmitted: 5,
+      entitiesReaped: 0,
+    };
+    const withTarget = JSON.stringify({
+      ...base,
+      kind: "ownership",
+      query: { path: "src", service: null, itemUrl: null },
+      target: {
+        kind: "directory",
+        displayPath: "src",
+        owners: [{ externalId: "git:a@b.c", label: "A", share: 1, resolved: true }],
+        ownerCount: 1,
+        ownersAboveFloor: 1,
+        truncated: false,
+      },
+      parentDirectory: null,
+      service: null,
+      coverage,
+    });
+    const summaryMode = JSON.stringify({
+      ...base,
+      kind: "ownership",
+      query: { path: null, service: null, itemUrl: null },
+      target: null,
+      parentDirectory: null,
+      service: null,
+      coverage,
+    });
+    expect(summarizeBrief("agents.ownership", withTarget)?.keys).toEqual(["git:a@b.c"]);
+    expect(summarizeBrief("agents.ownership", summaryMode)?.keys).toEqual([]);
+    expect(summarizeBrief("agents.ownership", summaryMode)?.metrics).toMatchObject({
+      files_covered: 40,
+      files_excluded: 3,
+      roots_covered: 1,
+      owners_emitted: 5,
+    });
+  });
+
+  test("decisions keys on entry id", () => {
+    const json = JSON.stringify({
+      ...base,
+      kind: "decisions",
+      query: { sinceMs: 0, service: null, minConfidence: 0, explain: false },
+      entries: [{ id: "d1" }],
+      stats: {
+        total: 4,
+        pending: 1,
+        extracted: 3,
+        vetoed: 0,
+        lastPassAt: null,
+        truncatedSources: 2,
+      },
+    });
+    const s = summarizeBrief("agents.decisions", json);
+    expect(s?.keys).toEqual(["d1"]);
+    expect(s?.metrics).toMatchObject({ total: 4, pending: 1, extracted: 3, truncated_sources: 2 });
+  });
+
+  test("a glossary brief missing stats yields undefined, not a throw", () => {
+    const json = JSON.stringify({ ...base, kind: "glossary", entries: [] });
+    expect(summarizeBrief("agents.glossary", json)).toBeUndefined();
+  });
 });
