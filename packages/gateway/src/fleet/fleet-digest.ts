@@ -82,7 +82,7 @@ export function buildFleetDigest(deps: {
   jobs: readonly NimbusFleetJobToml[];
   windowMs: number;
   now: number;
-}): Omit<FleetDigestResult, "markdown"> {
+}): FleetDigestResult {
   const windowStartMs = deps.now - deps.windowMs;
   const configured = new Map(deps.jobs.map((j) => [j.name, j]));
   const ids = [
@@ -174,10 +174,105 @@ export function buildFleetDigest(deps: {
     });
   }
 
-  return {
+  const result = {
     windowMs: deps.windowMs,
     generatedAt: deps.now,
     jobs,
     notCompared: { firstObservation, notSummarizable, noBriefInWindow, agentChanged },
   };
+  // One computation, two shapes. Rendering from `result` rather than from the locals is what makes
+  // it impossible for `--json` and the printed digest to disagree about what moved.
+  return { ...result, markdown: renderFleetDigest(result) };
+}
+
+/**
+ * Hours up to two days, days beyond. The 24h boundary belongs on the HOURS side: the default
+ * window is exactly 24h and "the last 1.0d" is a worse way to say "the last 24h". Whole values
+ * drop the decimal, so a weekly job reads "7d" rather than "7.0d".
+ */
+function humanDuration(ms: number): string {
+  const h = ms / 3_600_000;
+  if (h < 1) return `${String(Math.round(ms / 60_000))}m`;
+  if (h < 48) return Number.isInteger(h) ? `${String(h)}h` : `${h.toFixed(1)}h`;
+  const d = h / 24;
+  return Number.isInteger(d) ? `${String(d)}d` : `${d.toFixed(1)}d`;
+}
+
+function cell(v: number | null): string {
+  return v === null ? "—" : String(v);
+}
+
+function metricRow(name: string, d: FleetMetricDelta): string {
+  // A one-sided metric names WHY it is one-sided rather than showing a delta it does not have.
+  const note =
+    d.before === null ? " (new metric)" : d.after === null ? " (no longer reported)" : "";
+  return `| ${name}${note} | ${cell(d.before)} | ${cell(d.after)} | ${cell(d.delta)} |`;
+}
+
+/**
+ * Renders a `FleetDigestResult` (markdown field aside — it is the argument to this function, not
+ * an input to it) as plain Markdown: no ANSI colour, since both `nimbus fleet` printing to a
+ * terminal (Task 11) and a future IPC/HTTP consumer read the same string.
+ */
+export function renderFleetDigest(d: Omit<FleetDigestResult, "markdown">): string {
+  const out: string[] = ["# Fleet digest", ""];
+  // The preamble qualifies EVERY count below it, so it sits above all of them rather than beside
+  // one — the placement I31 requires of `negotiate`'s window clause, for the same reason.
+  out.push(
+    `Window: the last ${humanDuration(d.windowMs)}. Each job is compared against its own previous brief, ` +
+      `which may be older than the window above; the comparison span is given per job.`,
+    "",
+  );
+
+  for (const j of d.jobs) {
+    out.push(`## ${j.jobId}${j.configured ? "" : " [unconfigured]"}`, "");
+    const status =
+      j.status === "unchanged_within_threshold"
+        ? `unchanged within threshold (digest_min_delta = ${String(j.minDelta)})`
+        : j.status;
+    out.push(
+      `${j.agentMethod} · compared over ${humanDuration(j.comparisonSpanMs)} · ${status}`,
+      "",
+    );
+
+    if (Object.keys(j.metrics).length > 0) {
+      out.push("| metric | before | after | delta |", "| --- | --- | --- | --- |");
+      // `Object.entries`, not `names[i]`: indexing a Record under noUncheckedIndexedAccess yields
+      // `FleetMetricDelta | undefined` and would need a cast that hides a real absence.
+      for (const [n, delta] of Object.entries(j.metrics)) out.push(metricRow(n, delta));
+      out.push("");
+    }
+    if (j.keysAppeared.length > 0) {
+      out.push(
+        `Appeared (${String(j.keysAppeared.length)}):`,
+        ...j.keysAppeared.map((k) => `- ${k}`),
+        "",
+      );
+    }
+    if (j.keysResolved.length > 0) {
+      out.push(
+        `Resolved (${String(j.keysResolved.length)}):`,
+        ...j.keysResolved.map((k) => `- ${k}`),
+        "",
+      );
+    }
+  }
+
+  // All four subsections are ALWAYS written, including as an explicit zero: a section that
+  // vanishes when it has nothing to say trains a reader to stop looking for it.
+  const nc = d.notCompared;
+  out.push("## Not compared", "");
+  out.push(`First observation: ${String(nc.firstObservation.length)}`);
+  for (const e of nc.firstObservation)
+    out.push(`- ${e.jobId} — one brief so far, nothing to compare`);
+  out.push(`Not summarizable: ${String(nc.notSummarizable.length)}`);
+  for (const e of nc.notSummarizable) out.push(`- ${e.jobId} (${e.role}) — ${e.reason}`);
+  out.push(`No brief in window: ${String(nc.noBriefInWindow.length)}`);
+  for (const e of nc.noBriefInWindow)
+    out.push(`- ${e.jobId} (${e.agent}) — configured, produced nothing`);
+  out.push(`Agent changed: ${String(nc.agentChanged.length)}`);
+  for (const e of nc.agentChanged) out.push(`- ${e.jobId} — ${e.from} → ${e.to}, not comparable`);
+  out.push("");
+
+  return out.join("\n");
 }

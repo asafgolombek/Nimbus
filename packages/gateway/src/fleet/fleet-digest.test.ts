@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { NimbusFleetJobToml } from "../config/fleet-toml.ts";
 import { FLEET_V60_SQL } from "../index/fleet-v60-sql.ts";
-import { buildFleetDigest, compareSummaries } from "./fleet-digest.ts";
+import { buildFleetDigest, compareSummaries, renderFleetDigest } from "./fleet-digest.ts";
 import { FleetStore } from "./fleet-store.ts";
 
 const s = (keys: string[], metrics: Record<string, number>) => ({ keys, metrics });
@@ -308,5 +308,153 @@ describe("buildFleetDigest assembles the job union", () => {
     const r = buildFleetDigest({ store, jobs: [job("j1", "ghost")], windowMs: 1000, now: 5000 });
     expect(r.jobs[0]?.comparisonSpanMs).toBe(3500);
     expect(r.windowMs).toBe(1000);
+  });
+});
+
+describe("renderFleetDigest", () => {
+  const empty = {
+    firstObservation: [],
+    notSummarizable: [],
+    noBriefInWindow: [],
+    agentChanged: [],
+  };
+
+  test("the preamble states the window AND that predecessors may predate it", () => {
+    const md = renderFleetDigest({
+      windowMs: 86_400_000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: empty,
+    });
+    expect(md).toContain("24h");
+    expect(md).toMatch(/may be older than/i);
+  });
+
+  test("every Not compared subsection is present even when empty", () => {
+    const md = renderFleetDigest({ windowMs: 1000, generatedAt: 0, jobs: [], notCompared: empty });
+    expect(md).toContain("## Not compared");
+    expect(md).toContain("First observation: 0");
+    expect(md).toContain("Not summarizable: 0");
+    expect(md).toContain("No brief in window: 0");
+    expect(md).toContain("Agent changed: 0");
+  });
+
+  test("the default window renders as 24h, not 1.0d", () => {
+    // The 24h boundary sits on the HOURS side: the default window is exactly 86_400_000 and
+    // "the last 1.0d" is a worse way to say "the last 24h".
+    const md = renderFleetDigest({
+      windowMs: 86_400_000,
+      generatedAt: 0,
+      jobs: [],
+      notCompared: empty,
+    });
+    expect(md).toContain("24h");
+    expect(md).not.toContain("1.0d");
+  });
+
+  test("a week-long comparison span renders as 7d", () => {
+    const md = renderFleetDigest({
+      windowMs: 86_400_000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [
+        {
+          jobId: "weekly",
+          agentMethod: "agents.ghost",
+          configured: true,
+          status: "unchanged",
+          minDelta: 1,
+          currentBriefId: "c",
+          currentCreatedAt: 0,
+          predecessorBriefId: "p",
+          predecessorCreatedAt: 0,
+          comparisonSpanMs: 7 * 86_400_000,
+          metrics: {},
+          keysAppeared: [],
+          keysResolved: [],
+        },
+      ],
+    });
+    expect(md).toContain("7d");
+  });
+
+  test("an unchanged job gets a line, never silent omission", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [
+        {
+          jobId: "j1",
+          agentMethod: "agents.ghost",
+          configured: true,
+          status: "unchanged",
+          minDelta: 1,
+          currentBriefId: "c",
+          currentCreatedAt: 0,
+          predecessorBriefId: "p",
+          predecessorCreatedAt: 0,
+          comparisonSpanMs: 0,
+          metrics: {},
+          keysAppeared: [],
+          keysResolved: [],
+        },
+      ],
+    });
+    expect(md).toContain("j1");
+    expect(md).toMatch(/unchanged/i);
+  });
+
+  test("an unconfigured job is marked", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [
+        {
+          jobId: "retired",
+          agentMethod: "agents.ghost",
+          configured: false,
+          status: "unchanged",
+          minDelta: 1,
+          currentBriefId: "c",
+          currentCreatedAt: 0,
+          predecessorBriefId: "p",
+          predecessorCreatedAt: 0,
+          comparisonSpanMs: 0,
+          metrics: {},
+          keysAppeared: [],
+          keysResolved: [],
+        },
+      ],
+    });
+    expect(md).toContain("[unconfigured]");
+  });
+
+  test("a suppressed change names the threshold", () => {
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [
+        {
+          jobId: "j1",
+          agentMethod: "agents.ghost",
+          configured: true,
+          status: "unchanged_within_threshold",
+          minDelta: 5,
+          currentBriefId: "c",
+          currentCreatedAt: 0,
+          predecessorBriefId: "p",
+          predecessorCreatedAt: 0,
+          comparisonSpanMs: 0,
+          metrics: {},
+          keysAppeared: [],
+          keysResolved: [],
+        },
+      ],
+    });
+    expect(md).toContain("5");
+    expect(md).toMatch(/threshold/i);
   });
 });
