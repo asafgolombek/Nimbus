@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788890719174,
+  "lastUpdate": 1788892339100,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "97549b09257de334da769b7da1dbf192cbb453b2",
-          "message": "chore(ci): bump bencherdev/bencher from 0.6.7 to 0.6.8 (#728)\n\nBumps [bencherdev/bencher](https://github.com/bencherdev/bencher) from\n0.6.7 to 0.6.8.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/bencherdev/bencher/releases\">bencherdev/bencher's\nreleases</a>.</em></p>\n<blockquote>\n<h2>v0.6.8</h2>\n<ul>\n<li><strong>BREAKING CHANGE</strong> Change the default self-hosted API\nserver port from <code>61016</code> to the newly <a\nhref=\"https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml?search=6610\">IANA-registered</a>\n<code>6610</code>. Deployments relying on the default now serve the API\non <code>6610</code>. Update clients, reverse proxies, and\n<code>--host</code>/<code>BENCHER_HOST</code> references (Docker\nCompose, devcontainer, and docs are updated to match). To stay on\n<code>61016</code>, set <code>server.bind_address</code> to\n<code>0.0.0.0:61016</code> (or run <code>bencher up --api-port\n61016</code>).</li>\n<li>Mark the remaining user API token REST endpoints (list, view,\nupdate, and revoke) as deprecated in the OpenAPI spec and API docs; they\ncontinue to work for existing tokens</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/5f9d4cf890255c35e0354af1ed325108a6a0babd\"><code>5f9d4cf</code></a>\nRelease v0.6.8</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/deb634db257d475abc43f69b1f56eaaf0f4e5512\"><code>deb634d</code></a>\nAdd a <code>Continue Unlicensed</code> button to Self-Hosted\nonboarding</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/8deb121fb4c888441f1168fd9c943e425d52ef4b\"><code>8deb121</code></a>\nChange default API server port from <code>61016</code> to\n<code>6610</code> (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/905\">#905</a>)</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/eef36e76230f77e92f3f3a941e31cde1966604d8\"><code>eef36e7</code></a>\nMove over to Pro plan (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/907\">#907</a>)</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/f553ea06f7e30cec7ec7f909980093b8005e79be\"><code>f553ea0</code></a>\nResolve plan tier by base-fee presence instead of the Stripe product\nname (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/911\">#911</a>)</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/42cbda53f466124bcf73e19d6de7cd3834081717\"><code>42cbda5</code></a>\nAdd Console design guide (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/910\">#910</a>)</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/fc3e1e66b2f2f72416e2d117e8c46ef4fe31589f\"><code>fc3e1e6</code></a>\nAdd Pro plan metered usage and split out a Bencher Metrics product (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/909\">#909</a>)</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/131f62b3f3fe6c96eaf66e3827862f8ca62b1fb6\"><code>131f62b</code></a>\nAdd Pro plan backend: billing credits, sweep, plan PATCH, CLI (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/906\">#906</a>)</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/7331a55e18349d38e5f463e6f85040f1ca207acd\"><code>7331a55</code></a>\nPublish Bare Metal Runner documentation (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/908\">#908</a>)</li>\n<li><a\nhref=\"https://github.com/bencherdev/bencher/commit/c7fa7b18b31433494b0ef2070efe920ea4297b06\"><code>c7fa7b1</code></a>\nUpdate kernel 6.1.172 -&gt; 6.1.174 (<a\nhref=\"https://redirect.github.com/bencherdev/bencher/issues/904\">#904</a>)</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/bencherdev/bencher/compare/ec56bb69a7f34096002ca3384d10e2f6676b063e...5f9d4cf890255c35e0354af1ed325108a6a0babd\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=bencherdev/bencher&package-manager=github_actions&previous-version=0.6.7&new-version=0.6.8)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-06-23T16:18:18+03:00",
-          "tree_id": "eeab0ffd91172e0f1437e26b3bc1953a59a223be",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/97549b09257de334da769b7da1dbf192cbb453b2"
-        },
-        "date": 1782222714423,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 294.74191335000506,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 292.04240255,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 336.1358259499946,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f693b02642c7f77a2da2ed6cbb3e7b6e75a1010",
+          "message": "chore: release main (#1473)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>7.14.0</summary>\n\n##\n[7.14.0](https://github.com/nimbus-agent/Nimbus/compare/v7.13.0...v7.14.0)\n(2026-09-08)\n\n\n### Features\n\n* **fleet:** add the overnight-fleet change digest (PR 2a)\n([#1467](https://github.com/nimbus-agent/Nimbus/issues/1467))\n([4c54be8](https://github.com/nimbus-agent/Nimbus/commit/4c54be81e5363246037c5ccdd1928ff706611776))\n\n\n### Bug Fixes\n\n* **deps:** unbreak main — move the override pins\n[#1469](https://github.com/nimbus-agent/Nimbus/issues/1469) outgrew, and\nrestore the docs build\n([#1474](https://github.com/nimbus-agent/Nimbus/issues/1474))\n([2cc6fcf](https://github.com/nimbus-agent/Nimbus/commit/2cc6fcf0870629919ee83110681a44503f2a674d))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>\nCo-authored-by: Asaf <asafgolombek@gmail.com>",
+          "timestamp": "2026-09-08T18:19:06Z",
+          "tree_id": "9647f6dcb81066d6bbd701a43c7ff7863115bbcc",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/2f693b02642c7f77a2da2ed6cbb3e7b6e75a1010"
+        },
+        "date": 1788892335941,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.5722378999988,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 321.17313305000135,
             "unit": "ms"
           }
         ]
