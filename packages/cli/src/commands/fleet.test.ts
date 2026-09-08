@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { JsonRpcError } from "@nimbus-dev/client";
 import { BATCH_RPC_TIMEOUT_MS } from "../lib/rpc-timeouts.ts";
 import {
@@ -563,4 +563,87 @@ test("a non-Error throw is still reported as one line, never as [object Object]"
   });
   expect(code).toBe(FLEET_EXIT_CODES.disabled);
   expect(s.err.join("")).toBe("socket closed\n");
+});
+
+describe("nimbus fleet digest", () => {
+  test("parses --since into windowMs", () => {
+    const p = parseFleetArgs(["digest", "--since", "7d"]);
+    expect(p).toMatchObject({ sub: "digest", windowMs: 7 * 86_400_000 });
+  });
+
+  test("defaults to 24h", () => {
+    expect(parseFleetArgs(["digest"])).toMatchObject({ windowMs: 86_400_000 });
+  });
+
+  test("rejects an unparseable duration", () => {
+    expect(parseFleetArgs(["digest", "--since", "banana"])).toBeUndefined();
+  });
+
+  // `parseDurationToMs("0s")` parses cleanly to 0 — this is a usage error via the `windowMs <= 0`
+  // check, not a parse failure, so it must be red-proved separately from "banana" above.
+  test("rejects a zero-length window", () => {
+    expect(parseFleetArgs(["digest", "--since", "0s"])).toBeUndefined();
+  });
+
+  // `--since` as the final token has no value to read — `rest[i + 1]` is `undefined` — and must
+  // route to the same usage-error path as every other malformed flag on this command.
+  test("rejects --since as the final token with no value", () => {
+    expect(parseFleetArgs(["digest", "--since"])).toBeUndefined();
+  });
+
+  // Uses the file's existing `sinkSpy()` helper (fleet.test.ts:60) and the real
+  // `runFleetCommand(client, cmd, sink)` signature — NOT a `deps` object, which does not exist.
+  const digestResult = {
+    windowMs: 86_400_000,
+    generatedAt: 0,
+    markdown: "# Fleet digest\n",
+    jobs: [],
+    notCompared: {
+      firstObservation: [],
+      notSummarizable: [],
+      noBriefInWindow: [],
+      agentChanged: [],
+    },
+  };
+
+  test("calls fleet.digest with the parsed window and prints the markdown", async () => {
+    let seen: unknown;
+    const client: FleetIpc = {
+      call: async (_m, params) => {
+        seen = params;
+        return digestResult;
+      },
+    };
+    const { out, sink } = sinkSpy();
+    const code = await runFleetCommand(
+      client,
+      { sub: "digest", windowMs: 86_400_000, json: false },
+      sink,
+    );
+    expect(code).toBe(FLEET_EXIT_CODES.ok);
+    expect(seen).toEqual({ windowMs: 86_400_000 });
+    expect(out.join("")).toContain("# Fleet digest");
+  });
+
+  test("--json emits the structured result", async () => {
+    const client: FleetIpc = { call: async () => digestResult };
+    const { out, sink } = sinkSpy();
+    const code = await runFleetCommand(client, { sub: "digest", windowMs: 1000, json: true }, sink);
+    expect(code).toBe(FLEET_EXIT_CODES.ok);
+    expect(JSON.parse(out.join(""))).toMatchObject({ windowMs: 86_400_000 });
+  });
+
+  test("an empty digest is NOT an error", async () => {
+    // A quiet night and a broken fleet must not look the same to a script.
+    const client: FleetIpc = {
+      call: async () => ({ ...digestResult, markdown: "# Fleet digest\n\n## Not compared\n" }),
+    };
+    const { sink } = sinkSpy();
+    const code = await runFleetCommand(
+      client,
+      { sub: "digest", windowMs: 1000, json: false },
+      sink,
+    );
+    expect(code).toBe(FLEET_EXIT_CODES.ok);
+  });
 });

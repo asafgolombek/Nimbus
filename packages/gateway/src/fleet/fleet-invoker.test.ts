@@ -37,7 +37,13 @@ function deps(dispatch: FleetInvokerTestDispatch): FleetInvokerDeps {
   };
 }
 
-const JOB: NimbusFleetJobToml = { name: "j", agent: "catchup", intervalSeconds: 1, params: {} };
+const JOB: NimbusFleetJobToml = {
+  name: "j",
+  agent: "catchup",
+  intervalSeconds: 1,
+  params: {},
+  digestMinDelta: 1,
+};
 
 describe("buildFleetInvoker", () => {
   test("resolves only after briefReady, not when dispatch returns", async () => {

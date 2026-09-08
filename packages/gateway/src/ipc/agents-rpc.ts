@@ -1120,8 +1120,14 @@ export type FleetEligibility = "eligible" | "excluded_side_effects" | "excluded_
  * NOT `EXTERNAL_EXCLUDED_AGENT_METHODS`. That set was reasoned about for an ARBITRARY NETWORK
  * CALLER; a fleet is a different principal — owner-configured in advance, absent when it fires.
  * The overlap is large and the justification is not transferable.
+ *
+ * `satisfies`, NOT an annotation. An annotation widens every value to `FleetEligibility`, which
+ * would make `fleet/fleet-digest-types.ts`'s `EligibleAgentMethod` resolve to `never` for every
+ * member and silently produce an EMPTY extractor map — a fail-open with no error to notice. The
+ * `satisfies` clause keeps the same totality check while preserving the literals that derivation
+ * needs.
  */
-export const FLEET_ELIGIBILITY: Readonly<Record<AgentMethod, FleetEligibility>> = Object.freeze({
+export const FLEET_ELIGIBILITY = Object.freeze({
   // Queues HITL consent prompts on the owner's machine (I24). At 03:00 that is a prompt nobody
   // is there to answer — worse than the HTTP case it is already excluded for.
   "agents.preflight": "excluded_side_effects",
@@ -1146,7 +1152,7 @@ export const FLEET_ELIGIBILITY: Readonly<Record<AgentMethod, FleetEligibility>> 
   "agents.impact": "eligible",
   "agents.expert": "eligible",
   "agents.janitor": "eligible",
-});
+}) satisfies Readonly<Record<AgentMethod, FleetEligibility>>;
 
 /**
  * The `agents.*` method a fleet job may invoke for a config-supplied agent name, or null.

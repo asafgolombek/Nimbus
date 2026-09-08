@@ -13,6 +13,32 @@ beforeEach(() => {
   store = new FleetStore(db);
 });
 
+/**
+ * Shared helper for the digest-read tests below: one brief, defaulted so callers state only what
+ * they mean. Opens its own run per call — sharing one `runId` across a whole test (via a
+ * module-level `beforeEach`) would add an extra `fleet_run` row that pre-existing tests like
+ * `pruneRuns` never expected and do not filter out.
+ */
+function insertBrief(b: { jobId: string; createdAt: number; expiresAt?: number }): void {
+  const runId = store.openRun({
+    startedAt: b.createdAt,
+    hostPower: "ac",
+    hostIdleMs: 0,
+    hostSource: "measured",
+    remoteCallBudget: 0,
+  });
+  store.recordBrief({
+    runId,
+    jobId: b.jobId,
+    agentMethod: "agents.catchup",
+    briefMarkdown: "x",
+    findingsJson: "{}",
+    synthesisJson: null,
+    createdAt: b.createdAt,
+    expiresAt: b.expiresAt ?? b.createdAt + 86_400_000,
+  });
+}
+
 describe("FleetStore", () => {
   test("records a run and its briefs", () => {
     const runId = store.openRun({
@@ -266,5 +292,97 @@ describe("FleetStore", () => {
     // Sanity: the same brief IS visible before its expiry.
     expect(store.getBrief(id, 500)?.id).toBe(id);
     expect(store.listBriefs({ limit: 10, now: 500 })).toHaveLength(1);
+  });
+});
+
+describe("briefPairForJob implements spec § 2.1", () => {
+  test("prefers the newest brief BEFORE the window over an in-window one", () => {
+    // Window is [1000, now]. Briefs at 500, 1100, 1200 — an hourly-job shape.
+    insertBrief({ jobId: "j", createdAt: 500 });
+    insertBrief({ jobId: "j", createdAt: 1100 });
+    insertBrief({ jobId: "j", createdAt: 1200 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 1000, now: 9999 });
+    expect(pair.current?.createdAt).toBe(1200);
+    expect(pair.predecessor?.createdAt).toBe(500); // NOT 1100
+  });
+
+  test("falls back to the oldest in-window brief when nothing precedes the window", () => {
+    insertBrief({ jobId: "j", createdAt: 1100 });
+    insertBrief({ jobId: "j", createdAt: 1200 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 1000, now: 9999 });
+    expect(pair.current?.createdAt).toBe(1200);
+    expect(pair.predecessor?.createdAt).toBe(1100);
+  });
+
+  test("a lone brief has no predecessor", () => {
+    insertBrief({ jobId: "j", createdAt: 1100 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 1000, now: 9999 });
+    expect(pair.current?.createdAt).toBe(1100);
+    expect(pair.predecessor).toBeUndefined();
+  });
+
+  test("two briefs sharing a timestamp: the tied row is the predecessor, not skipped", () => {
+    // `fleet_brief` has no per-job uniqueness on `created_at` and `recordBrief` takes a
+    // caller-supplied clock, so a tie is expressible. The old `created_at < current.createdAt`
+    // fallback excluded BOTH tied rows and jumped to an older brief — reporting a comparison span
+    // against the wrong one. Nothing precedes the window here, so this is spec § 2.1 case 2.
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 4000, now: 9999 });
+    expect(pair.current).toBeDefined();
+    expect(pair.predecessor).toBeDefined();
+    expect(pair.predecessor?.createdAt).toBe(5000);
+    // The pair must be two DIFFERENT rows — a brief is never its own predecessor.
+    expect(pair.predecessor?.id).not.toBe(pair.current?.id);
+  });
+
+  test("current is deterministic when timestamps tie", () => {
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    const ids = new Set(
+      Array.from(
+        { length: 10 },
+        () => store.briefPairForJob({ jobId: "j", windowStartMs: 4000, now: 9999 }).current?.id,
+      ),
+    );
+    // `ORDER BY created_at DESC` alone leaves the winner to SQLite; the digest claims the same
+    // database renders the same report, so the tie-break has to be part of the ordering.
+    expect(ids.size).toBe(1);
+  });
+
+  test("a future-dated brief is never selected as current", () => {
+    // An NTP correction moving the clock backwards leaves rows ahead of `now`, and their expiry is
+    // ahead too, so the retention filter alone does not exclude them.
+    insertBrief({ jobId: "j", createdAt: 1200 });
+    insertBrief({ jobId: "j", createdAt: 99_000 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 1000, now: 5000 });
+    expect(pair.current?.createdAt).toBe(1200);
+  });
+
+  test("expired briefs are invisible to both halves", () => {
+    insertBrief({ jobId: "j", createdAt: 500, expiresAt: 600 });
+    insertBrief({ jobId: "j", createdAt: 1200 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 1000, now: 9999 });
+    expect(pair.predecessor).toBeUndefined();
+  });
+});
+
+describe("jobIdsWithBriefsInWindow", () => {
+  test("returns distinct ids inside the window only, sorted", () => {
+    insertBrief({ jobId: "b", createdAt: 1100 });
+    insertBrief({ jobId: "a", createdAt: 1100 });
+    insertBrief({ jobId: "a", createdAt: 1200 });
+    insertBrief({ jobId: "old", createdAt: 500 });
+    expect(store.jobIdsWithBriefsInWindow({ windowStartMs: 1000, now: 9999 })).toEqual(["a", "b"]);
+  });
+
+  // I1 red-prove: `briefPairForJob`'s `current` arm carries `created_at <= now` (an NTP correction
+  // can leave a future-dated row whose `expires_at` is future too, so it passes the retention
+  // filter alone). This query must agree, or a future-dated brief puts a job in the union while
+  // `briefPairForJob` then finds no `current` for it — reported as `noBriefInWindow` for a job
+  // that in fact produced a brief.
+  test("excludes a future-dated brief, matching briefPairForJob's own bound", () => {
+    insertBrief({ jobId: "j", createdAt: 99_000 });
+    expect(store.jobIdsWithBriefsInWindow({ windowStartMs: 1000, now: 5000 })).toEqual([]);
   });
 });

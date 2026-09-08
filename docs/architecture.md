@@ -1833,6 +1833,12 @@ const streamReq: JSONRPCRequest = {
 //   two triggers: NAMING the job skips the SCHEDULE (its `interval_seconds` and any failure
 //   backoff), `force` skips HOST ADMISSION and nothing else. Neither bypasses `[fleet] enabled`,
 //   org policy, agent eligibility or the I38 remote budget.
+// fleet.digest  — deterministic markdown + structured JSON of what moved between each job's
+//   newest brief in the window and its predecessor (spec: 2026-09-07-fleet-change-digest). Walks
+//   the UNION of configured jobs and jobs with a live brief in the window, marking a job no longer
+//   in config `[unconfigured]` rather than dropping it. Reads only `fleet_brief`/config — no model
+//   call, no new egress class, and outside I38 entirely (it resolves no provider and spends no
+//   budget).
 //
 // The WHOLE `fleet` namespace is FORBIDDEN_OVER_LAN (I5) and absent from the Tauri
 // `ALLOWED_METHODS` (I7) — namespace-level, so a future `fleet.*` verb is forbidden by default

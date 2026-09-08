@@ -108,7 +108,7 @@ describe("checkLanMethodAllowed", () => {
    * `checkLanMethodAllowed` is a pure string check and a namespace that arrives already closed
    * cannot be opened by an oversight in the commit that adds the handlers.
    */
-  test.each(["fleet.runNow", "fleet.briefs", "fleet.show", "fleet.status"])(
+  test.each(["fleet.runNow", "fleet.briefs", "fleet.show", "fleet.status", "fleet.digest"])(
     "%s is not callable over LAN regardless of grant-write",
     (method) => {
       for (const writeAllowed of [true, false]) {

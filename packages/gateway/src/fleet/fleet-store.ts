@@ -268,6 +268,108 @@ export class FleetStore {
     };
   }
 
+  private static readonly BRIEF_COLS =
+    `SELECT id, run_id, job_id, agent_method, brief_markdown, findings_json,
+            synthesis_json, created_at FROM fleet_brief `;
+
+  /** One row or none, for a `WHERE …` fragment appended to the shared column list. */
+  private queryOne(
+    whereAndOrder: string,
+    params: readonly (string | number)[],
+  ): FleetBriefRow | undefined {
+    const row = this.db.query(FleetStore.BRIEF_COLS + whereAndOrder).get(...params) as {
+      id: string;
+      run_id: string;
+      job_id: string;
+      agent_method: string;
+      brief_markdown: string | null;
+      findings_json: string;
+      synthesis_json: string | null;
+      created_at: number;
+    } | null;
+    if (row === null) return undefined;
+    return {
+      id: row.id,
+      runId: row.run_id,
+      jobId: row.job_id,
+      agentMethod: row.agent_method,
+      briefMarkdown: row.brief_markdown,
+      findingsJson: row.findings_json,
+      synthesisJson: row.synthesis_json,
+      createdAt: row.created_at,
+    };
+  }
+
+  /**
+   * The pair spec § 2.1 compares: the job's newest brief inside the window, and the newest brief
+   * BEFORE the window — falling back to the oldest brief inside it when nothing precedes.
+   *
+   * "Newest before the window" rather than "immediately preceding" is what makes the digest report
+   * the WINDOW's movement: for a job running hourly against a 24h window the naive rule compares
+   * 23:00 against 22:00 and reports one hour under a heading that says twenty-four. It also keeps
+   * a weekly job's predecessor a week old, since the query is not bounded below.
+   *
+   * `expires_at > now` on every arm, for the same reason `listBriefs` carries it: retention that a
+   * read surface ignores is not retention.
+   *
+   * `jobIdsWithBriefsInWindow`, below, MUST agree with `current`'s `created_at <= now` bound — both
+   * are read against the same window and both feed the same digest, so if one admits a future-dated
+   * row and the other excludes it, a job lands in the union with no `current` this query can find,
+   * and reports as `noBriefInWindow` for a job that in fact produced a brief.
+   */
+  briefPairForJob(q: { jobId: string; windowStartMs: number; now: number }): {
+    current: FleetBriefRow | undefined;
+    predecessor: FleetBriefRow | undefined;
+  } {
+    // `created_at <= now` is not redundant with `expires_at > now`: a future-dated row (an NTP
+    // correction moving the clock backwards after a brief was written) has a future expiry too, so
+    // it passes the retention filter and would be selected as `current` — reporting a brief from
+    // outside the window as this window's newest.
+    const current = this.queryOne(
+      `WHERE job_id = ? AND created_at >= ? AND created_at <= ? AND expires_at > ?
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [q.jobId, q.windowStartMs, q.now, q.now],
+    );
+    if (current === undefined) return { current: undefined, predecessor: undefined };
+    const before = this.queryOne(
+      `WHERE job_id = ? AND created_at < ? AND expires_at > ?
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [q.jobId, q.windowStartMs, q.now],
+    );
+    if (before !== undefined) return { current, predecessor: before };
+    // Excluded by ID, not by `created_at < current.createdAt`. `fleet_brief` has no per-job
+    // uniqueness on `created_at` and `recordBrief` takes a caller-supplied clock, so two briefs can
+    // share a timestamp — and the timestamp form then skipped BOTH of them, jumping to an older
+    // brief and reporting a comparison span against the wrong one. `id != ?` is also the literal
+    // reading of spec § 2.1's "the oldest brief inside the window, provided it is not the current
+    // brief itself": the exclusion is of that ROW, never of that instant.
+    const oldestInWindow = this.queryOne(
+      `WHERE job_id = ? AND created_at >= ? AND created_at <= ? AND id != ? AND expires_at > ?
+       ORDER BY created_at ASC, id ASC LIMIT 1`,
+      [q.jobId, q.windowStartMs, current.createdAt, current.id, q.now],
+    );
+    return { current, predecessor: oldestInWindow };
+  }
+
+  /**
+   * Distinct job ids with a live brief inside the window — half of the digest's job union.
+   *
+   * `created_at <= now` MUST match `briefPairForJob`'s `current` bound: without it, a future-dated
+   * row (an NTP correction moving the clock backwards after a brief was written) puts a job in this
+   * union while `briefPairForJob` finds no `current` for it — the two window queries disagreeing
+   * about what is "in the window", surfacing as a false `noBriefInWindow` entry for a job that did
+   * in fact produce a brief.
+   */
+  jobIdsWithBriefsInWindow(q: { windowStartMs: number; now: number }): string[] {
+    const rows = this.db
+      .query(
+        `SELECT DISTINCT job_id FROM fleet_brief
+          WHERE created_at >= ? AND created_at <= ? AND expires_at > ? ORDER BY job_id ASC`,
+      )
+      .all(q.windowStartMs, q.now, q.now) as ReadonlyArray<{ job_id: string }>;
+    return rows.map((r) => r.job_id);
+  }
+
   /** Deletes briefs whose `expires_at` is at or before `now`. Returns the count removed. */
   pruneBriefs(now: number): number {
     const before = this.db.query(`SELECT COUNT(*) AS n FROM fleet_brief`).get() as { n: number };

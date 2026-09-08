@@ -1612,9 +1612,33 @@ Two different refusals both report `deferred` and are told apart by the message:
 already in flight"* (the scheduler's re-entrancy guard fired; no `fleet_run` row was opened) versus
 *"the host is on battery or in use"* (a row was opened and admission then said no).
 
+### `nimbus fleet digest`
+
+```bash
+nimbus fleet digest [--since <duration>] [--json]
+```
+
+Prints what moved since the window began — every job in the **union** of currently configured
+`[[fleet.job]]` blocks and any job that produced a brief inside the window, each compared against
+its most recent predecessor before the window, with the comparison and non-comparison entirely
+local (SQLite in, markdown out; no model call). A job that produced briefs but has since been
+removed from config is still reported — never silently dropped — marked `[unconfigured]` so a
+reader cannot infer it will run again tonight. `--since` accepts the same duration syntax as
+elsewhere (`5m`, `1h`, `90d`) and defaults to `24h`; an unparseable or non-positive value is a usage
+error, exit `1`, same as any other malformed flag on this command.
+
+An **empty digest is not an error** — a quiet night (nothing changed, or nothing has run twice yet)
+and a broken fleet must not look the same to a script that checks the exit status, so `digest`
+always exits `0` when it successfully reaches the store. A job with only one brief in the window
+(no predecessor to compare against), a configured job that produced no brief inside the window at
+all, a brief whose findings JSON does not match its agent's shape, and a job that changed which
+agent it runs between the two compared briefs are each reported under `## Not compared`, not
+treated as failures.
+
 **Exit codes** (`nimbus fleet` only): `0` ok — including a `yielded` run, which is a host-activity
-boundary stopping a run early rather than a failure; `1` usage; `2` fleet disabled or its store
-unavailable; `3` no such job or no such brief; `4` run deferred; `5` run failed.
+boundary stopping a run early rather than a failure, and including an empty digest; `1` usage; `2`
+fleet disabled or its store unavailable; `3` no such job or no such brief; `4` run deferred; `5` run
+failed.
 
 ### `[fleet]` configuration
 
@@ -1631,6 +1655,9 @@ retention_days     = 14      # org policy may RAISE this floor, never lower it
 name             = "morning-catchup"
 agent            = "catchup"    # must be a fleet-ELIGIBLE agent; `negotiate` is deferred
 interval_seconds = 86400
+digest_min_delta = 1          # DEFAULT 1; a metric must move by at least this much to be reported
+                               # as "changed" rather than "unchanged within threshold" — values
+                               # below 1 are REFUSED (a 0 would report every no-op fluctuation)
 # any other key becomes a param passed to the agent, camel-cased on the way, e.g.:
 since_ms         = 86400000   # -> sinceMs, which `agents.catchup` reads
 ```

@@ -1,5 +1,7 @@
 import type { NimbusFleetJobToml, NimbusFleetToml } from "../config/fleet-toml.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
+import { buildFleetDigest } from "../fleet/fleet-digest.ts";
+import type { FleetDigestResult } from "../fleet/fleet-digest-types.ts";
 import {
   FleetDisabledError,
   FleetJobNotFoundError,
@@ -210,12 +212,37 @@ async function handleRunNow(params: unknown, ctx: FleetRpcCtx): Promise<FleetRun
   }
 }
 
+const DEFAULT_DIGEST_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * `windowMs` defaults to 24h when omitted, but a caller-supplied `0` is refused rather than
+ * defaulted or accepted: `optInt` rejects negatives but ACCEPTS `0`, and `?? DEFAULT` does not
+ * catch a zero because zero is not `undefined`. A `windowMs` of `0` would set the window start to
+ * `now` and silently return an empty digest — there is no reading of it that means what the
+ * caller intended, the same reason `digest_min_delta = 0` is refused.
+ */
+function handleDigest(params: unknown, ctx: FleetRpcCtx): FleetDigestResult {
+  const store = requireStore(ctx);
+  const raw = optInt(params, "windowMs");
+  if (raw !== undefined && raw <= 0) {
+    throw new FleetRpcError(-32602, "fleet: windowMs must be a positive integer");
+  }
+  const windowMs = raw ?? DEFAULT_DIGEST_WINDOW_MS;
+  return buildFleetDigest({
+    store,
+    jobs: ctx.jobs ?? [],
+    windowMs,
+    now: ctx.now(),
+  });
+}
+
 const HANDLERS: RpcMethodHandlerMap<FleetRpcCtx> = {
   "fleet.status": handleStatus,
   "fleet.list": handleList,
   "fleet.briefs": handleBriefs,
   "fleet.show": handleShow,
   "fleet.runNow": handleRunNow,
+  "fleet.digest": handleDigest,
 } as const;
 
 export async function dispatchFleetRpc(

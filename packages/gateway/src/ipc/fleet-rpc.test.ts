@@ -52,8 +52,8 @@ test("fleet.status reports running: true and the real config/jobsConfigured when
   // dropped config field all fail here.
   const scheduler: FakeScheduler = { runOnce: async () => COMPLETED };
   const jobs: readonly NimbusFleetJobToml[] = [
-    { name: "a", agent: "catchup", intervalSeconds: 60, params: {} },
-    { name: "b", agent: "ownership", intervalSeconds: 120, params: {} },
+    { name: "a", agent: "catchup", intervalSeconds: 60, params: {}, digestMinDelta: 1 },
+    { name: "b", agent: "ownership", intervalSeconds: 120, params: {}, digestMinDelta: 1 },
   ];
   const config: NimbusFleetToml = {
     ...DEFAULT_FLEET_CONFIG,
@@ -205,7 +205,13 @@ describe("fleet.list / fleet.briefs / fleet.show over a real store", () => {
   });
 
   const jobs: readonly NimbusFleetJobToml[] = [
-    { name: "morning_catchup", agent: "catchup", intervalSeconds: 3600, params: {} },
+    {
+      name: "morning_catchup",
+      agent: "catchup",
+      intervalSeconds: 3600,
+      params: {},
+      digestMinDelta: 1,
+    },
   ];
   const config: NimbusFleetToml = DEFAULT_FLEET_CONFIG;
 
@@ -327,5 +333,67 @@ describe("fleet.list / fleet.briefs / fleet.show over a real store", () => {
     const out = await dispatchFleetRpc("fleet.briefs", { limit: 1_000_000 }, ctx(0));
     if (out.kind !== "hit") throw new Error("expected a hit");
     expect((out.value as { briefs: unknown[] }).briefs).toHaveLength(MAX_BRIEFS_LIMIT);
+  });
+});
+
+describe("fleet.digest", () => {
+  const NOW = 1_000_000;
+  let db: Database;
+  let store: FleetStore;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.run("PRAGMA foreign_keys = ON");
+    db.exec(FLEET_V60_SQL);
+    store = new FleetStore(db);
+  });
+
+  const jobs: readonly NimbusFleetJobToml[] = [
+    {
+      name: "morning_catchup",
+      agent: "catchup",
+      intervalSeconds: 3600,
+      params: {},
+      digestMinDelta: 1,
+    },
+  ];
+  const config: NimbusFleetToml = DEFAULT_FLEET_CONFIG;
+
+  function ctx(now: number, over?: Partial<FleetRpcCtx>): FleetRpcCtx {
+    return {
+      scheduler: undefined,
+      store,
+      hostActivity: { probe: async () => ({ power: "ac", idleMs: 0, source: "measured" }) },
+      config,
+      jobs,
+      now: () => now,
+      ...over,
+    };
+  }
+
+  test("returns a digest over the requested window", async () => {
+    const out = await dispatchFleetRpc("fleet.digest", { windowMs: 86_400_000 }, ctx(NOW));
+    expect(out).toMatchObject({ kind: "hit" });
+    if (out.kind !== "hit") throw new Error("expected a hit");
+    expect(out.value).toMatchObject({ windowMs: 86_400_000, generatedAt: NOW });
+    expect(typeof (out.value as { markdown: string }).markdown).toBe("string");
+  });
+
+  test("defaults the window to 24h when omitted", async () => {
+    const out = await dispatchFleetRpc("fleet.digest", {}, ctx(NOW));
+    if (out.kind !== "hit") throw new Error("expected a hit");
+    expect((out.value as { windowMs: number }).windowMs).toBe(86_400_000);
+  });
+
+  test.each([-1, 0, 1.5, "24h"])("rejects windowMs = %p", async (windowMs) => {
+    await expect(dispatchFleetRpc("fleet.digest", { windowMs }, ctx(NOW))).rejects.toThrow(
+      FleetRpcError,
+    );
+  });
+
+  test("fails cleanly when the store is absent", async () => {
+    await expect(
+      dispatchFleetRpc("fleet.digest", {}, ctx(NOW, { store: undefined })),
+    ).rejects.toThrow(FleetRpcError);
   });
 });
