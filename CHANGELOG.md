@@ -2,6 +2,18 @@
 
 All notable changes to the `nimbus` core (headless Gateway + CLI binary + first-party MCP connectors) are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [7.14.0](https://github.com/nimbus-agent/Nimbus/compare/v7.13.0...v7.14.0) (2026-09-08)
+
+
+### Features
+
+* **fleet:** add the overnight-fleet change digest (PR 2a) ([#1467](https://github.com/nimbus-agent/Nimbus/issues/1467)) ([4c54be8](https://github.com/nimbus-agent/Nimbus/commit/4c54be81e5363246037c5ccdd1928ff706611776))
+
+
+### Bug Fixes
+
+* **deps:** unbreak main — move the override pins [#1469](https://github.com/nimbus-agent/Nimbus/issues/1469) outgrew, and restore the docs build ([#1474](https://github.com/nimbus-agent/Nimbus/issues/1474)) ([2cc6fcf](https://github.com/nimbus-agent/Nimbus/commit/2cc6fcf0870629919ee83110681a44503f2a674d))
+
 ## [7.13.0](https://github.com/nimbus-agent/Nimbus/compare/v7.12.0...v7.13.0) (2026-09-07)
 
 
