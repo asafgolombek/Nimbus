@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788885295900,
+  "lastUpdate": 1788888991241,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6921076df3fa2f35359b51562b3a290ff2f5237f",
-          "message": "chore(main): release 0.18.0 (#723)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.18.0](https://github.com/nimbus-agent/Nimbus/compare/v0.17.0...v0.18.0)\n(2026-06-23)\n\n\n### Features\n\n* **clips:** web clipper gateway — POST /v1/clips, pairing auth,\ninvariant I30 (Phase 6 Slice 9)\n([#718](https://github.com/nimbus-agent/Nimbus/issues/718))\n([17d325e](https://github.com/nimbus-agent/Nimbus/commit/17d325e7a55729772623438fa4a914c762d810ea))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added a clips web clipper gateway with a new POST `/v1/clips` endpoint\nfor web clipping capabilities.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
-          "timestamp": "2026-06-23T15:24:18+03:00",
-          "tree_id": "174b4af9892b3c3936cedbf92c7995bab6968647",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/6921076df3fa2f35359b51562b3a290ff2f5237f"
-        },
-        "date": 1782218420004,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 295.64957065000306,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 293.2341789500002,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 333.2643642500014,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2cc6fcf0870629919ee83110681a44503f2a674d",
+          "message": "fix(deps): unbreak main — move the override pins #1469 outgrew, and restore the docs build (#1474)\n\n## Summary\n\n**main is red and has been since #1469 merged.** Its last green CI run\n(`330dba68`) predates that commit; run `34249458842` on `main` is\ncurrently failing Structure audit, Static on both ubuntu and macOS, and\nUnit + Coverage. Every open PR inherits both failures — #1470 among\nthem.\n\nThis fixes both, forward.\n\n## What #1469 did\n\nIt bumped 21 declared ranges. Two of those bumps landed on packages the\nroot `overrides` block pins, and one changed the docs toolchain in a way\nthe build could not survive.\n\n### 1. `audit:override-drift` — the bumps were inert\n\nRoot `overrides` pinned `sharp` 0.35.3, `@mastra/core` 1.61.0 and\n`@mastra/mcp` 1.17.1, while the workspaces declared `^0.35.4`, `^1.64.0`\nand `^1.17.3`. The override outranks the declaration, so **nothing\ninstalled changed** — the manifest moved and the tree did not. That is\nprecisely the failure mode the gate's own comment describes:\n\n> A root `overrides` pin outranks every declared range, so a divergence\nis invisible in CI without this: the Dependabot PR that bumps the\ndeclared range merges green and changes nothing installed.\n\nPins moved up to the declared versions — which are also the current\npublished versions of all three — so the upgrades are now real rather\nthan only claimed.\n\n### 2. The docs build could not resolve satteri's native binding\n\n#1469 took `@astrojs/starlight` 0.41.7 → 0.42.0 and `astro` 7.2.10 →\n7.3.1, which collapsed `satteri` from two resolved versions to `0.10.5`.\nAfter that the build fails with `Cannot find native binding … Cannot\nfind module '@bruits/satteri-<platform>'`.\n\nWorth being precise about the cause, because the error message\nmisdirects: the binding **is** installed and **is** correctly nested\nbeside satteri in the bun store. The failure is a resolution path — the\nrequiring module is\n`packages/docs/dist/.prerender/chunks/TabItem_*.mjs`, a built artifact,\nand walking up from `dist/` never reaches the store. Declaring `satteri`\ndirectly in `packages/docs` puts it somewhere the built chunk can\nresolve.\n\n## Testing\n\n- `bun run preflight:fast` — green, including `audit:override-drift`,\nwhich was the failing gate.\n- **Clean** docs rebuild with `packages/docs/dist` deleted first — exits\n0, zero native-binding errors. (A dirty rebuild would prove nothing\nhere.)\n- `bun test packages/gateway packages/cli scripts` — **21641 pass, 69\nskip, 0 fail** across 1474 files.\n\nThat last one is the one that matters: `@mastra/core` 1.61 → 1.64 is a\nthree-minor upgrade of the package the engine agent is built on, and it\nwas previously masked by the override. It is now genuinely installed and\ngenuinely exercised, rather than assumed safe.\n\n## Type of Change\n\n- [x] Bug fix (non-breaking change which fixes an issue)\n\nNot marked breaking: no user-facing surface changes. Three transitive\npins move to versions the manifests already declared.\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes\n- [x] All existing tests pass\n- [x] New behaviour is covered by tests — no new behaviour; existing\nsuite covers the upgrade\n- [x] No `any` types introduced\n- [x] No credentials, tokens, or secret values in logs, IPC, config, or\nfixtures\n- [x] Platform-specific code is behind `PlatformServices` — untouched\n- [x] The HITL consent gate has not been weakened\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01JgDJ5WpWXev49wxWBpUGrC\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n  * Updated project maintenance configuration and supporting tooling.\n  * No changes to exported functionality or user-facing behavior.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-08T17:24:31Z",
+          "tree_id": "3595e741e51ff740b2753eb18042347747f5b4bb",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/2cc6fcf0870629919ee83110681a44503f2a674d"
+        },
+        "date": 1788888987613,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.18148659999935,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 320.0983571000059,
             "unit": "ms"
           }
         ]
