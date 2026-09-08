@@ -321,6 +321,35 @@ describe("briefPairForJob implements spec § 2.1", () => {
     expect(pair.predecessor).toBeUndefined();
   });
 
+  test("two briefs sharing a timestamp: the tied row is the predecessor, not skipped", () => {
+    // `fleet_brief` has no per-job uniqueness on `created_at` and `recordBrief` takes a
+    // caller-supplied clock, so a tie is expressible. The old `created_at < current.createdAt`
+    // fallback excluded BOTH tied rows and jumped to an older brief — reporting a comparison span
+    // against the wrong one. Nothing precedes the window here, so this is spec § 2.1 case 2.
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    const pair = store.briefPairForJob({ jobId: "j", windowStartMs: 4000, now: 9999 });
+    expect(pair.current).toBeDefined();
+    expect(pair.predecessor).toBeDefined();
+    expect(pair.predecessor?.createdAt).toBe(5000);
+    // The pair must be two DIFFERENT rows — a brief is never its own predecessor.
+    expect(pair.predecessor?.id).not.toBe(pair.current?.id);
+  });
+
+  test("current is deterministic when timestamps tie", () => {
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    insertBrief({ jobId: "j", createdAt: 5000 });
+    const ids = new Set(
+      Array.from(
+        { length: 10 },
+        () => store.briefPairForJob({ jobId: "j", windowStartMs: 4000, now: 9999 }).current?.id,
+      ),
+    );
+    // `ORDER BY created_at DESC` alone leaves the winner to SQLite; the digest claims the same
+    // database renders the same report, so the tie-break has to be part of the ordering.
+    expect(ids.size).toBe(1);
+  });
+
   test("a future-dated brief is never selected as current", () => {
     // An NTP correction moving the clock backwards leaves rows ahead of `now`, and their expiry is
     // ahead too, so the retention filter alone does not exclude them.

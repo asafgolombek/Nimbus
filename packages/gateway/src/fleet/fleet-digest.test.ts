@@ -607,6 +607,31 @@ describe("renderFleetDigest", () => {
     expect(cols).toHaveLength(6);
   });
 
+  test("a BACKSLASH before a pipe does not smuggle a live delimiter through the escape", () => {
+    // CodeQL: "incomplete string escaping". Escaping the pipe alone turns `a\|b` into `a\\|b`,
+    // where Markdown reads `\\` as one literal backslash and the pipe after it is LIVE — so the
+    // row breaks anyway. The escape character has to be escaped first.
+    const md = renderFleetDigest({
+      windowMs: 1000,
+      generatedAt: 0,
+      notCompared: empty,
+      jobs: [baseJob({ metrics: { "a\\|b": { before: 1, after: 2, delta: 1 } } })],
+    });
+    const row = md.split("\n").find((l) => l.includes("a\\")) ?? "";
+    expect(row).not.toBe("");
+    // Assert the EXACT escaped form, not a column count. The `(?<!\\)\|` split used by the test
+    // above cannot tell these two apart — it reports six columns for the broken output and the
+    // fixed one alike, because it does not model Markdown's backslash pairing. Checked: a test
+    // written that way passes before the fix as well as after, which makes it no test at all.
+    //
+    // One backslash in the input must become two (a literal backslash), and the pipe must gain its
+    // own — three in total, then the pipe. The pre-fix output had exactly two.
+    const bs = "\\";
+    expect(row).toContain(`a${bs}${bs}${bs}|b`);
+    const backslashes = (row.match(/\\/g) ?? []).length;
+    expect(backslashes).toBe(3);
+  });
+
   test("a finding key containing a newline plus a forged heading does not produce a second heading", () => {
     const md = renderFleetDigest({
       windowMs: 1000,

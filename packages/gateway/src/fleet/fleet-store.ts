@@ -327,19 +327,26 @@ export class FleetStore {
     // outside the window as this window's newest.
     const current = this.queryOne(
       `WHERE job_id = ? AND created_at >= ? AND created_at <= ? AND expires_at > ?
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
       [q.jobId, q.windowStartMs, q.now, q.now],
     );
     if (current === undefined) return { current: undefined, predecessor: undefined };
     const before = this.queryOne(
-      `WHERE job_id = ? AND created_at < ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1`,
+      `WHERE job_id = ? AND created_at < ? AND expires_at > ?
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
       [q.jobId, q.windowStartMs, q.now],
     );
     if (before !== undefined) return { current, predecessor: before };
+    // Excluded by ID, not by `created_at < current.createdAt`. `fleet_brief` has no per-job
+    // uniqueness on `created_at` and `recordBrief` takes a caller-supplied clock, so two briefs can
+    // share a timestamp — and the timestamp form then skipped BOTH of them, jumping to an older
+    // brief and reporting a comparison span against the wrong one. `id != ?` is also the literal
+    // reading of spec § 2.1's "the oldest brief inside the window, provided it is not the current
+    // brief itself": the exclusion is of that ROW, never of that instant.
     const oldestInWindow = this.queryOne(
-      `WHERE job_id = ? AND created_at >= ? AND created_at < ? AND expires_at > ?
-       ORDER BY created_at ASC LIMIT 1`,
-      [q.jobId, q.windowStartMs, current.createdAt, q.now],
+      `WHERE job_id = ? AND created_at >= ? AND created_at <= ? AND id != ? AND expires_at > ?
+       ORDER BY created_at ASC, id ASC LIMIT 1`,
+      [q.jobId, q.windowStartMs, current.createdAt, current.id, q.now],
     );
     return { current, predecessor: oldestInWindow };
   }

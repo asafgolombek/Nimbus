@@ -287,8 +287,8 @@ resolved. A job whose summary is byte-identical to its predecessor's is reported
 single line rather than omitted — "nothing moved" is an answer, and a job silently missing from the
 digest is indistinguishable from a job that never ran.
 
-**A `## Not compared` section, constructed by the renderer.** Three populations, each with its count
-and its reason:
+**A `## Not compared` section, constructed by the renderer.** FOUR populations, each with its count
+and its reason (the fourth, `agent changed`, was added during implementation — see the status block):
 
 - **first observation** — the job has exactly one brief, so there is nothing to compare against;
 - **not summarizable** — § 4.3's shape or parse failures, named by job and agent, and stating
@@ -442,11 +442,18 @@ interface FleetJobDigest {
   readonly metrics: Readonly<Record<string, FleetMetricDelta>>;
   readonly keysAppeared: readonly string[];
   readonly keysResolved: readonly string[];
+  // How many metrics moved but were withheld below `digest_min_delta` (§ 6). Carried so a
+  // suppressed change leaves a trace in BOTH output shapes, not only in the all-suppressed status.
+  readonly metricsSuppressed: number;
 }
 ```
 
+Each of the four `notCompared` populations carries `configured: boolean` too, for the same reason
+the job sections do: a job deleted from config must not read as though it will run again tonight
+(§ 5.1).
+
 `FleetDigestResult` carries `windowMs`, `generatedAt`, the rendered `markdown`, the `jobs` array,
-and a `notCompared` object holding § 5's three populations. The predecessor fields on
+and a `notCompared` object holding § 5's four populations. The predecessor fields on
 `FleetJobDigest` are non-optional and that is deliberate: a job with no predecessor is not a
 `FleetJobDigest` with holes in it, it is a `notCompared.firstObservation` entry, so the type makes
 the invalid state unrepresentable rather than documenting it.

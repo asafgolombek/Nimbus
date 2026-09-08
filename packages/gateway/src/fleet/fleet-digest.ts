@@ -249,7 +249,18 @@ function unconfiguredMarker(configured: boolean): string {
  * backtick renders oddly at worst and cannot forge structure.
  */
 function mdSafe(s: string): string {
-  return s.replace(/\r\n|\r|\n/g, " ").replace(/\|/g, "\\|");
+  // BACKSLASH FIRST, then pipe — the order is the whole correctness of this function. Escaping the
+  // pipe alone turns an input of `a\|b` into `a\\|b`, where Markdown reads `\\` as one literal
+  // backslash and the pipe after it is LIVE, so the row breaks anyway. Escaping the escape
+  // character first makes that input `a\\\|b`: a literal backslash, then an escaped pipe.
+  //
+  // CodeQL flagged this as "incomplete string escaping or encoding" and was right — the earlier
+  // fix here escaped the delimiter but not the mechanism that escapes it, which is the classic
+  // shape of this defect rather than an exotic edge case.
+  return s
+    .replace(/\r\n|\r|\n/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|");
 }
 
 function metricRow(name: string, d: FleetMetricDelta): string {
