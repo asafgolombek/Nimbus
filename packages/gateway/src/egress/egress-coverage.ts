@@ -79,13 +79,14 @@ export type CoverageVector = Readonly<Record<CoverageClass, Granularity>>;
  *
  * READ THE `http` ENTRY THE SAME WAY, and more narrowly still. It is `per-call` over exactly one
  * thing: an `agents.*` brief served to a caller verified on the local HTTP API. It is
- * NOT "everything on the HTTP API". `GET /v1/items`, `GET /v1/items/resolve`, `GET /v1/people`,
- * `GET /v1/audit` and the rest of the read surface hand index rows to a local process and append
- * NO row. `GET /v1/items/resolve-file` is called out by name because it is the newest of them and
- * the one most likely to be mistaken for egress: it takes a forge coordinate from an external
- * caller — a `github.com` repository and a ref — and answers it entirely from the LOCAL graph,
- * without any outbound request to that forge. `GET /v1/items/resolve` beside it does the same
- * with a URL. `POST /v1/items/fetch` on the same port DOES
+ * NOT "everything on the HTTP API". `GET /v1/items`, `GET /v1/items/resolve`,
+ * `GET /v1/items/resolve-ids`, `GET /v1/people`, `GET /v1/audit` and the rest of the read surface
+ * hand index rows to a local process and append NO row. `GET /v1/items/resolve-ids` is called out
+ * by name because it is the newest of them and the one most likely to be mistaken for egress: it
+ * takes item ids from an external caller — ids that appear inside an agent brief — and answers
+ * entirely from the LOCAL index, with no outbound request at all. `GET /v1/items/resolve-file`
+ * beside it does the same with a forge coordinate — a `github.com` repository and a ref — and
+ * `GET /v1/items/resolve` does the same with a URL. `POST /v1/items/fetch` on the same port DOES
  * make an outbound request and WILL append — but under `sync`, not `http`: the class tracks the
  * KIND of egress (a connector call), not the transport port it arrived on.
  *

@@ -3547,15 +3547,16 @@ nimbus people link person:abc123 person:def456
 Open a browser-extension pairing session and print the one-time code **plus the gateway URL** to enter in the extension's Options page. The code expires after 2 minutes. `--label` gives the paired device a human-readable name; if omitted the gateway assigns one.
 
 `--scopes` sets what the minted token is allowed to reach. It takes a comma-separated list drawn
-from five names:
+from six names:
 
 | Scope | Unlocks |
 |---|---|
 | `clip` | `POST /v1/clips` (save a clip) and `POST /v1/clips/related` (related-items read) |
 | `briefs` | The research-briefs write routes (`POST /v1/briefs`, `.../sources`, `.../run`, `.../save`) and `GET /v1/briefs/*` |
 | `agents` | The browser-reachable agent-invocation route: `POST /v1/agents/{agent}`, `GET /v1/agents/runs/{id}`, `GET /v1/agents` |
-| `resolve` | The resolve-by-URL read: `GET /v1/items/resolve` |
-| `fetch` | The targeted fetch-on-miss write: `POST /v1/items/fetch` — makes an outbound request through a configured connector, so it is a separate scope from `resolve`'s local-index-only read |
+| `resolve` | The local-index reads: `GET /v1/items/resolve` (resolve-by-URL), `GET /v1/items/resolve-file` (resolve a forge file coordinate to a local checkout path), and `GET /v1/items/resolve-ids` (resolve item ids back to their references) |
+| `fetch` | The targeted fetch-on-miss write: `POST /v1/items/fetch` — makes an outbound request through a configured connector, so it is a separate scope from `resolve`'s local-index-only reads |
+| `egress` | The egress-ledger reads: `GET /v1/egress`, `GET /v1/egress/head`, `GET /v1/egress/verify`, `GET /v1/egress/prove` |
 
 If `--scopes` is omitted, the minted token is granted `clip,briefs` — the two surfaces that shipped
 before scopes existed. **A client paired before this change holds exactly `clip,briefs` and gains

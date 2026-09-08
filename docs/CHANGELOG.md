@@ -39,6 +39,19 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   Design: [`2026-09-07-fleet-change-digest-design.md`](./superpowers/specs/2026-09-07-fleet-change-digest-design.md).
   **NOT shipped:** subject enumeration (PR 2b) — the owner still names each job's subject in config.
 
+- **2026-09-07 — `GET /v1/items/resolve-ids`: batch id-to-reference lookup for an agent brief's
+  links.** A browser client renders links for the item ids that appear inside an agent brief; this
+  is the read that turns an id back into `{ id, service, type, title, url, modified_at }` —
+  `resolveItemsByIds` in `packages/gateway/src/index/resolve-ids.ts`. Under the **existing
+  `resolve` scope**, the same one `resolve` and `resolve-file` already use, so **no re-pairing**.
+  Bearer-authed, and — like `resolve-file` — **route presence is the capability signal; there is no
+  version floor** to raise. Batched, capped at `RESOLVE_IDS_MAX_BATCH = 100` raw `?id=` parameters
+  — counted **before** de-duplication, so a caller sending many copies of one id cannot dodge the
+  cap — and refused with `400 too_many_ids` over the cap rather than silently clamped, because
+  clamping would drop links a caller asked for without saying so. An id the index does not hold is
+  **absent from the response**, never a null entry: "not indexed" and "indexed with no source URL"
+  are different facts a caller renders differently. **No egress row**: like the rest of the
+  clip-scoped read surface, it hands index rows to a local process and makes no outbound request.
 - **2026-09-07 — Overnight sub-agent fleets, PR 1 of 2: standing agent jobs on idle local
   hardware.** `nimbus fleet status | list | briefs | show <id> | run <job> [--force]` over the new
   `fleet.*` IPC namespace, backed by schema **V60** (`fleet_job_state` / `fleet_run` /

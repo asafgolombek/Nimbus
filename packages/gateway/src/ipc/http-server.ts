@@ -25,6 +25,7 @@ import { dispatchScimRead, isScimPath } from "../identity/scim-http-routes.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
 import { resolveItemByUrl } from "../index/resolve-by-url.ts";
 import { resolveFileByRemote } from "../index/resolve-file-by-remote.ts";
+import { RESOLVE_IDS_MAX_BATCH, resolveItemsByIds } from "../index/resolve-ids.ts";
 import { ftsMatchQuery } from "../search/hybrid-internal.ts";
 import { formatPrometheus } from "../status/prometheus-format.ts";
 import type { TargetedFetchOutcome } from "../sync/targeted-fetch.ts";
@@ -49,6 +50,7 @@ import {
   ROUTE_KEY_EGRESS_VERIFY,
   ROUTE_KEY_ITEMS_RESOLVE,
   ROUTE_KEY_ITEMS_RESOLVE_FILE,
+  ROUTE_KEY_ITEMS_RESOLVE_IDS,
 } from "./http-route-auth.ts";
 import {
   dispatchWriteRoute,
@@ -705,6 +707,53 @@ async function handleItemsResolveFile(
   );
 }
 
+// GET /v1/items/resolve-ids?id=&id=… — bearer-authed read under the `resolve` scope, mounted
+// inline for exactly the reason handleItemsResolve and handleItemsResolveFile are: the
+// "/v1/items/*" entry in dispatchReadOnlyDataGet's table is PUBLIC, so routing this through it
+// would serve scoped output to any local process on the machine.
+//
+// Appends NO egress row. Nothing leaves the machine — it reads the local index and answers.
+async function handleItemsResolveIds(
+  req: Request,
+  url: URL,
+  db: Database,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
+  const clipsVault = opts.clipsVault;
+  if (clipsVault === undefined) {
+    // Before the auth check, and load-bearing: a client reads this 404 as "gateway older than
+    // the route" and withholds its links silently. A 500 would turn a correct, quiet
+    // degradation into a visible error on every gateway that does not mount the clips surface.
+    return json({ error: "resolve_disabled" }, 404);
+  }
+  const auth = await requireScopedClipToken(req, clipsVault, ROUTE_KEY_ITEMS_RESOLVE_IDS);
+  if (!auth.ok) return auth.response;
+
+  // RAW count first, before trimming and before de-duplicating: checking after the set is built
+  // would let a caller send fifty thousand copies of one id and pay only the parse cost.
+  const raw = url.searchParams.getAll("id");
+  if (raw.length > RESOLVE_IDS_MAX_BATCH) {
+    return json({ error: "too_many_ids" }, 400);
+  }
+  const ids = raw.map((id) => id.trim()).filter((id) => id !== "");
+  if (ids.length === 0) {
+    return json({ error: "missing_id" }, 400);
+  }
+
+  // Field by field, never a spread and never a destructured rest: `item` carries `body`,
+  // `metadata` and `author_id`, and this route is reachable by any holder of a clip token. A
+  // column added to the row type later cannot leak here unnamed.
+  const items = resolveItemsByIds(db, ids).map((row) => ({
+    id: row.id,
+    service: row.service,
+    type: row.type,
+    title: row.title,
+    url: row.url,
+    modified_at: row.modified_at,
+  }));
+  return json({ items });
+}
+
 /**
  * `?name=` as a non-negative integer, or undefined.
  *
@@ -1146,6 +1195,8 @@ async function tryBearerAuthedGet(
   if (url.pathname === "/v1/items/resolve") return await handleItemsResolve(req, url, db, opts);
   if (url.pathname === "/v1/items/resolve-file")
     return await handleItemsResolveFile(req, url, db, opts);
+  if (url.pathname === "/v1/items/resolve-ids")
+    return await handleItemsResolveIds(req, url, db, opts);
   if (url.pathname === "/v1/egress") return await handleEgressList(req, url, db, opts);
   if (url.pathname === "/v1/egress/head") return await handleEgressHead(req, db, opts);
   if (url.pathname === "/v1/egress/verify") return await handleEgressVerify(req, db, opts);

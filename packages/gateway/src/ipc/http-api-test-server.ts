@@ -1,9 +1,9 @@
 /**
  * Test-only harness for the small family of bearer-authed HTTP GET routes mounted INLINE in the
- * `fetch` handler, ahead of the unauthenticated GET table — `GET /v1/items/resolve` and
- * `GET /v1/items/resolve-file`. Boots a REAL `startReadOnlyHttpServer` on port 0 with a fresh
- * temp-dir SQLite DB (migrated to latest) and an in-memory vault seeded with exactly ONE token
- * minted with the caller's chosen scopes.
+ * `fetch` handler, ahead of the unauthenticated GET table — `GET /v1/items/resolve`,
+ * `GET /v1/items/resolve-file` and `GET /v1/items/resolve-ids`. Boots a REAL
+ * `startReadOnlyHttpServer` on port 0 with a fresh temp-dir SQLite DB (migrated to latest) and an
+ * in-memory vault seeded with exactly ONE token minted with the caller's chosen scopes.
  *
  * Modelled on `agent-runs/agent-test-server.ts` / `briefs/brief-test-server.ts`. NOT itself a
  * `*.test.ts` file — importers use `startServerWithClipToken` rather than redefining it, so this
