@@ -257,6 +257,19 @@ function mdSafe(s: string): string {
   // CodeQL flagged this as "incomplete string escaping or encoding" and was right — the earlier
   // fix here escaped the delimiter but not the mechanism that escapes it, which is the classic
   // shape of this defect rather than an exotic edge case.
+  //
+  // STATED BOUND, and the condition that would change it. This handles STRUCTURAL forgery only —
+  // a value escaping its row, its cell, or its bullet. It deliberately does NOT escape link
+  // syntax, raw HTML, backticks or emphasis, because the digest's only two sinks are a terminal
+  // (`sink.out`, plain text) and `--json`. In a terminal none of those render, so escaping them
+  // buys nothing and costs real legibility: an ordinary PR title like `Fix [NIM-123] parser`
+  // would print as `Fix \[NIM-123\] parser` for every reader, to guard a renderer that does not
+  // exist.
+  //
+  // Revisit the moment the digest gains a sink that RENDERS Markdown — the ChatOps digest § 7 of
+  // the design spec puts out of scope is the likely one. Finding keys embed titles from indexed
+  // content, so `[click](http://…)` in a PR title becomes a live link the moment something
+  // renders it, and that is the point at which this function needs the wider escape set.
   return s
     .replace(/\r\n|\r|\n/g, " ")
     .replace(/\\/g, "\\\\")
