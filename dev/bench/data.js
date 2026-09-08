@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788817385903,
+  "lastUpdate": 1788883713346,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "17d325e7a55729772623438fa4a914c762d810ea",
-          "message": "feat(clips): web clipper gateway — POST /v1/clips, pairing auth, invariant I30 (Phase 6 Slice 9) (#718)\n\n## Web Clipper — Gateway (Plan A) · Phase 6 / Slice 9 (\"Browser &\nReading\")\n\nAdds the gateway surface that lets a browser extension push web pages\ninto the local index — the **inbound-push** analogue of the existing\nSCIM / Teams / deployment routes (no MCP connector). This is **Plan A**;\nthe Chrome + Firefox MV3 extension itself is the follow-on **Plan B**\n(`packages/browser-extension/`).\n\n### What's in this PR\n\n- **Two new I13 write routes** (`WRITE_ROUTE_ALLOWLIST` 6 → 8):\n- `POST /v1/clips` — ingests a clip as a `nimbus:web_clip` item\n(readable-article **or** text-selection body). URL canonicalized\n(tracking params stripped, root slash preserved); article re-clips\n**dedup** on the canonical URL while each selection is a distinct id.\n  - `POST /v1/clips/pair/confirm` — mints the extension's bearer token.\n- **One bearer-authed READ route** `POST /v1/clips/related` — related\nlocal items via FTS (selection-primary, own-host de-prioritized; FTS5\nsyntax neutralized via `ftsMatchQuery` escaping + bound params; **no DB\nmutation**).\n- **Pairing-handshake auth** — `nimbus clip pair [--label]` opens an\nin-memory, single-use, TTL + attempt-capped window (a singleton in\n`assemble.ts` shared by the `clip.*` IPC dispatcher and the HTTP confirm\nroute). The extension redeems the one-time code for a token in a\n**labeled Vault map** (`http_api.web_clipper_tokens`) so Chrome +\nFirefox pair concurrently. `nimbus clip status` lists label + token\n**fingerprint** (never the raw token); `nimbus clip revoke\n[<label>|--all]` is the cut-off for a lost/compromised extension.\n- **Embedding**: `nimbus:web_clip` joins `PROSE_HEAVY_TYPES`\n(OpenAI-1536, MiniLM-384 fallback).\n- **New invariant I30** — fail-closed pairing window: a token is minted\n**only** behind a live owner-opened window; no window / expired / wrong\ncode → 403, no mint (enforced in `security-invariants.test.ts` with a\n**no-mint witness**). The window is strictly in-memory (a restart drops\nit); minted tokens persist in the Vault map. Triple-rule satisfied\n(wiring + docs + test).\n\nClip ingest is **inbound** (writes the local index, no outbound egress)\n→ **not** HITL-gated, **not** egress-ledgered. **No migration**\n(`web_clip` reuses the `item` table + FTS triggers).\n\n### Verification\n\n- **281 web-clipper tests pass** (clips, http surfaces, clip-rpc,\nhttp-write-routes, http-server, security-invariants/I30, clip CLI,\nrouting). An **E2E** proves the real round-trip against a live gateway:\npair → `POST /v1/clips/pair/confirm` → `POST /v1/clips` (Bearer) →\n`nimbus search` finds the clip; plus `/v1/clips/related` 200/401/400.\n- **Preflight**: all static gates green (typecheck, biome, markdown, 13\naudits incl. `audit:invariants` + `audit:status-drift`, jscpd, build).\n- **Coverage floor** (Docker `oven/bun:latest` = CI bun 1.3.14,\nLinux-authoritative): **`coverage-floor: ok`**, baseline unchanged.\nEvery new/modified file clears line ≥85 / branch ≥80.\n\n> Note: a local `test:ci` run shows 10 failures **unrelated to this PR**\n— they are caused by this dev machine's env vars\n(`NIMBUS_DISTRIBUTION_CHANNEL=msi` → updater-dispatcher tests;\n`NIMBUS_OAUTH_GOOGLE_CLIENT_ID` set → one connector-auth test). Those\nfiles are byte-identical to `main` and pass on a clean env (proven by\nthe Docker run, which has neither var). No web-clipper test is among\nthem.\n\n### Design docs\n\n- Spec: `docs/superpowers/specs/2026-06-21-web-clipper-design.md`\n- Plan: `docs/superpowers/plans/2026-06-21-web-clipper-gateway.md`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added web clipper functionality enabling users to clip article content\nand selections into the local index via a browser extension\n* Introduced device pairing workflow with time-limited one-time codes\nfor browser authentication\n* Added CLI commands (`nimbus clip pair|status|revoke`) for managing\npaired devices and tokens\n* Implemented related-clips search sidecar for discovering similar\ncontent without leaving the browser tab\n\n* **Documentation**\n* Updated architecture, roadmap, changelog, and security documentation\nto reflect web clipper delivery\n  * Added comprehensive design specifications and implementation plans\n* Documented new security invariant I30 for fail-closed token minting\nduring active pairing windows\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-22T18:42:22Z",
-          "tree_id": "cd1f000346c45b73449b75a7d7796b67224d0253",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/17d325e7a55729772623438fa4a914c762d810ea"
-        },
-        "date": 1782154582540,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 303.01826190000463,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 304.0748515000014,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 278.5965130500055,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c54be81e5363246037c5ccdd1928ff706611776",
+          "message": "feat(fleet): add the overnight-fleet change digest (PR 2a) (#1467)\n\n## Summary\n\n`nimbus fleet digest [--since <duration>] [--json]` — a local,\ndeterministic Markdown report of what moved between each overnight fleet\njob's newest brief and its predecessor. This is **PR 2a** of the\novernight-fleet row; PR 2b (subject enumeration) is not shipped.\n\nThe row's remaining \"PR 2\" was split on the dependency: enumeration\nwithout a digest produces more briefs than anyone reads, which the\nroadmap row itself calls strictly worse than today. So the digest lands\nfirst, and 2b arrives into a system that can already absorb its output.\n\n**No schema migration** (V60 already carried every column), **no new\ninvariant**, **no new egress class**, and **no model call at any point**\n— the last is what keeps the digest outside I38 by construction rather\nthan by check. An LLM-written digest is a stated non-goal: the surface's\nwhole value is being mechanically true.\n\n## Design decisions worth a reviewer's attention\n\n- **Comparison runs on `findings_json`, never `brief_markdown`.** A\nsynthesised brief differs run to run on an unchanged index, so diffing\nthe human-readable column would report \"changed\" on essentially every\ncomparison — the same renderer-versus-rewrite split I31 draws for\ndisclosure, applied to comparison.\n- **The extractor map is compiler-enforced total over the eligible\nagents.** `EligibleAgentMethod` is derived from `FLEET_ELIGIBILITY` via\n`satisfies` rather than restated beside it, so flipping a twelfth agent\nto `\"eligible\"` fails the build (`TS2741`, naming that agent) until its\nextractor exists. The one change to PR 1 code is that type position; all\nfifteen entries and their reasoning comments are byte-identical.\n- **A key encodes identity only.** `ghost` keys on `peerId` alone, never\n`peerId:rank` — a mutable confidence band folded into a key reports a\n`medium → high` shift as one resolution plus one arrival.\n- **The predecessor is the newest brief BEFORE the window**, not the\nimmediately preceding one. The naive rule silently narrows a 24-hour\ndigest to the last inter-run gap for any sub-daily job.\n- **Five outcomes, all disclosed**, each rendered even as an explicit\nzero: a job digest, or `first observation` / `not summarizable` / `no\nbrief in window` / `agent changed`. The job set is the UNION of\nconfigured jobs and jobs with briefs in the window — walking config\nalone drops overnight work when a job block is deleted in the morning;\nwalking briefs alone drops the \"configured but never ran\" fact.\n- **`digest_min_delta`** (per job, default 1, refused below 1) bounds\nnumeric movement only. A finding appearing or resolving is never\nsuppressed, and a metric withheld by the threshold is counted and named\nrather than silently dropped.\n\n## Security surface\n\n`fleet.digest` joins the existing `fleet` namespace, which is\n**LAN-forbidden by prefix** and **absent from the Tauri allowlist (I7)**\n— both inherited, no production change to either. The digest returns\nsynthesised answers over the private index, so a paired peer must never\nread them. Tests prove the inheritance rather than assuming it:\n`lan-rpc.test.ts` names `fleet.digest` in the namespace-denial list, and\n`gateway_bridge.rs`'s `allowlist_excludes_fleet_namespace` is a prefix\nassertion that covers it automatically.\n\n## Type of Change\n\n- [x] New feature (non-breaking change which adds functionality)\n- [x] Test improvement\n\nNot marked breaking: everything here is additive. `digest_min_delta` is\na new key, and the `fleet.digest` method is new.\n\n## Testing\n\nFull suite green on the integrated tree: **21,612 pass / 0 fail / 69\nskip** across 1,472 files. `bun run typecheck` clean. Full `bun run\npreflight` green on every gate except `audit:coverage-floor` — see\nbelow.\n\nEleven tasks, each reviewed; six fix rounds; one whole-branch review.\nEvery behavioural change is red-proved by reverting it and confirming\nthe covering test fails — including three cases where the plan's own\npredicted failure did not reproduce and the real one was found instead.\n\n**One defect worth calling out** because it was invisible until there\nwas rendered output to look at: finding keys embed titles from indexed\ncontent (`conflicts` keys on `peerId:collisionType:service:title`), so a\nPR titled `Fix | the parser` broke its table row, and a title containing\na newline forged a `## heading` outright. `mdSafe` now collapses line\nbreaks and escapes pipes at every dynamic interpolation site.\n\n## Known: `audit:coverage-floor` is red, and not on this branch's files\n\n6 violations across 4 files — `ipc/server/socket-listeners.ts`,\n`platform/linux.ts`, `platform/sandbox/win32-reap.ts`,\n`platform/sandbox/win32.ts`. **All four have zero commits on this\nbranch**, whose production surface is 8 files, none of them these.\n\nI believe this is a local-Windows measurement artifact:\n`platform/linux.ts` and `socket-listeners.ts` are the *active arm* on a\nLinux runner (`exclusions.ts` says so in as many words), and the two\nsandbox files carry `skipIf(process.platform === \"win32\")` tests that\nexecute only on Linux. The gate is CI-Linux-authoritative, so I expect\nCI to differ — **but I could not prove that from a Windows machine.** If\nCI agrees with my box, this blocks on pre-existing debt rather than on\nanything here.\n\nThe one violation this feature *did* introduce\n(`fleet-digest-extractors.ts` at 73.97% branch) was fixed to 83.6%.\n\n## Known residual\n\n`digest_min_delta`'s refusal names the offending job only when `name`\nprecedes it in the `[[fleet.job]]` block — the inline range check fires\nbefore `flush()` guarantees a name. It still refuses (fail-closed), just\nnamelessly in that ordering. A follow-up could defer the check to\n`flush()`, mirroring what the file already does for `interval_seconds`.\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes\n- [x] All existing tests pass\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced\n- [x] No credentials, tokens, or secret values in logs, IPC, config, or\nfixtures\n- [x] Platform-specific code is behind `PlatformServices` — untouched by\nthis branch\n- [x] The HITL consent gate has not been weakened\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01JgDJ5WpWXev49wxWBpUGrC\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added `nimbus fleet digest` to compare recent fleet job briefs and\nreport changed, unchanged, and non-comparable results.\n* Supports configurable time windows with `--since` and structured\noutput with `--json`.\n* Added configurable minimum metric-change thresholds through\n`digest_min_delta`.\n\n* **Documentation**\n* Updated CLI help, reference documentation, architecture notes,\nchangelog, roadmap, and project status to describe the fleet digest.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-08T15:54:38Z",
+          "tree_id": "60865a39dfcc0afd9b6555609d5fc56763564c63",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4c54be81e5363246037c5ccdd1928ff706611776"
+        },
+        "date": 1788883709965,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.0718620000018,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.76101450001005,
             "unit": "ms"
           }
         ]
