@@ -307,6 +307,19 @@ reached the network, never that one did so unrecorded.
 
 A refused host appends a `result_status='blocked'` row, mirroring the executor's denied-gate row.
 
+**`hitl_status` on these rows is `not_required`, not `approved`** — corrected during implementation,
+and the correction matters. The first draft reasoned "the owner approved this tool and its hosts at
+registration, so each request inherits that approval". That conflates two different questions. An
+egress row's `hitl_status` records whether **this outbound request** passed a consent gate, and a
+brokered fetch does not — the *registration* did, and that is recorded on the `tool.generate` audit
+row where it belongs. Every sibling appender (`sync`, `model`, `embedding`, `browser`, `chatops`,
+`vlm`) writes `not_required` for exactly this reason; the only egress appender that writes
+`approved` is `egress-prune.ts`, whose action really is HITL-gated per request. **I4's enforcement
+test would have rejected the original wording**: it fails any production file outside a named
+"earned set" that hardcodes `hitlStatus: "approved"`, and it separately fails a file listed in that
+set that does not — so adding this appender to the earned set would have been wrong too. Writing
+`approved` here would have been an approval that never happened.
+
 ### 6.2.1 The broker is the SSRF boundary, and the approved list is not enough
 
 The tool has no network; **the broker has all of it**, because it runs in the gateway process. So
