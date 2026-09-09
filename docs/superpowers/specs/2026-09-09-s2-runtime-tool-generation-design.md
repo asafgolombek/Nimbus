@@ -99,7 +99,7 @@ its requests for it.** § 4.
                                           (Nimbus authors skeleton +
                                            manifest with network: [])
                                        │
-                          runSandboxContractTests(manifest)   § 7
+                    confinement probe under real runner   § 7.3
                                        │
                           owner approves VERBATIM artifact    § 5 step 7
                                        │
@@ -129,6 +129,8 @@ its requests for it.** § 4.
 | `toolgen/toolgen-consent-broker.ts` | Owner approval, reusing the `ConsentBroker` shape `exec-gate.ts` already has. |
 | `toolgen/toolgen-credentials.ts` | The sole site composing `toolgen.<toolId>.<hostSlug>` Vault keys. |
 | `toolgen/toolgen-artifact.ts` | `GeneratedToolArtifact` + its canonical serialization (§ 4.5). |
+| `toolgen/toolgen-client.ts` | Spawns the tool over the OFFICIAL `@modelcontextprotocol/sdk` `Client`, not `@mastra/mcp` (§ 4.4). Registers the `nimbus/fetch` handler. |
+| `toolgen/toolgen-confinement.ts` | Runs the SDK probe under the real PAL runner before consent (§ 7.3). |
 | `toolgen/toolgen-types.ts` | Envelope, approved host list, credential bindings, outcome union. |
 | `egress/tool-egress.ts` | `recordToolEgress` — the new `tool` coverage class appender. |
 
@@ -161,14 +163,30 @@ and AppContainer blocks loopback on Windows without an explicit `CheckNetIsolati
 That property is not incidental: it is the same one I33 relies on to keep a sandboxed execution
 away from the Gateway's own IPC socket and `127.0.0.1` HTTP API.
 
-Feasibility is confirmed in the libraries already vendored: `@mastra/mcp` registers a
-server→client request handler today (`elicitation/create`, `dist/index.js:22037`), and
-`@modelcontextprotocol/sdk` 1.30.0 carries both elicitation and sampling.
-
 `nimbusFetch` does **not** reuse `elicitation/create` or `sampling/createMessage` — both mean
 something else (ask the human; ask the client's model), and overloading them would put a
 generated tool's egress on a method some other component may one day handle. It uses a custom
-method whose literal is confined by **D29(a)** to the two files that emit and serve it.
+method, `nimbus/fetch`, whose literal is defined once in `toolgen-types.ts` and confined there by
+**D29(a)**.
+
+**Generated tools do NOT use `@mastra/mcp`.** The first draft of this spec named "does a custom
+MCP method survive the `@mastra/mcp` transport" as PR 1's largest risk. It is now answered, and
+the answer is no: `InternalMastraMCPClient` holds the underlying SDK client as a **private** field
+(`packages/gateway/node_modules/@mastra/mcp/dist/client/client.d.ts:60`) and exposes exactly one
+server→client hook, `setElicitationRequestHandler` (`:272`). There is no public API for
+registering a custom JSON-RPC request handler, and monkey-patching a private field to obtain one
+is not a foundation for an egress chokepoint.
+
+So this path uses the official `@modelcontextprotocol/sdk` `Client` + `StdioClientTransport`
+directly, in `toolgen/toolgen-client.ts`. `Protocol.setRequestHandler` is public there
+(`dist/esm/shared/protocol.d.ts:389`) and takes the request schema, which is exactly the shape
+needed. The gateway already resolves the SDK transitively. Generated tools are then surfaced to
+the model by listing them off that client and wrapping each with `createTool` plus `wrapToolForLlm`
+(I11), the same envelope every other tool gets.
+
+This is a narrowing, not a workaround: `@mastra/mcp` stays the client for connectors, and the one
+path that needs a bidirectional custom method owns its own transport rather than bending a shared
+one. It also removes the spike PR 1 was going to need.
 
 ### 4.5 One canonical artifact
 
@@ -184,6 +202,30 @@ bytes and the signed bytes differ, so a signature attests to something the owner
 
 That is I33's rule extended one hop. *Read the script once, so the bytes the owner approved are
 the bytes that execute* — **and later the bytes that get signed.**
+
+### 4.6 Where the approved body lives, and how it is invoked
+
+The approved body is written to `<configDir>/toolgen/ephemeral/<toolId>/index.ts`, owner-only
+(`0o600` on POSIX, owner-only ACL on Windows), and the sandbox policy grants read to that
+directory and the Bun runtime paths only. The directory is removed on revoke and on shutdown.
+
+**It is not passed inline, and it is not named as the entry point.** Both of those are measured
+dead ends, recorded in `exec/exec-runtimes.ts`:
+
+- Inline is bounded by the Windows helper's `wchar_t cmdline[32768]`, which has to hold the
+  interpreter path, every flag, and the body plus quoting expansion. I33 caps an inline body at
+  `MAX_INLINE_CODE_UNITS` (16,384) for exactly this reason. A generated MCP server is a whole
+  module, not a five-line script, so it will not reliably fit.
+- Naming the file as the entry point (`bun run index.ts`) **fails under the Windows AppContainer**
+  with `CouldntReadCurrentDirectory` — bun's startup path for a file entry point touches something
+  the sandbox denies. This is measured, not theorised, and it is why a plain `bun run <path>`
+  invocation would pass CI on two platforms and fail on the third.
+
+The entry point is therefore a short `-e` stub that **imports** the file:
+`bun -e "await import('<abs path>')"`. The same comment in `exec-runtimes.ts` records that
+`import()` of a granted file works fine under AppContainer where naming it as the entry point does
+not. That satisfies both constraints at once — the command line stays tiny, and the startup path
+that Windows denies is never taken.
 
 ## 5. The gate — ordered, refusals before consent
 
@@ -205,7 +247,8 @@ never advertises itself by asking.
    no-network policy never touches, and CI does not install it). I33 records both traps; this
    asserts the policy that spawns.
 6. **Draft, wrap, contract-test** — the model produces the body; `toolgen-stub.ts` wraps it;
-   `runSandboxContractTests` runs (§ 7). A red contract test refuses **before** consent.
+   the § 7.3 confinement probe runs under the real PAL runner. A failed probe refuses **before**
+   consent.
 7. **Owner approves the VERBATIM artifact** — never a digest, which is a rubber stamp with extra
    steps (I33). The prompt shows the full body, the host list, the credential binding per host,
    the initiator, and the § 11 residual.
@@ -242,6 +285,43 @@ reached the network, never that one did so unrecorded.
 
 A refused host appends a `result_status='blocked'` row, mirroring the executor's denied-gate row.
 
+### 6.2.1 The broker is the SSRF boundary, and the approved list is not enough
+
+The tool has no network; **the broker has all of it**, because it runs in the gateway process. So
+an approved host list is a necessary check and not a sufficient one, and the broker refuses on its
+own account before consulting the envelope:
+
+1. **Scheme** — `https:` only, or `http:` only where explicitly opted in. `file:`, `data:`,
+   `blob:`, `gopher:` and everything else are refused.
+2. **Destination address, fail-closed** — loopback, link-local, RFC 1918 and the cloud metadata
+   address `169.254.169.254` are refused **even if the owner approved that host**. This is the one
+   place the design overrides an owner approval, and deliberately: § 4.4's whole argument is that
+   the sandboxed tool cannot reach the Gateway's own IPC socket or `127.0.0.1` HTTP API (the I13
+   write surface, the `agents` and `resolve` scopes) — a broker that would proxy it there hands
+   back exactly what the empty network set took away. I33 names the same target for the same
+   reason.
+3. **Checked on the RESOLVED address, not the hostname.** A hostname check alone is defeated by a
+   name that resolves to `127.0.0.1`, and by DNS rebinding between the check and the request. The
+   broker resolves, validates the resolved address, and connects to the address it validated.
+4. **Host match** — `url.hostname` lowercased, compared exactly against the envelope. No suffix
+   matching, no wildcards: `evil-api.example.com` must not satisfy `api.example.com`.
+5. **Header stripping** — `Authorization` and `Proxy-Authorization` supplied by the tool are
+   dropped. The broker attaches credentials (§ 6.3); the tool never sets its own auth header, or
+   it could attach a secret it obtained some other way to a host of its choosing.
+
+### 6.2.2 Bounds on the response
+
+Three limits, because the broker is inside the gateway and a generated tool is not trusted to be
+well-behaved about what it asks for:
+
+- `max_requests_per_tool` — counted per `toolId` in the broker; exhaustion appends a `blocked` row
+  and returns an error.
+- `request_timeout_ms` — an `AbortController` linked to the fetch.
+- `MAX_BROKERED_RESPONSE_BYTES` (5 MiB) — the response is read with a running byte count and
+  aborted past the cap. Without it a tool can point the broker at a 1 GiB file and take the
+  gateway down with it. This is the same class as I32 (a bounds invariant whose loss is confined
+  to the attempted operation), and it is the reason that class exists.
+
 ### 6.3 Credentials
 
 **Per-host, not per-tool.** The binding is `{host → vault key}` and the broker attaches by
@@ -267,23 +347,77 @@ table.
 
 Written only by an explicit `nimbus tool credential set`. Never by the model.
 
-## 7. The contract test finally gets a caller
+The stored value is a tagged envelope rather than a bare string, so the broker knows how to attach
+it without the tool describing its own auth:
 
-`runSandboxContractTests(manifestPath)` is exported from `@nimbus-dev/sdk/testing` and has **zero
-callers anywhere in this repository today**. What it does is fork a probe binary and verify that
-the runtime sandbox actually enforces the manifest's declared `permissions.network` and
-`permissions.filesystem`.
+```ts
+export type ToolCredentialBinding =
+  | { readonly type: "bearer"; readonly token: string }
+  | { readonly type: "header"; readonly headerName: string; readonly value: string }
+  | { readonly type: "basic"; readonly username: string; readonly password: string };
+```
+
+A bare string would force either a convention (`"assume Bearer"`) or a tool-supplied hint, and the
+second is the tool telling the broker how to spend a secret it cannot see.
+
+## 7. Confinement verification — and why it is NOT a bare `runSandboxContractTests` call
 
 The roadmap row says the agent "runs the `@nimbus-dev/sdk` contract test, and on green registers
 it", which reads as a claim about the tool's *behaviour*. The test cannot support that claim — the
 only other `testing` export is `MockGateway`, which returns `{}`. It can support a **confinement**
-claim, and confinement is the claim that actually matters here: green means *this machine's
-sandbox really does confine this manifest*, checked on the box the tool will run on rather than
-assumed from the platform matrix in § 3.
+claim, and confinement is the claim that matters here: *this machine's sandbox really does confine
+this manifest*, checked on the box the tool will run on rather than assumed from § 3's table.
 
-So the roadmap row is honoured, with its meaning narrowed to what the artifact can bear. This is
-also the test's first production caller in the gateway, which is worth noting for the reverse
-reason: an SDK export with no callers is an untested contract in both directions.
+### 7.1 The trap: the SDK's default probe runner is UNSANDBOXED
+
+`runSandboxContractTests(manifestPath)` has **zero callers anywhere in this repository**, and
+reading why is what turned this section from three lines into a design decision.
+
+With `permissions.network` empty, the function's body
+(`node_modules/@nimbus-dev/sdk/src/testing/sandbox-contract.ts:164-198`) skips both network probes
+— `firstHost` is `undefined`, and the `network-unlisted` branch is guarded on `hosts.length > 0` —
+and runs `fs-denied` **unconditionally**. That probe reads `/etc/passwd` on POSIX and expects
+`EACCES`.
+
+But the default runner, `__defaultRunProbe`, spawns `process.execPath` through a bare
+`spawnSync` with **no sandbox wrapping at all**. An unconfined child reads a world-readable
+`/etc/passwd` successfully, so the probe exits `unexpected` rather than `fsDenied`, and the
+function throws:
+
+```
+fs-denied probe should have returned EACCES (exit 10); got exit 2.
+```
+
+**A bare `runSandboxContractTests(manifestPath)` therefore fails 100% of the time on Linux and
+macOS**, and would have blocked every tool-generation request before consent. The SDK's own
+docstring on the option says *"Tests inject a stub here; production callers leave this
+undefined"* — which is wrong for any real caller, and is only survivable because there has never
+been one. **This should be reported upstream to `nimbus-agent/nimbus-sdk` as a doc-and-default
+bug**; it is not fixed here, because this repo consumes the published package.
+
+### 7.2 The obvious fix does not compile either
+
+Injecting `opts.runProbe` so the probe runs under the real PAL runner is the right instinct, but
+it does not type-check: `ProbeRunner` is **synchronous** — `(probe, arg) => ProbeResult`
+(`sandbox-contract.ts:110`) — while `SandboxRunner` exposes only `spawn(...)` returning a
+`ChildProcess` (`platform/sandbox/sandbox-runner.ts:14`). There is no `spawnSync` on the PAL
+interface, on any of the three platforms.
+
+Closing that gap means adding `spawnSync` to `SandboxRunner` and implementing it three times —
+a PAL widening that this row does not need and should not carry.
+
+### 7.3 Resolution for PR 1
+
+**PR 1 verifies confinement in the gateway, with its own probe, over the existing async `spawn`.**
+`toolgen/toolgen-confinement.ts` spawns the SDK's probe script — `probePath()` is exported, so the
+probe itself is reused even though its runner is not — through `deps.runner.spawn(...)` under the
+exact empty-network policy the tool will spawn with, awaits exit, and asserts `fs-denied` returns
+`fsDenied` and that a raw connect attempt fails. Same claim, same probe, no PAL widening, and it
+runs before consent.
+
+Adding `SandboxRunner.spawnSync` so the SDK's own function can be used is a reasonable follow-up
+and is **explicitly not PR 1's job**. Recorded here so the choice is visible rather than looking
+like the SDK export was overlooked — § 13 lists it as the deferred item it is.
 
 ## 8. Data model
 
@@ -339,9 +473,51 @@ stays absent from the Tauri allowlist (I7).
 
 CLI: `nimbus tool create | list | revoke | credential set`, and `nimbus tool save` in PR 3.
 
-Registration into the agent follows the `buildComputerUseTools` pattern verbatim
-(`engine/agent.ts:536`): a conditional spread contributing `{}` — *no tool at all*, not a disabled
-tool that errors when called — when no live session holds a generated tool.
+`nimbus prove` gains a `COVERAGE_CLASS_LABELS` entry for `tool` (`packages/cli/src/commands/prove.ts:39`).
+The label must say what the class covers and what it does not, the way the `browser` entry does:
+outbound requests a runtime-generated tool made **through the broker** — which is all of them,
+since no other route exists.
+
+### 9.3 Error codes
+
+One named code per refusal, so a caller can distinguish reasons without matching message text
+(the `ExecRuntimeError` convention):
+
+| Code | Trigger |
+|---|---|
+| `ERR_TOOLGEN_DISABLED` | `[tool_generation] enabled = false` |
+| `ERR_TOOLGEN_POLICY_DISABLED` | `EnforcedPolicy.capabilitiesDisabled` contains `tool_generation`, **or the accessor is absent** |
+| `ERR_TOOLGEN_AGENT_INITIATED_REFUSED` | agent-initiated while `allow_agent_initiated = false` (PR 2) |
+| `ERR_TOOLGEN_SESSION_BUDGET_EXCEEDED` | `max_tools_per_session` spent |
+| `ERR_TOOLGEN_SANDBOX_DEGRADED` | `canConfine(emptyPolicy)` non-null |
+| `ERR_TOOLGEN_CONFINEMENT_FAILED` | the § 7.3 probe did not confirm confinement |
+| `ERR_TOOLGEN_HOST_NOT_ALLOWED` | host outside the envelope, or refused by § 6.2.1 |
+| `ERR_TOOLGEN_BUDGET_EXHAUSTED` | `max_requests_per_tool` spent |
+| `ERR_TOOLGEN_RESPONSE_TOO_LARGE` | response exceeded `MAX_BROKERED_RESPONSE_BYTES` |
+
+Registration into the agent follows the `buildComputerUseTools` pattern (`engine/agent.ts:536`): a
+conditional spread contributing `{}` — *no tool at all*, not a disabled tool that errors when
+called — when no live session holds a generated tool.
+
+**With one correction that pattern alone does not supply.** `createNimbusEngineAgent` is called
+**once, at boot** (`gateway-main.ts:111`), so a static `tools:` map is fixed for the process
+lifetime and a tool registered mid-session would never become visible. Computer-use does not hit
+this because its tools exist for the whole process when the lane is configured and check session
+liveness at call time; a generated tool does not exist at boot at all.
+
+The fix is already available: Mastra's `tools` accepts a `DynamicArgument`
+(`@mastra/core/dist/agent/agent.d.ts:876`), i.e. a function resolved per request rather than a
+static object. `tools` becomes `(ctx) => ({ ...baseTools, ...buildGeneratedTools(sessionId, registry) })`,
+with `sessionId` read from the existing `agentRequestContext` `AsyncLocalStorage`. Newly approved
+tools are visible on the next turn with no agent mutation and no rebuild.
+
+This does change a load-bearing constructor for all three agents, so it is called out rather than
+buried: the change is `tools:` static → `tools:` function, and `baseTools` is otherwise untouched.
+
+**A dead tool stays dead.** If the child process exits, the registry marks the tool `terminated`
+and subsequent calls return an explanatory error. It is **not** silently restarted: a restart
+re-runs approved code the owner may reasonably believe stopped, and "it came back on its own" is
+not a property anyone approved.
 
 ## 10. Delivery split
 
@@ -363,6 +539,15 @@ gets a signing key and saved tools are signed locally. The second is right, and 
 of work, which is why it is its own PR rather than smuggled into PR 1. § 4.5 is what makes it
 cheap when it arrives.
 
+**Recorded direction for PR 3, not designed here:** a local signing keypair
+(`toolgen.signing.privkey` / `.pubkey`, Vault-only, joining `PLATFORM_VAULT_KEYS`); `nimbus tool
+save` signs the § 4.5 canonical artifact and writes it under `<configDir>/extensions/local.<toolId>/`;
+`verify-extensions.ts` verifies `local.*` against the local pubkey at every startup and refuses
+fail-closed on mismatch, so on-disk tampering between sessions is detected. That gives I16's
+property without third-party publisher infrastructure. **Unverified premise:** whether
+`verify-extensions.ts` can today distinguish a `local.*` extension from an unsigned dev install —
+PR 3 must check that before assuming this shape drops in.
+
 ## 11. Invariant I39 and static rule D29
 
 **I39 (draft).** *A generated tool reaches the network only through `toolgen/toolgen-broker.ts`'s
@@ -381,12 +566,22 @@ compute, including data it legitimately received. The gate proves the owner saw 
 destinations; it does not prove the body is honest about what it does with what it reads. This
 sentence belongs in the approval prompt as well as in this invariant.*
 
-**D29(a)** — the brokered-fetch MCP method literal is confined to `toolgen/toolgen-stub.ts` (which
-emits it into the generated skeleton) and `toolgen/toolgen-broker.ts` (which serves it). Nothing
-else may name it, so no other path can serve a generated tool's egress.
+**D29(a)** — the `nimbus/fetch` method literal is **defined once**, in `toolgen/toolgen-types.ts`,
+and confined there; the stub emitter and the broker import the constant rather than repeating the
+string. Confining a single definition site is a stronger rule than allow-listing the three files
+that would otherwise each carry a copy, and it removes the drift the `SANDBOX_POLICY_ENV` comment
+warns about for exactly this shape — a producer and a consumer that separately hardcode the same
+literal are two copies that can diverge invisibly.
 
 **D29(b)** — the generated-manifest constructor is confined to `toolgen/toolgen-stub.ts`, and
 `permissions.network` may not be assigned a non-empty literal there.
+
+**D29(c)** — the `toolgen.` Vault-key prefix is composed only in `toolgen/toolgen-credentials.ts`.
+This was a *stated bound* in § 6.3's first draft — "capability confinement is the real defense,
+the allow-list entry only documents the keyspace". A static rule is cheap and strictly better than
+a paragraph, so it is one. The bound narrows rather than disappears: a dynamically assembled
+prefix still evades a text scan, and capability confinement remains the primary defense, exactly
+as D27(b) says of the `media_grant` table.
 
 Per the triple rule, wiring + this document's promotion into `docs/SECURITY-INVARIANTS.md` + the
 enforcement test in `packages/gateway/src/security-invariants.test.ts` land in the same commit.
@@ -409,7 +604,16 @@ Then:
   merely that the outcome was a refusal. (Asserting the outcome alone passes for a gate that
   prompts and then refuses, which is the failure this ordering exists to prevent.)
 - A credential bound to host A is **not** attached to a request to host B by the same tool.
-- The registry is empty after a simulated restart.
+- The registry is empty after a simulated restart, and a tool whose child process exits is marked
+  `terminated` rather than restarted.
+- **§ 6.2.1, the SSRF set**: a request to an approved hostname that RESOLVES to loopback, to a
+  link-local or RFC 1918 address, or to `169.254.169.254` is refused — the check runs on the
+  resolved address, so a hostname-only test would pass while the defect stood.
+- A tool-supplied `Authorization` header is stripped and does not reach the wire.
+- A response past `MAX_BROKERED_RESPONSE_BYTES` is aborted rather than buffered.
+- **§ 7.3 red-proves by reverting**: a deliberately unconfined runner must make the confinement
+  probe FAIL. Without this the probe passes for any reason at all, including never having run —
+  which is precisely how the SDK's own default runner shipped broken (§ 7.1).
 - I39 enforcement in `security-invariants.test.ts`; D29(a)/(b) in
   `scripts/structure-audit/check-nimbus-invariants.ts`.
 - `toolgen/*` needs an `audit:coverage-scopes` entry; without one it is covered only by the
@@ -421,7 +625,20 @@ Then:
 
 - `tool_generation` is in `AI_V2_CAPABILITIES` and referenced nowhere else, tests included.
 - The § 3 platform table, at the cited line numbers.
-- `runSandboxContractTests` is exported by `@nimbus-dev/sdk/testing` and has zero callers here.
+- `runSandboxContractTests` is exported by `@nimbus-dev/sdk/testing` and has zero callers here —
+  **and its default probe runner is unsandboxed, so a bare call fails 100% on Linux/macOS for an
+  empty-network manifest** (§ 7.1). `ProbeRunner` is synchronous and `SandboxRunner` has no
+  `spawnSync`, so the obvious injection fix does not type-check either (§ 7.2).
+- `@mastra/mcp` holds its SDK client PRIVATE (`client.d.ts:60`) and exposes only
+  `setElicitationRequestHandler` (`:272`) — no custom request handler. The official SDK's
+  `Protocol.setRequestHandler` IS public (`protocol.d.ts:389`).
+- `createNimbusEngineAgent` is called ONCE at boot (`gateway-main.ts:111`), so a static `tools:`
+  map cannot see a mid-session registration; Mastra's `tools` accepts a `DynamicArgument`
+  (`@mastra/core/dist/agent/agent.d.ts:876`), which is the fix.
+- `exec/exec-runtimes.ts` records, as MEASURED Windows behaviour, that a file named as bun's entry
+  point fails under AppContainer while `import()` of the same file succeeds — which is why § 6.4
+  invokes via an `-e` import stub rather than `bun run <path>`.
+- `packages/cli/src/commands/prove.ts:39` holds `COVERAGE_CLASS_LABELS`.
 - `@mastra/mcp` registers a server→client handler for `elicitation/create` at
   `dist/index.js:22037`; `@modelcontextprotocol/sdk` 1.30.0 carries elicitation and sampling.
 - `COVERAGE_CLASSES` has nine members; seven are non-`none`.
@@ -439,6 +656,17 @@ Then:
   spiked before the rest of the gate is built.
 - That the sandbox forwards stdio for a network-empty policy identically on all three platforms
   for a long-lived MCP server, not merely for the short-lived exec child measured by I33.
-- That `runSandboxContractTests` runs green on a CI runner for an empty-permission manifest. CI
-  installs bubblewrap but not `nimbus-sandbox-helper`; an empty network set should not need it
+- That the § 7.3 probe runs green on a CI runner for an empty-permission manifest. CI installs
+  bubblewrap but not `nimbus-sandbox-helper`; an empty network set should not need it
   (`linux.ts:233-238` says so explicitly), but this has never been exercised from the gateway.
+
+**Deferred deliberately, recorded so it does not read as an oversight:**
+
+- **Adding `SandboxRunner.spawnSync`** so the SDK's own `runSandboxContractTests` becomes usable
+  (§ 7.2). Three platform implementations and a PAL widening this row does not need.
+- **Reporting the SDK default-probe bug upstream** to `nimbus-agent/nimbus-sdk`: the docstring
+  says production callers should leave `runProbe` undefined, and doing so cannot work. Separate
+  repo, separate PR.
+- **`http:` and RFC 1918 for local development.** § 6.2.1 denies both. A `[tool_generation]`
+  local-dev escape hatch is plausible and is NOT in PR 1 — the default must be deny, and an
+  opt-out wants its own thought about what it re-exposes.
