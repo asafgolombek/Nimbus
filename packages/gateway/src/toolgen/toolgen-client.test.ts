@@ -8,7 +8,7 @@ import { THIS_BINARY_COVERAGE } from "../egress/egress-coverage.ts";
 import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { ToolgenBroker } from "./toolgen-broker.ts";
-import { buildToolSpawnSpec, type ToolChildIo, wireToolProtocol } from "./toolgen-client.ts";
+import { buildToolSpawnSpec, ioFromSpawnedChild, wireToolProtocol } from "./toolgen-client.ts";
 import { emitToolScript } from "./toolgen-stub.ts";
 import type { ToolgenEnvelope } from "./toolgen-types.ts";
 
@@ -90,58 +90,22 @@ function unreachableBroker(): ToolgenBroker {
   });
 }
 
-/**
- * Adapts a `Bun.spawn` child to the `ToolChildIo` shape `wireToolProtocol` drives, so this test
- * exercises the REAL client protocol logic (`wireToolProtocol`) end to end, over a real process,
- * without going through `SandboxRunner`.
- */
-type RoundTripChild = ReturnType<typeof Bun.spawn<"pipe", "pipe", "inherit">>;
-
-function ioFromBunChild(child: RoundTripChild): ToolChildIo {
-  let onData: ((chunk: Uint8Array) => void) | undefined;
-  const pump = (async (): Promise<void> => {
-    const reader = child.stdout.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) return;
-      onData?.(value);
-    }
-  })();
-  // Never allowed to crash the test on its own — a read error surfaces through waitExit/describe/
-  // call timing out instead, which is the failure mode worth seeing.
-  pump.catch(() => {});
-
-  return {
-    writeLine: (line) => {
-      child.stdin.write(`${line}\n`);
-      child.stdin.flush();
-    },
-    onStdoutData: (cb) => {
-      onData = cb;
-    },
-    kill: () => {
-      child.kill();
-    },
-    waitExit: async () => {
-      await child.exited;
-    },
-  };
-}
-
 describe("runtime round trip", () => {
   // An earlier review noted the emitted protocol's newline framing (emitToolScript writes a "\n"
   // terminator, wireToolProtocol's reader splits on one) was proven only by inspection — if the two
   // ever disagreed, the protocol would deadlock at runtime with no unit test noticing. This test
   // closes that gap by spawning a REAL generated script and driving a REAL describe/call round trip
-  // through the production client code (`wireToolProtocol`).
+  // through the production client code (`wireToolProtocol` + the exported `ioFromSpawnedChild`
+  // adapter — the exact same functions `spawnGeneratedTool` itself calls).
   //
-  // The child is spawned directly with `Bun.spawn` rather than through the full `SandboxRunner` —
-  // driving real OS-level sandbox confinement (bwrap / sandbox-exec / AppContainer, chosen per
-  // platform) from a unit test is impractical, and it is not this test's job: Task 18 covers
-  // confinement. `ioFromBunChild` above adapts the Bun subprocess to the same `ToolChildIo` shape
-  // `spawnGeneratedTool` builds from a `SandboxRunner`-spawned `ChildProcess`, so the protocol code
-  // under test (`wireToolProtocol`) is the exact code the sandboxed path also runs — only how the
-  // child got spawned differs.
+  // The child here is spawned directly with a raw `Bun.spawn([bunExe, "-e", "import(...)"])` —
+  // deliberately NOT through `buildToolSpawnSpec` — because `buildToolSpawnSpec`'s output re-launches
+  // this binary in the `__nimbus-sandbox` role, which WOULD invoke real OS-level sandbox confinement
+  // (bwrap / sandbox-exec / AppContainer) the moment it's spawned, now that `spawnGeneratedTool`
+  // spawns that wrapped spec plainly with no separate opt-out layer. Driving that from a unit test
+  // is impractical and is not this test's job: Task 18 covers confinement. The point here is the
+  // WIRE PROTOCOL, not the sandbox — so this test exercises everything downstream of the spawn
+  // (`ioFromSpawnedChild` + `wireToolProtocol`) without exercising the spawn's OWN confinement.
   test("a real spawned child answers a real describe and a real call over the wire protocol", async () => {
     const dir = mkdtempSync(join(tmpdir(), "nimbus-toolgen-roundtrip-"));
     try {
@@ -165,7 +129,7 @@ describe("runtime round trip", () => {
       });
 
       const handle = wireToolProtocol(
-        ioFromBunChild(child),
+        ioFromSpawnedChild(child),
         { ...envelope, scriptPath },
         unreachableBroker(),
       );

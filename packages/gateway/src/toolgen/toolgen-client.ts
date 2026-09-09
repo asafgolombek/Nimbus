@@ -1,9 +1,6 @@
-import type { ChildProcess } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { wrapServerSpec } from "../connectors/lazy-mesh/wrap-server-spec.ts";
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
-import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
-import type { SandboxRunner } from "../platform/sandbox/sandbox-runner.ts";
 import type { ToolgenBroker } from "./toolgen-broker.ts";
 import { BROKERED_FETCH_METHOD, type ToolgenEnvelope } from "./toolgen-types.ts";
 
@@ -28,8 +25,15 @@ export interface ToolSpawnSpec {
  * is a whole module, not a snippet. The `-e` import stub satisfies both constraints at once.
  *
  * Goes through `wrapServerSpec`, so I15/D10 applies to a generated tool exactly as to a connector:
- * the resulting command/args re-launch this same binary in the `__nimbus-sandbox` role, and the
- * sandbox policy travels with it via `NIMBUS_SANDBOX_POLICY_JSON`/`NIMBUS_SANDBOX_CWD`.
+ * the resulting command/args re-launch this same binary in the `__nimbus-sandbox` role, which reads
+ * `NIMBUS_SANDBOX_POLICY_JSON`/`NIMBUS_SANDBOX_CWD` and is what actually confines the real `bun -e`
+ * process — see `sandbox-wrapper.ts`'s `runSandboxWrapper`. That is the ONE confinement layer.
+ * `spawnGeneratedTool` spawns this wrapped spec PLAINLY (no second, caller-side `SandboxRunner`),
+ * the same pattern every other long-lived stdio child in this tree uses
+ * (`connectors/lazy-mesh/user-mcp.ts`) — wrapping the spec a second time through a runner would
+ * launch the wrapper role process itself inside an OS sandbox, which then tries to build a SECOND,
+ * nested `SandboxRunner` and confine the real command again from inside an already-confined
+ * process. That shape has no precedent anywhere else in the tree and is not what this does.
  */
 export function buildToolSpawnSpec(envelope: ToolgenEnvelope, cwd: string): ToolSpawnSpec {
   const href = pathToFileURL(envelope.scriptPath).href;
@@ -53,10 +57,9 @@ export interface GeneratedToolHandle {
 
 /**
  * The minimal shape `wireToolProtocol` needs from a spawned child: write a line to its stdin,
- * subscribe to raw stdout chunks, and kill it. Factored out (rather than typed directly as Node's
- * `ChildProcess`) so the SAME protocol logic that `spawnGeneratedTool` drives over a
- * `SandboxRunner`-spawned child can be exercised in a test against a child spawned some other way,
- * without reimplementing the framing twice.
+ * subscribe to raw stdout chunks, and kill it. Factored out (rather than driving `Bun.spawn`'s
+ * result directly) so the SAME protocol logic `spawnGeneratedTool` drives can be exercised in a
+ * test against a child spawned some other way, without reimplementing the framing twice.
  */
 export interface ToolChildIo {
   writeLine(line: string): void;
@@ -66,25 +69,41 @@ export interface ToolChildIo {
   waitExit(): Promise<void>;
 }
 
-function childIoFromChildProcess(child: ChildProcess): ToolChildIo {
+/**
+ * Adapts a `Bun.spawn` subprocess (stdin + stdout piped; stderr may be piped or inherited) to the
+ * `ToolChildIo` shape. Exported so the runtime round-trip test drives the EXACT same adapter code
+ * production spawns through, rather than reimplementing it a second time.
+ */
+export function ioFromSpawnedChild<Err extends "pipe" | "inherit" | "ignore" = "pipe">(
+  child: Bun.Subprocess<"pipe", "pipe", Err>,
+): ToolChildIo {
+  let onData: ((chunk: Uint8Array) => void) | undefined;
+  const pump = (async (): Promise<void> => {
+    const reader = child.stdout.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      onData?.(value);
+    }
+  })();
+  // A read error must not crash the process — it surfaces as a hung/failed request instead, which
+  // is the failure mode worth seeing (and is what the caller's own timeout/rejection reports).
+  pump.catch(() => {});
+
   return {
     writeLine: (line) => {
-      child.stdin?.write(`${line}\n`);
+      child.stdin.write(`${line}\n`);
+      child.stdin.flush();
     },
     onStdoutData: (cb) => {
-      child.stdout?.on("data", (chunk: Buffer) => cb(chunk));
+      onData = cb;
     },
     kill: () => {
       child.kill();
     },
-    waitExit: () =>
-      new Promise<void>((resolve) => {
-        if (child.exitCode !== null || child.signalCode !== null) {
-          resolve();
-          return;
-        }
-        child.once("exit", () => resolve());
-      }),
+    waitExit: async () => {
+      await child.exited;
+    },
   };
 }
 
@@ -249,22 +268,30 @@ export function wireToolProtocol(
 /**
  * Spawn a generated tool and serve its brokered-fetch requests until closed.
  *
- * Scope bound (matching I33): the caller supplies the `SandboxRunner`, so confinement rides
- * whatever policy `runner.spawn` enforces for `policyFromManifest(envelope.artifact.manifest)` —
- * this function performs no confinement decision of its own.
+ * Spawns the `wrapServerSpec`-wrapped spec PLAINLY, via `Bun.spawn` — no `SandboxRunner` here. The
+ * spec's command already re-launches this binary in the `__nimbus-sandbox` role, and THAT process
+ * is what builds a `SandboxRunner` and confines the real `bun -e` command when it starts (see
+ * `buildToolSpawnSpec`'s docstring). This function has no `SandboxRunner` to hold and consults none
+ * — the gate that gets an owner's approval before spawning anything (Task 8's
+ * `assertToolConfinement`) is what verifies confinement is possible at all, ahead of this call.
+ * Fewer capabilities in this file is the point, matching every other `wrapServerSpec`-then-plain-
+ * spawn caller in the tree (`connectors/lazy-mesh/user-mcp.ts`).
+ *
+ * The only evidence of confinement visible from here is that `buildToolSpawnSpec`'s returned `env`
+ * carries `NIMBUS_SANDBOX_POLICY_JSON` — asserted directly in `toolgen-client.test.ts`.
  */
 export async function spawnGeneratedTool(
   envelope: ToolgenEnvelope,
   broker: ToolgenBroker,
   cwd: string,
-  runner: SandboxRunner,
 ): Promise<GeneratedToolHandle> {
   const spec = buildToolSpawnSpec(envelope, cwd);
-  const child = runner.spawn(spec.command, spec.args, {
-    policy: policyFromManifest(envelope.artifact.manifest),
+  const child = Bun.spawn<"pipe", "pipe", "pipe">([spec.command, ...spec.args], {
     env: spec.env,
     cwd,
-    stdio: ["pipe", "pipe", "pipe"],
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  return wireToolProtocol(childIoFromChildProcess(child), envelope, broker);
+  return wireToolProtocol(ioFromSpawnedChild(child), envelope, broker);
 }
