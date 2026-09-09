@@ -20,6 +20,7 @@ const NONE: CoverageVector = {
   sync: "none",
   model: "none",
   peer: "none",
+  tool: "none",
 };
 
 /**
@@ -27,14 +28,15 @@ const NONE: CoverageVector = {
  * `COVERAGE_CLASSES` (which IS the wire order) shows up as a diff here rather than being absorbed
  * by a round-trip through `serializeCoverage`.
  *
- * Every hardcoded coverage string in this file must list ALL NINE classes. A string that omits one
+ * Every hardcoded coverage string in this file must list ALL TEN classes. A string that omits one
  * makes `parseCoverage` return `null` for the MISSING-class reason, which would let a test that
  * targets some other defect keep passing while exercising nothing.
  *
- * `browser` heads the string because the array is key-sorted and `browser` < `chatops`.
+ * `browser` heads the string because the array is key-sorted and `browser` < `chatops`; `tool`
+ * trails it for the same reason (`"task" < "tool"`).
  */
 const CANONICAL =
-  "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call";
+  "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call;tool=per-call";
 
 /** The six-class string every binary before the `http` class wrote. See the blackout test below. */
 const PRE_HTTP_MARKER = "mcp=per-call;model=none;peer=none;session=none;sync=none;task=per-call";
@@ -76,6 +78,10 @@ describe("coverage vector", () => {
       sync: "per-run",
       model: "per-call",
       peer: "none",
+      // "per-call", raised from "none" in the same commit that gives `tool-egress.ts`'s appender a
+      // reachable caller: `toolgen/toolgen-client.ts`'s `spawnGeneratedTool` wires
+      // `ToolgenBroker.handleFetch` onto the spawned tool's stdio protocol.
+      tool: "per-call",
     });
   });
 
@@ -94,6 +100,7 @@ describe("coverage vector", () => {
       "session",
       "sync",
       "task",
+      "tool",
     ]);
     expect([...COVERAGE_CLASSES]).toEqual([...COVERAGE_CLASSES].sort());
   });
@@ -115,9 +122,11 @@ describe("coverage vector", () => {
     // strictness exists to prevent. This is the fail-safe direction. Do not relax it.
     expect(parseCoverage(PRE_HTTP_MARKER)).toBeNull();
     // ...and the reason is genuinely the missing class, not some unrelated malformation: the same
-    // string with every class missing from this fixture (`http`, `chatops`, and now `browser` too)
-    // restored parses fine.
-    expect(parseCoverage(`browser=none;chatops=none;http=none;${PRE_HTTP_MARKER}`)).not.toBeNull();
+    // string with every class missing from this fixture (`http`, `chatops`, `browser`, and now
+    // `tool` too) restored parses fine.
+    expect(
+      parseCoverage(`browser=none;chatops=none;http=none;${PRE_HTTP_MARKER};tool=none`),
+    ).not.toBeNull();
   });
 
   test("serialize is stable and key-sorted", () => {
@@ -175,6 +184,7 @@ describe("coverage vector", () => {
       sync: "per-run",
       model: "per-call",
       peer: "per-call",
+      tool: "per-call",
     };
     expect(weakestCoverage([rich, THIS_BINARY_COVERAGE])).toEqual({
       browser: "per-run", // this binary's per-run is weaker than rich's per-call
@@ -186,6 +196,7 @@ describe("coverage vector", () => {
       sync: "per-run", // both per-run
       model: "per-call", // both per-call
       peer: "none",
+      tool: "per-call", // both per-call
     });
   });
 
@@ -249,5 +260,30 @@ describe("browser coverage class", () => {
 
   test("ALL_NONE_COVERAGE carries browser too", () => {
     expect(ALL_NONE_COVERAGE.browser).toBe("none");
+  });
+});
+
+describe("tool coverage class", () => {
+  test("tool is per-call — raised WITH its production caller, not ahead of it", () => {
+    // `egress/tool-egress.ts`'s `recordToolEgress` shipped earlier with no production caller, so
+    // this stayed "none" until now: `toolgen/toolgen-client.ts`'s `spawnGeneratedTool` wires
+    // `ToolgenBroker.handleFetch` (which calls `recordToolEgress`) onto the spawned tool's stdio
+    // protocol, giving a generated tool the ability to make a brokered request in the same commit
+    // this entry rose from "none".
+    expect(COVERAGE_CLASSES).toContain("tool");
+    expect(THIS_BINARY_COVERAGE.tool).toBe("per-call");
+  });
+
+  test("tool sorts LAST — membership order IS the wire format", () => {
+    expect([...COVERAGE_CLASSES]).toEqual([...COVERAGE_CLASSES].sort());
+    expect(COVERAGE_CLASSES[COVERAGE_CLASSES.length - 1]).toBe("tool");
+  });
+
+  test("serializeCoverage trails with tool=per-call", () => {
+    expect(serializeCoverage(THIS_BINARY_COVERAGE).endsWith(";tool=per-call")).toBe(true);
+  });
+
+  test("ALL_NONE_COVERAGE carries tool too, and stays none regardless of THIS_BINARY_COVERAGE", () => {
+    expect(ALL_NONE_COVERAGE.tool).toBe("none");
   });
 });

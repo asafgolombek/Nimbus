@@ -9,6 +9,7 @@ import type { IPCServer } from "../ipc/index.ts";
 import type { LlmRegistry } from "../llm/registry.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { SyncScheduler } from "../sync/scheduler.ts";
+import type { ToolgenRegistry } from "../toolgen/toolgen-registry.ts";
 import type { NimbusVault } from "../vault/index.ts";
 import type { AgentVendor } from "./assemble.ts";
 import type { HostActivity } from "./host-activity.ts";
@@ -48,6 +49,14 @@ export interface PlatformServices {
   sandboxRunner: SandboxRunner;
   /** Host power/idle state, used by the fleet scheduler and by `[embedding] pause_on_battery`. */
   hostActivity: HostActivity;
+  /**
+   * S2 runtime tool generation (I39). Always constructed (like `sandboxRunner`) even when
+   * `[tool_generation] enabled` is false — the registry itself has no on/off switch, only
+   * `createGeneratedTool` refuses before anything is registered. `gateway-main.ts`'s shutdown
+   * drains it (`revokeAll()`) alongside `removeAllToolScripts` — the in-memory half and the
+   * on-disk half of "ephemeral means ephemeral."
+   */
+  toolgenRegistry: ToolgenRegistry;
   /**
    * The overnight agent fleet's 60-second tick. ABSENT — not a disabled instance — when `[fleet]
    * enabled` is false or no `[[fleet.job]]` is configured, which is the default on both counts, so

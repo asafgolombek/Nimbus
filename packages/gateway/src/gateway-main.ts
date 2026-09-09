@@ -13,6 +13,7 @@ import { armGatewayLifecycleDiagnostics } from "./platform/exit-diagnostics.ts";
 import { removeGatewayStateFile, writeGatewayStateFile } from "./platform/gateway-state-file.ts";
 import { createPlatformServices } from "./platform/index.ts";
 import type { SandboxRunner } from "./platform/sandbox/sandbox-runner.ts";
+import { removeAllToolScripts } from "./toolgen/toolgen-script-store.ts";
 import { GATEWAY_VERSION } from "./version.ts";
 
 function emitSandboxPostureBannerIfDegraded(runner: SandboxRunner): void {
@@ -60,6 +61,25 @@ export function createChatOpsAskEngine(
       const r = await runAskFn(buildParams(query));
       return r.reply;
     });
+}
+
+/**
+ * S2 runtime tool generation (I39) shutdown drain — extracted to a standalone export so it is
+ * unit-testable independent of `main()`'s process.exit/signal-handler machinery, the same reason
+ * `createChatOpsAskEngine` above is not inlined either.
+ *
+ * BOTH halves matter, in order: `revokeAllToolgenRegistrations` clears the in-memory registry
+ * (closing every live generated-tool child process); `removeAllToolScripts` clears the on-disk
+ * ephemeral script store under the config dir. A drain that runs only the first LOOKS identical
+ * to success from memory alone — the on-disk half is what a restart would otherwise still see.
+ */
+export async function drainToolgenOnShutdown(deps: {
+  readonly revokeAllToolgenRegistrations: () => Promise<void>;
+  readonly removeAllToolScripts: (configDir: string) => Promise<void>;
+  readonly configDir: string;
+}): Promise<void> {
+  await deps.revokeAllToolgenRegistrations();
+  await deps.removeAllToolScripts(deps.configDir);
 }
 
 export async function main(): Promise<void> {
@@ -234,6 +254,15 @@ export async function main(): Promise<void> {
     }
     try {
       await platform.syncScheduler.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await drainToolgenOnShutdown({
+        revokeAllToolgenRegistrations: () => platform.toolgenRegistry.revokeAll(),
+        removeAllToolScripts,
+        configDir: platform.paths.configDir,
+      });
     } catch {
       /* ignore */
     }

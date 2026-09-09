@@ -1071,6 +1071,79 @@ export function loadNimbusComputerUseFromConfigDir(configDir: string): NimbusCom
   );
 }
 
+export type NimbusToolGenerationToml = {
+  enabled: boolean;
+  maxToolsPerSession: number;
+  maxRequestsPerTool: number;
+  requestTimeoutMs: number;
+};
+
+/**
+ * DEFAULT OFF. `allow_agent_initiated` and `allowed_hosts` are deliberately ABSENT in PR 1 — they
+ * belong to the agent-initiated path (spec § 9.1) and a key parsed but unused would read as a
+ * shipped control that does nothing.
+ */
+export const DEFAULT_NIMBUS_TOOL_GENERATION_TOML: NimbusToolGenerationToml = {
+  enabled: false,
+  maxToolsPerSession: 3,
+  maxRequestsPerTool: 50,
+  requestTimeoutMs: 10_000,
+};
+
+function applyNimbusToolGenerationKey(
+  out: Partial<NimbusToolGenerationToml>,
+  key: string,
+  valRaw: string,
+): void {
+  // A non-positive value leaves the default in place rather than assigning it: `max_requests_per_tool = 0`
+  // must not silently mean "no requests allowed", and a negative timeout must not mean "expire at once".
+  const positive = (assign: (n: number) => void): void => {
+    const n = parseIntDec(valRaw);
+    if (n !== undefined && n > 0) assign(n);
+  };
+  switch (key) {
+    case "enabled":
+      out.enabled = valRaw.trim().toLowerCase() === "true";
+      break;
+    case "max_tools_per_session":
+      positive((n) => {
+        out.maxToolsPerSession = n;
+      });
+      break;
+    case "max_requests_per_tool":
+      positive((n) => {
+        out.maxRequestsPerTool = n;
+      });
+      break;
+    case "request_timeout_ms":
+      positive((n) => {
+        out.requestTimeoutMs = n;
+      });
+      break;
+    default:
+      break;
+  }
+}
+
+export function parseNimbusToolGenerationToml(
+  raw: string,
+  defaults: NimbusToolGenerationToml = DEFAULT_NIMBUS_TOOL_GENERATION_TOML,
+): NimbusToolGenerationToml {
+  const out: Partial<NimbusToolGenerationToml> = {};
+  forEachSectionEntry(raw, "[tool_generation]", (key, valRaw) => {
+    applyNimbusToolGenerationKey(out, key, valRaw);
+  });
+  return { ...defaults, ...out };
+}
+
+export function loadNimbusToolGenerationFromConfigDir(configDir: string): NimbusToolGenerationToml {
+  return loadTomlSection(
+    join(configDir, "nimbus.toml"),
+    DEFAULT_NIMBUS_TOOL_GENERATION_TOML,
+    parseNimbusToolGenerationToml,
+  );
+}
+
 export type NimbusFederationToml = {
   enabled: boolean;
   consentTimeoutSeconds: number;

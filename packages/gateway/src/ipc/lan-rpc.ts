@@ -54,6 +54,13 @@ const FORBIDDEN_OVER_LAN = new Set([
   // here worth preserving over the wire — a peer with a legitimate question has `federation.ask`,
   // which goes through the I17 query gate.
   "fleet",
+  // S2 runtime tool generation — the WHOLE namespace, matching exec/computer/media/fleet.
+  // `toolgen.create` is RCE-class by definition (it registers model-authored code that then runs),
+  // and `toolgen.approvalRespond` is the LOCAL owner answering a registration prompt — admitting it
+  // over the wire would let a paired peer approve LLM-authored code running on the owner's machine
+  // with the owner's credentials, defeating the entire I39 gate. `toolgen.list` would enumerate
+  // which tools and which hosts the owner has approved. No read verb here is worth preserving.
+  "toolgen",
   "audit", // exfiltration-class namespace
   "data", // exfiltration-class namespace
   "security", // exfiltration-class — credential locations must not leak to LAN peers

@@ -119,6 +119,26 @@ describe("checkLanMethodAllowed", () => {
     },
   );
 
+  /**
+   * The whole `toolgen` namespace (S2 runtime tool generation), matching exec/computer/media/
+   * fleet above. `toolgen.create` is RCE-class by definition -- it registers model-authored code
+   * that then runs -- and `toolgen.approvalRespond` is the LOCAL owner answering a registration
+   * prompt; admitting either over the wire would let a paired peer approve LLM-authored code
+   * running on the owner's machine with the owner's credentials, defeating the entire I39 gate.
+   * Asserted on the MESSAGE, not just the class, for the same reason as fleet above: the namespace
+   * forbid and the write gate throw the same `LanError`.
+   */
+  test.each(["toolgen.create", "toolgen.approvalRespond", "toolgen.list", "toolgen.revoke"])(
+    "%s is not callable over LAN regardless of grant-write",
+    (method) => {
+      for (const writeAllowed of [true, false]) {
+        expect(() => checkLanMethodAllowed(method, { peerId: "p", writeAllowed })).toThrow(
+          /not callable over LAN/,
+        );
+      }
+    },
+  );
+
   test("rejects connector.addMcp even with writeAllowed false (also forbidden, not just write-gated)", () => {
     expect(() =>
       checkLanMethodAllowed("connector.addMcp", { peerId: "p", writeAllowed: false }),

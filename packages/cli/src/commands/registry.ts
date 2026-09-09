@@ -60,6 +60,7 @@ export const COMMAND_NAMES = [
   "team",
   "telemetry",
   "test",
+  "tool",
   "tribal",
   "tui",
   "update",

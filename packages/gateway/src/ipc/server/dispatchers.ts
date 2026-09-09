@@ -73,6 +73,7 @@ import type { ClientSession } from "../session.ts";
 import { dispatchSessionRpc, SessionRpcError } from "../session-rpc.ts";
 import { dispatchShareRpc, ShareRpcError } from "../share-rpc.ts";
 import { dispatchTeamVaultRpc, TeamVaultRpcError } from "../teamvault-rpc.ts";
+import { dispatchToolgenRpc, ToolgenRpcError } from "../toolgen-rpc.ts";
 import { dispatchTribalRpc } from "../tribal-rpc.ts";
 import { dispatchUpdaterRpc, UpdaterRpcError } from "../updater-rpc.ts";
 import { dispatchVoiceRpc, VoiceRpcError } from "../voice-rpc.ts";
@@ -1216,6 +1217,32 @@ export async function tryDispatchExecRpc(
 }
 
 /**
+ * S2 runtime tool generation (invariant I39). Same 3-arg shape as exec: the HITL here is the
+ * broadcast consent broker answered by the local owner, not a per-client `ToolExecutor` channel.
+ * Present only when assembled at boot, so the dispatcher skips cleanly when the capability is not
+ * wired. `toolgen.create` is RCE-class (it registers model-authored code that then runs) and is
+ * NOT Tauri-exposed (I7) — do not add `toolgen.*` to `ALLOWED_METHODS` in
+ * `ui/src-tauri/src/gateway_bridge.rs`.
+ */
+export async function tryDispatchToolgenRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  if (!method.startsWith("toolgen.")) return phase4RpcSkipped;
+  const rpc = ctx.options.toolgenRpcCtx;
+  if (rpc === undefined) return phase4RpcSkipped;
+  try {
+    const out = await dispatchToolgenRpc(method, params, rpc);
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof ToolgenRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+    throw e;
+  }
+  return phase4RpcSkipped;
+}
+
+/**
  * Computer-use browser lane (Spine S2 slice 2, invariant I35). Same 3-arg shape as exec: the
  * HITL here is the two broadcast consent brokers (envelope-open + per-action) answered by the
  * local owner, not a per-client `ToolExecutor` channel. Present only when assembled at boot, so
@@ -1538,6 +1565,7 @@ const PHASE4_PLATFORM_DISPATCHERS: ReadonlyArray<
   tryDispatchTribalRpc,
   tryDispatchShareRpc,
   tryDispatchExecRpc,
+  tryDispatchToolgenRpc,
   tryDispatchComputerRpc,
   tryDispatchFleetRpc,
   tryDispatchMediaRpc,

@@ -41,6 +41,7 @@ import type { MediaRpcCtx } from "../media-rpc.ts";
 import type { PolicyRpcCtx } from "../policy-rpc.ts";
 import type { ClientSession } from "../session.ts";
 import type { ShareRpcCtx } from "../share-rpc.ts";
+import type { ToolgenRpcCtx } from "../toolgen-rpc.ts";
 import type { TribalRpcCtx } from "../tribal-rpc.ts";
 import type { WorkflowRunHandler } from "../workflow-invoke.ts";
 import type { ClientKindStore } from "./client-kind.ts";
@@ -168,6 +169,12 @@ export type CreateIpcServerOptions = {
   // otherwise, and fleet.runNow refuses rather than silently doing nothing. The whole namespace is
   // LAN-forbidden (I5, `FORBIDDEN_OVER_LAN`) and absent from the Tauri allowlist (I7).
   fleetRpcCtx?: FleetRpcCtx;
+  // S2 runtime tool generation (I39). toolgen.create gates through the owner consent broker
+  // (fail-closed on timeout/deny) inside `createGeneratedTool`; toolgen.approvalRespond is the
+  // owner's answer channel. Present only when assembled at boot; the dispatcher skips cleanly when
+  // unset. The whole namespace is RCE-class: NOT Tauri-exposed (I7), and LAN-forbidden (I5) —
+  // `toolgen.create` registers model-authored code that then runs, matching exec/computer.
+  toolgenRpcCtx?: ToolgenRpcCtx;
   // Glossary (S1 Local Brain). The dependency seam behind the glossary.* IPC namespace
   // (refresh, rebuild — both long-running jobs, see ipc/glossary-rpc.ts). Always present
   // once assembled at boot; when [glossary].enabled is false, the refresher reports

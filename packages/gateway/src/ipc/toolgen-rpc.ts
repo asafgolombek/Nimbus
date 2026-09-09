@@ -1,0 +1,124 @@
+import { asRecord } from "../connectors/unknown-record.ts";
+import type { ToolgenConsentBroker } from "../toolgen/toolgen-consent-broker.ts";
+import { createGeneratedTool, type ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
+import type { ToolgenEnvelope } from "../toolgen/toolgen-types.ts";
+import {
+  dispatchByMethod,
+  type RpcMethodHandlerMap,
+  type RpcMissOrHit,
+} from "./_lib/dispatch-by-method.ts";
+
+/** A `ToolgenRpcError` carries the JSON-RPC error code surfaced by the dispatcher chain. */
+export class ToolgenRpcError extends Error {
+  constructor(
+    readonly rpcCode: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ToolgenRpcError";
+  }
+}
+
+export interface ToolgenRpcCtx {
+  /** Everything `createGeneratedTool` needs; assembled once at boot. Carries the registry. */
+  readonly gateDeps: ToolgenGateDeps;
+  /** The owner-approval broker this surface answers into. */
+  readonly consent: ToolgenConsentBroker;
+  /**
+   * Task 11's `removeToolScript`, bound to the config dir. `toolgen.revoke` must drop BOTH halves
+   * -- the live child (`registry.revoke`, closes the spawned process) AND the approved body on
+   * disk (this) -- a revoked tool that leaves its script behind is a tool the next session could
+   * still be pointed at. The CLI cannot do this itself: it never touches the gateway's config dir
+   * directly, only IPC, so the drop has to happen on this side of the wire.
+   */
+  readonly removeScript: (toolId: string) => Promise<void>;
+}
+
+/**
+ * Module-private, matching `exec-rpc.ts:35` / `share-rpc.ts:108`.
+ *
+ * There is no shared IPC validation module: `requireString` is redefined in every `ipc/*-rpc.ts`
+ * file across three signatures. Consolidating them is a worthwhile cleanup but would put most of
+ * this feature's diff in unrelated RPC modules, so it is deliberately left alone here.
+ */
+function requireString(params: unknown, key: string): string {
+  const rec = asRecord(params);
+  const v = rec === undefined ? undefined : rec[key];
+  if (typeof v !== "string" || v.length === 0) {
+    throw new ToolgenRpcError(-32602, `ERR_INVALID_PARAMS: ${key} (non-empty string) required`);
+  }
+  return v;
+}
+
+/**
+ * Every element must be a string; a non-array or a mixed array yields an EMPTY host list, never a
+ * partial one -- a half-parsed host list is a set the caller did not ask for, and silently
+ * dropping the bad element would approve a tool for a host list nobody typed. `createGeneratedTool`
+ * refuses an empty host list outright (`ERR_TOOLGEN_HOST_NOT_ALLOWED`), so a malformed `hosts`
+ * array is turned into a clean refusal rather than a partially-granted tool.
+ */
+function stringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.every((e) => typeof e === "string") ? [...(v as string[])] : [];
+}
+
+/**
+ * The `toolgen.list` wire shape: enough for an owner to recognise and manage a tool (I don't
+ * return `body`/`manifest`/`scriptPath` here — those are plumbing, not a listing). The full
+ * artifact the owner approved is `toolgen.approvalRequest`'s payload, not this one.
+ */
+function toListEntry(envelope: ToolgenEnvelope): Record<string, unknown> {
+  return {
+    toolId: envelope.artifact.toolId,
+    toolName: envelope.artifact.toolName,
+    description: envelope.artifact.description,
+    approvedHosts: envelope.artifact.approvedHosts,
+    credentialHosts: envelope.artifact.credentialHosts,
+    sessionId: envelope.sessionId,
+    approvedAt: envelope.approvedAt,
+  };
+}
+
+const HANDLERS: RpcMethodHandlerMap<ToolgenRpcCtx> = {
+  // The I39 chokepoint's only transport. Everything crossing this boundary is `unknown` until
+  // validated -- no casts on `params`.
+  "toolgen.create": async (params, ctx) => {
+    const rec = asRecord(params) ?? {};
+    const sessionId = requireString(params, "sessionId");
+    const description = requireString(params, "description");
+    const hosts = stringArray(rec["hosts"]);
+    return createGeneratedTool({ sessionId, description, hosts }, ctx.gateDeps);
+  },
+
+  "toolgen.approvalRespond": (params, ctx) => {
+    const requestId = requireString(params, "requestId");
+    // Strict `=== true`: a missing or malformed field must read as denial, never approval.
+    const approved = asRecord(params)?.["approved"] === true;
+    return { matched: ctx.consent.respond(requestId, approved) };
+  },
+
+  // Live tools only (a terminated tool is not offered back to a caller as though it still
+  // worked) -- `ToolgenRegistry.forSession` already applies that filter.
+  "toolgen.list": (params, ctx) => {
+    const sessionId = requireString(params, "sessionId");
+    return { tools: ctx.gateDeps.registry.forSession(sessionId).map(toListEntry) };
+  },
+
+  "toolgen.revoke": async (params, ctx) => {
+    const toolId = requireString(params, "toolId");
+    // BOTH halves, always -- see `ToolgenRpcCtx.removeScript`'s doc comment. `registry.revoke` on
+    // an unknown toolId is a no-op (Task 10), and `removeScript` on one that never wrote a script
+    // is idempotent (Task 11), so this is safe to call unconditionally rather than probing first.
+    await ctx.gateDeps.registry.revoke(toolId);
+    await ctx.removeScript(toolId);
+    return { revoked: true };
+  },
+};
+
+export function dispatchToolgenRpc(
+  method: string,
+  params: unknown,
+  ctx: ToolgenRpcCtx,
+): Promise<RpcMissOrHit> {
+  return dispatchByMethod(method, params, ctx, HANDLERS);
+}

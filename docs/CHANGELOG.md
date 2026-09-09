@@ -8,6 +8,46 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-09-09 — Runtime tool generation, PR 1 of 3: the substrate. Drafting is NOT implemented.**
+  Closes the last unstarted S2 spine row's first slice. New invariant **I39** + static rule **D29**
+  (three sub-rules), a tenth I29 egress coverage class `tool` at `per-call`, the default-off
+  `[tool_generation]` config, the LAN-forbidden `toolgen.*` IPC namespace (absent from the Tauri
+  allowlist, I7), and `nimbus tool create|list|revoke|credential set`. No schema migration —
+  ephemeral means in-memory, and a gateway restart drops every generated tool.
+
+  **Read the headline literally: `nimbus tool create` does not yet generate a tool.**
+  `ToolgenGateDeps.draftBody` — the step where the model authors the body — is deliberately
+  unimplemented and refuses with `ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED`; the CLI surfaces that
+  refusal by name and points at the design spec. Designing that prompt means designing an LLM
+  prompt for the highest-blast-radius capability in the repository, whose output is code that runs
+  with the owner's credentials — it gets its own design pass, not an improvisation inside a large
+  PR to make a command look finished. `bindCredentials`/`revokeCredentials` are honest no-ops for
+  the same reason, and `--credential` is parsed but deliberately NOT transmitted, stated in
+  `docs/cli-reference.md`.
+
+  **What IS delivered, fully tested:** the ordered `toolgen/toolgen-gate.ts` chokepoint (every
+  refusal decided before the owner is prompted, so a disabled capability never advertises itself);
+  a generated tool with `permissions.network: []` **by construction**, so a raw `fetch()` in the
+  generated body fails at the OS — proven by an integration test with an unconfined positive
+  control, a `STARTED` execution marker, and the production spawn path; `toolgen-broker.ts` as the
+  only route out, enforcing an owner-approved host allow-list, refusing loopback/RFC1918/link-local
+  and the cloud-metadata address on **every** resolved A/AAAA record, refusing redirects rather
+  than following them, stripping tool-supplied auth headers, bounding response size, and appending
+  a `tool`-class ledger row before every request (fail-closed); per-host credential binding the
+  tool never sees; and the I11 `<tool_output>` envelope as a REQUIRED parameter, so an unwrapped
+  generated tool is a compile error.
+
+  **Two residuals stated in I39 rather than discovered later.** The destination check is
+  check-then-connect, not connect-to-checked: the broker validates every resolved address, then
+  issues the request against the hostname while the runtime resolves DNS again independently, and
+  Bun's `fetch` exposes no connection-pinning hook (probed 1.3.14) — so someone controlling the DNS
+  of a host the owner ALREADY approved can still rebind between the two lookups. And the allow-list
+  bounds WHERE a tool may send, never WHAT: an approved host may receive anything the tool can
+  compute. Both are disclosed in the owner's approval prompt as well as in the invariant.
+
+  **Verified on Windows only.** The cross-platform sandbox proof is written without a platform skip
+  and will execute on the Linux and macOS CI legs, but those runs are unobserved as of this entry.
+
 - **2026-09-08 — Overnight sub-agent fleets, PR 2a: the change digest.** `nimbus fleet digest
   [--since <duration>] [--json]` over the new `fleet.digest` IPC method — a local, deterministic
   Markdown report of what moved between each fleet job's newest brief and its predecessor.
