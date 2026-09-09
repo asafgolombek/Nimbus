@@ -210,9 +210,12 @@ export const THIS_BINARY_COVERAGE: CoverageVector = {
   sync: "per-run",
   model: "per-call",
   peer: "none",
-  // "none" until Task 12 gives the appender a reachable caller. This file's
-  // own rule: never raise a class ahead of the code that makes the claim true.
-  tool: "none",
+  // RAISED from "none" in the same commit that lets a generated tool make a brokered request:
+  // `toolgen/toolgen-client.ts`'s `spawnGeneratedTool` wires `ToolgenBroker.handleFetch` onto the
+  // hand-rolled line-delimited JSON protocol the spawned tool speaks over stdio — deliberately not
+  // an MCP client on either end (see that file's docstring for why). Per this file's own rule,
+  // never ahead of that landing.
+  tool: "per-call",
 };
 
 /**

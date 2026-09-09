@@ -36,7 +36,7 @@ const NONE: CoverageVector = {
  * trails it for the same reason (`"task" < "tool"`).
  */
 const CANONICAL =
-  "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call;tool=none";
+  "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call;tool=per-call";
 
 /** The six-class string every binary before the `http` class wrote. See the blackout test below. */
 const PRE_HTTP_MARKER = "mcp=per-call;model=none;peer=none;session=none;sync=none;task=per-call";
@@ -78,9 +78,10 @@ describe("coverage vector", () => {
       sync: "per-run",
       model: "per-call",
       peer: "none",
-      // "none" until Task 12 gives `tool-egress.ts`'s appender a reachable caller
-      // (`toolgen/toolgen-broker.ts`) — never raised ahead of that landing.
-      tool: "none",
+      // "per-call", raised from "none" in the same commit that gives `tool-egress.ts`'s appender a
+      // reachable caller: `toolgen/toolgen-client.ts`'s `spawnGeneratedTool` wires
+      // `ToolgenBroker.handleFetch` onto the spawned tool's stdio protocol.
+      tool: "per-call",
     });
   });
 
@@ -195,7 +196,7 @@ describe("coverage vector", () => {
       sync: "per-run", // both per-run
       model: "per-call", // both per-call
       peer: "none",
-      tool: "none", // this binary saw nothing
+      tool: "per-call", // both per-call
     });
   });
 
@@ -263,13 +264,14 @@ describe("browser coverage class", () => {
 });
 
 describe("tool coverage class", () => {
-  test("tool is a coverage class at none — no reachable caller until Task 12", () => {
-    // `tool-egress.ts`'s `recordToolEgress` ships in this task with no production caller, so
-    // claiming any granularity here would be a claim with no code behind it. Task 12 raises this
-    // to `per-call` in the same commit that gives a generated tool the ability to make a brokered
-    // request.
+  test("tool is per-call — raised WITH its production caller, not ahead of it", () => {
+    // `egress/tool-egress.ts`'s `recordToolEgress` shipped earlier with no production caller, so
+    // this stayed "none" until now: `toolgen/toolgen-client.ts`'s `spawnGeneratedTool` wires
+    // `ToolgenBroker.handleFetch` (which calls `recordToolEgress`) onto the spawned tool's stdio
+    // protocol, giving a generated tool the ability to make a brokered request in the same commit
+    // this entry rose from "none".
     expect(COVERAGE_CLASSES).toContain("tool");
-    expect(THIS_BINARY_COVERAGE.tool).toBe("none");
+    expect(THIS_BINARY_COVERAGE.tool).toBe("per-call");
   });
 
   test("tool sorts LAST — membership order IS the wire format", () => {
@@ -277,11 +279,11 @@ describe("tool coverage class", () => {
     expect(COVERAGE_CLASSES[COVERAGE_CLASSES.length - 1]).toBe("tool");
   });
 
-  test("serializeCoverage trails with tool=none", () => {
-    expect(serializeCoverage(THIS_BINARY_COVERAGE).endsWith(";tool=none")).toBe(true);
+  test("serializeCoverage trails with tool=per-call", () => {
+    expect(serializeCoverage(THIS_BINARY_COVERAGE).endsWith(";tool=per-call")).toBe(true);
   });
 
-  test("ALL_NONE_COVERAGE carries tool too", () => {
+  test("ALL_NONE_COVERAGE carries tool too, and stays none regardless of THIS_BINARY_COVERAGE", () => {
     expect(ALL_NONE_COVERAGE.tool).toBe("none");
   });
 });
