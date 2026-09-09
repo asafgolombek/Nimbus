@@ -1,9 +1,10 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  cleanupExtensionTestDirs,
   setupFreshExtensionDb,
   stageSignedExtensionOnDisk,
 } from "../../test/fixtures/extension.ts";
@@ -15,6 +16,8 @@ import { upsertGraphEntity, upsertGraphRelation } from "../graph/relationship-gr
 import { LocalIndex } from "../index/local-index.ts";
 import { MockVault } from "../vault/mock.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "./automation-rpc.ts";
+
+afterEach(cleanupExtensionTestDirs);
 
 function seededDb(): Database {
   const db = new Database(":memory:");
