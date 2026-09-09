@@ -61,6 +61,7 @@ import {
   runTeam,
   runTelemetry,
   runTest,
+  runTool,
   runTribal,
   runTui,
   runUpdate,
@@ -153,6 +154,7 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   exec: runExec,
   clip: runClip,
   computer: runComputer,
+  tool: runTool,
 };
 
 const HELP_ALIASES = new Set(["help", "--help", "-h"]);
