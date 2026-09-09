@@ -1779,6 +1779,14 @@ export function checkBrokeredFetchLiteralConfinement(files: readonly FileEntry[]
 // `network:` (`network: ["x"]`), never a bare `network: []` and never a non-literal expression such
 // as `network: opts.network` (checked at runtime by `buildGeneratedManifest`'s own throw, not by
 // this static rule).
+//
+// STATED BOUND, in D29(c)'s own style: keying on the `function` KEYWORD means a definition written
+// as `const buildGeneratedManifest = (...) => {...}` or as a class method would evade this rule --
+// this repo's one production definition is a `function` declaration today, but the regex is a text
+// scan over ONE shape, not a symbol-confinement guarantee. Capability confinement (only this file
+// is ever wired as the manifest constructor at every call site the toolgen chokepoint reaches) is
+// the real defense; this rule is the backstop for the copy-paste/second-definition case, not the
+// boundary, exactly as D29(c) says of the `toolgen.` Vault-key prefix.
 const D29_MANIFEST_DEFINITION_FILE = "packages/gateway/src/toolgen/toolgen-stub.ts";
 const D29_MANIFEST_DEFINITION_RE = /\bfunction\s+buildGeneratedManifest\s*\(/;
 const D29_MANIFEST_NETWORK_RE = /\bnetwork\s*:\s*\[\s*(?!\])/;

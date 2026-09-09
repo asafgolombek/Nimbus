@@ -225,6 +225,25 @@ describe("formatToolApprovalPrompt", () => {
     });
     expect(text.toLowerCase()).toContain("credential hosts: none");
   });
+
+  /**
+   * I39's WHERE-not-WHAT residual, made real rather than merely documented in
+   * docs/SECURITY-INVARIANTS.md. A real assertion on rendered output, not a snapshot -- a snapshot
+   * would still pass if the line silently vanished from the template.
+   */
+  test("discloses that the host list bounds WHERE, never WHAT, a tool may send", () => {
+    const text = formatToolApprovalPrompt({
+      toolName: "generated_tg_a",
+      description: "d",
+      body: "1",
+      approvedHosts: ["a.example.com"],
+      credentialHosts: [],
+    });
+    expect(text).toContain(
+      "note: an approved host may receive anything this tool can compute. The host list bounds",
+    );
+    expect(text).toContain("WHERE it may send, never WHAT.");
+  });
 });
 
 describe("handleToolApprovalBroadcast", () => {

@@ -327,6 +327,12 @@ const list = (v: readonly string[]): string => (v.length === 0 ? "none" : v.join
  * this capability. `credentialHosts` names only HOSTS, never a credential value: the wire shape
  * this reads from (`ToolgenApprovalInput`) never carries a token, header value, or password, so
  * there is nothing here that could leak one even by omission of care.
+ *
+ * The trailing `note:` line is I39's WHERE-not-WHAT residual, made real rather than merely
+ * documented: the host list this prompt shows bounds WHERE the tool may send a request, never
+ * WHAT it sends there -- an approved host may receive anything the tool can compute, including
+ * data it legitimately read through the same broker. `docs/SECURITY-INVARIANTS.md`'s I39 section
+ * says this belongs in the approval prompt as well as in the doc; this is that placement.
  */
 export function formatToolApprovalPrompt(p: ToolApprovalPrompt): string {
   return [
@@ -338,6 +344,9 @@ export function formatToolApprovalPrompt(p: ToolApprovalPrompt): string {
     "",
     `  hosts:            ${list(p.approvedHosts)}`,
     `  credential hosts: ${list(p.credentialHosts)}`,
+    "",
+    "  note: an approved host may receive anything this tool can compute. The host list bounds",
+    "        WHERE it may send, never WHAT.",
   ].join("\n");
 }
 
