@@ -557,14 +557,14 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
     ...baseTools,
     ...(deps.toolgen === undefined
       ? {}
-      : (buildGeneratedTools(
+      : buildGeneratedTools(
           getAgentRequestSessionId(),
           deps.toolgen.registry,
           deps.toolgen.invoke,
           // I11. `wrapToolForLlm` is module-private here, which is why it is passed rather than
           // imported by the toolgen module.
           (service, tool, def) => wrapToolForLlm(service, tool, def, deps.auditDb),
-        ) as ToolsInput)),
+        )),
   });
 
   const envelopeNote = `

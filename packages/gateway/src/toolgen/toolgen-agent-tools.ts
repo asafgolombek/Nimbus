@@ -1,3 +1,4 @@
+import type { ToolsInput } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import type { ToolgenRegistry } from "./toolgen-registry.ts";
@@ -21,9 +22,9 @@ export function buildGeneratedTools(
    * error rather than a review comment.
    */
   wrap: <T>(service: string, tool: string, def: T) => T,
-): Record<string, unknown> {
+): ToolsInput {
   if (sessionId === undefined) return {};
-  const out: Record<string, unknown> = {};
+  const out: ToolsInput = {};
   for (const envelope of registry.forSession(sessionId)) {
     const { toolId, description } = envelope.artifact;
     out[toolId] = wrap(

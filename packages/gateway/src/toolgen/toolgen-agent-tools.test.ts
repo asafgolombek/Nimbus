@@ -6,6 +6,22 @@ const wrap = <T>(_service: string, _tool: string, def: T): T => def;
 
 import type { ToolgenEnvelope } from "./toolgen-types.ts";
 
+/**
+ * `ToolgenRegistry.forSession` filters by exact session-id match, so a registry holding only "s1"
+ * would ALSO return `[]` for `forSession(undefined)` even if `buildGeneratedTools`'s own
+ * `sessionId === undefined` guard were deleted -- asserting on the output alone can't tell "refused
+ * before ever asking the registry" from "asked, and happened to get nothing back". This subclass
+ * counts calls so the undefined-session test below can pin down the guard itself, not the
+ * registry's incidentally-correct filtering.
+ */
+class CountingRegistry extends ToolgenRegistry {
+  forSessionCalls = 0;
+  override forSession(sessionId: string): ToolgenEnvelope[] {
+    this.forSessionCalls += 1;
+    return super.forSession(sessionId);
+  }
+}
+
 function env(toolId: string, sessionId: string): ToolgenEnvelope {
   return {
     sessionId,
@@ -33,10 +49,11 @@ describe("buildGeneratedTools", () => {
     expect(buildGeneratedTools("s1", new ToolgenRegistry(), async () => null, wrap)).toEqual({});
   });
 
-  test("contributes NOTHING for an undefined session", () => {
-    const r = new ToolgenRegistry();
+  test("contributes NOTHING for an undefined session, without ever consulting the registry", () => {
+    const r = new CountingRegistry();
     r.register(env("tg_a", "s1"), async () => {});
     expect(buildGeneratedTools(undefined, r, async () => null, wrap)).toEqual({});
+    expect(r.forSessionCalls).toBe(0);
   });
 
   test("exposes only the CURRENT session's tools", () => {
