@@ -109,8 +109,21 @@ describe("validateInputSchema", () => {
     ],
     ["a required naming an undeclared property", { type: "object", properties: {}, required: ["x"] }],
     ["a non-string required entry", { type: "object", properties: {}, required: [1] }],
+    // `args.repo-name` is VALID JS — it parses as subtraction — so rung 3 compiles it and the tool
+    // fails only at runtime, after the owner approved it. Rejected here or nowhere.
+    ["a hyphenated property name", { type: "object", properties: { "repo-name": { type: "string" } } }],
+    ["a property name starting with a digit", { type: "object", properties: { "1st": { type: "string" } } }],
   ])("rejects %s", (_label, input) => {
     expect(() => validateInputSchema(input)).toThrow(ToolgenError);
+  });
+
+  test("deduplicates `required` so the canonical artifact has one form", () => {
+    const out = validateInputSchema({
+      type: "object",
+      properties: { owner: { type: "string" } },
+      required: ["owner", "owner"],
+    });
+    expect(out.required).toEqual(["owner"]);
   });
 
   test.each(["$ref", "$schema", "oneOf", "anyOf", "allOf", "additionalProperties"])(
@@ -188,7 +201,21 @@ function asRecord(v: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * The tool's OWN argument names, which the model chooses freely — they need not mirror the API's
+ * wire names, since the body maps arguments onto query parameters itself.
+ *
+ * Enforced because `args.repo-name` is VALID JavaScript: it parses as `args.repo - name`, so rung 3
+ * compiles it happily and the tool fails only at runtime, after approval. Verified — the
+ * AsyncFunction constructor accepts it. A hyphenated API parameter is still perfectly reachable;
+ * the model just declares `repoName` and writes `"repo-name"` in the URL it builds.
+ */
+const VALID_IDENTIFIER = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+
 function validateProperty(name: string, raw: unknown): ToolInputProperty {
+  if (!VALID_IDENTIFIER.test(name)) {
+    fail(`property name "${name}" is not a valid JavaScript identifier`);
+  }
   const p = asRecord(raw);
   if (p === null) fail(`property "${name}" must be an object`);
   const description = typeof p["description"] === "string" ? p["description"] : undefined;
@@ -246,7 +273,11 @@ export function validateInputSchema(raw: unknown): ToolInputSchema {
   for (const key of rawRequired as string[]) {
     if (!(key in properties)) fail(`inputSchema.required names undeclared property "${key}"`);
   }
-  return { type: "object", properties, required: [...(rawRequired as string[])] };
+  // DEDUPLICATED, because this returns the CANONICAL form: the schema goes inside the artifact
+  // that `artifactDigest` hashes and PR 3 signs, so two schemas that mean the same thing must not
+  // produce two digests. `zodSchemaFromInputSchema` already dedupes via a Set, so this changes no
+  // behaviour — only the canonical bytes.
+  return { type: "object", properties, required: [...new Set(rawRequired as string[])] };
 }
 ```
 
@@ -965,17 +996,22 @@ git commit -m "feat(toolgen): drafting prompt with the nimbusFetch contract stat
 **Interfaces:**
 
 - Consumes: `validateInputSchema` (Task 1), `verifyBodySyntax` / `scanBodyForForbiddenGlobals` (Task 3), `createEndpointFinder` / `groundingOf` / `GroundedEndpoint` / `DraftGrounding` (Task 4), `buildDraftPrompt` / `buildRedraftPrompt` (Task 5).
-- Produces: `DraftedTool`, `ToolgenDraftDeps`, `draftGeneratedTool(req, deps): Promise<DraftedTool>`.
+- Produces: `DraftedTool`, `DraftGeneration`, `ToolgenDraftDeps`, `DraftSubject`, `extractJsonPayload(raw: string): string`, `draftGeneratedTool(req, deps, subject): Promise<DraftedTool>`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // packages/gateway/src/toolgen/toolgen-draft.test.ts
 import { describe, expect, test } from "bun:test";
-import { draftGeneratedTool, type ToolgenDraftDeps } from "./toolgen-draft.ts";
+import {
+  draftGeneratedTool,
+  extractJsonPayload,
+  type ToolgenDraftDeps,
+} from "./toolgen-draft.ts";
 import { ToolgenError } from "./toolgen-types.ts";
 
 const REQ = { sessionId: "s1", description: "list issues", hosts: ["api.github.com"] };
+const SUBJECT = { hosts: ["api.github.com"], credentialHosts: [] };
 
 const GOOD = JSON.stringify({
   inputSchema: { type: "object", properties: { owner: { type: "string" } }, required: ["owner"] },
@@ -994,22 +1030,54 @@ function deps(
       return next === undefined || next === null ? null : { text: next, isLocal };
     },
     findEndpoints: async () => [],
-    credentialHostsFor: () => [],
     ...extra,
   };
 }
 
+describe("extractJsonPayload", () => {
+  const obj = '{"a":1}';
+
+  test.each([
+    ["bare JSON", obj],
+    ["a fenced block", "```json\n" + obj + "\n```"],
+    ["an unlabelled fence", "```\n" + obj + "\n```"],
+    // THE case an anchored regex fails: a benign preamble would otherwise burn the single redraft.
+    ["a fence with a preamble", "Here is the tool you asked for:\n```json\n" + obj + "\n```"],
+    ["a fence with a trailing note", "```json\n" + obj + "\n```\nLet me know if you need changes."],
+    ["a bare object with prose around it", "Sure! " + obj + " Hope that helps."],
+  ])("extracts the object from %s", (_label, raw) => {
+    expect(JSON.parse(extractJsonPayload(raw))).toEqual({ a: 1 });
+  });
+
+  test("a closing brace inside a string value does not truncate the object", () => {
+    const withBrace = JSON.stringify({ body: "if (x) { return 1; }" });
+    expect(JSON.parse(extractJsonPayload("```json\n" + withBrace + "\n```"))).toEqual({
+      body: "if (x) { return 1; }",
+    });
+  });
+
+  test("returns the input unchanged when there is no object to find, so rung 1 still fails", () => {
+    expect(extractJsonPayload("no json here")).toBe("no json here");
+  });
+});
+
 describe("draftGeneratedTool", () => {
   test("returns a validated body and schema on the first attempt", async () => {
-    const out = await draftGeneratedTool(REQ, deps([GOOD]));
+    const out = await draftGeneratedTool(REQ, deps([GOOD]), SUBJECT);
     expect(out.attempts).toBe(1);
     expect(out.inputSchema.required).toEqual(["owner"]);
     expect(out.body).toContain("nimbusFetch");
     expect(out.grounding).toEqual({ kind: "description_only" });
   });
 
-  test("strips a ```json fence before parsing", async () => {
-    const out = await draftGeneratedTool(REQ, deps(["```json\n" + GOOD + "\n```"]));
+  test("a fenced reply with a preamble succeeds on the FIRST attempt", async () => {
+    const out = await draftGeneratedTool(
+      REQ,
+      deps(["Here you go:\n```json\n" + GOOD + "\n```"]),
+      SUBJECT,
+    );
+    // The point is `attempts === 1`: a formatting artifact must not spend the redraft budget that
+    // exists for real defects.
     expect(out.attempts).toBe(1);
   });
 
@@ -1020,13 +1088,13 @@ describe("draftGeneratedTool", () => {
     ["a forbidden global", JSON.stringify({ inputSchema: { type: "object", properties: {} }, body: 'await fetch("https://x");' })],
     ["a missing body key", JSON.stringify({ inputSchema: { type: "object", properties: {} } })],
   ])("redrafts once after %s, then succeeds", async (_label, bad) => {
-    const out = await draftGeneratedTool(REQ, deps([bad, GOOD]));
+    const out = await draftGeneratedTool(REQ, deps([bad, GOOD]), SUBJECT);
     expect(out.attempts).toBe(2);
   });
 
   test("refuses after two failures with ERR_TOOLGEN_DRAFT_INVALID", async () => {
     try {
-      await draftGeneratedTool(REQ, deps(["nope", "still nope"]));
+      await draftGeneratedTool(REQ, deps(["nope", "still nope"]), SUBJECT);
       throw new Error("expected a throw");
     } catch (e) {
       expect((e as ToolgenError).code).toBe("ERR_TOOLGEN_DRAFT_INVALID");
@@ -1041,22 +1109,21 @@ describe("draftGeneratedTool", () => {
         return { text: "nope", isLocal: true };
       },
       findEndpoints: async () => [],
-      credentialHostsFor: () => [],
     };
-    await expect(draftGeneratedTool(REQ, d)).rejects.toThrow();
+    await expect(draftGeneratedTool(REQ, d, SUBJECT)).rejects.toThrow();
     expect(calls).toBe(2);
   });
 
   test("locality is DERIVED from the provider, not from the config mode", async () => {
-    const remote = await draftGeneratedTool(REQ, deps([GOOD], {}, false));
+    const remote = await draftGeneratedTool(REQ, deps([GOOD], {}, false), SUBJECT);
     expect(remote.locality).toBe("remote");
-    const local = await draftGeneratedTool(REQ, deps([GOOD], {}, true));
+    const local = await draftGeneratedTool(REQ, deps([GOOD], {}, true), SUBJECT);
     expect(local.locality).toBe("local");
   });
 
   test("refuses with ERR_TOOLGEN_NO_DRAFT_MODEL when no provider answers", async () => {
     try {
-      await draftGeneratedTool(REQ, deps([null]));
+      await draftGeneratedTool(REQ, deps([null]), SUBJECT);
       throw new Error("expected a throw");
     } catch (e) {
       expect((e as ToolgenError).code).toBe("ERR_TOOLGEN_NO_DRAFT_MODEL");
@@ -1071,17 +1138,35 @@ describe("draftGeneratedTool", () => {
           { serviceName: "github-api", method: "GET", path: "/x", operationId: null, summary: "" },
         ],
       }),
+      SUBJECT,
     );
     expect(out.grounding).toEqual({ kind: "endpoints", count: 1, services: ["github-api"] });
   });
 
-  test("the request handed to the drafter carries no credential material", async () => {
-    // The type cannot express one (spec § 9.1); this asserts the runtime object too, so a later
-    // widening of CreateGeneratedToolRequest cannot smuggle one in unnoticed.
-    let seen: unknown;
-    await draftGeneratedTool(REQ, deps([GOOD], { findEndpoints: async (q) => { seen = q; return []; } }));
-    expect(JSON.stringify(REQ)).not.toContain("token");
-    expect(typeof seen).toBe("string");
+  test("names credential HOSTS in the prompt and never a secret", async () => {
+    // The types cannot carry a secret here at all (spec § 9.1) — `DraftSubject` holds names. This
+    // asserts the rendered prompt too, since that is the artefact that would actually leave.
+    let prompt = "";
+    await draftGeneratedTool(
+      REQ,
+      deps([GOOD], { generate: async (p) => ({ text: ((prompt = p), GOOD), isLocal: true }) }),
+      { hosts: ["api.github.com"], credentialHosts: ["api.github.com"] },
+    );
+    expect(prompt).toContain("api.github.com");
+    expect(prompt).not.toContain("s3cret");
+  });
+
+  test("the prompt names the NORMALISED hosts the broker will match", async () => {
+    // The gate normalises before drafting, so a prompt built from raw `req.hosts` would tell the
+    // model about a host (`https://api.github.com/v1`) the broker's `url.hostname` never matches.
+    let prompt = "";
+    await draftGeneratedTool(
+      { ...REQ, hosts: ["https://api.github.com/v1"] },
+      deps([GOOD], { generate: async (p) => ({ text: ((prompt = p), GOOD), isLocal: true }) }),
+      SUBJECT,
+    );
+    expect(prompt).toContain("api.github.com");
+    expect(prompt).not.toContain("https://api.github.com/v1");
   });
 });
 ```
@@ -1128,15 +1213,39 @@ export interface ToolgenDraftDeps {
   /** Narrowed router view. `null` means no eligible provider — never an empty string. */
   readonly generate: (prompt: string) => Promise<DraftGeneration | null>;
   readonly findEndpoints: (query: string, limit: number) => Promise<GroundedEndpoint[]>;
-  /** Hosts that will carry a credential. NAMES ONLY — never a secret (spec § 9.1). */
-  readonly credentialHostsFor: (hosts: readonly string[]) => readonly string[];
 }
 
-/** Models emit fences constantly. Stripping one is NORMALISATION, not a ladder rung. */
-function stripFence(raw: string): string {
-  const t = raw.trim();
-  const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n?```$/.exec(t);
-  return fenced === null ? t : (fenced[1] ?? "").trim();
+/**
+ * Pull the JSON object out of whatever the model wrapped it in. NORMALISATION, not a ladder rung.
+ *
+ * Three widening attempts, in order. An ANCHORED fence regex is not enough: a reply reading
+ * "Here is the tool:\n```json\n{…}\n```" matches nothing, falls through as raw text, fails
+ * `JSON.parse`, and burns the single redraft on a formatting artifact — spending the retry budget
+ * that exists for real defects.
+ *
+ * Widening is safe because `JSON.parse` downstream remains the actual gate: an over-eager slice
+ * that grabs prose simply fails rung 1, exactly as no extraction would have. This can make a
+ * malformed reply parse; it cannot make a non-object one pass.
+ */
+export function extractJsonPayload(raw: string): string {
+  const trimmed = raw.trim();
+  try {
+    JSON.parse(trimmed);
+    return trimmed;
+  } catch {
+    // Not bare JSON — fall through to the wrapped forms.
+  }
+  // Unanchored, so surrounding prose does not defeat it.
+  const fenced = /```(?:json)?\s*\n([\s\S]*?)\n?```/.exec(trimmed);
+  if (fenced?.[1] !== undefined) return fenced[1].trim();
+
+  // Outermost braces. `lastIndexOf` and not the first closing brace, so a `}` inside the body
+  // string does not truncate the object.
+  const open = trimmed.indexOf("{");
+  const close = trimmed.lastIndexOf("}");
+  if (open >= 0 && close > open) return trimmed.slice(open, close + 1).trim();
+
+  return trimmed;
 }
 
 interface LadderFailure {
@@ -1151,7 +1260,7 @@ function runLadder(raw: string): LadderPass | LadderFailure {
   // Rung 1 — the envelope parses.
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripFence(raw));
+    parsed = JSON.parse(extractJsonPayload(raw));
   } catch (err) {
     return {
       rung: "rung 1 (output envelope)",
@@ -1197,25 +1306,42 @@ function isFailure(v: LadderPass | LadderFailure): v is LadderFailure {
 }
 
 /**
+ * What the gate has already resolved by the time it drafts. Both lists are NORMALISED host names
+ * and `credentialHosts` is a subset of `hosts`.
+ */
+export interface DraftSubject {
+  readonly hosts: readonly string[];
+  /** Hosts that will carry a credential. NAMES ONLY — never a secret (spec § 9.1). */
+  readonly credentialHosts: readonly string[];
+}
+
+/**
  * Draft one tool: ground, prompt, validate, and redraft AT MOST once.
  *
  * One retry and not zero because the commonest failure is a model returning prose, which it
  * recovers from when told. One and not N because every attempt is a real model call that a remote
  * route ledgers and that spends the owner's budget (spec § 4.3).
  *
- * Receives `CreateGeneratedToolRequest` and nothing else: credential material must never reach a
- * drafting prompt, since a secret in a remote model's context has left the machine (spec § 9.1).
+ * Takes `CreateGeneratedToolRequest` plus a host SUBJECT and nothing else: credential material must
+ * never reach a drafting prompt, since a secret in a remote model's context has left the machine
+ * (spec § 9.1). `credentialHosts` is a list of NAMES, resolved by the gate from the credentials it
+ * holds — this function is never handed the credentials themselves and has no type that could
+ * carry one.
  */
 export async function draftGeneratedTool(
   req: CreateGeneratedToolRequest,
   deps: ToolgenDraftDeps,
+  subject: DraftSubject,
 ): Promise<DraftedTool> {
   const endpoints = await deps.findEndpoints(req.description, GROUNDING_LIMIT);
   const grounding = groundingOf(endpoints);
   const prompt = buildDraftPrompt({
     description: req.description,
-    hosts: req.hosts,
-    credentialHosts: deps.credentialHostsFor(req.hosts),
+    // NORMALISED hosts, from the gate. Passing `req.hosts` here would show the model what the
+    // owner TYPED (`https://api.github.com/v1`) while the broker matches `url.hostname`
+    // (`api.github.com`) — the prompt would name a host the tool cannot actually reach.
+    hosts: subject.hosts,
+    credentialHosts: subject.credentialHosts,
     endpoints,
   });
 
@@ -1703,10 +1829,20 @@ export async function deleteToolCredential(
 
 In `toolgen-gate.ts`:
 
-1. Replace the `draftBody` dep with `draftTool`:
+1. Replace the `draftBody` dep with `draftTool`, which takes the resolved host subject as its
+   second argument:
 
 ```ts
-  readonly draftTool: (req: CreateGeneratedToolRequest) => Promise<DraftedTool>;
+  /**
+   * `subject` carries the NORMALISED approved hosts and the subset that will hold a credential —
+   * names only. It is a second parameter rather than a field of `req` because `req` is the object
+   * the drafting prompt is built from, and a `credentials` field there would place raw tokens in a
+   * model's context (spec § 9.1).
+   */
+  readonly draftTool: (
+    req: CreateGeneratedToolRequest,
+    subject: DraftSubject,
+  ) => Promise<DraftedTool>;
 ```
 
 1. Change `bindCredentials`:
@@ -1731,19 +1867,45 @@ export async function createGeneratedTool(
 ): Promise<ToolgenOutcome> {
 ```
 
-1. At step 4, replace the body call and keep the draft for the artifact:
+1. **Move the host normalisation ABOVE the draft.** In PR 1 it sits after `assertConfinement`,
+   which was fine when nothing before it needed hosts. Two things now do — the prompt must name the
+   hosts the broker will actually match, and the credential filter must run before drafting — and
+   moving it up is independently better: `normalizeHost` throws `ERR_TOOLGEN_HOST_NOT_ALLOWED`, and
+   refusing a malformed host *before* spending a model call beats refusing after. Everything stays
+   pre-consent, so the gate's ordering rule is untouched.
+
+   Lift this block (currently just after `assertConfinement`) to sit immediately after the session
+   budget check, keeping its comments verbatim:
 
 ```ts
-    const draft = await deps.draftTool(req);
+    const hosts = [...new Set(req.hosts.map(normalizeHost))].sort((a, b) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
+    if (hosts.length === 0) {
+      throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", "at least one --host is required");
+    }
+    // Only hosts the owner also granted via --host. The CLI already enforces this, but the gate is
+    // the boundary: the prompt and the artifact must never name a host the tool cannot reach.
+    const forApprovedHosts = credentials.filter((c) => hosts.includes(normalizeHost(c.host)));
+```
+
+1. Then draft, handing over the resolved subject and keeping the draft for the artifact:
+
+```ts
+    const draft = await deps.draftTool(req, {
+      hosts,
+      // NAMES the credentials will be bound under, derived from `forApprovedHosts` rather than
+      // from the Vault — nothing has been written there yet at this point, since `bindCredentials`
+      // runs after drafting.
+      credentialHosts: forApprovedHosts.map((c) => normalizeHost(c.host)),
+    });
     const body = draft.body;
 ```
 
-1. At step 5, pass credentials through and filter to approved hosts:
+1. Bind after the draft, unchanged in position. `bindCredentials`' return stays authoritative for
+   the artifact — it reports what a write actually succeeded for, which the pre-draft list cannot:
 
 ```ts
-    // Only hosts the owner also granted via --host. The CLI already enforces this, but the gate is
-    // the boundary: `credentialHosts` in the prompt must never name a host the tool cannot reach.
-    const forApprovedHosts = credentials.filter((c) => hosts.includes(normalizeHost(c.host)));
     const credentialHosts = await deps.bindCredentials(toolId, forApprovedHosts);
 ```
 
@@ -1941,9 +2103,15 @@ and:
 with:
 
 ```ts
+// `string[]` rather than a bare `array`: the element type is part of what the owner is approving,
+// and this prompt is the security boundary — it should say the most it can in the space it has.
+const formatPropType = (p: ToolInputProperty): string =>
+  p.type === "array" ? `${p.items.type}[]` : p.type;
+
 const formatParams = (s: ToolInputSchema): string => {
+  const required = new Set(s.required ?? []);
   const names = Object.entries(s.properties).map(
-    ([n, def]) => `${n}: ${def.type}${(s.required ?? []).includes(n) ? "" : "?"}`,
+    ([n, def]) => `${n}: ${formatPropType(def)}${required.has(n) ? "" : "?"}`,
   );
   return names.length === 0 ? "none" : names.join(", ");
 };
@@ -2036,15 +2204,20 @@ Expected: FAIL.
 In `assemble.ts`, replace the `draftBody` stub closure:
 
 ```ts
-    draftTool: (req) =>
-      draftGeneratedTool(req, {
-        generate: createToolgenDraftLlm(llmRegistry.llmRouter, toolGenerationCfg.drafting),
-        findEndpoints: createEndpointFinder(localIndex),
-        // Hosts only — the drafter must never receive a secret (spec § 9.1). Reads which hosts
-        // ALREADY hold a Vault binding, so the prompt can tell the model not to write its own
-        // Authorization header.
-        credentialHostsFor: (hosts) => hosts.filter((h) => vaultHasToolCredential(toolgenPendingCreds, h)),
-      }),
+    // `subject` is resolved by the GATE and passed through. It cannot be computed here: this
+    // closure is built once at boot, while the approved hosts and their credential subset are
+    // per-request — and at draft time nothing has been written to the Vault yet, since
+    // `bindCredentials` runs after drafting, so probing the Vault here would report nothing even
+    // if a boot closure could see the request.
+    draftTool: (req, subject) =>
+      draftGeneratedTool(
+        req,
+        {
+          generate: createToolgenDraftLlm(llmRegistry.llmRouter, toolGenerationCfg.drafting),
+          findEndpoints: createEndpointFinder(localIndex),
+        },
+        subject,
+      ),
 ```
 
 and replace the credential no-ops:
@@ -2141,6 +2314,17 @@ patched downstream:
   owner denial and a post-approval failure both run before `registry.register` — so it would have
   deleted nothing and left the secret in the Vault, silently, on exactly the path the parameter
   exists to protect.
+
+**Third pass — external review** ([`…-drafting-review.md`](./2026-09-09-s2-toolgen-drafting-review.md),
+answered in [`…-drafting-review-response.md`](./2026-09-09-s2-toolgen-drafting-review-response.md)).
+It caught a genuine plan failure: Task 11's wiring named `vaultHasToolCredential` and
+`toolgenPendingCreds`, neither of which exists anywhere — and no arrangement of them could have
+worked, because that closure is built once at boot while the credential hosts are per-request, and
+at draft time nothing has been written to the Vault regardless. The credential hosts are now
+resolved by the gate and passed as a `DraftSubject`. That fix pulled host normalisation above the
+draft, which also repaired a second defect nobody had flagged: the prompt was being built from raw
+`req.hosts`, so it would have named `https://api.github.com/v1` while the broker matches
+`api.github.com`.
 
 **One deliberate omission.** Task 11's integration test is specified as intent plus assertions rather
 than finished code, because it needs a stub host and sandbox fixtures whose helpers must be read
