@@ -1,5 +1,24 @@
 import type { ExtensionManifest } from "../extensions/manifest.ts";
 
+/** Scalar types supported in generated-tool parameters. */
+export type ToolInputScalar = "string" | "number" | "boolean";
+
+/** A single property in the generated tool's input schema. */
+export type ToolInputProperty =
+  | { readonly type: ToolInputScalar; readonly description?: string }
+  | {
+      readonly type: "array";
+      readonly items: { readonly type: ToolInputScalar };
+      readonly description?: string;
+    };
+
+/** The restricted JSON-Schema subset describing a generated tool's parameters. */
+export interface ToolInputSchema {
+  readonly type: "object";
+  readonly properties: Readonly<Record<string, ToolInputProperty>>;
+  readonly required?: readonly string[];
+}
+
 /**
  * The custom MCP method a generated tool uses to ask the gateway to make a request for it.
  *
