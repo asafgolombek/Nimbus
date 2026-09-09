@@ -380,7 +380,11 @@ export function recordToolEgress(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test packages/gateway/src/egress/tool-egress.test.ts && bun test packages/gateway/src/egress packages/cli/src/commands/prove.test.ts`
-Expected: PASS. If an existing test asserts a coverage-class or source-type **count**, update that count — the enumeration is the point, not the number.
+Expected: PASS. Two known knock-ons, both deliberate rather than surprises:
+`packages/gateway/src/egress/egress-coverage.test.ts` asserts exact string equality against a
+`CANONICAL` serialization (`:36`, `:124`) — append `tool=none` to it here (Task 12 changes it to
+`tool=per-call`). And if any test asserts a coverage-class or source-type **count**, update the
+count; the enumeration is the point, not the number.
 
 - [ ] **Step 5: Commit**
 
@@ -1046,6 +1050,14 @@ describe("ToolgenBroker.handleFetch", () => {
     ).rejects.toThrow(/ERR_TOOLGEN_RESPONSE_TOO_LARGE/);
   });
 
+  test("a DNS failure is REFUSED and still appends a blocked row", async () => {
+    const d = deps({ resolveHost: async () => { throw new Error("ENOTFOUND"); } });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).rejects.toThrow(ToolgenError);
+    expect(rows(d.db)).toEqual([{ destination: "api.example.com", result_status: "blocked" }]);
+  });
+
   test("a malformed params object is refused without a fetch", async () => {
     const d = deps();
     await expect(new ToolgenBroker(d).handleFetch("tg_a", { url: 42 })).rejects.toThrow(ToolgenError);
@@ -1204,7 +1216,19 @@ export class ToolgenBroker {
 
     // On the RESOLVED address, not the hostname — and the address we validated is the one we
     // connect to, so a rebind between check and request cannot move the target.
-    const address = await this.#deps.resolveHost(host);
+    //
+    // The resolve is inside the try because a REJECTION here (ENOTFOUND, offline, a DNS timeout)
+    // would otherwise escape `handleFetch` with no row appended — and a resolver lookup is itself
+    // traffic the tool caused, so it belongs in the ledger like any other refused destination.
+    let address: string;
+    try {
+      address = await this.#deps.resolveHost(host);
+    } catch (err) {
+      return refuse(
+        "ERR_TOOLGEN_HOST_NOT_ALLOWED",
+        `failed to resolve ${host}: ${(err as Error).message}`,
+      );
+    }
     if (isForbiddenAddress(address)) {
       return refuse(
         "ERR_TOOLGEN_HOST_NOT_ALLOWED",
@@ -1256,7 +1280,7 @@ export class ToolgenBroker {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test packages/gateway/src/toolgen/toolgen-broker.test.ts`
-Expected: PASS (9 tests)
+Expected: PASS (10 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1300,10 +1324,23 @@ describe("buildGeneratedManifest", () => {
     expect(() => buildGeneratedManifest("tg_a", { network: [] })).not.toThrow();
   });
 
-  test("filesystem write is empty and read carries only the script dir", () => {
+  test("filesystem write is empty and read carries the script dir", () => {
     const m = buildGeneratedManifest("tg_a", { scriptDir: "/opt/nimbus/toolgen/tg_a" });
     expect(m.permissions.filesystem.write).toEqual([]);
     expect(m.permissions.filesystem.read).toEqual(["/opt/nimbus/toolgen/tg_a"]);
+  });
+
+  test("the interpreter's read paths are granted — without them the child dies at exit 68", () => {
+    const m = buildGeneratedManifest("tg_a", {
+      scriptDir: "/opt/nimbus/toolgen/tg_a",
+      runtimeReadPaths: ["/usr/local/bin"],
+    });
+    expect(m.permissions.filesystem.read).toEqual(["/opt/nimbus/toolgen/tg_a", "/usr/local/bin"]);
+  });
+
+  test("NO node_modules is ever granted — the emitted script imports nothing", () => {
+    const m = buildGeneratedManifest("tg_a", { scriptDir: "/opt/nimbus/toolgen/tg_a" });
+    expect(m.permissions.filesystem.read.join(" ")).not.toContain("node_modules");
   });
 
   test("the manifest id is namespaced so it cannot collide with a real extension", () => {
@@ -1358,7 +1395,20 @@ import { BROKERED_FETCH_METHOD, ToolgenError } from "./toolgen-types.ts";
  */
 export function buildGeneratedManifest(
   toolId: string,
-  opts: { readonly network?: readonly string[]; readonly scriptDir?: string } = {},
+  opts: {
+    readonly network?: readonly string[];
+    readonly scriptDir?: string;
+    /**
+     * Paths the sandbox must grant READ so the child can load its interpreter AT ALL.
+     *
+     * Not an optimisation. On Windows the AppContainer helper writes one ACE per granted path, so a
+     * binary outside every grant is simply unreadable and the child dies before running a line —
+     * exit 68, no stdout, no stderr. Linux hides this because bwrap binds the system tree by
+     * default, which is exactly why it must be stated. `exec-gate.ts` passes
+     * `runtime.requiredReadPaths()` here for the same reason.
+     */
+    readonly runtimeReadPaths?: readonly string[];
+  } = {},
 ): ExtensionManifest {
   if (opts.network !== undefined && opts.network.length > 0) {
     throw new ToolgenError(
@@ -1372,9 +1422,10 @@ export function buildGeneratedManifest(
     permissions: {
       network: [],
       filesystem: {
-        // Read only its own script directory; no write anywhere. The Windows AppContainer helper
-        // writes an ACE per granted path, so an ungranted script is simply unreadable.
-        read: opts.scriptDir === undefined ? [] : [opts.scriptDir],
+        // Its own script directory plus the interpreter's paths, and nothing else. NO node_modules
+        // grant: the emitted script imports nothing (see `emitToolScript`), which is what keeps this
+        // grant this small.
+        read: [...(opts.scriptDir === undefined ? [] : [opts.scriptDir]), ...(opts.runtimeReadPaths ?? [])],
         write: [],
       },
     },
@@ -1399,43 +1450,95 @@ export function emitToolScript(input: {
   readonly body: string;
 }): string {
   return `// GENERATED by Nimbus toolgen for ${input.toolId} — do not edit.
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-
-const server = new Server({ name: ${JSON.stringify(input.toolName)}, version: "0.0.0" }, { capabilities: { tools: {} } });
+// Zero imports, deliberately: this file runs from the ephemeral script store, which has no
+// node_modules and is granted read access to nothing else. See the plan's Task 7 note.
+const __send = (msg) => { process.stdout.write(JSON.stringify(msg) + "\n"); };
+const __pending = new Map();
+let __seq = 0;
 
 /**
- * The only route out of this process. This process has NO network: a raw fetch() fails at the OS.
+ * The only route out of this process. This process has NO network — a raw fetch() fails at the OS.
  */
 async function nimbusFetch(url, init = {}) {
-  return await server.request(
-    { method: ${JSON.stringify(BROKERED_FETCH_METHOD)}, params: { url, ...init } },
-    { type: "object" },
-  );
+  const id = "r" + String(++__seq);
+  return await new Promise((resolve, reject) => {
+    __pending.set(id, { resolve, reject });
+    __send({ id, method: ${JSON.stringify("nimbus/fetch")}, params: { url, ...init } });
+  });
 }
 
-server.setRequestHandler({ method: "tools/list" }, async () => ({
-  tools: [{ name: ${JSON.stringify(input.toolName)}, description: ${JSON.stringify(input.description)}, inputSchema: { type: "object" } }],
-}));
-
-server.setRequestHandler({ method: "tools/call" }, async (request) => {
-  const result = await (async (args) => {
+async function __invoke(args) {
 ${input.body}
-  })(request.params?.arguments ?? {});
-  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };
-});
+}
 
-await server.connect(new StdioServerTransport());
+let __buf = "";
+process.stdin.on("data", async (chunk) => {
+  __buf += chunk.toString();
+  let nl;
+  while ((nl = __buf.indexOf("\n")) >= 0) {
+    const line = __buf.slice(0, nl);
+    __buf = __buf.slice(nl + 1);
+    if (line.trim() === "") continue;
+    let msg;
+    try { msg = JSON.parse(line); } catch { continue; }
+    // A reply to one of OUR outbound broker calls.
+    if (msg.id !== undefined && msg.method === undefined) {
+      const p = __pending.get(msg.id);
+      if (p !== undefined) {
+        __pending.delete(msg.id);
+        if (msg.error !== undefined) p.reject(new Error(String(msg.error)));
+        else p.resolve(msg.result);
+      }
+      continue;
+    }
+    // An inbound request from the gateway.
+    if (msg.method === "describe") {
+      __send({ id: msg.id, result: { name: ${JSON.stringify(input.toolName)}, description: ${JSON.stringify(input.description)} } });
+    } else if (msg.method === "call") {
+      try {
+        __send({ id: msg.id, result: await __invoke(msg.params ?? {}) });
+      } catch (err) {
+        __send({ id: msg.id, error: String(err && err.message ? err.message : err) });
+      }
+    }
+  }
+});
 `;
 }
 ```
 
-**Note for the implementer:** the emitted script's exact MCP server API calls must be checked against the installed `@modelcontextprotocol/sdk` 1.30.0 — `setRequestHandler` takes a Zod-style schema object, not a bare `{ method }` literal. Adjust the emitted source to whatever that version actually requires and add a test that the emitted script **parses** (`new Function`/`Bun.Transpiler`), so a syntax error is caught here rather than at spawn time.
+**Why no MCP SDK in the emitted script.** The first draft imported
+`@modelcontextprotocol/sdk/server/index.js`. That is **unrunnable**, and reproducibly so: a script
+under `<configDir>/toolgen/ephemeral/<toolId>/` cannot resolve a bare specifier, because Bun
+resolves from the importing file's directory and there is no `node_modules` on that path —
+
+```
+error: Cannot find module '@modelcontextprotocol/sdk/server/index.js'
+       from '…/tg_probe/index.ts'
+```
+
+That fails **before any sandbox is involved**; inside the sandbox, with only `scriptDir` granted, it
+fails twice over. The two obvious repairs — resolving the SDK to absolute `file://` URLs, or setting
+`NODE_PATH` — both work, and both mean granting read access to the gateway's entire `node_modules`
+tree to a process running LLM-authored code, which is a large mutable surface handed to exactly the
+thing this manifest exists to contain. Neither survives `bun build --compile` either, where
+`node_modules` is not on disk at all.
+
+So the generated tool speaks a **dependency-free, line-delimited JSON protocol over stdio** instead:
+`{id, method, params}` in, `{id, result|error}` out, plus tool-initiated `nimbus/fetch` requests on
+the same pipe. It is about forty lines Nimbus authors, it imports nothing, and only Nimbus ever
+talks to it — MCP compliance buys a session-scoped tool nothing. This also removes the open question
+about custom-method schemas on `setRequestHandler`.
+
+**Note for the implementer:** add a test that the emitted script **parses**
+(`new Bun.Transpiler({ loader: "ts" }).transformSync(script)`), so a syntax error in the template is
+caught here rather than at spawn time. Mind the escaping: the newline inside the emitted source must
+survive this file's own template literal.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test packages/gateway/src/toolgen/toolgen-stub.test.ts`
-Expected: PASS (8 tests)
+Expected: PASS (10 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1466,7 +1569,7 @@ Create `packages/gateway/src/toolgen/toolgen-confinement.test.ts`:
 ```ts
 import { describe, expect, test } from "bun:test";
 import { buildGeneratedManifest } from "./toolgen-stub.ts";
-import { assertToolConfinement } from "./toolgen-confinement.ts";
+import { assertToolConfinement, resolveProbeScriptForTest } from "./toolgen-confinement.ts";
 import { ToolgenError } from "./toolgen-types.ts";
 
 const runner = { canConfine: () => null } as unknown as import("../platform/sandbox/sandbox-runner.ts").SandboxRunner;
@@ -1492,6 +1595,13 @@ describe("assertToolConfinement", () => {
         spawnProbe: async () => 2,
       }),
     ).rejects.toThrow(/ERR_TOOLGEN_CONFINEMENT_FAILED/);
+  });
+
+  test("the probe script resolves to a real file — a bad path reports as a sandbox failure", async () => {
+    const { existsSync } = await import("node:fs");
+    // Guards the trap the SDK documents on its own `probePath`: a missing probe is a PACKAGING
+    // problem, but surfaces as though confinement failed.
+    expect(existsSync(resolveProbeScriptForTest())).toBe(true);
   });
 
   test("refuses BEFORE probing when the runner cannot confine the policy", async () => {
@@ -1520,7 +1630,8 @@ Expected: FAIL — cannot resolve `./toolgen-confinement.ts`.
 Create `packages/gateway/src/toolgen/toolgen-confinement.ts`:
 
 ```ts
-import { probePath } from "@nimbus-dev/sdk/testing";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionManifest } from "../extensions/manifest.ts";
 import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
 import type { SandboxRunner } from "../platform/sandbox/sandbox-runner.ts";
@@ -1529,6 +1640,26 @@ import { ToolgenError } from "./toolgen-types.ts";
 
 /** The SDK probe's exit code for "the protected read was denied", i.e. confinement worked. */
 const PROBE_EXIT_FS_DENIED = 10;
+
+/**
+ * Locate the SDK's probe script ourselves.
+ *
+ * `probePath` IS exported from `sandbox-contract.ts` but is NOT re-exported by the package entry
+ * `@nimbus-dev/sdk/testing`, whose surface is exactly `runSandboxContractTests`,
+ * `expectNoRejectedDiagnostics` and `MockGateway` — so importing it fails typecheck. Resolving it
+ * here also means the extension follows whichever copy is executing: `src/` carries only
+ * `sandbox-probe.ts`, the published `dist/` only `sandbox-probe.js`, and a hardcoded extension is
+ * wrong from one side or the other.
+ */
+export function resolveProbeScriptForTest(): string {
+  return resolveProbeScript();
+}
+
+function resolveProbeScript(): string {
+  const entry = fileURLToPath(import.meta.resolve("@nimbus-dev/sdk/testing"));
+  const file = entry.endsWith(".ts") ? "sandbox-probe.ts" : "sandbox-probe.js";
+  return resolvePath(dirname(entry), file);
+}
 
 export interface ToolConfinementDeps {
   readonly runner: SandboxRunner;
@@ -1548,7 +1679,7 @@ function defaultSpawnProbe(
   cwd: string,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = runner.spawn(process.execPath, [probePath(), "--probe=fs-denied", "--arg="], {
+    const child = runner.spawn(process.execPath, [resolveProbeScript(), "--probe=fs-denied", "--arg="], {
       policy,
       env: extensionProcessEnv({}),
       cwd,
@@ -1590,7 +1721,7 @@ export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test packages/gateway/src/toolgen/toolgen-confinement.test.ts`
-Expected: PASS (3 tests)
+Expected: PASS (4 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -2070,8 +2201,8 @@ git commit -m "feat(toolgen): add the ephemeral, owner-only generated-script sto
 - Test: `packages/gateway/src/toolgen/toolgen-client.test.ts`
 
 **Interfaces:**
-- Consumes: `wrapServerSpec` (`connectors/lazy-mesh/wrap-server-spec.ts`), `extensionProcessEnv` (`extensions/spawn-env.ts`), `ToolgenBroker` (Task 6), `ToolgenEnvelope` (Task 3).
-- Produces: `buildToolSpawnSpec(envelope, cwd)` returning `{ command: string; args: string[]; env: Record<string,string> }`, and `spawnGeneratedTool(envelope, broker, cwd): Promise<{ listTools(): Promise<{name,description}[]>; callTool(name, args): Promise<unknown>; close(): Promise<void> }>`.
+- Consumes: `wrapServerSpec` (`connectors/lazy-mesh/wrap-server-spec.ts`), `extensionProcessEnv` (`extensions/spawn-env.ts`), `policyFromManifest` + `SandboxRunner` (`platform/sandbox/*`), `ToolgenBroker` (Task 6), `BROKERED_FETCH_METHOD` + `ToolgenEnvelope` (Task 3).
+- Produces: `buildToolSpawnSpec(envelope, cwd): { command: string; args: string[]; env: Record<string,string> }`, `GeneratedToolHandle` = `{ describe(): Promise<{name: string; description: string}>; call(args: Record<string, unknown>): Promise<unknown>; close(): Promise<void> }`, and `spawnGeneratedTool(envelope, broker, cwd, runner): Promise<GeneratedToolHandle>`.
 
 **Coverage raise:** this task is where a generated tool first gains the ability to make a brokered request, so `THIS_BINARY_COVERAGE.tool` goes from `"none"` to `"per-call"` here — the same rule `browser` followed.
 
@@ -2154,9 +2285,9 @@ Raise the class in `packages/gateway/src/egress/egress-coverage.ts`:
 Create `packages/gateway/src/toolgen/toolgen-client.ts`:
 
 ```ts
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { wrapServerSpec } from "../connectors/lazy-mesh/wrap-server-spec.ts";
+import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
+import type { SandboxRunner } from "../platform/sandbox/sandbox-runner.ts";
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import type { ToolgenBroker } from "./toolgen-broker.ts";
 import { BROKERED_FETCH_METHOD, type ToolgenEnvelope } from "./toolgen-types.ts";
@@ -2190,61 +2321,114 @@ export function buildToolSpawnSpec(
 }
 
 export interface GeneratedToolHandle {
-  listTools(): Promise<{ name: string; description: string }[]>;
-  callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+  describe(): Promise<{ name: string; description: string }>;
+  call(args: Record<string, unknown>): Promise<unknown>;
   close(): Promise<void>;
 }
 
 /**
- * Spawn a generated tool over the OFFICIAL `@modelcontextprotocol/sdk` client -- deliberately NOT
- * `@mastra/mcp`, which holds its SDK client PRIVATE and exposes only `setElicitationRequestHandler`
- * (`client.d.ts:60`, `:272`). There is no public API there for a custom server->client handler, and
- * monkey-patching a private field is not a foundation for an egress chokepoint.
+ * Spawn a generated tool and serve its brokered-fetch requests.
  *
- * `Protocol.setRequestHandler` on the official client is public, which is what makes the brokered
- * fetch a first-class request rather than a workaround.
+ * Deliberately NOT `@mastra/mcp`, which holds its SDK client PRIVATE and exposes only
+ * `setElicitationRequestHandler` (`client.d.ts:60`, `:272`) — there is no public API there for a
+ * custom server->client handler. And deliberately not the official MCP SDK either, on the child
+ * side: the emitted script must import NOTHING (see `emitToolScript`), because it runs from a
+ * directory with no `node_modules` and a sandbox grant that deliberately does not include one.
+ *
+ * So both ends speak one line-delimited JSON protocol. `{id, method, params}` in, `{id, result}` or
+ * `{id, error}` out; a message carrying `method: "nimbus/fetch"` is the tool asking the gateway to
+ * make a request, and is the ONLY route out of that process.
  */
 export async function spawnGeneratedTool(
   envelope: ToolgenEnvelope,
   broker: ToolgenBroker,
   cwd: string,
+  runner: SandboxRunner,
 ): Promise<GeneratedToolHandle> {
   const spec = buildToolSpawnSpec(envelope, cwd);
-  const transport = new StdioClientTransport({
-    command: spec.command,
-    args: spec.args,
+  const child = runner.spawn(spec.command, spec.args, {
+    policy: policyFromManifest(envelope.artifact.manifest),
     env: spec.env,
+    cwd,
+    stdio: ["pipe", "pipe", "pipe"],
   });
-  const client = new Client(
-    { name: `nimbus-toolgen-${envelope.artifact.toolId}`, version: "0.0.0" },
-    { capabilities: {} },
-  );
-  // The tool's ONLY route out. Registered before connect so no request can arrive unhandled.
-  client.setRequestHandler(
-    { method: BROKERED_FETCH_METHOD } as never,
-    async (request: { params?: unknown }) =>
-      await broker.handleFetch(envelope.artifact.toolId, request.params),
-  );
-  await client.connect(transport);
+  const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  let seq = 0;
+  let buf = "";
+
+  const send = (msg: unknown): void => {
+    child.stdin?.write(`${JSON.stringify(msg)}
+`);
+  };
+
+  child.stdout?.on("data", (chunk: Buffer) => {
+    buf += chunk.toString();
+    let nl = buf.indexOf("
+");
+    while (nl >= 0) {
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      nl = buf.indexOf("
+");
+      if (line.trim() === "") continue;
+      let msg: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+        msg = parsed as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const id = typeof msg["id"] === "string" ? msg["id"] : undefined;
+      if (id === undefined) continue;
+      // The tool asking US to make a request.
+      if (msg["method"] === BROKERED_FETCH_METHOD) {
+        void broker
+          .handleFetch(envelope.artifact.toolId, msg["params"])
+          .then((result) => send({ id, result }))
+          .catch((err: Error) => send({ id, error: err.message }));
+        continue;
+      }
+      // A reply to one of OUR requests.
+      const p = pending.get(id);
+      if (p === undefined) continue;
+      pending.delete(id);
+      if (msg["error"] !== undefined) p.reject(new Error(String(msg["error"])));
+      else p.resolve(msg["result"]);
+    }
+  });
+
+  const request = (method: string, params: unknown): Promise<unknown> => {
+    const id = `g${String(++seq)}`;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      send({ id, method, params });
+    });
+  };
+
   return {
-    listTools: async () => {
-      const res = await client.listTools();
-      return res.tools.map((t) => ({ name: t.name, description: t.description ?? "" }));
+    describe: async () => {
+      const r = await request("describe", {});
+      const o = (r ?? {}) as Record<string, unknown>;
+      return {
+        name: typeof o["name"] === "string" ? o["name"] : envelope.artifact.toolName,
+        description: typeof o["description"] === "string" ? o["description"] : "",
+      };
     },
-    callTool: async (name, args) => await client.callTool({ name, arguments: args }),
+    call: async (args) => await request("call", args),
     close: async () => {
-      await client.close();
+      child.kill();
     },
   };
 }
 ```
 
-**Note for the implementer:** `setRequestHandler` in SDK 1.30.0 expects a schema object with a `.parse`/`shape`. Replace the `as never` with a real Zod schema for `{ method: BROKERED_FETCH_METHOD, params: {...} }` — do **not** leave the assertion in. If the SDK requires the method to be declared in client capabilities, declare it.
-
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test packages/gateway/src/toolgen/toolgen-client.test.ts && bun test packages/gateway/src/egress`
-Expected: PASS
+Expected: PASS. Update `CANONICAL` in `egress-coverage.test.ts` from `tool=none` to `tool=per-call`
+in the same change — that string is the wire format `nimbus prove` parses, so leaving it stale
+would make the binary claim a coverage it no longer has.
 
 - [ ] **Step 5: Commit**
 
@@ -2275,7 +2459,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { applyAllMigrations } from "../index/migrate.ts";
 import { DEFAULT_NIMBUS_TOOL_GENERATION_TOML } from "../config/nimbus-toml.ts";
-import { createGeneratedTool } from "./toolgen-gate.ts";
+import { createGeneratedTool, normalizeHost } from "./toolgen-gate.ts";
 import { ToolgenRegistry } from "./toolgen-registry.ts";
 
 function deps(over: Record<string, unknown> = {}) {
@@ -2290,8 +2474,12 @@ function deps(over: Record<string, unknown> = {}) {
     assertConfinement: async () => {},
     writeScript: async () => "/tmp/tg/index.ts",
     scriptDir: () => "/tmp/tg",
-    credentialHostsFor: async () => [],
-    spawn: async () => ({ listTools: async () => [], callTool: async () => null, close: async () => {} }),
+    bindCredentials: async () => [],
+    spawn: async () => ({
+      describe: async () => ({ name: "t", description: "d" }),
+      call: async () => null,
+      close: async () => {},
+    }),
     requestApproval: async () => true,
     now: () => 1,
     newId: () => "tg_a",
@@ -2361,6 +2549,21 @@ describe("createGeneratedTool refusals happen BEFORE consent", () => {
   });
 });
 
+describe("normalizeHost", () => {
+  test.each([
+    ["https://api.example.com/v1", "api.example.com"],
+    ["API.Example.COM", "api.example.com"],
+    ["api.example.com:443", "api.example.com"],
+    ["  api.example.com  ", "api.example.com"],
+  ])("%s -> %s", (raw, want) => {
+    expect(normalizeHost(raw)).toBe(want);
+  });
+
+  test.each([[""], ["   "]])("refuses %p", (raw) => {
+    expect(() => normalizeHost(raw)).toThrow();
+  });
+});
+
 describe("createGeneratedTool outcomes", () => {
   test("approval registers the tool and audits approved", async () => {
     const d = deps();
@@ -2382,6 +2585,21 @@ describe("createGeneratedTool outcomes", () => {
     const row = auditRows(d.db)[0];
     expect(row?.action_json).toContain("VERBATIM-BODY");
     expect(row?.hitl_status).not.toBe("not_required");
+  });
+
+  test("the approval prompt names the hosts that will receive a CREDENTIAL", async () => {
+    let seen: { credentialHosts: readonly string[] } | undefined;
+    const d = deps({
+      bindCredentials: async () => ["api.example.com"],
+      requestApproval: async (input: { credentialHosts: readonly string[] }) => {
+        seen = input;
+        return true;
+      },
+    });
+    await createGeneratedTool(req, d as never);
+    // Vacuous before credentials moved to create time: nothing could be in the Vault under a
+    // toolId that did not exist yet, so this list was ALWAYS empty and disclosed nothing.
+    expect(seen?.credentialHosts).toEqual(["api.example.com"]);
   });
 
   test("a refusal before consent still audits, as rejected with its own outcome tag", async () => {
@@ -2418,6 +2636,24 @@ import { type GeneratedToolArtifact, ToolgenError, type ToolgenEnvelope } from "
 const CAPABILITY = "tool_generation";
 const APPROVAL_TTL_MS = 120_000;
 
+/**
+ * Reduce whatever the owner typed to the bare hostname the broker will compare against.
+ *
+ * The broker matches `url.hostname` EXACTLY (no suffix matching), so an approved entry of
+ * `https://api.example.com/v1` would match nothing at all — a tool approved for a host it can
+ * never reach. Normalising here rather than at the broker keeps the artifact the owner approved and
+ * the value later compared identical.
+ */
+export function normalizeHost(raw: string): string {
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === "") throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", "empty host");
+  try {
+    return new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`).hostname;
+  } catch {
+    throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", `unparseable host: ${raw}`);
+  }
+}
+
 export interface CreateGeneratedToolRequest {
   readonly sessionId: string;
   readonly description: string;
@@ -2434,9 +2670,24 @@ export interface ToolgenGateDeps {
   /** Pure path derivation (Task 11's `toolScriptDir`, bound to the config dir). Touches no disk. */
   readonly scriptDir: (toolId: string) => string;
   readonly writeScript: (toolId: string, source: string) => Promise<string>;
+  /** Bound closure over the PAL runner + cwd (Task 12's `spawnGeneratedTool`). */
   readonly spawn: (envelope: ToolgenEnvelope) => Promise<GeneratedToolHandle>;
   readonly requestApproval: (input: ToolgenApprovalInput, ttlMs: number) => Promise<boolean>;
-  readonly credentialHostsFor: (toolId: string, hosts: readonly string[]) => Promise<string[]>;
+  /**
+   * Persist the caller-supplied credentials under the NEW toolId and return the hosts that now have
+   * one. Called BEFORE the approval prompt, so `credentialHosts` in the artifact is a real answer to
+   * "what will be sent, and where" rather than an always-empty list.
+   *
+   * This is why credentials are supplied to `nimbus tool create` rather than added afterwards: the
+   * toolId does not exist until create runs, so a credential could never be in the Vault at
+   * approval time — and adding one to a LIVE tool would change the artifact the owner approved
+   * (§ 4.5 puts `credentialHosts` inside the signed/hashed object precisely so that a change
+   * invalidates the approval). `nimbus tool credential set` therefore REFUSES a live tool.
+   */
+  readonly bindCredentials: (
+    toolId: string,
+    hosts: readonly string[],
+  ) => Promise<string[]>;
   readonly now: () => number;
   readonly newId: () => string;
 }
@@ -2511,8 +2762,14 @@ export async function createGeneratedTool(
     // 5. Prove confinement on THIS machine, still before consent.
     await deps.assertConfinement(manifest);
 
-    const hosts = [...req.hosts].map((h) => h.toLowerCase()).sort();
-    const credentialHosts = await deps.credentialHostsFor(toolId, hosts);
+    // Normalised, not trusted as typed: a user will paste `https://api.example.com/v1` or
+    // `api.example.com:443`, and an unnormalised entry would never match the broker's
+    // `url.hostname` comparison — silently producing a tool that can reach nothing.
+    const hosts = [...new Set(req.hosts.map(normalizeHost))].sort();
+    if (hosts.length === 0) {
+      throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", "at least one --host is required");
+    }
+    const credentialHosts = await deps.bindCredentials(toolId, hosts);
     const artifact: GeneratedToolArtifact = {
       toolId,
       toolName: `generated_${toolId}`,
@@ -2570,7 +2827,7 @@ export async function createGeneratedTool(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test packages/gateway/src/toolgen/toolgen-gate.test.ts`
-Expected: PASS (9 tests). Adjust the `appendAuditEntry` import path to whatever `exec-gate.ts` uses.
+Expected: PASS (16 tests). Adjust the `appendAuditEntry` import path to whatever `exec-gate.ts` uses.
 
 - [ ] **Step 5: Commit**
 
@@ -2590,7 +2847,7 @@ git commit -m "feat(toolgen): add the ordered tool-generation gate with refusals
 
 **Interfaces:**
 - Consumes: `ToolgenRegistry` (Task 10), `wrapToolForLlm` (existing in `engine/agent.ts`), `getAgentRequestSessionId` (`engine/agent-request-context.ts`).
-- Produces: `buildGeneratedTools(sessionId: string | undefined, registry: ToolgenRegistry, invoke: (toolId: string, args: Record<string, unknown>) => Promise<unknown>): Record<string, unknown>`.
+- Produces: `buildGeneratedTools(sessionId: string | undefined, registry: ToolgenRegistry, invoke: (toolId, args) => Promise<unknown>, wrap: <T>(service: string, tool: string, def: T) => T): Record<string, unknown>`. The `wrap` parameter is the I11 envelope and is REQUIRED — see the doc comment.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2600,6 +2857,8 @@ Create `packages/gateway/src/toolgen/toolgen-agent-tools.test.ts`:
 import { describe, expect, test } from "bun:test";
 import { ToolgenRegistry } from "./toolgen-registry.ts";
 import { buildGeneratedTools } from "./toolgen-agent-tools.ts";
+
+const wrap = <T>(_service: string, _tool: string, def: T): T => def;
 import type { ToolgenEnvelope } from "./toolgen-types.ts";
 
 function env(toolId: string, sessionId: string): ToolgenEnvelope {
@@ -2611,27 +2870,41 @@ function env(toolId: string, sessionId: string): ToolgenEnvelope {
 
 describe("buildGeneratedTools", () => {
   test("contributes NOTHING when the session holds no generated tool", () => {
-    expect(buildGeneratedTools("s1", new ToolgenRegistry(), async () => null)).toEqual({});
+    expect(buildGeneratedTools("s1", new ToolgenRegistry(), async () => null, wrap)).toEqual({});
   });
 
   test("contributes NOTHING for an undefined session", () => {
     const r = new ToolgenRegistry();
     r.register(env("tg_a", "s1"), async () => {});
-    expect(buildGeneratedTools(undefined, r, async () => null)).toEqual({});
+    expect(buildGeneratedTools(undefined, r, async () => null, wrap)).toEqual({});
   });
 
   test("exposes only the CURRENT session's tools", () => {
     const r = new ToolgenRegistry();
     r.register(env("tg_a", "s1"), async () => {});
     r.register(env("tg_b", "s2"), async () => {});
-    expect(Object.keys(buildGeneratedTools("s1", r, async () => null))).toEqual(["tg_a"]);
+    expect(Object.keys(buildGeneratedTools("s1", r, async () => null, wrap))).toEqual(["tg_a"]);
   });
 
   test("a terminated tool disappears from the surface", () => {
     const r = new ToolgenRegistry();
     r.register(env("tg_a", "s1"), async () => {});
     r.markTerminated("tg_a");
-    expect(buildGeneratedTools("s1", r, async () => null)).toEqual({});
+    expect(buildGeneratedTools("s1", r, async () => null, wrap)).toEqual({});
+  });
+
+  test("I11 — every generated tool passes through the envelope wrapper", () => {
+    const r = new ToolgenRegistry();
+    r.register(env("tg_a", "s1"), async () => {});
+    const wrapped: string[] = [];
+    const spy = <T>(service: string, tool: string, def: T): T => {
+      wrapped.push(`${service}:${tool}`);
+      return def;
+    };
+    buildGeneratedTools("s1", r, async () => null, spy);
+    // A generated tool returns a remote API response straight into the model's context. If this
+    // ever passes vacuously, an external server can address the agent directly.
+    expect(wrapped).toEqual(["toolgen:tg_a"]);
   });
 });
 ```
@@ -2661,17 +2934,29 @@ export function buildGeneratedTools(
   sessionId: string | undefined,
   registry: ToolgenRegistry,
   invoke: (toolId: string, args: Record<string, unknown>) => Promise<unknown>,
+  /**
+   * The I11 envelope wrapper, INJECTED because `agent.ts`'s `wrapToolForLlm` is module-private.
+   * Passing it in beats exporting it: a generated tool returns a remote API's response verbatim
+   * into the model's context, so it is the single most injection-prone tool surface in the tree and
+   * MUST NOT be constructible without the envelope. A required parameter makes that a compile
+   * error rather than a review comment.
+   */
+  wrap: <T>(service: string, tool: string, def: T) => T,
 ): Record<string, unknown> {
   if (sessionId === undefined) return {};
   const out: Record<string, unknown> = {};
   for (const envelope of registry.forSession(sessionId)) {
     const { toolId, description } = envelope.artifact;
-    out[toolId] = createTool({
-      id: toolId,
-      description: `${description} (runtime-generated, approved this session)`,
-      inputSchema: z.object({}).passthrough(),
-      execute: async ({ context }) => await invoke(toolId, context as Record<string, unknown>),
-    });
+    out[toolId] = wrap(
+      "toolgen",
+      toolId,
+      createTool({
+        id: toolId,
+        description: `${description} (runtime-generated, approved this session)`,
+        inputSchema: z.object({}).passthrough(),
+        execute: async ({ context }) => await invoke(toolId, context as Record<string, unknown>),
+      }),
+    );
   }
   return out;
 }
@@ -2687,7 +2972,14 @@ const toolsFor = (): Record<string, unknown> => ({
   ...baseTools,
   ...(deps.toolgen === undefined
     ? {}
-    : buildGeneratedTools(getAgentRequestSessionId(), deps.toolgen.registry, deps.toolgen.invoke)),
+    : buildGeneratedTools(
+        getAgentRequestSessionId(),
+        deps.toolgen.registry,
+        deps.toolgen.invoke,
+        // I11. `wrapToolForLlm` is module-private here, which is why it is passed rather than
+        // imported by the toolgen module.
+        (service, tool, def) => wrapToolForLlm(service, tool, def, deps.auditDb),
+      )),
 });
 ```
 
@@ -2713,6 +3005,7 @@ git commit -m "feat(toolgen): expose session-scoped generated tools via Mastra d
 - Create: `packages/gateway/src/ipc/toolgen-rpc.ts`
 - Modify: `packages/gateway/src/ipc/lan-rpc.ts`
 - Modify: `packages/gateway/src/ipc/server/dispatchers.ts` (register the handlers)
+- Modify: `packages/gateway/src/gateway-main.ts` (construct the registry/broker; shutdown drain)
 - Test: `packages/gateway/src/ipc/toolgen-rpc.test.ts`
 - Test: `packages/gateway/src/ipc/lan-rpc.test.ts` (extend)
 
@@ -2763,6 +3056,20 @@ Create `packages/gateway/src/ipc/toolgen-rpc.ts` following `ipc/exec-rpc.ts`'s s
 
 Register the map in `packages/gateway/src/ipc/server/dispatchers.ts` alongside the exec handlers, and add a comment there stating that `toolgen.*` is **not** Tauri-exposed (I7) — do not add it to `ALLOWED_METHODS` in `ui/src-tauri/src/gateway_bridge.rs`.
 
+In `packages/gateway/src/gateway-main.ts`, drain both halves on shutdown:
+
+```ts
+// Ephemeral means ephemeral. Without this, a restart leaves orphaned tool child processes holding
+// stdio pipes, and approved model-authored bodies sitting on disk under the config dir — where the
+// next session could still be pointed at them. The registry drop alone is not enough: it clears
+// memory, not the filesystem.
+await toolgenRegistry.revokeAll();
+await removeAllToolScripts(configDir);
+```
+
+Add a test asserting the shutdown path calls **both** — a drain that clears the registry and leaves
+the scripts is the failure worth catching, and it looks identical to success from memory.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test packages/gateway/src/ipc/toolgen-rpc.test.ts packages/gateway/src/ipc/lan-rpc.test.ts`
@@ -2807,6 +3114,20 @@ describe("parseToolArgs", () => {
     expect(a).toMatchObject({ sub: "create", hosts: ["a.example.com", "b.example.com"] });
   });
 
+  test("create parses repeatable --credential bindings", () => {
+    const a = parseToolArgs([
+      "create", "--description", "d", "--host", "a.example.com",
+      "--credential", "a.example.com=tok",
+    ]);
+    expect(a).toMatchObject({ credentials: [{ host: "a.example.com", token: "tok" }] });
+  });
+
+  test("a --credential for a host not in --host is refused", () => {
+    expect(() =>
+      parseToolArgs(["create", "--description", "d", "--host", "a.example.com", "--credential", "b.example.com=tok"]),
+    ).toThrow(/not in --host/);
+  });
+
   test("credential set requires a tool id, a host and exactly one scheme", () => {
     expect(() => parseToolArgs(["credential", "set", "tg_a", "a.example.com"])).toThrow(/--bearer|--header/);
     expect(() =>
@@ -2842,7 +3163,25 @@ Create `packages/cli/src/commands/tool.ts` modelled on `commands/exec.ts`. Requi
 
 - `TOOL_EXIT_CODES = { denied: 126, refused: 127 } as const` — same reserved band and rationale as `EXEC_EXIT_CODES`.
 - `nimbus tool create --description <text> --host <h> [--host <h>…]` — sends `toolgen.create`; on an approval prompt notification, prints the **full body**, the host list and the credential bindings, then a `[y/N]` confirm via `@clack/prompts`.
-- **Refuse outright in a non-TTY**, exactly as `nimbus media allow-remote` does: a piped `y` must not approve model-authored code. Print the LAN-forbidden IPC method name so an automated caller knows the supported path.
+- **Refuse outright in a non-TTY**, exactly as `nimbus media allow-remote` does — a piped `y` must
+  not approve model-authored code:
+
+  ```ts
+  if (process.stdin.isTTY !== true) {
+    console.error("error: nimbus tool create needs an interactive TTY for owner approval.");
+    console.error("There is no headless path: toolgen.create is LAN-forbidden and local-only.");
+    process.exit(TOOL_EXIT_CODES.refused);
+  }
+  ```
+- **Credentials are supplied at CREATE time**, not afterwards:
+  `nimbus tool create … --credential <host>=<bearer-token>` (repeatable). The toolId does not exist
+  before create, so a credential could not be in the Vault at approval time — which would make the
+  prompt's credential disclosure permanently empty.
+- `nimbus tool credential set <tool-id> …` therefore **refuses a LIVE tool**, with a message saying
+  to revoke and recreate. Adding a credential to an approved tool changes the artifact the owner
+  approved (§ 4.5 puts `credentialHosts` inside the hashed object precisely so a change invalidates
+  it), and silently widening what an approved tool may send is the failure this whole gate exists
+  to prevent.
 - `nimbus tool revoke <tool-id>` must call BOTH `registry.revoke` (closes the child) and Task 11's
   `removeToolScript` (drops the body from disk) — a revoked tool that leaves its script behind is a
   tool the next session could still be pointed at.

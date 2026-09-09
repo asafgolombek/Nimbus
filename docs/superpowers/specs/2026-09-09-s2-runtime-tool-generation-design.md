@@ -169,24 +169,46 @@ generated tool's egress on a method some other component may one day handle. It 
 method, `nimbus/fetch`, whose literal is defined once in `toolgen-types.ts` and confined there by
 **D29(a)**.
 
-**Generated tools do NOT use `@mastra/mcp`.** The first draft of this spec named "does a custom
-MCP method survive the `@mastra/mcp` transport" as PR 1's largest risk. It is now answered, and
-the answer is no: `InternalMastraMCPClient` holds the underlying SDK client as a **private** field
+**Generated tools do NOT use `@mastra/mcp` — and, since the plan review, do not use the official
+MCP SDK on the child side either.** The first draft named "does a custom MCP method survive the
+`@mastra/mcp` transport" as PR 1's largest risk. That is answered, and the answer is no:
+`InternalMastraMCPClient` holds the underlying SDK client as a **private** field
 (`packages/gateway/node_modules/@mastra/mcp/dist/client/client.d.ts:60`) and exposes exactly one
-server→client hook, `setElicitationRequestHandler` (`:272`). There is no public API for
-registering a custom JSON-RPC request handler, and monkey-patching a private field to obtain one
-is not a foundation for an egress chokepoint.
+server→client hook, `setElicitationRequestHandler` (`:272`). There is no public API for registering
+a custom JSON-RPC request handler, and monkey-patching a private field is not a foundation for an
+egress chokepoint.
 
-So this path uses the official `@modelcontextprotocol/sdk` `Client` + `StdioClientTransport`
-directly, in `toolgen/toolgen-client.ts`. `Protocol.setRequestHandler` is public there
-(`dist/esm/shared/protocol.d.ts:389`) and takes the request schema, which is exactly the shape
-needed. The gateway already resolves the SDK transitively. Generated tools are then surfaced to
-the model by listing them off that client and wrapping each with `createTool` plus `wrapToolForLlm`
-(I11), the same envelope every other tool gets.
+The obvious replacement — the official `@modelcontextprotocol/sdk` `Client` on the gateway side and
+its `Server` inside the generated tool — is **unrunnable on the child side**, and reproducibly so. A
+script under `<configDir>/toolgen/ephemeral/<toolId>/` cannot resolve a bare specifier, because Bun
+resolves from the importing file's directory and there is no `node_modules` on that path:
 
-This is a narrowing, not a workaround: `@mastra/mcp` stays the client for connectors, and the one
-path that needs a bidirectional custom method owns its own transport rather than bending a shared
-one. It also removes the spike PR 1 was going to need.
+```
+error: Cannot find module '@modelcontextprotocol/sdk/server/index.js'
+       from '…/tg_probe/index.ts'
+```
+
+That fails **before any sandbox is involved**; inside the sandbox, granted read to `scriptDir` only,
+it fails twice over. The two repairs — resolving the SDK to absolute `file://` URLs, or setting
+`NODE_PATH` — both work and both mean granting read access to the gateway's whole `node_modules`
+tree to a process running LLM-authored code, which is a large mutable surface handed to precisely
+the thing this manifest exists to contain. Neither survives `bun build --compile`, where
+`node_modules` is not on disk at all.
+
+**So both ends speak one dependency-free, line-delimited JSON protocol over stdio.** `{id, method,
+params}` in, `{id, result}` or `{id, error}` out; a message carrying `method: "nimbus/fetch"` is the
+tool asking the gateway to make a request for it, and is the only route out of that process. It is
+about forty lines Nimbus emits, it imports nothing, and only Nimbus ever talks to it — MCP
+compliance buys a session-scoped tool nothing, and dropping it also removes the open question about
+custom-method schemas on `setRequestHandler`.
+
+Two consequences worth stating rather than discovering. The generated manifest must additionally
+grant read to the **interpreter's own paths** (`ExecRuntime.requiredReadPaths()`, as
+`exec-gate.ts` does): on Windows the AppContainer helper writes one ACE per granted path, so an
+ungranted interpreter is unreadable and the child dies before running a line — exit 68, no stdout,
+no stderr. And the read grant contains **no `node_modules` entry at all**, which is the property
+that keeps it small; a future change that reintroduces an import into the emitted script would have
+to widen it, and should be read as a design regression rather than a build fix.
 
 ### 4.5 One canonical artifact
 
@@ -305,9 +327,12 @@ own account before consulting the envelope:
    broker resolves, validates the resolved address, and connects to the address it validated.
 4. **Host match** — `url.hostname` lowercased, compared exactly against the envelope. No suffix
    matching, no wildcards: `evil-api.example.com` must not satisfy `api.example.com`.
-5. **Header stripping** — `Authorization` and `Proxy-Authorization` supplied by the tool are
-   dropped. The broker attaches credentials (§ 6.3); the tool never sets its own auth header, or
+5. **Header stripping** — `Authorization`, `Proxy-Authorization` and `Cookie` supplied by the tool
+   are dropped. The broker attaches credentials (§ 6.3); the tool never sets its own auth header, or
    it could attach a secret it obtained some other way to a host of its choosing.
+6. **A resolution FAILURE is a refusal, not an escape.** If the destination will not resolve, the
+   broker appends a `blocked` row and refuses, rather than letting the rejection propagate out
+   unledgered — a resolver lookup is itself traffic the tool caused.
 
 ### 6.2.2 Bounds on the response
 
@@ -345,7 +370,14 @@ is handed the Vault for that prefix — is the real defense, and the allow-list 
 keyspace rather than enforcing it. This mirrors D27(b)'s own stated bound on the `media_grant`
 table.
 
-Written only by an explicit `nimbus tool credential set`. Never by the model.
+**Supplied at CREATE time, never added later.** The toolId does not exist until `nimbus tool create`
+runs, so a credential cannot be in the Vault when the owner is prompted — which would make the
+prompt's "what will be sent, and where" permanently empty and the disclosure vacuous. Credentials
+are therefore passed to `create` and bound before the prompt. `nimbus tool credential set` refuses a
+LIVE tool and says to revoke and recreate: adding one to an approved tool changes the artifact the
+owner approved (§ 4.5 puts `credentialHosts` inside the hashed object exactly so a change
+invalidates it), and silently widening what an approved tool may send is the failure this gate
+exists to prevent. Never written by the model.
 
 The stored value is a tagged envelope rather than a bare string, so the broker knows how to attach
 it without the tool describing its own auth:
@@ -614,6 +646,12 @@ Then:
 - **§ 7.3 red-proves by reverting**: a deliberately unconfined runner must make the confinement
   probe FAIL. Without this the probe passes for any reason at all, including never having run —
   which is precisely how the SDK's own default runner shipped broken (§ 7.1).
+- **I11**: every generated tool reaches the model through the `<tool_output>` envelope. This is the
+  most injection-prone tool surface in the tree — it returns a remote API's response verbatim into
+  a prompt — so the envelope wrapper is a REQUIRED constructor parameter rather than something a
+  caller remembers, making an unwrapped generated tool a compile error.
+- Shutdown drains BOTH the registry and the script store. A drain that clears memory and leaves
+  approved bodies on disk looks identical to success from memory.
 - I39 enforcement in `security-invariants.test.ts`; D29(a)/(b) in
   `scripts/structure-audit/check-nimbus-invariants.ts`.
 - `toolgen/*` needs an `audit:coverage-scopes` entry; without one it is covered only by the
