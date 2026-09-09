@@ -76,3 +76,24 @@ export interface ToolgenEnvelope {
   readonly scriptPath: string;
   readonly approvedAt: number;
 }
+
+export interface CreateGeneratedToolRequest {
+  readonly sessionId: string;
+  readonly description: string;
+  readonly hosts: readonly string[];
+}
+
+/**
+ * What the gate has already resolved by the time it drafts. Both lists are NORMALISED host names
+ * and `credentialHosts` is a subset of `hosts`.
+ */
+export interface DraftSubject {
+  readonly hosts: readonly string[];
+  /** Hosts that will carry a credential. NAMES ONLY — never a secret (spec § 9.1). */
+  readonly credentialHosts: readonly string[];
+}
+
+export interface DraftGeneration {
+  readonly text: string;
+  readonly isLocal: boolean;
+}

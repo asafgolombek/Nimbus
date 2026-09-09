@@ -9,7 +9,12 @@ import type { ToolgenApprovalInput } from "./toolgen-consent-broker.ts";
 import type { ToolgenRegistry } from "./toolgen-registry.ts";
 import { assertSafeToolId } from "./toolgen-script-store.ts";
 import { buildGeneratedManifest, emitToolScript } from "./toolgen-stub.ts";
-import { type GeneratedToolArtifact, type ToolgenEnvelope, ToolgenError } from "./toolgen-types.ts";
+import {
+  type CreateGeneratedToolRequest,
+  type GeneratedToolArtifact,
+  type ToolgenEnvelope,
+  ToolgenError,
+} from "./toolgen-types.ts";
 
 const CAPABILITY = "tool_generation";
 const APPROVAL_TTL_MS = 120_000;
@@ -44,11 +49,7 @@ export function normalizeHost(raw: string): string {
   return url.hostname;
 }
 
-export interface CreateGeneratedToolRequest {
-  readonly sessionId: string;
-  readonly description: string;
-  readonly hosts: readonly string[];
-}
+export type { CreateGeneratedToolRequest } from "./toolgen-types.ts";
 
 export interface ToolgenGateDeps {
   readonly db: Database;
