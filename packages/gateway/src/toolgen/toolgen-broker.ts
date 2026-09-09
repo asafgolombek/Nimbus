@@ -25,7 +25,7 @@ export interface ToolgenBrokerDeps {
   readonly now: () => number;
   readonly maxRequestsPerTool: number;
   readonly requestTimeoutMs: number;
-  readonly resolveHost: (host: string) => Promise<string>;
+  readonly resolveHost: (host: string) => Promise<readonly string[]>;
   readonly readCredential: (toolId: string, host: string) => Promise<ToolCredentialBinding | null>;
   readonly approvedHostsFor: (toolId: string) => readonly string[];
   readonly doFetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -86,10 +86,11 @@ function applyCredential(headers: Record<string, string>, binding: ToolCredentia
  *
  * Order is load-bearing: parse, then budget, then scheme, then approved-host match, then RESOLVE,
  * then the address check, then attach a credential, then LEDGER, then fetch. Every refusal past
- * parsing appends a `blocked` row before throwing, so a refused destination is as visible in
+ * URL parsing appends a `blocked` row before throwing, so a refused destination is as visible in
  * `nimbus prove` as a successful one — a tool probing for reachable internal hosts leaves a trail
- * rather than silence. The authorized row is appended BEFORE the fetch, so an append failure aborts
- * the request and a zero-row window means nothing left the machine.
+ * rather than silence. (A malformed URL itself appends nothing — the host isn't known yet, so
+ * there is no destination to record.) The authorized row is appended BEFORE the fetch, so an
+ * append failure aborts the request and a zero-row window means nothing left the machine.
  */
 export class ToolgenBroker {
   readonly #deps: ToolgenBrokerDeps;
@@ -101,7 +102,16 @@ export class ToolgenBroker {
 
   async handleFetch(toolId: string, params: unknown): Promise<BrokeredFetchResponse> {
     const req = parseParams(params);
-    const url = new URL(req.url);
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      // No destination is known yet, so no row is appended — see the class docstring.
+      throw new ToolgenError(
+        "ERR_TOOLGEN_BAD_REQUEST",
+        `fetch params.url is not a valid URL: ${req.url}`,
+      );
+    }
     const host = url.hostname.toLowerCase();
 
     const ledger = (resultStatus: "authorized" | "blocked"): void => {
@@ -117,10 +127,7 @@ export class ToolgenBroker {
     };
     const refuse = (code: string, message: string): never => {
       ledger("blocked");
-      // The code is folded into the message text (not just the `.code` field) so a caller can
-      // `toThrow(/ERR_.../)` against a plain ToolgenError without reaching for `.code` — the same
-      // reason Node's own `Error.cause`/error-code conventions repeat the code in `message`.
-      throw new ToolgenError(code, `${code}: ${message}`);
+      throw new ToolgenError(code, message);
     };
 
     const spent = this.#spent.get(toolId) ?? 0;
@@ -142,25 +149,36 @@ export class ToolgenBroker {
       return refuse("ERR_TOOLGEN_HOST_NOT_ALLOWED", `host not on the approved envelope: ${host}`);
     }
 
-    // On the RESOLVED address, not the hostname — the address we validated is the one we connect
-    // to, so a rebind between check and request cannot move the target.
+    // Validate EVERY address the name answers with, not just the first: a name returning one
+    // private record among several public ones must be refused outright.
+    //
+    // STATED RESIDUAL — this is check-then-connect, not connect-to-checked. `doFetch` is issued
+    // against the hostname and the runtime resolves again independently; Bun's fetch exposes no
+    // connection-pinning or custom-resolver hook. Someone controlling the DNS for a host the owner
+    // ALREADY approved can answer this lookup with a public address and the connection's lookup
+    // with loopback. Validating all records narrows that; it does not close it. Closing it needs a
+    // custom HTTP client that connects to a pinned address. See the design spec § 6.2.1.
     //
     // The resolve is inside the try because a REJECTION here (ENOTFOUND, offline, a DNS timeout)
     // would otherwise escape `handleFetch` with no row appended — and a resolver lookup is itself
     // traffic the tool caused, so it belongs in the ledger like any other refused destination.
-    let address: string;
+    let addresses: readonly string[];
     try {
-      address = await this.#deps.resolveHost(host);
+      addresses = await this.#deps.resolveHost(host);
     } catch (err) {
       return refuse(
         "ERR_TOOLGEN_HOST_NOT_ALLOWED",
         `failed to resolve ${host}: ${(err as Error).message}`,
       );
     }
-    if (isForbiddenAddress(address)) {
+    if (addresses.length === 0) {
+      return refuse("ERR_TOOLGEN_HOST_NOT_ALLOWED", `${host} resolved to no addresses`);
+    }
+    const forbidden = addresses.find((a) => isForbiddenAddress(a));
+    if (forbidden !== undefined) {
       return refuse(
         "ERR_TOOLGEN_HOST_NOT_ALLOWED",
-        `${host} resolves to a forbidden address (${address})`,
+        `${host} resolves to a forbidden address (${forbidden})`,
       );
     }
 
@@ -219,7 +237,7 @@ async function readBoundedBody(res: Response, controller: AbortController): Prom
         controller.abort();
         throw new ToolgenError(
           "ERR_TOOLGEN_RESPONSE_TOO_LARGE",
-          `ERR_TOOLGEN_RESPONSE_TOO_LARGE: response exceeded ${MAX_BROKERED_RESPONSE_BYTES} bytes`,
+          `response exceeded ${MAX_BROKERED_RESPONSE_BYTES} bytes`,
         );
       }
       chunks.push(value);

@@ -13,7 +13,7 @@ function deps(over: Partial<ConstructorParameters<typeof ToolgenBroker>[0]> = {}
     now: () => 1,
     maxRequestsPerTool: 50,
     requestTimeoutMs: 1000,
-    resolveHost: async () => "93.184.216.34",
+    resolveHost: async () => ["93.184.216.34"],
     readCredential: async () => null,
     approvedHostsFor: () => ["api.example.com"],
     doFetch: async () => new Response("ok", { status: 200 }),
@@ -48,11 +48,27 @@ describe("ToolgenBroker.handleFetch", () => {
   });
 
   test("an approved host that RESOLVES to loopback is refused — the check is on the address", async () => {
-    const d = deps({ resolveHost: async () => "127.0.0.1" });
+    const d = deps({ resolveHost: async () => ["127.0.0.1"] });
     await expect(
       new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
-    ).rejects.toThrow(/ERR_TOOLGEN_HOST_NOT_ALLOWED/);
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_HOST_NOT_ALLOWED" });
     expect(rows(d.db)[0]?.result_status).toBe("blocked");
+  });
+
+  test("a host resolving to a mix of public and forbidden addresses is refused — one bad record among good ones is enough", async () => {
+    const d = deps({ resolveHost: async () => ["93.184.216.34", "127.0.0.1"] });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_HOST_NOT_ALLOWED" });
+    expect(rows(d.db)).toEqual([{ destination: "api.example.com", result_status: "blocked" }]);
+  });
+
+  test("a host resolving to no addresses at all is refused", async () => {
+    const d = deps({ resolveHost: async () => [] });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_HOST_NOT_ALLOWED" });
+    expect(rows(d.db)).toEqual([{ destination: "api.example.com", result_status: "blocked" }]);
   });
 
   test("an egress append FAILURE aborts the request — fail-closed, no fetch", async () => {
@@ -104,8 +120,8 @@ describe("ToolgenBroker.handleFetch", () => {
     const d = deps({ maxRequestsPerTool: 1 });
     const b = new ToolgenBroker(d);
     await b.handleFetch("tg_a", { url: "https://api.example.com/1" });
-    await expect(b.handleFetch("tg_a", { url: "https://api.example.com/2" })).rejects.toThrow(
-      /ERR_TOOLGEN_BUDGET_EXHAUSTED/,
+    await expect(b.handleFetch("tg_a", { url: "https://api.example.com/2" })).rejects.toMatchObject(
+      { code: "ERR_TOOLGEN_BUDGET_EXHAUSTED" },
     );
     expect(rows(d.db).map((r) => r.result_status)).toEqual(["authorized", "blocked"]);
   });
@@ -115,7 +131,7 @@ describe("ToolgenBroker.handleFetch", () => {
     const d = deps({ doFetch: async () => new Response(big) });
     await expect(
       new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
-    ).rejects.toThrow(/ERR_TOOLGEN_RESPONSE_TOO_LARGE/);
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_RESPONSE_TOO_LARGE" });
   });
 
   test("a DNS failure is REFUSED and still appends a blocked row", async () => {
@@ -135,5 +151,13 @@ describe("ToolgenBroker.handleFetch", () => {
     await expect(new ToolgenBroker(d).handleFetch("tg_a", { url: 42 })).rejects.toThrow(
       ToolgenError,
     );
+  });
+
+  test("a syntactically invalid URL is refused without appending a row", async () => {
+    const d = deps();
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "not a url" }),
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_BAD_REQUEST" });
+    expect(rows(d.db)).toEqual([]);
   });
 });
