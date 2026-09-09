@@ -45,10 +45,14 @@ describe("verifyBodySyntax", () => {
   });
 
   test("falls back to String(err) when the constructor throws a non-Error value", () => {
-    // `new AsyncFunction("args", body)` calls ToString(body) internally, so a `body`-shaped value
-    // whose own `toString()` throws a non-Error reaches the catch block's `err instanceof Error`
-    // false arm. This is a real, reachable path (not a contrived mock of the constructor) — it is
-    // exactly what happens if a caller's body value is not a plain string.
+    // This exercises a defensive fallback that the current call graph cannot reach: the sole
+    // production caller (toolgen-draft.ts rung 3) only ever reaches here after rung 1 has already
+    // confirmed `typeof body === "string" && body.trim() !== ""`, and `new AsyncFunction(...)`
+    // throws only Error subclasses (SyntaxError). So `err instanceof Error` is always true in
+    // production, and the `String(err)` arm cannot be hit without a deliberate cast. It exists to
+    // pin the fallback's behaviour if a future caller ever bypasses that guarantee — which is why
+    // the cast below is here: `new AsyncFunction("args", body)` calls ToString(body) internally, so
+    // a `body`-shaped value whose own `toString()` throws a non-Error reaches this arm for real.
     const notReallyAString = {
       toString(): string {
         throw "not an Error instance";
