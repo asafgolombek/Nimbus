@@ -438,4 +438,56 @@ describe("createGeneratedTool drafting and credential binding (Task 9)", () => {
     });
     expect(payload["draftLocality"]).toBe("remote");
   });
+
+  test("a partial bindCredentials failure still revokes the ATTEMPTED hosts, refused before consent (fix round 1 finding 1)", async () => {
+    // Simulates Task 11's real `bindCredentials`: a sequential per-host write loop that can write
+    // host A's credential to the Vault and THEN throw before it ever returns -- so the flag/list
+    // this test cares about must be set BEFORE the call, not derived from its (never-received)
+    // return value.
+    const revoked: Array<{ toolId: string; hosts: readonly string[] }> = [];
+    const d = deps({
+      bindCredentials: async () => {
+        throw new Error("vault unavailable after writing the first host");
+      },
+      revokeCredentials: async (id: string, hosts: readonly string[]) => {
+        revoked.push({ toolId: id, hosts });
+      },
+    });
+    const out = await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("refused");
+    if (out.status !== "refused") throw new Error("unreachable");
+    expect(out.code).toBe("ERR_TOOLGEN_INTERNAL");
+    // The attempted set, not an empty/never-assigned return value.
+    expect(revoked).toHaveLength(1);
+    expect(revoked[0]?.hosts).toEqual(["api.example.com"]);
+    const row = auditRows(d.db)[0];
+    expect(row?.hitl_status).toBe("rejected");
+    expect(row?.action_json).toContain("refused_before_consent");
+  });
+
+  test("forApprovedHosts drops a credential for a host outside --host, before EITHER bindCredentials or the prompt sees it (fix round 1 finding 2)", async () => {
+    const bound: Array<ReadonlyArray<{ host: string }>> = [];
+    let seenCredentialHosts: readonly string[] | undefined;
+    const d = deps({
+      bindCredentials: async (_toolId: string, creds: Array<{ host: string }>) => {
+        bound.push(creds);
+        return creds.map((c) => c.host);
+      },
+      requestApproval: async (input: { credentialHosts: readonly string[] }) => {
+        seenCredentialHosts = input.credentialHosts;
+        return true;
+      },
+    });
+    // `req.hosts` is `["api.example.com"]` -- only the FIRST of these two is approved.
+    await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "a" } },
+      { host: "not-approved.example.com", binding: { type: "bearer", token: "b" } },
+    ]);
+    // Assert on what the fake RECEIVED, not only on the outcome.
+    expect(bound).toHaveLength(1);
+    expect(bound[0]?.map((c) => c.host)).toEqual(["api.example.com"]);
+    expect(seenCredentialHosts).toEqual(["api.example.com"]);
+  });
 });

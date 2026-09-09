@@ -88,6 +88,14 @@ export interface ToolgenGateDeps {
    * approval time — and adding one to a LIVE tool would change the artifact the owner approved
    * (§ 4.5 puts `credentialHosts` inside the signed/hashed object precisely so that a change
    * invalidates the approval). `nimbus tool credential set` therefore REFUSES a live tool.
+   *
+   * The RETURN VALUE feeds the artifact and the approval prompt ONLY -- what was actually bound, to
+   * disclose "what will be sent". It is NOT what the gate uses to decide what to clean up on a
+   * non-registering exit: a real implementation is not required to be atomic (Task 11's is a
+   * sequential per-host write loop), so a throw partway through can leave a real Vault write behind
+   * with no return value to report it. The gate therefore tracks its own ATTEMPTED host list, set
+   * before this is even called, and revokes THAT on cleanup -- see `createGeneratedTool`'s
+   * `attemptedCredentialHosts`.
    */
   readonly bindCredentials: (
     toolId: string,
@@ -100,8 +108,10 @@ export interface ToolgenGateDeps {
    * registered -- an owner denial, or a failure between approval and `registry.register` -- so
    * `registry.get(toolId)` returns `undefined` on exactly the calls that matter, and a lookup would
    * silently delete nothing, leaving the secret in the Vault forever. MUST be idempotent -- called
-   * only when `bindCredentials` is known to have run, but a real implementation should tolerate
-   * being asked to remove nothing.
+   * only when `bindCredentials` is known to have been CALLED (not necessarily to have SUCCEEDED --
+   * see `bindCredentials`'s docstring), and a real implementation must tolerate being asked to
+   * remove a host that was never actually written, since the gate always passes the ATTEMPTED set
+   * rather than a confirmed-written one.
    */
   readonly revokeCredentials: (toolId: string, hosts: readonly string[]) => Promise<void>;
   readonly now: () => number;
@@ -184,17 +194,31 @@ export async function createGeneratedTool(
 ): Promise<ToolgenOutcome> {
   const toolId = deps.newId();
   let approved = false;
-  // Whether `bindCredentials` has actually run. Distinct from `approved`: credentials are bound
-  // BEFORE consent (so the prompt can name a real host list), so a denial -- or a failure after
-  // approval that never reaches registration -- can leave the Vault holding a secret under a toolId
-  // that will never register. Tracked so both non-registering exits can clean up, and so a
-  // pre-consent refusal that never got this far (the common case) does not call revoke for nothing.
+  // Whether `bindCredentials` is ABOUT TO BE (not "has been") called. Set TRUE together with
+  // `attemptedCredentialHosts` immediately BEFORE the `await deps.bindCredentials(...)` below --
+  // not after it resolves. If it throws partway through -- Task 11's real implementation is a
+  // sequential write loop, so a throw on host B can follow a successful write for host A -- the
+  // flag must already be `true` and `attemptedCredentialHosts` must already name host A, or the
+  // outer `catch` has no way to know a write may have happened and that secret survives in the
+  // Vault forever under a toolId that will never register (fix round 1 finding 1). Tracked
+  // separately from `approved` so a pre-consent refusal that never got this far (the common case)
+  // does not call revoke for nothing.
   let credentialsBound = false;
-  // The hosts that `bindCredentials` was actually asked to bind -- its own return value, i.e. the
-  // hosts that now (or may now) hold a Vault entry. Function-scoped, not `const` inside the `try`,
-  // so BOTH non-registering exits below (the denial branch and the outer `catch`) can pass the same
-  // list to `revokeCredentials` explicitly (Task 9 controller ruling 3) rather than looking it up
-  // from `registry.get(toolId)`, which returns `undefined` on exactly the calls that matter.
+  // NAMES ONLY, and the ATTEMPTED set -- assigned right before `bindCredentials` is awaited, from
+  // the same normalised list the draft's subject was given, and used for CLEANUP on both
+  // non-registering exits (the denial branch and the outer `catch`). Deliberately NOT
+  // `bindCredentials`'s return value: that return is only observable if the call resolves, and a
+  // throw partway through a multi-host write must still be cleaned up. `revokeCredentials` is
+  // idempotent by its own contract, so revoking a host that was never actually written -- or
+  // revoking it twice -- is a safe no-op, which makes the ATTEMPTED (superset) list the safe
+  // choice here. Function-scoped, not `const` inside the `try`, so BOTH non-registering exits below
+  // can read it (Task 9 controller ruling 3 -- never looked up from `registry.get(toolId)`, which
+  // returns `undefined` on exactly the calls that matter).
+  let attemptedCredentialHosts: readonly string[] = [];
+  // The hosts `bindCredentials` actually reports as bound -- its own return value. Authoritative
+  // for the ARTIFACT and the approval prompt (disclosing what will actually be sent), which is a
+  // DIFFERENT question from what needs cleaning up on a non-registering exit -- see
+  // `attemptedCredentialHosts` above for that.
   let credentialHosts: readonly string[] = [];
   try {
     // The id is minted by the gateway, never supplied by a caller -- but it is validated anyway,
@@ -246,6 +270,11 @@ export async function createGeneratedTool(
     // Only hosts the owner also granted via --host. The CLI already enforces this, but the gate is
     // the boundary: the prompt and the artifact must never name a host the tool cannot reach.
     const forApprovedHosts = credentials.filter((c) => hosts.includes(normalizeHost(c.host)));
+    // NAMES ONLY -- computed once and reused below both to tell the draft what will be sent, and
+    // (after `bindCredentials` is about to be called) as the ATTEMPTED cleanup set. See
+    // `attemptedCredentialHosts`'s declaration above for why cleanup needs this rather than
+    // `bindCredentials`'s return value.
+    const forApprovedHostNames = forApprovedHosts.map((c) => normalizeHost(c.host));
 
     // 5. Draft, then build the manifest -- network EMPTY by construction.
     const draft = await deps.draftTool(req, {
@@ -253,7 +282,7 @@ export async function createGeneratedTool(
       // NAMES the credentials will be bound under, derived from `forApprovedHosts` rather than
       // from the Vault -- nothing has been written there yet at this point, since `bindCredentials`
       // runs after drafting.
-      credentialHosts: forApprovedHosts.map((c) => normalizeHost(c.host)),
+      credentialHosts: forApprovedHostNames,
     });
     const body = draft.body;
     // The script DIRECTORY is derived before the manifest so the manifest can grant read to it.
@@ -274,11 +303,15 @@ export async function createGeneratedTool(
     // 6. Prove confinement on THIS machine, still before consent.
     await deps.assertConfinement(manifest);
 
-    // 7. Bind credentials, still before consent -- `bindCredentials`'s return stays authoritative
-    //    for the artifact: it reports what a write actually succeeded for, which the pre-draft
-    //    `forApprovedHosts` list cannot.
-    credentialHosts = await deps.bindCredentials(toolId, forApprovedHosts);
+    // 7. Bind credentials, still before consent. `attemptedCredentialHosts`/`credentialsBound` are
+    //    set BEFORE the await -- see their declarations above -- so a throw partway through this
+    //    call (a real possibility once Task 11 wires a sequential write loop) still leaves an
+    //    accurate cleanup set behind for the outer `catch`. `bindCredentials`'s RETURN stays
+    //    authoritative for the artifact: it reports what a write actually succeeded for, which the
+    //    pre-draft `forApprovedHosts` list cannot -- a different question from what to clean up.
+    attemptedCredentialHosts = forApprovedHostNames;
     credentialsBound = true;
+    credentialHosts = await deps.bindCredentials(toolId, forApprovedHosts);
     const artifact: GeneratedToolArtifact = {
       toolId,
       toolName: `generated_${toolId}`,
@@ -308,9 +341,10 @@ export async function createGeneratedTool(
     if (!approved) {
       // A denial must not leave a credential behind under a toolId nothing will ever call again.
       // Guarded via `safeRevokeCredentials` -- see its docstring for why an unguarded revoke here
-      // could take out the `audit()` call below with it.
+      // could take out the `audit()` call below with it. Revokes the ATTEMPTED set, not
+      // `bindCredentials`'s return value -- see `attemptedCredentialHosts`'s declaration above.
       if (credentialsBound) {
-        await safeRevokeCredentials(deps, toolId, credentialHosts);
+        await safeRevokeCredentials(deps, toolId, attemptedCredentialHosts);
       }
       audit(deps, "rejected", "denied_by_owner", {
         toolId,
@@ -346,13 +380,17 @@ export async function createGeneratedTool(
     });
     return { status: "registered", toolId };
   } catch (err) {
-    // A registration that fails after approval (`writeScript`/`spawn` throwing) never reaches
-    // `registry.register`, so its toolId is dead the same way a denial's is -- clean up the same
-    // way. Guarded for the identical reason as the denial path above: this IS the outer catch, so
-    // an unguarded revoke failure here would escape `createGeneratedTool` outright and neither
-    // `audit()` call below would ever run.
+    // Reaches here on THREE kinds of failure, not just a post-approval one: a pre-consent refusal
+    // (nothing bound, `credentialsBound` still `false`, nothing to revoke), a `bindCredentials`
+    // throw itself (bound flag and attempted set were set BEFORE that await -- see their
+    // declarations above -- so a partial write from a sequential bind loop is still revoked even
+    // though this `catch` runs before `credentialHosts` -- the return value -- was ever assigned),
+    // and a post-approval `writeScript`/`spawn` throw, whose toolId is dead the same way a denial's
+    // is. All three clean up the same way, against the ATTEMPTED set. Guarded for the identical
+    // reason as the denial path above: this IS the outer catch, so an unguarded revoke failure here
+    // would escape `createGeneratedTool` outright and neither `audit()` call below would ever run.
     if (credentialsBound) {
-      await safeRevokeCredentials(deps, toolId, credentialHosts);
+      await safeRevokeCredentials(deps, toolId, attemptedCredentialHosts);
     }
     const code = err instanceof ToolgenError ? err.code : "ERR_TOOLGEN_INTERNAL";
     // An owner-approved attempt that then failed is recorded as APPROVED, because it was: the owner
