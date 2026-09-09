@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788972322346,
+  "lastUpdate": 1788973155965,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4a6edd159bdb4c81a172ba97cc77ea3723567e8c",
-          "message": "chore(main): release client 0.2.5 (#735)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.2.5](https://github.com/nimbus-agent/Nimbus/compare/client-v0.2.4...client-v0.2.5)\n(2026-06-23)\n\n\n### Bug Fixes\n\n* **sonar:** clear the SonarCloud board — S5906 sweep + long-tail code\nsmells ([#731](https://github.com/nimbus-agent/Nimbus/issues/731))\n([3a87e54](https://github.com/nimbus-agent/Nimbus/commit/3a87e54a7335c1be87ecb582673183b242b97c88))\n\n\n### Dependencies\n\n* The following workspace dependencies were updated\n  * dependencies\n    * @nimbus-dev/sdk bumped to 1.2.1\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).",
-          "timestamp": "2026-06-23T17:12:45+03:00",
-          "tree_id": "706060c5d9ae333dcfd9789a0c26a9acd2d850aa",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/4a6edd159bdb4c81a172ba97cc77ea3723567e8c"
-        },
-        "date": 1782224662837,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 301.35451180000234,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 306.8699393000046,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.82276554999333,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "65bda8efd33ef84444f3e34adb79a18bfb65fddc",
+          "message": "docs: correct \"exactly one status check gates the merge\" — there are ten (#1477)\n\nCLAUDE.md and GEMINI.md both stated that `PR quality — required gates`\nis the only status check gating a merge. The _General_ ruleset\n(14784377) requires **ten**.\n\n## Why this is worth a PR\n\nThe error is the kind that costs a merge rather than a pedantic one. On\n#1475, `Dependency audit` and `Trivy vulnerability scan` were red, this\nfile said they could not be blocking, and the ruleset disagreed — both\nwere required and genuinely blocking.\n\nNeither was that PR's fault, which is what made the wrong prose actively\ndangerous: three advisories were published overnight, and the *same sha*\non `main` passed the Security workflow at `2026-09-08T18:19Z` and failed\nit at `2026-09-09T07:05Z`. Anyone trusting this file would have\nconcluded the red belonged to someone else and waited.\n\n## What changed\n\nThe true half is kept — the aggregator really does mean a gate added\n**inside** the PR-quality workflow needs no ruleset edit. The other nine\ncome from separate workflows (Security, CodeQL, CLA), are named\nindividually, and adding one there **is** a ruleset edit.\n\nRe-derive rather than trust the prose:\n\n```\ngh api repos/nimbus-agent/Nimbus/rulesets/14784377 \\\n  --jq \".rules[] | select(.type==\\\"required_status_checks\\\") | .parameters.required_status_checks[].context\"\n```\n\n## Second paragraph: a failing step hides every later step in the same\njob\n\nFound the expensive way in the same session. Both required jobs are step\nsequences that report only their first failure, so \"one gate is red\"\nroutinely means several are, serialised one CI round-trip apart:\n\n| Job | Steps | Cost on #1475 |\n|---|---|---|\n| `Dependency audit` | `bun audit` → `audit:advisories` →\n`audit:js-licenses` | each fix revealed the next — **three pushes** |\n| `Unit + Coverage` | `audit:coverage-floor` → `audit:coverage-scopes` →\nSonarQube gate | a floor failure meant **scopes never executed at all**\n|\n\nThat second one is the more dangerous shape: an unmeasured gate reads as\ngreen to anyone scanning the job list. `audit:coverage-scopes` had never\nrun against #1475 in either direction until the floor was fixed.\n\n## Type of Change\n\n- [x] Documentation only\n\n## Non-Negotiables Checklist\n\n- [x] Mirrors kept byte-identical, per CLAUDE.md's own rule for these\ntwo files (verified with `diff`)\n- [x] No code, no behaviour change\n- [x] Both documented commands were RUN before being written down — a\ndoc citing a dead command is the trap this repo already tracks\n\n## Testing\n\nGreen: `lint:markdown` (0 issues), `audit:doc-refs` (1479 refs across 81\ndocs, all resolve), `audit:status-drift`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_014PrC9o6EhyDeeHLK6PCh1M\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-09T19:46:35+03:00",
+          "tree_id": "abaa2fed3b2c58d5bf7fd52c667f8cbf332d82d8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/65bda8efd33ef84444f3e34adb79a18bfb65fddc"
+        },
+        "date": 1788973152492,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 331.7204133000014,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 332.39772750000265,
             "unit": "ms"
           }
         ]
