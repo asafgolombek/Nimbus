@@ -21,6 +21,11 @@ export const VAULT_KEY_ALLOW_LIST = [
   // injected `ApiKeyResolver` and never name a `<vendor>.api_key` literal themselves, so
   // exempting them would widen the audit surface for nothing.
   "packages/gateway/src/llm/vendor-vault-keys.ts",
+  // D29(c). The keys are composed DYNAMICALLY (`toolgen.<toolId>.<hostSlug>`), so the audit's
+  // literal scan cannot see them — capability confinement (only this file is handed the Vault for
+  // that prefix) is the real defense and this entry documents the keyspace, exactly as D27(b)
+  // states of the media_grant table.
+  "packages/gateway/src/toolgen/toolgen-credentials.ts",
 ];
 
 /**
