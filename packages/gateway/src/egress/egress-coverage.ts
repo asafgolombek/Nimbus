@@ -36,6 +36,7 @@ export const COVERAGE_CLASSES = [
   "session",
   "sync",
   "task",
+  "tool",
 ] as const;
 export type CoverageClass = (typeof COVERAGE_CLASSES)[number];
 
@@ -209,6 +210,9 @@ export const THIS_BINARY_COVERAGE: CoverageVector = {
   sync: "per-run",
   model: "per-call",
   peer: "none",
+  // "none" until Task 12 gives the appender a reachable caller. This file's
+  // own rule: never raise a class ahead of the code that makes the claim true.
+  tool: "none",
 };
 
 /**
@@ -226,6 +230,7 @@ export const ALL_NONE_COVERAGE: CoverageVector = {
   sync: "none",
   model: "none",
   peer: "none",
+  tool: "none",
 };
 
 /** Stable, key-sorted serialization. Stored in the HASHED `source_id`, so it must be canonical. */

@@ -36,7 +36,12 @@ describe("EGRESS_SOURCE_TYPES — frozen union", () => {
   // made by the computer-use browser lane. Like `chatops` and unlike `mcp`/`http`, it is NOT
   // narrower than its name: every request the driven browser makes passes through the one
   // decorated `BrowserContext`.
-  test("is exactly these thirteen members, in this order", () => {
+  //
+  // `tool` is the FOURTEENTH, and an EGRESS class rather than a marker — an outbound request a
+  // runtime-generated tool made through the broker (S2 runtime tool generation). Its
+  // `COVERAGE_CLASSES` entry lands at `"none"` in the same commit, since `tool-egress.ts` ships
+  // with no production caller yet — raised only once `toolgen-broker.ts` calls it.
+  test("is exactly these fourteen members, in this order", () => {
     expect(EGRESS_SOURCE_TYPES).toEqual([
       "task",
       "prune",
@@ -51,6 +56,7 @@ describe("EGRESS_SOURCE_TYPES — frozen union", () => {
       "outcome",
       "chatops",
       "browser",
+      "tool",
     ]);
   });
 
@@ -86,5 +92,12 @@ describe("browser source type", () => {
   test("browser is a source type and is NOT a marker", () => {
     expect(EGRESS_SOURCE_TYPES).toContain("browser");
     expect(isMarkerSourceType("browser")).toBe(false);
+  });
+});
+
+describe("tool source type", () => {
+  test("tool is a source type and is NOT a marker", () => {
+    expect(EGRESS_SOURCE_TYPES).toContain("tool");
+    expect(isMarkerSourceType("tool")).toBe(false);
   });
 });

@@ -97,6 +97,7 @@ describe("appendBootMarkerOrWarn", () => {
       sync: "none",
       model: "none",
       peer: "none",
+      tool: "none",
     });
   });
 

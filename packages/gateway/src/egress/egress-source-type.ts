@@ -96,6 +96,19 @@
  * commit as that caller. The bound that survives is section 3.5.1's, not this class's: `script` and
  * `image` subresources load from any origin, so a URL-carried beacon is ROWED BY ORIGIN rather than
  * prevented -- a count of N is a list of hosts contacted, never a count of requests.
+ *
+ * `tool` is the FOURTEENTH member and an EGRESS class rather than a marker. It records an outbound
+ * request a runtime-generated tool made through the broker (S2 runtime tool generation). The sole
+ * appender is `egress/tool-egress.ts`'s `recordToolEgress`, called by `toolgen/toolgen-broker.ts`
+ * BEFORE every brokered request — including one it is about to refuse.
+ *
+ * Reusing an existing member was rejected for the SIXTH time. `task` would imply the request
+ * reached `connectors.dispatch`, which a generated tool's request never does; `session` must go on
+ * claiming `none` coverage until its own appenders land, for the same reason it was rejected for
+ * every class above. This class's own `COVERAGE_CLASSES` entry lands at `"none"` in this same
+ * commit (`tool-egress.ts` ships with no production caller yet) and is raised to `"per-call"` only
+ * once `toolgen-broker.ts` exists and calls it — per this file's own rule, never ahead of that
+ * landing.
  */
 export const EGRESS_SOURCE_TYPES = [
   "task", // gated connector action
@@ -111,6 +124,7 @@ export const EGRESS_SOURCE_TYPES = [
   "outcome", // how a targeted fetch ended — a marker, never counted as egress
   "chatops", // an outbound Slack/Teams post
   "browser", // an outbound request made by the computer-use browser lane
+  "tool", // an outbound request a runtime-generated tool made through the broker
 ] as const;
 
 export type EgressSourceType = (typeof EGRESS_SOURCE_TYPES)[number];

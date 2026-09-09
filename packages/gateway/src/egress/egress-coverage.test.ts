@@ -20,6 +20,7 @@ const NONE: CoverageVector = {
   sync: "none",
   model: "none",
   peer: "none",
+  tool: "none",
 };
 
 /**
@@ -27,14 +28,15 @@ const NONE: CoverageVector = {
  * `COVERAGE_CLASSES` (which IS the wire order) shows up as a diff here rather than being absorbed
  * by a round-trip through `serializeCoverage`.
  *
- * Every hardcoded coverage string in this file must list ALL NINE classes. A string that omits one
+ * Every hardcoded coverage string in this file must list ALL TEN classes. A string that omits one
  * makes `parseCoverage` return `null` for the MISSING-class reason, which would let a test that
  * targets some other defect keep passing while exercising nothing.
  *
- * `browser` heads the string because the array is key-sorted and `browser` < `chatops`.
+ * `browser` heads the string because the array is key-sorted and `browser` < `chatops`; `tool`
+ * trails it for the same reason (`"task" < "tool"`).
  */
 const CANONICAL =
-  "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call";
+  "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call;tool=none";
 
 /** The six-class string every binary before the `http` class wrote. See the blackout test below. */
 const PRE_HTTP_MARKER = "mcp=per-call;model=none;peer=none;session=none;sync=none;task=per-call";
@@ -76,6 +78,9 @@ describe("coverage vector", () => {
       sync: "per-run",
       model: "per-call",
       peer: "none",
+      // "none" until Task 12 gives `tool-egress.ts`'s appender a reachable caller
+      // (`toolgen/toolgen-broker.ts`) — never raised ahead of that landing.
+      tool: "none",
     });
   });
 
@@ -94,6 +99,7 @@ describe("coverage vector", () => {
       "session",
       "sync",
       "task",
+      "tool",
     ]);
     expect([...COVERAGE_CLASSES]).toEqual([...COVERAGE_CLASSES].sort());
   });
@@ -115,9 +121,11 @@ describe("coverage vector", () => {
     // strictness exists to prevent. This is the fail-safe direction. Do not relax it.
     expect(parseCoverage(PRE_HTTP_MARKER)).toBeNull();
     // ...and the reason is genuinely the missing class, not some unrelated malformation: the same
-    // string with every class missing from this fixture (`http`, `chatops`, and now `browser` too)
-    // restored parses fine.
-    expect(parseCoverage(`browser=none;chatops=none;http=none;${PRE_HTTP_MARKER}`)).not.toBeNull();
+    // string with every class missing from this fixture (`http`, `chatops`, `browser`, and now
+    // `tool` too) restored parses fine.
+    expect(
+      parseCoverage(`browser=none;chatops=none;http=none;${PRE_HTTP_MARKER};tool=none`),
+    ).not.toBeNull();
   });
 
   test("serialize is stable and key-sorted", () => {
@@ -175,6 +183,7 @@ describe("coverage vector", () => {
       sync: "per-run",
       model: "per-call",
       peer: "per-call",
+      tool: "per-call",
     };
     expect(weakestCoverage([rich, THIS_BINARY_COVERAGE])).toEqual({
       browser: "per-run", // this binary's per-run is weaker than rich's per-call
@@ -186,6 +195,7 @@ describe("coverage vector", () => {
       sync: "per-run", // both per-run
       model: "per-call", // both per-call
       peer: "none",
+      tool: "none", // this binary saw nothing
     });
   });
 
@@ -249,5 +259,29 @@ describe("browser coverage class", () => {
 
   test("ALL_NONE_COVERAGE carries browser too", () => {
     expect(ALL_NONE_COVERAGE.browser).toBe("none");
+  });
+});
+
+describe("tool coverage class", () => {
+  test("tool is a coverage class at none — no reachable caller until Task 12", () => {
+    // `tool-egress.ts`'s `recordToolEgress` ships in this task with no production caller, so
+    // claiming any granularity here would be a claim with no code behind it. Task 12 raises this
+    // to `per-call` in the same commit that gives a generated tool the ability to make a brokered
+    // request.
+    expect(COVERAGE_CLASSES).toContain("tool");
+    expect(THIS_BINARY_COVERAGE.tool).toBe("none");
+  });
+
+  test("tool sorts LAST — membership order IS the wire format", () => {
+    expect([...COVERAGE_CLASSES]).toEqual([...COVERAGE_CLASSES].sort());
+    expect(COVERAGE_CLASSES[COVERAGE_CLASSES.length - 1]).toBe("tool");
+  });
+
+  test("serializeCoverage trails with tool=none", () => {
+    expect(serializeCoverage(THIS_BINARY_COVERAGE).endsWith(";tool=none")).toBe(true);
+  });
+
+  test("ALL_NONE_COVERAGE carries tool too", () => {
+    expect(ALL_NONE_COVERAGE.tool).toBe("none");
   });
 });
