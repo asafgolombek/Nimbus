@@ -294,7 +294,7 @@ import {
   readToolCredential,
   writeToolCredential,
 } from "../toolgen/toolgen-credentials.ts";
-import { draftGeneratedTool } from "../toolgen/toolgen-draft.ts";
+import { createDraftToolClosure } from "../toolgen/toolgen-draft.ts";
 import { createToolgenDraftLlm } from "../toolgen/toolgen-draft-llm.ts";
 import type { ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
 import { createEndpointFinder } from "../toolgen/toolgen-grounding.ts";
@@ -3837,15 +3837,15 @@ export async function assemblePlatformServices(
     // probing the Vault from this closure would report nothing even if a boot-time closure could
     // see the request. `generate`/`findEndpoints` are the only deps `draftGeneratedTool` needs;
     // both are cheap, stateless wrappers over services already in scope here.
-    draftTool: (req, subject) =>
-      draftGeneratedTool(
-        req,
-        {
-          generate: createToolgenDraftLlm(llmRegistry.llmRouter, toolGenerationCfg.drafting),
-          findEndpoints: createEndpointFinder(localIndex),
-        },
-        subject,
-      ),
+    //
+    // Built via `createDraftToolClosure` (`toolgen-draft.ts`), not an inline arrow, so the e2e test
+    // (`test/integration/toolgen/toolgen-draft-e2e.test.ts`) drives this EXACT composition over its
+    // own fake `generate`/`findEndpoints` rather than a test-authored copy of the shape -- reverting
+    // this call, or how it is built, changes what that test exercises too.
+    draftTool: createDraftToolClosure({
+      generate: createToolgenDraftLlm(llmRegistry.llmRouter, toolGenerationCfg.drafting),
+      findEndpoints: createEndpointFinder(localIndex),
+    }),
     assertConfinement: (manifest) =>
       assertToolConfinement({ runner: sandboxRunner, manifest, cwd: paths.configDir }),
     scriptDir: (toolId) => toolScriptDir(paths.configDir, toolId),

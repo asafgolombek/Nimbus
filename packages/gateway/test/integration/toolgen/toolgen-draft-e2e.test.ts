@@ -22,7 +22,10 @@ import {
   wireToolProtocol,
 } from "../../../src/toolgen/toolgen-client.ts";
 import { assertToolConfinement } from "../../../src/toolgen/toolgen-confinement.ts";
-import { type DraftGeneration, draftGeneratedTool } from "../../../src/toolgen/toolgen-draft.ts";
+import {
+  createDraftToolClosure,
+  type DraftGeneration,
+} from "../../../src/toolgen/toolgen-draft.ts";
 import { createGeneratedTool, type ToolgenGateDeps } from "../../../src/toolgen/toolgen-gate.ts";
 import { ToolgenRegistry } from "../../../src/toolgen/toolgen-registry.ts";
 import { toolScriptDir, writeToolScript } from "../../../src/toolgen/toolgen-script-store.ts";
@@ -32,15 +35,26 @@ import type {
 } from "../../../src/toolgen/toolgen-types.ts";
 
 /**
- * The end-to-end proof for Task 11's wiring: `assemble.ts`'s `draftTool` closure is
- * `(req, subject) => draftGeneratedTool(req, { generate, findEndpoints }, subject)` — this drives
- * that EXACT composition (the real `draftGeneratedTool`, a fake `generate`, a fake `findEndpoints`)
- * through the real gate (`createGeneratedTool`), the real sandbox (`SandboxRunner` +
- * `assertToolConfinement`), and the real broker (`ToolgenBroker.handleFetch`) — no mocks below the
- * gate. Only the outermost network hop is swapped for a local stand-in, the same seam
- * `toolgen-broker.test.ts` itself uses (`doFetch`/`resolveHost` are legitimate injection points;
- * `isForbiddenAddress` refuses a loopback destination even for an approved host, so a loopback stub
- * server can never be the thing the broker is TOLD to dial — only what `doFetch` redirects to).
+ * The end-to-end proof that Task 11's WIRING PATTERN is sound: this drives the real
+ * `createGeneratedTool` gate, the real sandbox (`SandboxRunner` + `assertToolConfinement`), and the
+ * real broker (`ToolgenBroker.handleFetch`) with no mocks below the gate, and Case 1's `draftTool`
+ * is built through `createDraftToolClosure` (`toolgen-draft.ts`) — the SAME factory
+ * `platform/assemble.ts` calls to build its own `draftTool`, over a fake `generate`/`findEndpoints`
+ * rather than a test-authored copy of the composition's shape.
+ *
+ * **Stated bound, precisely:** this file does NOT import or exercise `assemble.ts` itself, and its
+ * `bindCredentials`/`revokeCredentials` are test-authored no-op stubs, not the
+ * `writeToolCredential`/`deleteToolCredential`-backed ones `assemble.ts` wires (this suite never
+ * supplies a credential, so there is nothing for them to do). Reverting `assemble.ts`'s
+ * `bindCredentials`/`revokeCredentials` bodies would NOT change either test's outcome. What IS
+ * proven, and reverting WOULD change: (a) `createDraftToolClosure(deps)` — the exact composition
+ * `assemble.ts`'s `draftTool` is built from — produces a working, callable tool when driven by the
+ * real gate/sandbox/broker (Case 1), and (b) the composition pattern the whole gate is built
+ * around holds even when a `draftTool` bypasses the drafting ladder outright (Case 2). Only the
+ * outermost network hop is swapped for a local stand-in, the same seam `toolgen-broker.test.ts`
+ * itself uses (`doFetch`/`resolveHost` are legitimate injection points; `isForbiddenAddress`
+ * refuses a loopback destination even for an approved host, so a loopback stub server can never be
+ * the thing the broker is TOLD to dial — only what `doFetch` redirects to).
  *
  * Guard shape (Windows helper path override, set before any `createSandboxRunner()` call, and the
  * env-forwarding spawn helper below) is copied deliberately from
@@ -279,13 +293,14 @@ describe("toolgen drafting end to end", () => {
     const h = await buildHarness("happy");
     let handle: GeneratedToolHandle | undefined;
 
-    // The EXACT composition `assemble.ts`'s `draftTool` closure wires: the real
-    // `draftGeneratedTool` over a fake `generate` (standing in for `createToolgenDraftLlm`'s
-    // router-backed one) and a fake `findEndpoints` (standing in for `createEndpointFinder`'s
-    // index-backed one). The fake `generate` answer is what a real drafting model is supposed to
-    // produce — a JSON envelope naming a body that calls `nimbusFetch`, never the sandbox-refused
-    // raw `fetch()` — so it must pass every ladder rung (JSON envelope, restricted schema, body
-    // syntax, forbidden-globals scan) exactly like a genuine model answer would.
+    // `createDraftToolClosure` is the SAME factory `assemble.ts` calls to build its own
+    // `draftTool` (see its docstring there) — this drives that literal function over a fake
+    // `generate` (standing in for `createToolgenDraftLlm`'s router-backed one) and a fake
+    // `findEndpoints` (standing in for `createEndpointFinder`'s index-backed one), not a
+    // test-authored copy of its shape. The fake `generate` answer is what a real drafting model is
+    // supposed to produce — a JSON envelope naming a body that calls `nimbusFetch`, never the
+    // sandbox-refused raw `fetch()` — so it must pass every ladder rung (JSON envelope, restricted
+    // schema, body syntax, forbidden-globals scan) exactly like a genuine model answer would.
     const fakeGenerate = async (_prompt: string): Promise<DraftGeneration | null> => ({
       text: JSON.stringify({
         inputSchema: { type: "object", properties: {} },
@@ -295,8 +310,10 @@ describe("toolgen drafting end to end", () => {
       }),
       isLocal: true,
     });
-    const draftTool: ToolgenGateDeps["draftTool"] = (req, subject) =>
-      draftGeneratedTool(req, { generate: fakeGenerate, findEndpoints: async () => [] }, subject);
+    const draftTool: ToolgenGateDeps["draftTool"] = createDraftToolClosure({
+      generate: fakeGenerate,
+      findEndpoints: async () => [],
+    });
 
     const gateDeps = h.gateDeps({
       draftTool,
@@ -344,57 +361,96 @@ describe("toolgen drafting end to end", () => {
     }
   }, 30_000);
 
-  test("a body calling raw fetch() fails at the OS even though nothing scanned it", async () => {
-    hits = 0;
-    const h = await buildHarness("rawfetch");
-    let handle: GeneratedToolHandle | undefined;
+  describe("a body calling raw fetch() is blocked at the OS, not merely unreached", () => {
+    // The SAME URL both the control and the confined case dial — THIS process's own local stub
+    // server, the one `hits`/hit-counting already tracks. Earlier, this pointed the raw-`fetch()`
+    // body at `STUB_HOST` ("api.example.com"), which `resolveHost` in this file answers with
+    // `93.184.216.34` — a real public address the sandboxed child's raw `fetch()` never actually
+    // reached, so `expect(hits).toBe(0)` passed whether the sandbox worked or not (and would have
+    // failed for an unrelated reason — no outbound internet — on an air-gapped machine). Dialing
+    // the REAL local stub directly is what makes a nonzero `hits` possible at all, and hence what
+    // makes zero hits an informative result.
+    const rawFetchUrl = (): string => `http://127.0.0.1:${server.port}/`;
 
-    // Bypasses `draftGeneratedTool`'s ladder entirely by returning a `DraftedTool` DIRECTLY —
-    // `scanBodyForForbiddenGlobals` (rung 4) would refuse this body outright, so routing it
-    // through the ladder could never reach the sandbox at all. Returning it straight from
-    // `draftTool`, the same shape `toolgen-gate.test.ts`'s own fakes use, is what proves the CALL
-    // itself fails — i.e. that the SANDBOX, not the scan, is the thing actually stopping this
-    // (I39's "no other route exists" claim).
-    const draftTool: ToolgenGateDeps["draftTool"] = async () => ({
-      body: 'const res = await fetch("https://api.example.com/data"); return await res.text();',
-      inputSchema: { type: "object", properties: {} },
-      grounding: { kind: "description_only" },
-      attempts: 1,
-      locality: "local",
+    // POSITIVE CONTROL FIRST, mirroring `toolgen-network-denied.test.ts`. Without it, "zero
+    // hits"/"the call rejected" passes for any reason at all — including a stub server that never
+    // started, or (critically for THIS claim) a raw `fetch()` that was never going to reach
+    // anything in the first place, sandboxed or not. Only a request proven to succeed unconfined,
+    // then proven to fail confined, distinguishes "the sandbox blocked it" from "it was never
+    // going to work".
+    test("control: the SAME request succeeds UNCONFINED", async () => {
+      hits = 0;
+      const proc = Bun.spawn(
+        [
+          process.execPath,
+          "-e",
+          `const r = await fetch(${JSON.stringify(rawFetchUrl())}); console.log("REACHED:" + r.status); process.exit(0);`,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      const out = await new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+
+      expect(exitCode).toBe(0);
+      expect(out).toContain("REACHED:200");
+      expect(hits).toBe(1);
     });
 
-    const gateDeps = h.gateDeps({
-      draftTool,
-      onSpawned: (handle_) => {
-        handle = handle_;
-      },
-    });
+    test("a body calling raw fetch() fails at the OS even though nothing scanned it", async () => {
+      hits = 0;
+      const h = await buildHarness("rawfetch");
+      let handle: GeneratedToolHandle | undefined;
 
-    const req: CreateGeneratedToolRequest = {
-      sessionId: "s2",
-      description: "raw fetch bypass probe",
-      hosts: [STUB_HOST],
-    };
+      // Bypasses `draftGeneratedTool`'s ladder entirely by returning a `DraftedTool` DIRECTLY —
+      // `scanBodyForForbiddenGlobals` (rung 4) would refuse this body outright, so routing it
+      // through the ladder could never reach the sandbox at all. Returning it straight from
+      // `draftTool`, the same shape `toolgen-gate.test.ts`'s own fakes use, is what proves the CALL
+      // itself fails — i.e. that the SANDBOX, not the scan, is the thing actually stopping this
+      // (I39's "no other route exists" claim). The body targets `rawFetchUrl()` — the SAME address
+      // the control above just proved reachable unconfined.
+      const draftTool: ToolgenGateDeps["draftTool"] = async () => ({
+        body: `const res = await fetch(${JSON.stringify(rawFetchUrl())}); return await res.text();`,
+        inputSchema: { type: "object", properties: {} },
+        grounding: { kind: "description_only" },
+        attempts: 1,
+        locality: "local",
+      });
 
-    try {
-      const outcome = await createGeneratedTool(req, gateDeps);
+      const gateDeps = h.gateDeps({
+        draftTool,
+        onSpawned: (handle_) => {
+          handle = handle_;
+        },
+      });
 
-      expect(outcome.status).toBe("registered");
-      expect(handle).toBeDefined();
+      const req: CreateGeneratedToolRequest = {
+        sessionId: "s2",
+        description: "raw fetch bypass probe",
+        hosts: [STUB_HOST],
+      };
 
-      // The generated body's raw `fetch()` never reaches `nimbusFetch`/the broker at all — the
-      // sandbox's empty `permissions.network` (built BY CONSTRUCTION, I39) denies the connection
-      // at the OS, inside the confined child, before any wire message is ever sent.
-      await expect(handle?.call({})).rejects.toThrow();
+      try {
+        const outcome = await createGeneratedTool(req, gateDeps);
 
-      // The stub server never saw a request, and no `tool`-class row exists — the broker was
-      // never even asked, which is what distinguishes "blocked at the OS" from "refused by the
-      // broker's own checks" (the latter DOES append a `blocked` row; see `toolgen-broker.test.ts`).
-      expect(hits).toBe(0);
-      expect(toolEgressRows(h.db)).toEqual([]);
-    } finally {
-      await handle?.close();
-      await h.cleanup();
-    }
-  }, 30_000);
+        expect(outcome.status).toBe("registered");
+        expect(handle).toBeDefined();
+
+        // The generated body's raw `fetch()` never reaches `nimbusFetch`/the broker at all — the
+        // sandbox's empty `permissions.network` (built BY CONSTRUCTION, I39) denies the connection
+        // at the OS, inside the confined child, before any wire message is ever sent.
+        await expect(handle?.call({})).rejects.toThrow();
+
+        // The stub server never saw a request, and no `tool`-class row exists — the broker was
+        // never even asked, which is what distinguishes "blocked at the OS" from "refused by the
+        // broker's own checks" (the latter DOES append a `blocked` row; see
+        // `toolgen-broker.test.ts`). Informative now, not a foregone conclusion: the control above
+        // just proved this exact URL WOULD have registered a hit had the request gone through.
+        expect(hits).toBe(0);
+        expect(toolEgressRows(h.db)).toEqual([]);
+      } finally {
+        await handle?.close();
+        await h.cleanup();
+      }
+    }, 30_000);
+  });
 });

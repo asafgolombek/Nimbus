@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
 import {
   assertToolConfinement,
@@ -61,6 +64,34 @@ describe("assertToolConfinement", () => {
     ).rejects.toThrow(ToolgenError);
     expect(probed).toBe(false);
   });
+});
+
+describe("assertToolConfinement creates the manifest's granted directories before probing", () => {
+  // POSIX only: Windows models no `mode` bits on `mkdir` (NTFS ACLs are the real Windows-side
+  // control, unrelated to this call), so a mode assertion there would either be vacuous or flaky
+  // depending on inherited ACLs -- not a property this call establishes on that platform.
+  test.skipIf(process.platform === "win32")(
+    "creates a not-yet-existing scriptDir OWNER-ONLY (0o700), matching writeToolScript's own mode",
+    async () => {
+      const base = mkdtempSync(join(tmpdir(), "nimbus-toolgen-confinement-mode-"));
+      const scriptDir = join(base, "toolgen", "ephemeral", "tg_mode_test");
+      expect(existsSync(scriptDir)).toBe(false);
+
+      await assertToolConfinement({
+        runner,
+        manifest: buildGeneratedManifest("tg_mode_test", { scriptDir }),
+        cwd: process.cwd(),
+        spawnProbe: async () => 10,
+      });
+
+      expect(existsSync(scriptDir)).toBe(true);
+      // `mkdir(dir, { recursive: true })` on a directory that ALREADY EXISTS is a no-op -- it does
+      // not retroactively chmod -- so a regression here means `writeToolScript`'s later
+      // `mode: 0o700` silently stopped taking effect, not that this call forgot its own mode.
+      // `& 0o777` masks off the file-type bits `statSync().mode` also carries.
+      expect(statSync(scriptDir).mode & 0o777).toBe(0o700);
+    },
+  );
 });
 
 describe("the DEFAULT probe spawn — the path production actually takes", () => {

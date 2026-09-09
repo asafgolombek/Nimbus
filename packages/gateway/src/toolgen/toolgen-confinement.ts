@@ -126,6 +126,13 @@ export function defaultSpawnProbe(
  * Windows into a false `ERR_TOOLGEN_CONFINEMENT_FAILED`, regardless of what program the probe
  * spawns. Creating the empty directory here (never its contents — the body is written only after
  * approval, unchanged) is what lets the grant call target a real path on every platform.
+ *
+ * `mode: 0o700` matches `writeToolScript`'s own OWNER-ONLY mode (`toolgen-script-store.ts`)
+ * exactly, and is load-bearing, not decorative: `mkdir(dir, { recursive: true })` on a directory
+ * that ALREADY EXISTS is a no-op — it does not retroactively chmod — so creating this directory
+ * without a mode here would have `writeToolScript`'s later `mode: 0o700` silently do nothing,
+ * leaving the directory that will hold the owner-approved tool body at the process umask default
+ * (world-listable on a typical shared Linux/macOS box) instead of owner-only.
  */
 export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<void> {
   const policy = policyFromManifest(deps.manifest);
@@ -140,7 +147,7 @@ export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<
     ...deps.manifest.permissions.filesystem.read,
     ...deps.manifest.permissions.filesystem.write,
   ]) {
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
   }
   const exit = await (deps.spawnProbe ?? defaultSpawnProbe)(deps.runner, policy, deps.cwd);
   if (exit !== PROBE_EXIT_FS_DENIED) {

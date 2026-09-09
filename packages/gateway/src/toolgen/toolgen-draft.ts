@@ -208,3 +208,22 @@ export async function draftGeneratedTool(
     lastLocality ?? undefined,
   );
 }
+
+/**
+ * The exact composition `platform/assemble.ts`'s `draftTool` closure is built from —
+ * `(req, subject) => draftGeneratedTool(req, deps, subject)` — extracted into one factory so a
+ * caller drives the SAME function `assemble.ts` wires into `ToolgenGateDeps.draftTool`, rather
+ * than a copy of its shape that could silently drift from it. Reverting `assemble.ts` to build its
+ * closure some other way (or to stop calling this at all) changes what every caller of this
+ * factory produces, including a test's.
+ *
+ * Typed structurally (`CreateGeneratedToolRequest`/`DraftSubject`/`Promise<DraftedTool>`, matching
+ * `ToolgenGateDeps["draftTool"]`'s own shape in `toolgen-gate.ts`) rather than by importing
+ * `ToolgenGateDeps` itself — that module already imports `DraftedTool` from this one, and importing
+ * its type back here would be a cycle.
+ */
+export function createDraftToolClosure(
+  deps: ToolgenDraftDeps,
+): (req: CreateGeneratedToolRequest, subject: DraftSubject) => Promise<DraftedTool> {
+  return (req, subject) => draftGeneratedTool(req, deps, subject);
+}
