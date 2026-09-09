@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { OutcomeSink, RunToolDeps, ToolClient } from "./tool.ts";
 import {
   CLI_TOOLGEN_SESSION_ID,
@@ -482,7 +483,10 @@ describe("renderToolOutcome — the drafting refusal is surfaced honestly", () =
   });
 
   test("ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED is gone from the CLI", () => {
-    expect(readFileSync("packages/cli/src/commands/tool.ts", "utf8")).not.toContain(
+    // Anchored to this test file's own directory, not the process cwd: the coverage-floor build
+    // (scripts/coverage-floor/build-lcov.sh) `cd`s into each package before running its tests, so
+    // a repo-root-relative path resolves wrong there even though it looks fine from repo root.
+    expect(readFileSync(join(import.meta.dir, "tool.ts"), "utf8")).not.toContain(
       "DRAFT_NOT_IMPLEMENTED",
     );
   });
