@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusToolGenerationToml } from "../config/nimbus-toml.ts";
 import { appendAuditEntry } from "../db/audit-chain.ts";
+import { resolveRuntimeById } from "../exec/exec-runtimes.ts";
 import type { EnforcedPolicy } from "../policy/policy-gate.ts";
 import { artifactDigest } from "./toolgen-artifact.ts";
 import type { GeneratedToolHandle } from "./toolgen-client.ts";
@@ -20,15 +21,27 @@ const APPROVAL_TTL_MS = 120_000;
  * `https://api.example.com/v1` would match nothing at all — a tool approved for a host it can
  * never reach. Normalising here rather than at the broker keeps the artifact the owner approved and
  * the value later compared identical.
+ *
+ * Rejects anything that does not parse as `https:` -- not just an unparseable string. Without this,
+ * an input like `unix:///x` parses cleanly (its own scheme, an empty authority) and returns the
+ * EMPTY STRING as `hostname`, which sails past the blank-string check above because that check runs
+ * on the raw input, not the parsed result. The broker only ever dials `https:`, so any other scheme
+ * -- and a parse that yields no hostname at all -- is refused here rather than silently approved for
+ * a host it can never reach.
  */
 export function normalizeHost(raw: string): string {
   const trimmed = raw.trim().toLowerCase();
   if (trimmed === "") throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", "empty host");
+  let url: URL;
   try {
-    return new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`).hostname;
+    url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
   } catch {
     throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", `unparseable host: ${raw}`);
   }
+  if (url.protocol !== "https:" || url.hostname === "") {
+    throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", `only an https host is allowed: ${raw}`);
+  }
+  return url.hostname;
 }
 
 export interface CreateGeneratedToolRequest {
@@ -64,6 +77,16 @@ export interface ToolgenGateDeps {
    * invalidates the approval). `nimbus tool credential set` therefore REFUSES a live tool.
    */
   readonly bindCredentials: (toolId: string, hosts: readonly string[]) => Promise<string[]>;
+  /**
+   * Undo `bindCredentials` for a toolId that will never register -- an owner denial, or a failure
+   * after approval that never reaches `registry.register`. Without this, a denied tool's credentials
+   * stay in the Vault forever under a toolId nothing will ever call again: `bindCredentials` writes
+   * BEFORE consent (so the approval prompt can name a real host list), but consent can still say no,
+   * and that "no" must not leave a secret behind. MUST be idempotent -- called only when
+   * `bindCredentials` is known to have run, but a real implementation should tolerate being asked to
+   * remove nothing.
+   */
+  readonly revokeCredentials: (toolId: string) => Promise<void>;
   readonly now: () => number;
   readonly newId: () => string;
 }
@@ -114,6 +137,12 @@ export async function createGeneratedTool(
 ): Promise<ToolgenOutcome> {
   const toolId = deps.newId();
   let approved = false;
+  // Whether `bindCredentials` has actually run. Distinct from `approved`: credentials are bound
+  // BEFORE consent (so the prompt can name a real host list), so a denial -- or a failure after
+  // approval that never reaches registration -- can leave the Vault holding a secret under a toolId
+  // that will never register. Tracked so both non-registering exits can clean up, and so a
+  // pre-consent refusal that never got this far (the common case) does not call revoke for nothing.
+  let credentialsBound = false;
   try {
     // The id is minted by the gateway, never supplied by a caller -- but it is validated anyway,
     // because it is interpolated into a filesystem path AND into a `//` comment in the emitted
@@ -144,7 +173,19 @@ export async function createGeneratedTool(
     const body = await deps.draftBody(req);
     // The script DIRECTORY is derived before the manifest so the manifest can grant read to it.
     // Nothing is WRITTEN there until after approval (step 7) — a derived path touches no disk.
-    const manifest = buildGeneratedManifest(toolId, { scriptDir: deps.scriptDir(toolId) });
+    //
+    // The interpreter's OWN read paths must be granted too, not just the script directory: on
+    // Windows the AppContainer helper writes one ACE per granted path, so an interpreter outside
+    // every grant is simply unreadable and the child dies at exit 68 -- no stdout, no stderr, before
+    // running a line (`exec/exec-runtimes.ts`'s `requiredReadPaths` doc; `exec-gate.ts` grants the
+    // same for the same reason). Every generated tool runs on bun (`toolgen-client.ts` always
+    // launches via `process.execPath`), so the runtime is resolved by fixed id, not derived from the
+    // request.
+    const runtime = resolveRuntimeById("bun");
+    const manifest = buildGeneratedManifest(toolId, {
+      scriptDir: deps.scriptDir(toolId),
+      runtimeReadPaths: runtime.requiredReadPaths(),
+    });
     // 5. Prove confinement on THIS machine, still before consent.
     await deps.assertConfinement(manifest);
 
@@ -156,6 +197,7 @@ export async function createGeneratedTool(
       throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", "at least one --host is required");
     }
     const credentialHosts = await deps.bindCredentials(toolId, hosts);
+    credentialsBound = true;
     const artifact: GeneratedToolArtifact = {
       toolId,
       toolName: `generated_${toolId}`,
@@ -180,6 +222,10 @@ export async function createGeneratedTool(
       APPROVAL_TTL_MS,
     );
     if (!approved) {
+      // A denial must not leave a credential behind under a toolId nothing will ever call again.
+      if (credentialsBound) {
+        await deps.revokeCredentials(toolId);
+      }
       audit(deps, "rejected", "denied_by_owner", { toolId, body, hosts });
       return { status: "denied" };
     }
@@ -204,12 +250,31 @@ export async function createGeneratedTool(
     });
     return { status: "registered", toolId };
   } catch (err) {
+    // A registration that fails after approval (`writeScript`/`spawn` throwing) never reaches
+    // `registry.register`, so its toolId is dead the same way a denial's is -- clean up the same
+    // way.
+    if (credentialsBound) {
+      await deps.revokeCredentials(toolId);
+    }
     const code = err instanceof ToolgenError ? err.code : "ERR_TOOLGEN_INTERNAL";
-    audit(deps, "rejected", approved ? "failed_after_approval" : "refused_before_consent", {
-      toolId,
-      code,
-      message: (err as Error).message,
-    });
+    // An owner-approved attempt that then failed is recorded as APPROVED, because it was: the owner
+    // saw and consented to the verbatim body, and a process may already have spawned. Only a
+    // pre-consent failure may claim the owner never saw it -- conflating the two would let an
+    // auditor filtering `hitl_status='approved'` on `tool.generate` miss a run the owner actually
+    // approved (mirrors `exec-gate.ts`'s `approvedAt` sentinel and its identical reasoning).
+    if (approved) {
+      audit(deps, "approved", "failed_after_approval", {
+        toolId,
+        code,
+        message: (err as Error).message,
+      });
+    } else {
+      audit(deps, "rejected", "refused_before_consent", {
+        toolId,
+        code,
+        message: (err as Error).message,
+      });
+    }
     return { status: "refused", code };
   }
 }
