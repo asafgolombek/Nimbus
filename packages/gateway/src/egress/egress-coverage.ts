@@ -36,6 +36,7 @@ export const COVERAGE_CLASSES = [
   "session",
   "sync",
   "task",
+  "tool",
 ] as const;
 export type CoverageClass = (typeof COVERAGE_CLASSES)[number];
 
@@ -209,6 +210,12 @@ export const THIS_BINARY_COVERAGE: CoverageVector = {
   sync: "per-run",
   model: "per-call",
   peer: "none",
+  // RAISED from "none" in the same commit that lets a generated tool make a brokered request:
+  // `toolgen/toolgen-client.ts`'s `spawnGeneratedTool` wires `ToolgenBroker.handleFetch` onto the
+  // hand-rolled line-delimited JSON protocol the spawned tool speaks over stdio — deliberately not
+  // an MCP client on either end (see that file's docstring for why). Per this file's own rule,
+  // never ahead of that landing.
+  tool: "per-call",
 };
 
 /**
@@ -226,6 +233,7 @@ export const ALL_NONE_COVERAGE: CoverageVector = {
   sync: "none",
   model: "none",
   peer: "none",
+  tool: "none",
 };
 
 /** Stable, key-sorted serialization. Stored in the HASHED `source_id`, so it must be canonical. */

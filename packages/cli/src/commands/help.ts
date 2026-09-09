@@ -79,6 +79,10 @@ PRIVACY & AUDIT
   nimbus audit [--limit N]    Recent HITL audit rows
   nimbus exec --code <src> | --file <path>   Run code in the sandbox, behind an approval prompt
                               (off by default; enable with [code_execution] enabled = true)
+  nimbus tool create --description <d> --host <h> [--credential <h>=<tok>]   Owner-approved
+                              generated tool (off by default; enable with [tool_generation]
+                              enabled = true — drafting itself is not shipped yet; create refuses)
+  nimbus tool list [--json] | revoke <id> | credential set <id> <host> ...
   nimbus computer browser --origin <o> [--script-origin <o>]   HITL-gated browser session
                               (off by default; enable with [computer_use] enabled = true —
                                browser driver not shipped yet, sessions refuse)

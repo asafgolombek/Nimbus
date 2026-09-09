@@ -58,6 +58,7 @@ export { runStop } from "./stop.ts";
 export { runTeam } from "./team.ts";
 export { runTelemetry } from "./telemetry.ts";
 export { runTest } from "./test.ts";
+export { runTool } from "./tool.ts";
 export { runTribal } from "./tribal.ts";
 export { runTui } from "./tui.tsx";
 export { runUpdate } from "./update.ts";

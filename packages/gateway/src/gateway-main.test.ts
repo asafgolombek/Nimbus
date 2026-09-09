@@ -6,7 +6,7 @@ import {
   recordNegationDisclosure,
 } from "./engine/negation-disclosure.ts";
 import type { RunAskParams } from "./engine/run-ask.ts";
-import { createChatOpsAskEngine } from "./gateway-main.ts";
+import { createChatOpsAskEngine, drainToolgenOnShutdown } from "./gateway-main.ts";
 
 // IMPORTANT 1: the ChatOps read path is the only `runAsk` caller not already inside
 // `agentRequestContext.run` (the other three sites are `ipc/server/inline-handlers.ts` at
@@ -66,5 +66,58 @@ describe("createChatOpsAskEngine", () => {
     expect(await engine("first", "ns")).toBe("echo:first");
     expect(await engine("second", "ns")).toBe("echo:second");
     expect(seen).toEqual(["first", "second"]);
+  });
+});
+
+// S2 runtime tool generation (I39): "ephemeral means ephemeral" has two halves -- the in-memory
+// registry and the on-disk script store -- and a drain that clears only one LOOKS identical to
+// success when all you can see is that the process exited cleanly.
+describe("drainToolgenOnShutdown", () => {
+  test("calls BOTH the registry revoke and the on-disk script removal", async () => {
+    const calls: string[] = [];
+    await drainToolgenOnShutdown({
+      revokeAllToolgenRegistrations: async () => {
+        calls.push("revokeAll");
+      },
+      removeAllToolScripts: async (configDir) => {
+        calls.push(`removeAllToolScripts:${configDir}`);
+      },
+      configDir: "/tmp/nimbus-config",
+    });
+    expect(calls).toEqual(["revokeAll", "removeAllToolScripts:/tmp/nimbus-config"]);
+  });
+
+  test("propagates a failure from removeAllToolScripts rather than swallowing it silently", async () => {
+    let revoked = false;
+    await expect(
+      drainToolgenOnShutdown({
+        revokeAllToolgenRegistrations: async () => {
+          revoked = true;
+        },
+        removeAllToolScripts: async () => {
+          throw new Error("disk error");
+        },
+        configDir: "/tmp/nimbus-config",
+      }),
+    ).rejects.toThrow("disk error");
+    // The registry half still ran before the failing half -- shutdown's own try/catch is what
+    // makes the overall drain best-effort, not this function.
+    expect(revoked).toBe(true);
+  });
+
+  test("propagates a failure from the registry revoke, and never reaches removeAllToolScripts", async () => {
+    let scriptsRemoved = false;
+    await expect(
+      drainToolgenOnShutdown({
+        revokeAllToolgenRegistrations: async () => {
+          throw new Error("registry error");
+        },
+        removeAllToolScripts: async () => {
+          scriptsRemoved = true;
+        },
+        configDir: "/tmp/nimbus-config",
+      }),
+    ).rejects.toThrow("registry error");
+    expect(scriptsRemoved).toBe(false);
   });
 });

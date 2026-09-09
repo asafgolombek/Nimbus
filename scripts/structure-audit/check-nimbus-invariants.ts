@@ -21,6 +21,11 @@ export const VAULT_KEY_ALLOW_LIST = [
   // injected `ApiKeyResolver` and never name a `<vendor>.api_key` literal themselves, so
   // exempting them would widen the audit surface for nothing.
   "packages/gateway/src/llm/vendor-vault-keys.ts",
+  // D29(c). The keys are composed DYNAMICALLY (`toolgen.<toolId>.<hostSlug>`), so the audit's
+  // literal scan cannot see them — capability confinement (only this file is handed the Vault for
+  // that prefix) is the real defense and this entry documents the keyspace, exactly as D27(b)
+  // states of the media_grant table.
+  "packages/gateway/src/toolgen/toolgen-credentials.ts",
 ];
 
 /**
@@ -1714,6 +1719,153 @@ export function checkMediaGrantStoreConfinement(files: readonly FileEntry[]): Vi
   return out;
 }
 
+// D29 (a) (I39): the `nimbus/fetch` brokered-fetch METHOD LITERAL — the string a generated tool's
+// stdio message and the broker's dispatch must agree on — is defined ONCE, in
+// `toolgen/toolgen-types.ts`'s `BROKERED_FETCH_METHOD`, and confined there. A producer and a
+// consumer that separately hardcode the same string are two copies that can drift invisibly, the
+// exact failure the `SANDBOX_POLICY_ENV` comment warns about for its own wire; confining the single
+// definition site is a stronger rule than allow-listing every file that would otherwise carry a
+// copy.
+//
+// Comments are stripped before scanning, and that cuts BOTH ways: without stripping, a doc comment
+// that merely MENTIONS the method (as this very comment does, in the paragraph above) would red the
+// build; with stripping, the rule cannot see a literal hidden inside a comment -- accepted, because
+// a comment does not execute and every real code path still goes through the exported constant.
+//
+// Only the QUOTED literal is matched (`"nimbus/fetch"` / `'nimbus/fetch'` / `` `nimbus/fetch` ``),
+// with the same quote character on both sides, so the rule fires on the string's actual text
+// rather than on any substring that happens to contain it.
+const D29_FETCH_LITERAL_DEFINITION_FILE = "packages/gateway/src/toolgen/toolgen-types.ts";
+const D29_FETCH_LITERAL_RE = /(["'`])nimbus\/fetch\1/;
+
+export function checkBrokeredFetchLiteralConfinement(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (!f.relPath.startsWith("packages/gateway/src/")) continue;
+    if (f.relPath === D29_FETCH_LITERAL_DEFINITION_FILE) continue;
+    // Comments blanked; string literals left intact -- the literal we are hunting FOR lives inside
+    // a string, so stripping strings too would blind the rule to the exact thing it exists to see.
+    const code = stripComments(f.contents);
+    const original = f.contents.split("\n");
+    for (const m of code.matchAll(new RegExp(D29_FETCH_LITERAL_RE.source, "g"))) {
+      const line = code.slice(0, m.index).split("\n").length;
+      out.push({
+        rule: "D29(a)-brokered-fetch-literal-confined",
+        file: f.relPath,
+        line,
+        snippet: (original[line - 1] ?? "").trim(),
+      });
+    }
+  }
+  return out;
+}
+
+// D29 (b) (I39): the GENERATED-MANIFEST CONSTRUCTOR — `buildGeneratedManifest`, the ONLY function
+// that produces the `ExtensionManifest` a generated tool spawns under — is defined only in
+// `toolgen/toolgen-stub.ts`, and that file may never assign `permissions.network` a non-empty
+// array LITERAL. Two checks, one rule, because they guard the same property from two directions:
+// a second definition elsewhere could return whatever `network:` it likes with nobody the wiser,
+// and the ONE approved definition drifting to a non-empty literal would silently open the exact
+// hole `permissions.network = []` exists to close (mirrors I33's `buildExecPolicy` rule, where a
+// requested grant is REJECTED rather than dropped).
+//
+// The definition check matches on the `function` KEYWORD directly preceding the name, so an
+// ordinary call (`buildGeneratedManifest(toolId)`), an import, or a `typeof buildGeneratedManifest`
+// type query -- all of which appear legitimately elsewhere in this tree -- does not trip it; only a
+// second DECLARATION would.
+//
+// The network-literal check is scoped to the one allowed file only: a non-empty ARRAY LITERAL after
+// `network:` (`network: ["x"]`), never a bare `network: []` and never a non-literal expression such
+// as `network: opts.network` (checked at runtime by `buildGeneratedManifest`'s own throw, not by
+// this static rule).
+//
+// STATED BOUND, in D29(c)'s own style: keying on the `function` KEYWORD means a definition written
+// as `const buildGeneratedManifest = (...) => {...}` or as a class method would evade this rule --
+// this repo's one production definition is a `function` declaration today, but the regex is a text
+// scan over ONE shape, not a symbol-confinement guarantee. Capability confinement (only this file
+// is ever wired as the manifest constructor at every call site the toolgen chokepoint reaches) is
+// the real defense; this rule is the backstop for the copy-paste/second-definition case, not the
+// boundary, exactly as D29(c) says of the `toolgen.` Vault-key prefix.
+const D29_MANIFEST_DEFINITION_FILE = "packages/gateway/src/toolgen/toolgen-stub.ts";
+const D29_MANIFEST_DEFINITION_RE = /\bfunction\s+buildGeneratedManifest\s*\(/;
+const D29_MANIFEST_NETWORK_RE = /\bnetwork\s*:\s*\[\s*(?!\])/;
+
+export function checkGeneratedManifestConfinement(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (!f.relPath.startsWith("packages/gateway/src/")) continue;
+    const code = stripComments(f.contents);
+    const original = f.contents.split("\n");
+
+    if (f.relPath !== D29_MANIFEST_DEFINITION_FILE) {
+      const m = D29_MANIFEST_DEFINITION_RE.exec(code);
+      if (m !== null) {
+        const line = code.slice(0, m.index).split("\n").length;
+        out.push({
+          rule: "D29(b)-generated-manifest-definition-confined",
+          file: f.relPath,
+          line,
+          snippet: (original[line - 1] ?? "").trim(),
+        });
+      }
+      continue;
+    }
+
+    for (const m of code.matchAll(new RegExp(D29_MANIFEST_NETWORK_RE.source, "g"))) {
+      const line = code.slice(0, m.index).split("\n").length;
+      out.push({
+        rule: "D29(b)-generated-manifest-network-nonempty",
+        file: f.relPath,
+        line,
+        snippet: (original[line - 1] ?? "").trim(),
+      });
+    }
+  }
+  return out;
+}
+
+// D29 (c) (I39): the `toolgen.` VAULT-KEY prefix a generated tool's per-host credential lives under
+// (`toolgen.<toolId>.<hostSlug>`) is composed only in `toolgen/toolgen-credentials.ts`'s
+// `toolCredentialKey`. Matches the TEMPLATE-LITERAL SHAPE of the actual key -- a `toolgen.` prefix,
+// an interpolation, a literal `.`, and a second interpolation -- rather than any string that merely
+// starts with `toolgen.`: `toolgen-stub.ts` legitimately builds the unrelated single-segment
+// extension id `` `toolgen.${toolId}` `` (no second `.${...}` segment), and a rule keyed on the
+// bare prefix would false-positive on it. Written as what CANNOT pass: any file other than
+// `toolgen-credentials.ts` composing a string with this exact two-segment shape is a second Vault
+// keyspace producer that can drift from the escaping scheme `toolCredentialKey` implements (see
+// that function's own comment on why the escape ORDER matters).
+//
+// STATED BOUND, matching D27(b)'s bound on `media_grant`: the keys are composed dynamically, so a
+// prefix built through string concatenation or an indirection this regex cannot see still evades a
+// text scan. Capability confinement -- only `toolgen-credentials.ts` is ever handed the Vault for
+// that prefix -- is the real defense; this rule and the `VAULT_KEY_ALLOW_LIST` entry above both
+// document the keyspace rather than fully enforcing it.
+const D29_VAULT_KEY_DEFINITION_FILE = "packages/gateway/src/toolgen/toolgen-credentials.ts";
+const D29_VAULT_KEY_RE = /`toolgen\.\$\{[^}]*\}\.\$\{[^}]*\}/;
+
+export function checkToolgenVaultKeyConfinement(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (!f.relPath.startsWith("packages/gateway/src/")) continue;
+    if (f.relPath === D29_VAULT_KEY_DEFINITION_FILE) continue;
+    const code = stripComments(f.contents);
+    const original = f.contents.split("\n");
+    for (const m of code.matchAll(new RegExp(D29_VAULT_KEY_RE.source, "g"))) {
+      const line = code.slice(0, m.index).split("\n").length;
+      out.push({
+        rule: "D29(c)-toolgen-vault-key-confined",
+        file: f.relPath,
+        line,
+        snippet: (original[line - 1] ?? "").trim(),
+      });
+    }
+  }
+  return out;
+}
+
 export function checkEgressChokepointConfinement(files: readonly FileEntry[]): Violation[] {
   const out: Violation[] = [];
   for (const f of files) {
@@ -1973,6 +2125,14 @@ export const RULE_ANCHORS: readonly string[] = [
   // without an anchor of its own, D28 would report clean while scanning nothing the moment
   // `iterateSourceFiles()` stopped reaching `fleet/`.
   "packages/gateway/src/fleet/fleet-invoker.ts",
+  // D29 (a)/(b)/(c) — anchored on `toolgen-broker.ts`, a file all three rules SCAN (it names none
+  // of `nimbus/fetch`, `buildGeneratedManifest`'s definition, or a `toolgen.` vault-key template,
+  // so it is read and then reported clean) rather than on any of the three DEFINITION sites the
+  // rules themselves skip (`toolgen-types.ts`, `toolgen-stub.ts`'s own file is scanned but for a
+  // different check, `toolgen-credentials.ts`). Without an anchor of its own, all three D29 rules
+  // would report clean while scanning nothing the moment `iterateSourceFiles()` stopped reaching
+  // `toolgen/` — the same inert-guard failure mode D23/D28 exist to catch.
+  "packages/gateway/src/toolgen/toolgen-broker.ts",
 ];
 
 /** Fail loudly when the scanned set cannot support the rules about to run. */
@@ -2252,6 +2412,35 @@ async function run(): Promise<void> {
     for (const e of v) {
       console.error(
         `::error file=${e.file},line=${e.line}::D27(b) media_grant reached outside media-grant-store.ts — a caller can synthesise a grant or read around the active-row filter; I37 regression: ${e.snippet}`,
+      );
+    }
+    if (v.length > 0) exit = 1;
+  }
+  if (mode === "binary-only" || mode === "all") {
+    const v = checkBrokeredFetchLiteralConfinement(files);
+    for (const e of v) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D29(a) the nimbus/fetch method literal appears outside toolgen-types.ts — a producer/consumer copy that can drift; I39 regression: ${e.snippet}`,
+      );
+    }
+    if (v.length > 0) exit = 1;
+  }
+  if (mode === "binary-only" || mode === "all") {
+    const v = checkGeneratedManifestConfinement(files);
+    for (const e of v) {
+      console.error(
+        e.rule === "D29(b)-generated-manifest-network-nonempty"
+          ? `::error file=${e.file},line=${e.line}::D29(b) toolgen-stub.ts assigns permissions.network a non-empty literal — a generated tool would spawn with network access; I39 regression: ${e.snippet}`
+          : `::error file=${e.file},line=${e.line}::D29(b) buildGeneratedManifest defined outside toolgen-stub.ts — a second, unaudited manifest constructor; I39 regression: ${e.snippet}`,
+      );
+    }
+    if (v.length > 0) exit = 1;
+  }
+  if (mode === "binary-only" || mode === "all") {
+    const v = checkToolgenVaultKeyConfinement(files);
+    for (const e of v) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D29(c) a toolgen. Vault-key prefix composed outside toolgen-credentials.ts — a second producer of the per-host credential keyspace; I39 regression: ${e.snippet}`,
       );
     }
     if (v.length > 0) exit = 1;

@@ -53,6 +53,8 @@ import type { VlmProvider } from "./multimodal/vlm/vlm-types.ts";
 import { type LocalBaseline, PolicyGate } from "./policy/policy-gate.ts";
 import { signPolicy } from "./policy/policy-signing.ts";
 import { PolicyStore } from "./policy/policy-store.ts";
+import { buildGeneratedManifest } from "./toolgen/toolgen-stub.ts";
+import { ToolgenError } from "./toolgen/toolgen-types.ts";
 import { TribalClusterStore } from "./tribal/cluster-store.ts";
 import { captureToKnowledgeBase } from "./tribal/tribal-write-gate.ts";
 import type { NimbusVault } from "./vault/nimbus-vault.ts";
@@ -117,6 +119,21 @@ async function readDirFiles(
   return Promise.all(
     tsFiles.map(async (rel) => ({ rel, contents: await readFile(resolve(dir, rel), "utf8") })),
   );
+}
+
+/**
+ * Every PRODUCTION file (test files excluded, per `readDirFiles`) under `packages/gateway/src`
+ * whose content matches `pattern`, as repo-root-relative paths sorted for a stable comparison. I39's
+ * "recordToolEgress is the ONLY tool-class appender in the tree" test needs a repo-wide search
+ * primitive, not a single-file read — a second appender planted anywhere else in the tree must be
+ * visible to it.
+ */
+async function grepRepo(pattern: RegExp): Promise<string[]> {
+  const files = await readDirFiles("packages/gateway/src");
+  return files
+    .filter((f) => pattern.test(f.contents))
+    .map((f) => `packages/gateway/src/${f.rel}`)
+    .sort();
 }
 
 describe("I1 — extensionProcessEnv is the only env source for spawned MCP children", () => {
@@ -2227,6 +2244,10 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     // reasoning that the appender's own commit would follow immediately, which it did not, because
     // the driver task was re-planned mid-slice — and was restored to `none` until a caller existed.
     // That caller now exists and is pinned by the D26(c) test in the I35 block below.
+    // `tool` is the EIGHTH non-`none` class, `per-call`, RAISED in the same commit that gave
+    // `recordToolEgress` its production caller — `toolgen/toolgen-broker.ts`'s brokered-fetch
+    // handler, wired onto the spawned tool's stdio protocol by `toolgen-client.ts`'s
+    // `spawnGeneratedTool`. Per this file's own rule, never ahead of that landing (I39).
     // `peer`/`session` stay `none` until THEIR appenders land — raising an
     // entry without a landed appender behind it is a review moment, not a test to re-bank. (An
     // earlier version of this comment pointed to an `EgressCompleteness.tier` #1057 note in
@@ -2243,6 +2264,7 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
       "model",
       "sync",
       "task",
+      "tool",
     ]);
   });
 
@@ -3756,5 +3778,35 @@ describe("I38 — an unattended fleet run reaches a non-local model only under g
     expect(store.declare("c1", "fleet")).toBe("unknown");
     // Not vacuous: `declare` really does honour the kinds it recognises.
     expect(new ClientKindStore().declare("c2", "mcp")).toBe("mcp");
+  });
+});
+
+describe("I39 — generated tools reach the network only through the broker", () => {
+  test("a generated manifest always has an EMPTY network set", () => {
+    // `permissions.network` is `[]` BY CONSTRUCTION on every platform, mirroring I33's
+    // `buildExecPolicy` rule — there is no path that produces a non-empty grant.
+    expect(buildGeneratedManifest("tg_a").permissions.network).toEqual([]);
+  });
+
+  test("a requested network grant is REJECTED, never dropped", () => {
+    // A caller-requested grant must FAIL LOUDLY rather than be silently discarded — a dropped
+    // grant looks identical to success from the caller's side, right up until the tool tries to
+    // reach a host it was told it could.
+    expect(() => buildGeneratedManifest("tg_a", { network: ["api.example.com"] })).toThrow(
+      ToolgenError,
+    );
+  });
+
+  test("recordToolEgress is the ONLY tool-class appender in the tree", async () => {
+    // A second `sourceType: "tool"` row anywhere else would mean a second, unreviewed path
+    // recording brokered egress — exactly the completeness property I29's `tool` class claims.
+    const hits = await grepRepo(/sourceType:\s*"tool"/);
+    expect(hits).toEqual(["packages/gateway/src/egress/tool-egress.ts"]);
+  });
+
+  test("the tool coverage class is per-call", () => {
+    // Raised from "none" in the same commit that gave `recordToolEgress` its production caller
+    // (`toolgen/toolgen-broker.ts`) — this file's own rule, and the one `browser` followed.
+    expect(THIS_BINARY_COVERAGE.tool).toBe("per-call");
   });
 });

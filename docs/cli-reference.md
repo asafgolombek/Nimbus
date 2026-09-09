@@ -1681,6 +1681,126 @@ halts the scheduler before any hardware probe (invariant I22, tighten-only).
 
 ---
 
+## Runtime Tool Generation
+
+### `nimbus tool`
+
+Register, list and revoke owner-approved, session-ephemeral generated tools — model-authored code
+that runs sandboxed and can reach only the hosts and credentials the owner explicitly approved.
+Invariant **I39**.
+
+**Shipped as PR 1 of the runtime-tool-generation slice; drafting itself is not.** `nimbus tool
+create` exercises the whole gate — the `[tool_generation] enabled` kill-switch, org policy, the
+per-session tool budget, sandbox confinement — and only THEN refuses, at the exact point where a
+model would author the tool's body:
+
+```text
+$ nimbus tool create --description "fetch the weather" --host api.example.com
+error: tool drafting is not implemented in this release.
+       The generation gate, sandbox and broker are in place; the step that
+       drafts the tool body is not. See docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md § 10.
+```
+
+The transcript above is verbatim CLI output, so the path in it is deliberately left unbackticked —
+it is what the command actually prints. The same reference, in auditable form, is
+[`docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md`](./superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md)
+§ 10, so `audit:doc-refs` resolves it and the path cannot rot unnoticed.
+
+That is the honest, permanent-for-this-release shape of the command, not a bug to route around:
+designing the prompt that authors code which then runs with the owner's own credentials is its own
+reviewed piece of work, deferred on purpose rather than improvised late inside this slice.
+
+**Off by default.** Add to `nimbus.toml`:
+
+```toml
+[tool_generation]
+enabled                = true    # DEFAULT false
+max_tools_per_session   = 3
+max_requests_per_tool   = 50
+request_timeout_ms      = 10000
+```
+
+**What `max_tools_per_session` actually bounds from the CLI.** Every `nimbus tool` invocation
+shares one fixed session id (`cli`), so `nimbus tool list` run from a fresh process can find a tool
+a previous `nimbus tool create` invocation just registered — a random id per invocation would make
+that impossible, since each command is its own short-lived process. The tradeoff: for
+CLI-originated tools, `max_tools_per_session` is not a per-command limit at all — it is a single
+budget of `max_tools_per_session` LIVE generated tools shared by every `nimbus tool create` call
+this gateway process serves, for as long as that process runs (the registry is in-memory only and
+resets on a gateway restart). A real agent conversation does not share this bound: it mints a fresh
+session id per conversation via `agentRequestContext`, so its budget really is per-conversation.
+
+```bash
+nimbus tool create --description "fetch the weather" --host api.example.com
+nimbus tool create --description "post to my tracker" --host api.example.com \
+  --host files.example.com --credential api.example.com=sk_live_...
+nimbus tool list
+nimbus tool list --json
+nimbus tool revoke 3fa85f64-5717-4562-b3fc-2c963f66afa6
+nimbus tool credential set 3fa85f64-5717-4562-b3fc-2c963f66afa6 api.example.com --bearer sk_live_...
+```
+
+A tool id is a raw `randomUUID()` value (`ToolgenGateDeps.newId`) — there is no `tg_`-style prefix.
+
+| Subcommand | Meaning |
+| --- | --- |
+| `create --description <text> --host <h>...` | Register a tool. `--host` is repeatable and at least one is required. `--credential <host>=<token>` is repeatable and bearer-only from the CLI; naming a host not also passed to `--host` is refused before anything is sent to the gateway. |
+| `list [--json]` | Live tools from this CLI's own session — never a credential value, only the host names a credential is bound for. |
+| `revoke <tool-id>` | Ends the tool's child process AND deletes its approved script from disk — one call, both halves, so a revoked tool cannot be pointed at again. |
+| `credential set <tool-id> <host> (--bearer <token> \| --header <name> <value> \| --basic <user> <pass>)` | **Always refuses a live tool.** Credentials are bound only at CREATE time, before the toolId exists — adding one afterward would change the artifact the owner already approved. The refusal names the fix: revoke, then recreate with `--credential` included. |
+
+**`--credential` is validated but not yet wired to anything, in this release.** `create`'s
+`--credential <host>=<token>` is parsed and checked client-side (host membership, non-empty value),
+but PR 1's `toolgen.create` gateway handler does not read a `credentials` field at all — the value
+is never transmitted, bound to a Vault entry, or shown back to you as bound. This changes nothing
+observable today, because `create` always refuses at the drafting step (above) before credentials
+would ever be consulted either way — but it means the flag does not yet do what its name implies,
+and that gap will persist once drafting ships until the wire contract is widened to match. See
+design spec § 10. `credential set`, by contrast, is not silently inert: it always visibly refuses
+(the row above), so its own output already discloses that nothing was bound.
+
+**Credentials are supplied at create time, never after.** The toolId a credential would be bound
+to does not exist until `create` runs, so `credential set` cannot be the way a tool first gets one —
+and once a tool is registered, `credentialHosts` is part of what the owner approved, so widening it
+silently is exactly what this gate exists to prevent.
+
+**The approval prompt shows the tool's VERBATIM body, its host list and its credential host list —
+never a digest and never a credential value.** The human approving it is the entire security
+boundary for this capability, the same posture `nimbus exec`'s prompt takes for a script body.
+
+**Refuse in a non-TTY, always.** `nimbus tool create` needs an interactive terminal to show that
+prompt; run it from a script or a pipe and it refuses immediately, before opening a gateway
+connection, rather than treating a piped `y` as approval of code it never showed anyone:
+
+```text
+$ echo y | nimbus tool create --description d --host api.example.com
+error: nimbus tool create needs an interactive TTY for owner approval.
+There is no headless path: toolgen.create is LAN-forbidden and local-only.
+```
+
+`toolgen.*` is LAN-forbidden in its entirety (`create` is RCE-class by definition, and
+`approvalRespond` is the local owner answering a prompt no peer may answer for them) and absent
+from the Tauri allowlist (I7).
+
+**Exit codes.**
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The tool was registered. |
+| `126` | The owner denied the approval prompt or let it time out. |
+| `127` | Refused before consent — disabled by config or org policy, a bad argument, non-TTY stdin, the session's tool budget spent, or (this release, always) drafting not implemented. |
+
+**Org lockoff.** A signed `nimbus.policy.toml` can disable it fleet-wide:
+
+```toml
+[policy.capabilities.ai_v2]
+tool_generation = false
+```
+
+Only `false` carries meaning, matching `nimbus exec`'s and `nimbus fleet`'s lockoffs.
+
+---
+
 ## Interactive Sessions
 
 ### `nimbus tui`

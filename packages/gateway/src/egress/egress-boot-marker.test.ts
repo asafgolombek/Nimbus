@@ -21,6 +21,7 @@ const RICH_COVERAGE: CoverageVector = {
   sync: "per-run",
   model: "per-call",
   peer: "per-call",
+  tool: "per-call",
 };
 
 let db: Database;
@@ -38,7 +39,7 @@ describe("boot marker", () => {
     expect(rows[0]?.sourceType).toBe("boot");
     expect(rows[0]?.method).toBe("egress.boot");
     expect(rows[0]?.sourceId).toBe(
-      "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call",
+      "browser=per-run;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call;tool=per-call",
     );
     // The marker participates in the chain like any other row.
     expect(verifyEgressChain(db).ok).toBe(true);
@@ -63,6 +64,7 @@ describe("boot marker", () => {
       sync: "per-run", // both per-run
       model: "per-call", // both non-none
       peer: "none",
+      tool: "per-call", // both non-none
     });
   });
 
@@ -144,15 +146,15 @@ describe("boot marker", () => {
     // marker existed at all.
     //
     // The `source_id` below MUST be a COMPLETE, parseable coverage vector (every COVERAGE_CLASSES
-    // member, `mcp`/`chatops`/`browser` included). If it were missing a class, `parseCoverage`
-    // would return null and the window would read all-none for THAT reason — the assertion would
-    // still pass even if the `source_type = 'boot'` filter regressed, which is precisely the
-    // regression this test exists to catch.
+    // member, `mcp`/`chatops`/`browser`/`tool` included). If it were missing a class,
+    // `parseCoverage` would return null and the window would read all-none for THAT reason — the
+    // assertion would still pass even if the `source_type = 'boot'` filter regressed, which is
+    // precisely the regression this test exists to catch.
     appendEgressEntry(db, {
       timestamp: 500,
       sourceType: "task",
       sourceId:
-        "browser=per-call;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=per-call;session=per-call;sync=per-call;task=per-call",
+        "browser=per-call;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=per-call;session=per-call;sync=per-call;task=per-call;tool=per-call",
       destination: "local",
       method: "egress.boot",
       payloadSummary: "{}",
