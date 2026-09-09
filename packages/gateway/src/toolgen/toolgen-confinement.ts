@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionManifest } from "../extensions/manifest.ts";
@@ -115,6 +116,16 @@ export function defaultSpawnProbe(
  * never `isFullyActive()` (reports the Linux per-host helper an empty-network policy never touches,
  * and CI does not install it). Then the probe actually runs under that policy, because a runner
  * saying it *can* confine is a claim and the probe is a measurement.
+ *
+ * Called BEFORE `writeScript` (`toolgen-gate.ts` step 6, ahead of step 9), so the manifest's own
+ * `scriptDir` grant NEVER exists on disk yet at this point — by design, since nothing may be
+ * written before the owner approves. A grant target that does not exist is fine for `bwrap`'s and
+ * `sandbox-exec`'s bind mechanisms, but the Windows helper's ACL grant
+ * (`GetNamedSecurityInfoW`/`SetNamedSecurityInfoW`) requires the target to exist first and fails
+ * closed with exit 66 (`ERROR_PATH_NOT_FOUND`) otherwise — turning EVERY confinement check on
+ * Windows into a false `ERR_TOOLGEN_CONFINEMENT_FAILED`, regardless of what program the probe
+ * spawns. Creating the empty directory here (never its contents — the body is written only after
+ * approval, unchanged) is what lets the grant call target a real path on every platform.
  */
 export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<void> {
   const policy = policyFromManifest(deps.manifest);
@@ -124,6 +135,12 @@ export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<
       "ERR_TOOLGEN_SANDBOX_DEGRADED",
       `refusing to generate a tool that could not be confined: ${cannot}`,
     );
+  }
+  for (const dir of [
+    ...deps.manifest.permissions.filesystem.read,
+    ...deps.manifest.permissions.filesystem.write,
+  ]) {
+    await mkdir(dir, { recursive: true });
   }
   const exit = await (deps.spawnProbe ?? defaultSpawnProbe)(deps.runner, policy, deps.cwd);
   if (exit !== PROBE_EXIT_FS_DENIED) {
