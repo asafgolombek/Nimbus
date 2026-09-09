@@ -8,12 +8,18 @@ import type { ToolCredentialBinding } from "./toolgen-types.ts";
  * broker to hit B carrying A's credential — the tool chooses the URL, so it would be choosing the
  * recipient of the secret.
  *
- * The host is slugged (dots and dashes to underscores) because the key format is dot-delimited, and
- * an unslugged host would make `toolgen.<id>.a.b.com` ambiguous. Dashes are distinguished from dots
- * by a prefix so `a.b-c.com` and `a-b.c.com` cannot collide onto one key and share a credential.
+ * The host is slugged because the key format is dot-delimited, and an unslugged host would make
+ * `toolgen.<id>.a.b.com` ambiguous. This is an ESCAPE scheme, not a blind character substitution:
+ * `_` is escaped to `_u` FIRST, before `-` becomes `_d` and `.` becomes `_p` — escaping the escape
+ * character first is what makes the whole scheme injective. Doing it in any other order (or
+ * escaping `-`/`.` to a suffix built from characters the OTHER replacement also produces, e.g. the
+ * former `_d_`/`_` pair) lets two different hosts collide onto one slug: `api.d.example.com` and
+ * `api-example.com` both produced `api_d_example_com` under a `-`→`_d_`, `.`→`_` scheme, because
+ * the literal text `.d.` and the escaped `-` were indistinguishable after the fact. Two hosts
+ * sharing one key would defeat the per-host binding this store exists for.
  */
 export function toolCredentialKey(toolId: string, host: string): string {
-  const slug = host.toLowerCase().replaceAll("-", "_d_").replaceAll(".", "_");
+  const slug = host.toLowerCase().replaceAll("_", "_u").replaceAll("-", "_d").replaceAll(".", "_p");
   return `toolgen.${toolId}.${slug}`;
 }
 
