@@ -1732,6 +1732,16 @@ nimbus tool credential set tg_a1b2c3 api.example.com --bearer sk_live_...
 | `revoke <tool-id>` | Ends the tool's child process AND deletes its approved script from disk — one call, both halves, so a revoked tool cannot be pointed at again. |
 | `credential set <tool-id> <host> (--bearer <token> \| --header <name> <value> \| --basic <user> <pass>)` | **Always refuses a live tool.** Credentials are bound only at CREATE time, before the toolId exists — adding one afterward would change the artifact the owner already approved. The refusal names the fix: revoke, then recreate with `--credential` included. |
 
+**`--credential` is validated but not yet wired to anything, in this release.** `create`'s
+`--credential <host>=<token>` is parsed and checked client-side (host membership, non-empty value),
+but PR 1's `toolgen.create` gateway handler does not read a `credentials` field at all — the value
+is never transmitted, bound to a Vault entry, or shown back to you as bound. This changes nothing
+observable today, because `create` always refuses at the drafting step (above) before credentials
+would ever be consulted either way — but it means the flag does not yet do what its name implies,
+and that gap will persist once drafting ships until the wire contract is widened to match. See
+design spec § 10. `credential set`, by contrast, is not silently inert: it always visibly refuses
+(the row above), so its own output already discloses that nothing was bound.
+
 **Credentials are supplied at create time, never after.** The toolId a credential would be bound
 to does not exist until `create` runs, so `credential set` cannot be the way a tool first gets one —
 and once a tool is registered, `credentialHosts` is part of what the owner approved, so widening it
