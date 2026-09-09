@@ -44,6 +44,29 @@ describe("buildDraftPrompt", () => {
     expect(p).toContain("credential is attached automatically");
     expect(p).not.toContain("Authorization: Bearer");
   });
+
+  // FINDING 1: headers is a plain Record with lowercase keys, no .get() method
+  test("states that headers is a plain object of lower-cased header names", () => {
+    expect(buildDraftPrompt({ ...base, endpoints: [] })).toContain('res.headers["content-type"]');
+  });
+
+  test("states that headers has no .get() method", () => {
+    expect(buildDraftPrompt({ ...base, endpoints: [] })).toContain("with no .get() method");
+  });
+
+  // FINDING 2: broker is https:// only
+  test("states that every request must use https://", () => {
+    expect(buildDraftPrompt({ ...base, endpoints: [] })).toContain("https://");
+  });
+
+  test("states that http:// is refused even for approved hosts", () => {
+    expect(buildDraftPrompt({ ...base, endpoints: [] })).toContain("gateway refuses http://");
+  });
+
+  // FINDING 3: $schema is in the reserved keywords list
+  test("includes $schema in the reserved keywords list", () => {
+    expect(buildDraftPrompt({ ...base, endpoints: [] })).toContain("$schema");
+  });
 });
 
 describe("buildRedraftPrompt", () => {
