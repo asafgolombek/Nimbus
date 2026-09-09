@@ -116,6 +116,7 @@ its requests for it.** § 4.
                                  ├─ attach credential bound to THAT host  § 6.3
                                  ├─ append `tool`-class egress row   § 6 (fail-closed)
                                  └─ perform request, return response
+
 ```
 
 ### 4.2 Files
@@ -184,8 +185,10 @@ script under `<configDir>/toolgen/ephemeral/<toolId>/` cannot resolve a bare spe
 resolves from the importing file's directory and there is no `node_modules` on that path:
 
 ```
+
 error: Cannot find module '@modelcontextprotocol/sdk/server/index.js'
        from '…/tg_probe/index.ts'
+
 ```
 
 That fails **before any sandbox is involved**; inside the sandbox, granted read to `scriptDir` only,
@@ -408,10 +411,12 @@ The stored value is a tagged envelope rather than a bare string, so the broker k
 it without the tool describing its own auth:
 
 ```ts
+
 export type ToolCredentialBinding =
   | { readonly type: "bearer"; readonly token: string }
   | { readonly type: "header"; readonly headerName: string; readonly value: string }
   | { readonly type: "basic"; readonly username: string; readonly password: string };
+
 ```
 
 A bare string would force either a convention (`"assume Bearer"`) or a tool-supplied hint, and the
@@ -442,7 +447,9 @@ But the default runner, `__defaultRunProbe`, spawns `process.execPath` through a
 function throws:
 
 ```
+
 fs-denied probe should have returned EACCES (exit 10); got exit 2.
+
 ```
 
 **A bare `runSandboxContractTests(manifestPath)` therefore fails 100% of the time on Linux and
@@ -488,6 +495,7 @@ Audit rows go to the existing `audit_log`; egress rows to the existing `egress_l
 ## 9. Config, IPC, CLI
 
 ```toml
+
 [tool_generation]
 enabled = false               # lock 1 — default off, like every ai_v2 capability
 allow_agent_initiated = false # lock 2 — PR 2; the dangerous half is opt-in ON TOP of lock 1
@@ -495,6 +503,7 @@ allowed_hosts = []            # lock 3 — PR 2, and it constrains the AGENT-ini
 max_tools_per_session = 3
 max_requests_per_tool = 50
 request_timeout_ms = 10000
+
 ```
 
 ### 9.1 Why `allowed_hosts` binds only the agent-initiated path

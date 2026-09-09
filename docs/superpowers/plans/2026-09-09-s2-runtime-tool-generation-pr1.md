@@ -88,6 +88,7 @@ describe("[tool_generation]", () => {
     );
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -100,6 +101,7 @@ Expected: FAIL — `DEFAULT_NIMBUS_TOOL_GENERATION_TOML` is not exported.
 Add to `packages/gateway/src/config/nimbus-toml.ts`, immediately after the `[computer_use]` block so related sections stay together:
 
 ```ts
+
 export type NimbusToolGenerationToml = {
   enabled: boolean;
   maxToolsPerSession: number;
@@ -174,6 +176,7 @@ export function loadNimbusToolGenerationFromConfigDir(
     parseNimbusToolGenerationToml,
   );
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -184,8 +187,10 @@ Expected: PASS (5 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/config/nimbus-toml.ts packages/gateway/src/config/nimbus-toml.test.ts
 git commit -m "feat(toolgen): add the default-off [tool_generation] config section"
+
 ```
 
 ---
@@ -211,6 +216,7 @@ git commit -m "feat(toolgen): add the default-off [tool_generation] config secti
 Create `packages/gateway/src/egress/tool-egress.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { applyAllMigrations } from "../index/migrate.ts";
@@ -287,6 +293,7 @@ describe("recordToolEgress", () => {
     db.close();
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -299,36 +306,45 @@ Expected: FAIL — cannot resolve `./tool-egress.ts`.
 Add `"tool"` to `EGRESS_SOURCE_TYPES` in `packages/gateway/src/egress/egress-source-type.ts`, after `"browser"`:
 
 ```ts
+
   "tool", // an outbound request a runtime-generated tool made through the broker
+
 ```
 
 Add `"tool"` to `COVERAGE_CLASSES` in `packages/gateway/src/egress/egress-coverage.ts` (keep the list's existing ordering convention — append after `"task"`), then add to **both** vectors:
 
 ```ts
+
 // In THIS_BINARY_COVERAGE — "none" until Task 12 gives the appender a reachable caller. This file's
 // own rule: never raise a class ahead of the code that makes the claim true.
 tool: "none",
+
 ```
 
 ```ts
+
 // In ALL_NONE_COVERAGE
 tool: "none",
+
 ```
 
 Add the label in `packages/cli/src/commands/prove.ts`'s `COVERAGE_CLASS_LABELS`:
 
 ```ts
+
   // Every outbound request a runtime-generated tool made — which is ALL of them, because the tool
   // process has no network at all (spec § 4.3) and `toolgen-broker.ts` is its only route out. So
   // unlike `browser`, this label is not narrower than its name. Read a zero as "no generated tool
   // made a request"; on a stock install that is because `[tool_generation]` is off and no such tool
   // can exist, which is the same claim rather than a weaker one.
   tool: "outbound requests made by runtime-generated tools",
+
 ```
 
 Create `packages/gateway/src/egress/tool-egress.ts`:
 
 ```ts
+
 import type { Database } from "bun:sqlite";
 import { appendEgressEntry } from "./egress-ledger.ts";
 import { redactEgressSummary } from "./egress-record.ts";
@@ -375,6 +391,7 @@ export function recordToolEgress(
     resultStatus: args.resultStatus,
   });
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -389,8 +406,10 @@ count; the enumeration is the point, not the number.
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/egress packages/cli/src/commands/prove.ts
 git commit -m "feat(egress): add the tool source type, coverage class and appender"
+
 ```
 
 ---
@@ -411,6 +430,7 @@ git commit -m "feat(egress): add the tool source type, coverage class and append
 Create `packages/gateway/src/toolgen/toolgen-artifact.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { artifactDigest, canonicalArtifactBytes } from "./toolgen-artifact.ts";
 import type { GeneratedToolArtifact } from "./toolgen-types.ts";
@@ -455,6 +475,7 @@ describe("canonical artifact", () => {
     expect(artifactDigest(artifact())).not.toBe(artifactDigest(artifact({ credentialHosts: [] })));
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -467,6 +488,7 @@ Expected: FAIL — cannot resolve `./toolgen-artifact.ts`.
 Create `packages/gateway/src/toolgen/toolgen-types.ts`:
 
 ```ts
+
 import type { ExtensionManifest } from "../extensions/manifest.ts";
 
 /**
@@ -526,11 +548,13 @@ export interface ToolgenEnvelope {
   readonly scriptPath: string;
   readonly approvedAt: number;
 }
+
 ```
 
 Create `packages/gateway/src/toolgen/toolgen-artifact.ts`:
 
 ```ts
+
 import { blake3 } from "@noble/hashes/blake3";
 import { bytesToHex } from "@noble/hashes/utils";
 import { canonicalize } from "../extensions/canonical-json.ts";
@@ -559,6 +583,7 @@ export function canonicalArtifactBytes(artifact: GeneratedToolArtifact): string 
 export function artifactDigest(artifact: GeneratedToolArtifact): string {
   return bytesToHex(blake3(new TextEncoder().encode(canonicalArtifactBytes(artifact))));
 }
+
 ```
 
 If `canonicalize` does not accept a nested object at this shape, sort the manifest into a flat record first rather than loosening the type — do not reach for `any`.
@@ -571,8 +596,10 @@ Expected: PASS (4 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen
 git commit -m "feat(toolgen): add the canonical generated-tool artifact and shared types"
+
 ```
 
 ---
@@ -594,6 +621,7 @@ This is a pure function with no I/O, which is why it is its own task: it is the 
 Create `packages/gateway/src/toolgen/toolgen-address-guard.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { assertAllowedScheme, isForbiddenAddress, STRIPPED_REQUEST_HEADERS } from "./toolgen-address-guard.ts";
 import { ToolgenError } from "./toolgen-types.ts";
@@ -649,6 +677,7 @@ describe("STRIPPED_REQUEST_HEADERS", () => {
     expect(STRIPPED_REQUEST_HEADERS.has("cookie")).toBe(true);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -661,6 +690,7 @@ Expected: FAIL — cannot resolve `./toolgen-address-guard.ts`.
 Create `packages/gateway/src/toolgen/toolgen-address-guard.ts`:
 
 ```ts
+
 import { ToolgenError } from "./toolgen-types.ts";
 
 /**
@@ -729,6 +759,7 @@ export function isForbiddenAddress(ip: string): boolean {
   if (mapped?.[1] !== undefined) return isForbiddenAddress(mapped[1]);
   return false;
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -739,8 +770,10 @@ Expected: PASS (all cases)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-address-guard.ts packages/gateway/src/toolgen/toolgen-address-guard.test.ts
 git commit -m "feat(toolgen): refuse loopback, private and metadata destinations at the broker"
+
 ```
 
 ---
@@ -761,6 +794,7 @@ git commit -m "feat(toolgen): refuse loopback, private and metadata destinations
 Create `packages/gateway/src/toolgen/toolgen-credentials.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { readToolCredential, toolCredentialKey, writeToolCredential } from "./toolgen-credentials.ts";
@@ -817,6 +851,7 @@ describe("round-trip", () => {
     expect(await readToolCredential(v, "tg_b", "api.example.com")).toBeNull();
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -829,6 +864,7 @@ Expected: FAIL — cannot resolve `./toolgen-credentials.ts`.
 Create `packages/gateway/src/toolgen/toolgen-credentials.ts`:
 
 ```ts
+
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { ToolCredentialBinding } from "./toolgen-types.ts";
 
@@ -895,16 +931,19 @@ export async function writeToolCredential(
 ): Promise<void> {
   await vault.set(toolCredentialKey(toolId, host), JSON.stringify(binding));
 }
+
 ```
 
 Add to `VAULT_KEY_ALLOW_LIST` in `scripts/structure-audit/check-nimbus-invariants.ts`:
 
 ```ts
+
   // D29(c). The keys are composed DYNAMICALLY (`toolgen.<toolId>.<hostSlug>`), so the audit's
   // literal scan cannot see them — capability confinement (only this file is handed the Vault for
   // that prefix) is the real defense and this entry documents the keyspace, exactly as D27(b)
   // states of the media_grant table.
   "packages/gateway/src/toolgen/toolgen-credentials.ts",
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -915,8 +954,10 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen scripts/structure-audit/check-nimbus-invariants.ts
 git commit -m "feat(toolgen): add the per-host, never-inherited tool credential store"
+
 ```
 
 ---
@@ -938,6 +979,7 @@ git commit -m "feat(toolgen): add the per-host, never-inherited tool credential 
 Create `packages/gateway/src/toolgen/toolgen-broker.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { applyAllMigrations } from "../index/migrate.ts";
@@ -1063,6 +1105,7 @@ describe("ToolgenBroker.handleFetch", () => {
     await expect(new ToolgenBroker(d).handleFetch("tg_a", { url: 42 })).rejects.toThrow(ToolgenError);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1075,6 +1118,7 @@ Expected: FAIL — cannot resolve `./toolgen-broker.ts`.
 Create `packages/gateway/src/toolgen/toolgen-broker.ts`:
 
 ```ts
+
 import type { Database } from "bun:sqlite";
 import { recordToolEgress } from "../egress/tool-egress.ts";
 import {
@@ -1275,6 +1319,7 @@ export class ToolgenBroker {
     }
   }
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1285,8 +1330,10 @@ Expected: PASS (10 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-broker.ts packages/gateway/src/toolgen/toolgen-broker.test.ts
 git commit -m "feat(toolgen): add the brokered-egress chokepoint with fail-closed ledgering"
+
 ```
 
 ---
@@ -1307,6 +1354,7 @@ git commit -m "feat(toolgen): add the brokered-egress chokepoint with fail-close
 Create `packages/gateway/src/toolgen/toolgen-stub.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { BROKERED_FETCH_METHOD, ToolgenError } from "./toolgen-types.ts";
 import { buildGeneratedManifest, emitToolScript } from "./toolgen-stub.ts";
@@ -1368,6 +1416,7 @@ describe("emitToolScript", () => {
     expect(script).toContain("async function nimbusFetch");
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1380,6 +1429,7 @@ Expected: FAIL — cannot resolve `./toolgen-stub.ts`.
 Create `packages/gateway/src/toolgen/toolgen-stub.ts`:
 
 ```ts
+
 import type { ExtensionManifest } from "../extensions/manifest.ts";
 // BROKERED_FETCH_METHOD is INTERPOLATED into the emitted script rather than restated as a literal:
 // D29(a) confines that string to `toolgen-types.ts`, and an emitter that hardcoded it would red the
@@ -1508,6 +1558,7 @@ process.stdin.on("data", async (chunk) => {
 });
 `;
 }
+
 ```
 
 **Why no MCP SDK in the emitted script.** The first draft imported
@@ -1516,8 +1567,10 @@ under `<configDir>/toolgen/ephemeral/<toolId>/` cannot resolve a bare specifier,
 resolves from the importing file's directory and there is no `node_modules` on that path —
 
 ```
+
 error: Cannot find module '@modelcontextprotocol/sdk/server/index.js'
        from '…/tg_probe/index.ts'
+
 ```
 
 That fails **before any sandbox is involved**; inside the sandbox, with only `scriptDir` granted, it
@@ -1546,8 +1599,10 @@ Expected: PASS (10 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-stub.ts packages/gateway/src/toolgen/toolgen-stub.test.ts
 git commit -m "feat(toolgen): emit the tool skeleton with a network-free manifest"
+
 ```
 
 ---
@@ -1570,6 +1625,7 @@ git commit -m "feat(toolgen): emit the tool skeleton with a network-free manifes
 Create `packages/gateway/src/toolgen/toolgen-confinement.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { buildGeneratedManifest } from "./toolgen-stub.ts";
 import { assertToolConfinement, resolveProbeScriptForTest } from "./toolgen-confinement.ts";
@@ -1621,6 +1677,7 @@ describe("assertToolConfinement", () => {
     expect(probed).toBe(false);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1633,6 +1690,7 @@ Expected: FAIL — cannot resolve `./toolgen-confinement.ts`.
 Create `packages/gateway/src/toolgen/toolgen-confinement.ts`:
 
 ```ts
+
 import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionManifest } from "../extensions/manifest.ts";
@@ -1719,6 +1777,7 @@ export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<
     );
   }
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1729,8 +1788,10 @@ Expected: PASS (4 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-confinement.ts packages/gateway/src/toolgen/toolgen-confinement.test.ts
 git commit -m "feat(toolgen): verify sandbox confinement under the real runner before consent"
+
 ```
 
 ---
@@ -1750,6 +1811,7 @@ git commit -m "feat(toolgen): verify sandbox confinement under the real runner b
 Create `packages/gateway/src/toolgen/toolgen-consent-broker.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { ToolgenConsentBroker } from "./toolgen-consent-broker.ts";
 
@@ -1789,6 +1851,7 @@ describe("ToolgenConsentBroker", () => {
     ).toBe(false);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1801,6 +1864,7 @@ Expected: FAIL — cannot resolve `./toolgen-consent-broker.ts`.
 Create `packages/gateway/src/toolgen/toolgen-consent-broker.ts`:
 
 ```ts
+
 import { ConsentBroker } from "../util/consent-broker.ts";
 
 export interface ToolgenApprovalInput {
@@ -1836,6 +1900,7 @@ export class ToolgenConsentBroker extends ConsentBroker<ToolgenApprovalInput> {
 
 /** Process singleton shared by the IPC dispatcher and the gate. */
 export const toolgenConsent = new ToolgenConsentBroker();
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1846,8 +1911,10 @@ Expected: PASS (2 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-consent-broker.ts packages/gateway/src/toolgen/toolgen-consent-broker.test.ts
 git commit -m "feat(toolgen): add the owner consent broker for tool registration"
+
 ```
 
 ---
@@ -1867,6 +1934,7 @@ git commit -m "feat(toolgen): add the owner consent broker for tool registration
 Create `packages/gateway/src/toolgen/toolgen-registry.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { ToolgenRegistry } from "./toolgen-registry.ts";
 import type { ToolgenEnvelope } from "./toolgen-types.ts";
@@ -1939,6 +2007,7 @@ describe("ToolgenRegistry", () => {
     expect(closed).toBe(true);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1951,6 +2020,7 @@ Expected: FAIL — cannot resolve `./toolgen-registry.ts`.
 Create `packages/gateway/src/toolgen/toolgen-registry.ts`:
 
 ```ts
+
 import type { ToolgenEnvelope } from "./toolgen-types.ts";
 
 interface Entry {
@@ -2017,6 +2087,7 @@ export class ToolgenRegistry {
     await Promise.allSettled(entries.map((e) => e.close()));
   }
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2027,8 +2098,10 @@ Expected: PASS (5 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-registry.ts packages/gateway/src/toolgen/toolgen-registry.test.ts
 git commit -m "feat(toolgen): add the in-memory session-scoped tool registry"
+
 ```
 
 ---
@@ -2050,6 +2123,7 @@ Spec § 4.6. The directory path is derived **before** the manifest is built (it 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -2124,6 +2198,7 @@ describe("removal", () => {
     expect(existsSync(toolScriptDir(c, "tg_b"))).toBe(false);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2134,6 +2209,7 @@ Expected: FAIL — cannot resolve `./toolgen-script-store.ts`.
 - [ ] **Step 3: Write minimal implementation**
 
 ```ts
+
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -2180,6 +2256,7 @@ export async function removeToolScript(configDir: string, toolId: string): Promi
 export async function removeAllToolScripts(configDir: string): Promise<void> {
   await rm(join(configDir, STORE_DIR, EPHEMERAL_DIR), { recursive: true, force: true });
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2190,8 +2267,10 @@ Expected: PASS (8 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-script-store.ts packages/gateway/src/toolgen/toolgen-script-store.test.ts
 git commit -m "feat(toolgen): add the ephemeral, owner-only generated-script store"
+
 ```
 
 ---
@@ -2214,6 +2293,7 @@ git commit -m "feat(toolgen): add the ephemeral, owner-only generated-script sto
 Create `packages/gateway/src/toolgen/toolgen-client.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { THIS_BINARY_COVERAGE } from "../egress/egress-coverage.ts";
 import { buildToolSpawnSpec } from "./toolgen-client.ts";
@@ -2267,6 +2347,7 @@ describe("coverage", () => {
     expect(THIS_BINARY_COVERAGE.tool).toBe("per-call");
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2279,15 +2360,18 @@ Expected: FAIL — cannot resolve `./toolgen-client.ts`.
 Raise the class in `packages/gateway/src/egress/egress-coverage.ts`:
 
 ```ts
+
   // RAISED from "none" in the same commit that lets a generated tool make a brokered request
   // (`toolgen/toolgen-client.ts` wires `ToolgenBroker.handleFetch` onto the tool's MCP client).
   // Per this file's own rule, never ahead of that landing.
   tool: "per-call",
+
 ```
 
 Create `packages/gateway/src/toolgen/toolgen-client.ts`:
 
 ```ts
+
 import { wrapServerSpec } from "../connectors/lazy-mesh/wrap-server-spec.ts";
 import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
 import type { SandboxRunner } from "../platform/sandbox/sandbox-runner.ts";
@@ -2425,6 +2509,7 @@ export async function spawnGeneratedTool(
     },
   };
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2437,8 +2522,10 @@ would make the binary claim a coverage it no longer has.
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-client.ts packages/gateway/src/toolgen/toolgen-client.test.ts packages/gateway/src/egress/egress-coverage.ts
 git commit -m "feat(toolgen): spawn generated tools on the official MCP SDK and raise tool coverage to per-call"
+
 ```
 
 ---
@@ -2459,6 +2546,7 @@ git commit -m "feat(toolgen): spawn generated tools on the official MCP SDK and 
 Create `packages/gateway/src/toolgen/toolgen-gate.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { applyAllMigrations } from "../index/migrate.ts";
@@ -2614,6 +2702,7 @@ describe("createGeneratedTool outcomes", () => {
     expect(row?.action_json).toContain("refused_before_consent");
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2626,6 +2715,7 @@ Expected: FAIL — cannot resolve `./toolgen-gate.ts`.
 Create `packages/gateway/src/toolgen/toolgen-gate.ts`. Follow `exec/exec-gate.ts`'s structure exactly: one `try` with an outer `catch` that maps `ToolgenError` to `{status:"refused", code}`, an `approvedAt` sentinel distinguishing before/after consent, and a single `audit()` helper.
 
 ```ts
+
 import type { Database } from "bun:sqlite";
 import { appendAuditEntry } from "../audit/audit-log.ts";
 import type { NimbusToolGenerationToml } from "../config/nimbus-toml.ts";
@@ -2826,6 +2916,7 @@ export async function createGeneratedTool(
     return { status: "refused", code };
   }
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2836,8 +2927,10 @@ Expected: PASS (16 tests). Adjust the `appendAuditEntry` import path to whatever
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-gate.ts packages/gateway/src/toolgen/toolgen-gate.test.ts
 git commit -m "feat(toolgen): add the ordered tool-generation gate with refusals before consent"
+
 ```
 
 ---
@@ -2858,6 +2951,7 @@ git commit -m "feat(toolgen): add the ordered tool-generation gate with refusals
 Create `packages/gateway/src/toolgen/toolgen-agent-tools.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { ToolgenRegistry } from "./toolgen-registry.ts";
 import { buildGeneratedTools } from "./toolgen-agent-tools.ts";
@@ -2911,6 +3005,7 @@ describe("buildGeneratedTools", () => {
     expect(wrapped).toEqual(["toolgen:tg_a"]);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2923,6 +3018,7 @@ Expected: FAIL — cannot resolve `./toolgen-agent-tools.ts`.
 Create `packages/gateway/src/toolgen/toolgen-agent-tools.ts`:
 
 ```ts
+
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import type { ToolgenRegistry } from "./toolgen-registry.ts";
@@ -2964,11 +3060,13 @@ export function buildGeneratedTools(
   }
   return out;
 }
+
 ```
 
 In `packages/gateway/src/engine/agent.ts`, change `tools: baseTools` on all three `new Agent({...})` calls to a `DynamicArgument` function. `createNimbusEngineAgent` runs **once at boot** (`gateway-main.ts:111`), so a static map can never see a mid-session registration:
 
 ```ts
+
 // `tools` is a DynamicArgument (@mastra/core/dist/agent/agent.d.ts:876) -- resolved PER REQUEST.
 // A static object here is fixed for the process lifetime, and this agent is constructed once at
 // boot, so a tool registered mid-session would never become visible. `baseTools` is unchanged.
@@ -2985,6 +3083,7 @@ const toolsFor = (): Record<string, unknown> => ({
         (service, tool, def) => wrapToolForLlm(service, tool, def, deps.auditDb),
       )),
 });
+
 ```
 
 and use `tools: toolsFor` in each `new Agent({...})`. Add the optional `toolgen` field to `NimbusEngineAgentDeps`.
@@ -2997,8 +3096,10 @@ Expected: PASS. If Mastra rejects a function for `tools` at this version, fall b
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/toolgen/toolgen-agent-tools.ts packages/gateway/src/toolgen/toolgen-agent-tools.test.ts packages/gateway/src/engine/agent.ts
 git commit -m "feat(toolgen): expose session-scoped generated tools via Mastra dynamic tools"
+
 ```
 
 ---
@@ -3022,6 +3123,7 @@ git commit -m "feat(toolgen): expose session-scoped generated tools via Mastra d
 Create `packages/gateway/src/ipc/toolgen-rpc.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { checkLanMethodAllowed, LanError } from "./lan-rpc.ts";
 
@@ -3035,6 +3137,7 @@ describe("toolgen is LAN-forbidden as a WHOLE namespace", () => {
     expect(() => checkLanMethodAllowed(method, undefined)).toThrow(LanError);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -3047,6 +3150,7 @@ Expected: FAIL — `toolgen.*` is currently admitted by default-allow.
 Add to the forbidden list in `packages/gateway/src/ipc/lan-rpc.ts`, after the `"exec"` entry:
 
 ```ts
+
   // S2 runtime tool generation — the WHOLE namespace, matching exec/computer/media/fleet.
   // `toolgen.create` is RCE-class by definition (it registers model-authored code that then runs),
   // and `toolgen.approvalRespond` is the LOCAL owner answering a registration prompt — admitting it
@@ -3054,6 +3158,7 @@ Add to the forbidden list in `packages/gateway/src/ipc/lan-rpc.ts`, after the `"
   // with the owner's credentials, defeating the entire I39 gate. `toolgen.list` would enumerate
   // which tools and which hosts the owner has approved. No read verb here is worth preserving.
   "toolgen",
+
 ```
 
 Create `packages/gateway/src/ipc/toolgen-rpc.ts` following `ipc/exec-rpc.ts`'s shape exactly: a handler map with `toolgen.create` (calls `createGeneratedTool`), `toolgen.approvalRespond` (calls `toolgenConsent.respond(requestId, approved)`), `toolgen.list` (reads the registry for a session), `toolgen.revoke` (calls `registry.revoke`). Validate every incoming param with an explicit guard — the params cross a process boundary and are therefore `unknown`.
@@ -3065,7 +3170,9 @@ In `packages/gateway/src/gateway-main.ts`, construct the registry and broker, an
 that list:
 
 ```ts
+
 approvedHostsFor: (toolId) => toolgenRegistry.get(toolId)?.artifact.approvedHosts ?? [],
+
 ```
 
 The `?? []` is the fail-closed direction: an unknown or revoked toolId gets no approved hosts, so
@@ -3074,12 +3181,14 @@ every request from it is refused and ledgered `blocked`.
 Then drain both halves on shutdown:
 
 ```ts
+
 // Ephemeral means ephemeral. Without this, a restart leaves orphaned tool child processes holding
 // stdio pipes, and approved model-authored bodies sitting on disk under the config dir — where the
 // next session could still be pointed at them. The registry drop alone is not enough: it clears
 // memory, not the filesystem.
 await toolgenRegistry.revokeAll();
 await removeAllToolScripts(configDir);
+
 ```
 
 Add a test asserting the shutdown path calls **both** — a drain that clears the registry and leaves
@@ -3093,8 +3202,10 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/ipc
 git commit -m "feat(toolgen): add the LAN-forbidden toolgen IPC namespace"
+
 ```
 
 ---
@@ -3116,6 +3227,7 @@ git commit -m "feat(toolgen): add the LAN-forbidden toolgen IPC namespace"
 Create `packages/cli/src/commands/tool.test.ts`:
 
 ```ts
+
 import { describe, expect, test } from "bun:test";
 import { parseToolArgs, TOOL_EXIT_CODES } from "./tool.ts";
 
@@ -3165,6 +3277,7 @@ describe("TOOL_EXIT_CODES", () => {
     expect(TOOL_EXIT_CODES.refused).toBe(127);
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -3182,12 +3295,15 @@ Create `packages/cli/src/commands/tool.ts` modelled on `commands/exec.ts`. Requi
   not approve model-authored code:
 
   ```ts
+
   if (process.stdin.isTTY !== true) {
     console.error("error: nimbus tool create needs an interactive TTY for owner approval.");
     console.error("There is no headless path: toolgen.create is LAN-forbidden and local-only.");
     process.exit(TOOL_EXIT_CODES.refused);
   }
+
   ```
+
 - **Credentials are supplied at CREATE time**, not afterwards:
   `nimbus tool create … --credential <host>=<bearer-token>` (repeatable). The toolId does not exist
   before create, so a credential could not be in the Vault at approval time — which would make the
@@ -3213,8 +3329,10 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/cli/src/commands/tool.ts packages/cli/src/commands/tool.test.ts packages/cli/src/commands/registry.ts docs/cli-reference.md
 git commit -m "feat(cli): add nimbus tool create/list/revoke/credential"
+
 ```
 
 ---
@@ -3235,6 +3353,7 @@ The triple rule: wiring + docs + test land in **one** commit.
 Add to `packages/gateway/src/security-invariants.test.ts`:
 
 ```ts
+
 describe("I39 — generated tools reach the network only through the broker", () => {
   test("a generated manifest always has an EMPTY network set", () => {
     expect(buildGeneratedManifest("tg_a").permissions.network).toEqual([]);
@@ -3253,6 +3372,7 @@ describe("I39 — generated tools reach the network only through the broker", ()
     expect(THIS_BINARY_COVERAGE.tool).toBe("per-call");
   });
 });
+
 ```
 
 Add to `scripts/structure-audit/check-nimbus-invariants.test.ts` a case per D29 rule asserting the checker **fails** on a synthetic violation (a second file naming `nimbus/fetch`; a second `buildGeneratedManifest`; a `toolgen.` key composed outside `toolgen-credentials.ts`).
@@ -3280,8 +3400,10 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/src/security-invariants.test.ts scripts/structure-audit docs/SECURITY-INVARIANTS.md CLAUDE.md GEMINI.md
 git commit -m "feat(toolgen): add invariant I39 and static rule D29"
+
 ```
 
 ---
@@ -3296,6 +3418,7 @@ This is the load-bearing test of the whole PR. It must run on Windows, macOS and
 - [ ] **Step 1: Write the failing test**
 
 ```ts
+
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createSandboxRunner } from "../../../src/platform/sandbox/sandbox-runner.ts";
 import { buildGeneratedManifest } from "../../../src/toolgen/toolgen-stub.ts";
@@ -3346,6 +3469,7 @@ describe("a generated tool's raw fetch() is blocked on this platform", () => {
     expect(hits).toBe(before); // and the server must not have been touched
   });
 });
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -3365,8 +3489,10 @@ Expected: PASS locally. Then `bun run verify:docker --changed` to confirm on Lin
 - [ ] **Step 5: Commit**
 
 ```bash
+
 git add packages/gateway/test/integration/toolgen
 git commit -m "test(toolgen): prove a generated tool's raw fetch is blocked, with a positive control"
+
 ```
 
 ---

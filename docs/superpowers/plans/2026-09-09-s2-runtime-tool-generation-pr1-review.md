@@ -31,13 +31,18 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
 
 - **Context:**  
   In **Task 7** (`toolgen-stub.ts`), `emitToolScript` generates a script containing:
+
   ```ts
   import { Server } from "@modelcontextprotocol/sdk/server/index.js";
   import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+
   ```
+
   In **Task 11** (`toolgen-script-store.ts`), the script is saved to `<configDir>/toolgen/ephemeral/<toolId>/index.ts`.  
   In **Task 7** (`buildGeneratedManifest`), the sandbox manifest grants read access **only** to `scriptDir`:
+
   ```ts
+
   permissions: {
     network: [],
     filesystem: {
@@ -45,17 +50,23 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
       write: [],
     },
   }
+
   ```
+
 - **The Failure Modes:**
   1. **Node/Bun Module Resolution Failure:** `<configDir>` (e.g. `~/.config/nimbus/` or `C:\Users\user\.nimbus\`) does not contain `node_modules/@modelcontextprotocol/sdk`. When Bun runs `index.ts` from that ephemeral directory, module resolution fails with `Cannot find package '@modelcontextprotocol/sdk'`.
   2. **Windows AppContainer Access Denied (Exit 68):** On Windows, the AppContainer helper writes access control entries (ACEs) *only* for declared `filesystem.read` paths. Because `process.execPath`'s directory (the Bun binary directory) is not in `permissions.filesystem.read`, the sandboxed child process immediately dies on launch with exit code 68 (as documented in `packages/gateway/src/exec/exec-runtimes.ts:50`).
 - **Resolution:**
   1. `buildGeneratedManifest` (or `toolgen-gate.ts`) must include the Bun runtime directory in `filesystem.read` via `resolveRuntimeById("bun").requiredReadPaths()` (matching `exec-gate.ts:174`).
   2. For module resolution, resolve the absolute file URLs of the SDK server modules when constructing the template:
+
      ```ts
+
      const sdkServerUrl = new URL(import.meta.resolve("@modelcontextprotocol/sdk/server/index.js")).href;
      const sdkStdioUrl = new URL(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js")).href;
+
      ```
+
      Or pass `NODE_PATH` in `extensionProcessEnv` pointing to the Gateway's `node_modules` and grant that path in `filesystem.read`.
 
 ---
@@ -64,9 +75,13 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
 
 - **Context:**  
   In **Task 8 Step 3** (`packages/gateway/src/toolgen/toolgen-confinement.ts`), line 1523 imports `probePath`:
+
   ```ts
+
   import { probePath } from "@nimbus-dev/sdk/testing";
+
   ```
+
 - **Codebase Reality (`node_modules/@nimbus-dev/sdk/dist/testing/index.d.ts`):**  
   `@nimbus-dev/sdk/testing` exports only:
   - `runSandboxContractTests`
@@ -78,7 +93,9 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
   `Module '"@nimbus-dev/sdk/testing"' has no exported member 'probePath'.`
 - **Resolution:**  
   In `toolgen-confinement.ts`, resolve the probe script path using `import.meta.resolve`:
+
   ```ts
+
   import { fileURLToPath } from "node:url";
   import { dirname, resolve } from "node:path";
 
@@ -88,6 +105,7 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
     const probeName = sdkIndex.endsWith(".ts") ? "sandbox-probe.ts" : "sandbox-probe.js";
     return resolve(dirname(sdkIndex), "testing", probeName);
   }
+
   ```
 
 ---
@@ -96,7 +114,9 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
 
 - **Context:**  
   In **Task 6 Step 3** (`packages/gateway/src/toolgen/toolgen-broker.ts`), lines 1207–1213:
+
   ```ts
+
   const address = await this.#deps.resolveHost(host);
   if (isForbiddenAddress(address)) {
     return refuse(
@@ -104,14 +124,18 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
       `${host} resolves to a forbidden address (${address})`,
     );
   }
+
   ```
+
 - **Issue:**  
   If the destination host fails to resolve (e.g. DNS lookup failure, `getaddrinfo ENOTFOUND`, offline network), `this.#deps.resolveHost(host)` will reject. Because this call sits outside a `try...catch` block, the rejection bypasses `refuse()`, meaning **no `blocked` row is appended to `egress_ledger`** and an unformatted runtime exception is thrown.
 - **Impact:**  
   Violates the invariant that any outbound fetch attempt past request parsing must produce an `egress_ledger` row (authorized or blocked).
 - **Resolution:**  
   Wrap host resolution in a `try...catch` and route failures to `refuse()`:
+
   ```ts
+
   let address: string;
   try {
     address = await this.#deps.resolveHost(host);
@@ -127,6 +151,7 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
       `${host} resolves to a forbidden address (${address})`,
     );
   }
+
   ```
 
 ---
@@ -135,23 +160,30 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
 
 - **Context:**  
   In **Task 14** (`toolgen-agent-tools.ts`), `buildGeneratedTools` constructs Mastra tools:
+
   ```ts
+
   out[toolId] = createTool({
     id: toolId,
     description: `${description} (runtime-generated, approved this session)`,
     inputSchema: z.object({}).passthrough(),
     execute: async ({ context }) => await invoke(toolId, context as Record<string, unknown>),
   });
+
   ```
+
 - **Issue:**  
   Every tool exposed to LLM agents across the gateway is wrapped with `wrapToolForLlm` (`engine/tool-output-envelope.ts` / `engine/agent.ts`) to enclose results in `<tool_output service="..." tool="...">` tags. Untrusted data returned by generated tools must be quarantined so that prompt injections inside tool responses are treated as data rather than instructions.
 - **Impact:**  
   Generated tool responses would be returned raw, violating Invariant **I11** and opening the agent to prompt injection from external API responses.
 - **Resolution:**  
   In `packages/gateway/src/engine/agent.ts`, ensure tools generated by `buildGeneratedTools` pass through `wrapToolForLlm`:
+
   ```ts
+
   // In packages/gateway/src/toolgen/toolgen-agent-tools.ts:
   import { wrapToolForLlm } from "../engine/agent.ts"; // or wrapToolOutput from engine/tool-output-envelope.ts
+
   ```
 
 ---
@@ -164,7 +196,9 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
   A user runs `nimbus tool create --host https://api.gitea.example/v1` or passes `api.gitea.example:443`.
 - **Improvement:**  
   Normalize hostnames before creating the artifact:
+
   ```ts
+
   export function normalizeHost(raw: string): string {
     const trimmed = raw.trim().toLowerCase();
     const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
@@ -174,6 +208,7 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
       return trimmed.split(":")[0]?.split("/")[0] ?? trimmed;
     }
   }
+
   ```
 
 ---
@@ -201,11 +236,15 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
 
 - **Details:**  
   In `packages/gateway/src/gateway-main.ts`, register a cleanup hook for toolgen during shutdown:
+
   ```ts
+
   // On gateway SIGINT / SIGTERM / shutdown:
   await toolgenRegistry.revokeAll();
   await removeAllToolScripts(configDir);
+
   ```
+
   This ensures no orphaned Bun child processes or ephemeral files linger after gateway restart.
 
 ---
@@ -214,12 +253,15 @@ This review identifies **4 critical implementation blockers/bugs** that will cau
 
 - **Details:**  
   In `packages/cli/src/commands/tool.ts`, explicitly guard `create`:
+
   ```ts
+
   if (!process.stdin.isTTY) {
     console.error("error: nimbus tool create requires an interactive TTY for owner approval.");
     console.error("For automated or headless environments, use the LAN-forbidden IPC method toolgen.create.");
     process.exit(TOOL_EXIT_CODES.refused);
   }
+
   ```
 
 ---

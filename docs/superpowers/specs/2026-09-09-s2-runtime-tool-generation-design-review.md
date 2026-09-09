@@ -38,6 +38,7 @@ Below are critical implementation resolutions, protocol specifications, edge-cas
   The spec notes that `runSandboxContractTests(manifestPath)` from `@nimbus-dev/sdk/testing` will be called in Step 6 to verify manifest confinement.
 - **Codebase Analysis (`node_modules/@nimbus-dev/sdk/src/testing/sandbox-contract.ts`):**  
   Inspection of the SDK implementation reveals:
+
   ```ts
   // In @nimbus-dev/sdk/src/testing/sandbox-contract.ts:
   export function __defaultRunProbe(probe: string, arg: string, binary: string): ProbeResult {
@@ -47,20 +48,27 @@ Below are critical implementation resolutions, protocol specifications, edge-cas
     });
     return { status: result.status ?? -1, stderr: result.stderr ?? "", stdout: result.stdout ?? "" };
   }
+
   ```
+
   When `permissions.network` is `[]`, `runSandboxContractTests` skips network probes and runs **only** the `fs-denied` probe.  
   In `sandbox-probe.ts`, the `fs-denied` probe attempts `readFile("/etc/passwd", "utf8")` (on POSIX) or `SAM` (on Windows).  
   Because `/etc/passwd` is world-readable on Linux and macOS, an **unconfined** child process will read it successfully and exit with status `2` (`SANDBOX_PROBE_EXIT.unexpected`).  
   `runSandboxContractTests` will then throw:
+
   ```
+
   Error: fs-denied probe should have returned EACCES (exit 10); got exit 2.
+
   ```
+
 - **Consequence:**  
   Calling `runSandboxContractTests(manifestPath)` without options in `toolgen-gate.ts` will **fail 100% of the time on Linux and macOS**, permanently blocking every tool generation request before consent.
 - **Resolution & Required Wiring:**  
   `toolgen-gate.ts` must pass a custom `runProbe` via `opts.runProbe` that executes the probe binary using `deps.runner` (the platform `SandboxRunner`) configured with the policy derived from the generated manifest:
 
   ```ts
+
   // toolgen/toolgen-gate.ts
   import { runSandboxContractTests, type ProbeRunner, probePath } from "@nimbus-dev/sdk/testing";
   import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
@@ -90,6 +98,7 @@ Below are critical implementation resolutions, protocol specifications, edge-cas
 
     await runSandboxContractTests(manifestPath, { runProbe });
   }
+
   ```
 
 ---
@@ -104,6 +113,7 @@ Below are critical implementation resolutions, protocol specifications, edge-cas
   `toolgen/toolgen-broker.ts` and `toolgen/toolgen-registry.ts` should not attempt to monkey-patch or force `@mastra/mcp` to handle custom JSON-RPC callbacks. Instead, **generated tools should be managed directly using `@modelcontextprotocol/sdk` (`Client` + `StdioClientTransport`)**:
 
   ```ts
+
   // toolgen/toolgen-client.ts
   import { Client } from "@modelcontextprotocol/sdk/client/index.js";
   import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -144,6 +154,7 @@ Below are critical implementation resolutions, protocol specifications, edge-cas
     await client.connect(transport);
     return { client, transport };
   }
+
   ```
 
   When registering into Mastra's agent in `engine/agent.ts`, the Gateway simply queries `client.listTools()` and wraps each returned tool using `createTool` from `@mastra/core/tools` plus `wrapToolForLlm` (I11). This is clean, robust, and completely eliminates the PR 1 spike risk.
@@ -157,6 +168,7 @@ Below are critical implementation resolutions, protocol specifications, edge-cas
 To prevent ambiguity between `toolgen-stub.ts` (the client library emitted in the skeleton) and `toolgen-broker.ts` (the Gateway handler), the protocol schema must be formally defined:
 
 ```ts
+
 // toolgen/toolgen-types.ts
 import { z } from "zod";
 
@@ -177,6 +189,7 @@ export interface BrokeredFetchResponse {
   readonly headers: Record<string, string>;
   readonly body: string;
 }
+
 ```
 
 #### Gateway Broker Security Validations (`toolgen-broker.ts`):
@@ -214,12 +227,16 @@ export interface BrokeredFetchResponse {
   To make new tools visible to subsequent turns of the agent:
   - Inject `toolgenRegistry: ToolgenRegistry` into `AgentDeps` (`packages/gateway/src/engine/agent.ts`).
   - In `buildAgentTools`, call `buildGeneratedTools(sessionId, deps.toolgenRegistry)`:
+
     ```ts
+
     // In packages/gateway/src/engine/agent.ts
     ...(deps.toolgenRegistry !== undefined
       ? buildGeneratedTools(sessionId, deps.toolgenRegistry)
       : {}),
+
     ```
+
   - When no live session holds generated tools, `buildGeneratedTools` returns `{}` (reproducing the `buildComputerUseTools` zero-tool guarantee).
 - **Process Crash / Disconnect Handling:**  
   If the child MCP process crashes or exits, `ToolgenRegistry` detects the `close` event and either attempts a single clean restart or marks the tool status as `terminated`, returning an informative error on subsequent LLM invocations.
@@ -246,12 +263,16 @@ To enforce the configuration parameters specified in § 9:
 - **Vault Key Layout:** `toolgen.<toolId>.<hostSlug>`
 - **Credential Payload Format:**  
   Store a JSON envelope in the Vault to support Bearer tokens, API Keys, and Custom Headers:
+
   ```ts
+
   export type ToolCredentialBinding =
     | { readonly type: "bearer"; readonly token: string }
     | { readonly type: "header"; readonly headerName: string; readonly value: string }
     | { readonly type: "basic"; readonly username: string; readonly password: string };
+
   ```
+
 - **Broker Injection Logic:**  
   Before executing `fetch`, `toolgen-broker.ts` queries `toolgen-credentials.ts` for the target host's binding and applies the header:
   - `"bearer"` -> `headers["Authorization"] = "Bearer " + binding.token`
@@ -314,7 +335,9 @@ Standardize error codes for pre-consent and post-approval failures:
 ### 4.3 Egress Coverage Vector & `prove` Label Mirroring
 
 1. **`packages/gateway/src/egress/egress-coverage.ts`:**
+
    ```ts
+
    export const COVERAGE_CLASSES = [
      "browser",
      "chatops",
@@ -327,13 +350,18 @@ Standardize error codes for pre-consent and post-approval failures:
      "task",
      "tool", // 10th member, alphabetically sorted at end
    ] as const;
+
    ```
+
    Raise `THIS_BINARY_COVERAGE.tool` from `"none"` to `"per-call"`.
 
 2. **`packages/cli/src/commands/prove.ts`:**
    Add display label to `COVERAGE_CLASS_LABELS`:
+
    ```ts
+
    tool: "outbound requests made by sandboxed runtime-generated tools",
+
    ```
 
 ---
