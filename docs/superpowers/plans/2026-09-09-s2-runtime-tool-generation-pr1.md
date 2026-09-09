@@ -1381,6 +1381,9 @@ Create `packages/gateway/src/toolgen/toolgen-stub.ts`:
 
 ```ts
 import type { ExtensionManifest } from "../extensions/manifest.ts";
+// BROKERED_FETCH_METHOD is INTERPOLATED into the emitted script rather than restated as a literal:
+// D29(a) confines that string to `toolgen-types.ts`, and an emitter that hardcoded it would red the
+// static audit the moment Task 17 lands.
 import { BROKERED_FETCH_METHOD, ToolgenError } from "./toolgen-types.ts";
 
 /**
@@ -1463,7 +1466,7 @@ async function nimbusFetch(url, init = {}) {
   const id = "r" + String(++__seq);
   return await new Promise((resolve, reject) => {
     __pending.set(id, { resolve, reject });
-    __send({ id, method: ${JSON.stringify("nimbus/fetch")}, params: { url, ...init } });
+    __send({ id, method: ${JSON.stringify(BROKERED_FETCH_METHOD)}, params: { url, ...init } });
   });
 }
 
@@ -2336,8 +2339,9 @@ export interface GeneratedToolHandle {
  * directory with no `node_modules` and a sandbox grant that deliberately does not include one.
  *
  * So both ends speak one line-delimited JSON protocol. `{id, method, params}` in, `{id, result}` or
- * `{id, error}` out; a message carrying `method: "nimbus/fetch"` is the tool asking the gateway to
- * make a request, and is the ONLY route out of that process.
+ * `{id, error}` out; a message whose method equals `BROKERED_FETCH_METHOD` is the tool asking the
+ * gateway to make a request, and is the ONLY route out of that process. (Named via the constant
+ * rather than quoted, so D29(a)'s confinement scan stays a one-file rule.)
  */
 export async function spawnGeneratedTool(
   envelope: ToolgenEnvelope,
@@ -3056,7 +3060,18 @@ Create `packages/gateway/src/ipc/toolgen-rpc.ts` following `ipc/exec-rpc.ts`'s s
 
 Register the map in `packages/gateway/src/ipc/server/dispatchers.ts` alongside the exec handlers, and add a comment there stating that `toolgen.*` is **not** Tauri-exposed (I7) — do not add it to `ALLOWED_METHODS` in `ui/src-tauri/src/gateway_bridge.rs`.
 
-In `packages/gateway/src/gateway-main.ts`, drain both halves on shutdown:
+In `packages/gateway/src/gateway-main.ts`, construct the registry and broker, and wire the broker's
+`approvedHostsFor` to the registry — the artifact the owner approved is the only source of truth for
+that list:
+
+```ts
+approvedHostsFor: (toolId) => toolgenRegistry.get(toolId)?.artifact.approvedHosts ?? [],
+```
+
+The `?? []` is the fail-closed direction: an unknown or revoked toolId gets no approved hosts, so
+every request from it is refused and ledgered `blocked`.
+
+Then drain both halves on shutdown:
 
 ```ts
 // Ephemeral means ephemeral. Without this, a restart leaves orphaned tool child processes holding
@@ -3251,7 +3266,7 @@ Expected: FAIL
 
 Add three checks to `scripts/structure-audit/check-nimbus-invariants.ts`:
 
-- **D29(a)** `checkBrokeredFetchLiteralConfinement` — the string `nimbus/fetch` appears only in `packages/gateway/src/toolgen/toolgen-types.ts`. Write the rule as *what cannot pass*, not as an allow-list of what may (allow-list guards fail silently when a path is renamed).
+- **D29(a)** `checkBrokeredFetchLiteralConfinement` — the string `nimbus/fetch` appears only in `packages/gateway/src/toolgen/toolgen-types.ts`. **Strip comments before scanning**, and phrase the rule as *what cannot pass*, not as an allow-list of what may (allow-list guards fail silently when a path is renamed). The comment strip matters in both directions: without it, a doc comment that merely mentions the method reds the build; with it, the rule cannot see a literal hidden in a comment — accepted, since a comment does not execute and every code path still goes through the constant. Add a test that a comment mentioning the method does NOT trip the rule, and that a second code occurrence DOES.
 - **D29(b)** `checkGeneratedManifestConfinement` — `buildGeneratedManifest` is defined only in `toolgen-stub.ts`, and no non-empty `network:` array literal appears in that file.
 - **D29(c)** `checkToolgenVaultKeyConfinement` — a `` `toolgen.` `` prefix template appears only in `toolgen-credentials.ts`.
 
