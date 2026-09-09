@@ -52,12 +52,19 @@ describe("scanBodyForForbiddenGlobals", () => {
     ["const r = await client.fetch(u);", "a method call is not the global"],
     ["const important = 1; return important;", "`important` is not an import"],
     ["const processed = 1; return processed;", "`processed` is not `process.`"],
-    ["const prerequire = 1;", "word boundary: require has preceding letter"],
-    ["const myeval = 1;", "word boundary: eval has preceding letter"],
-    ["const myBun = {}; myBun.x;", "word boundary: Bun has preceding letter"],
+    ["const prerequire = (x) => x; prerequire('fs');", "word boundary: require preceded by e"],
+    ["const myeval = (x) => x; myeval('1+1');", "word boundary: eval preceded by y"],
+    ["const myBun = {}; myBun.x;", "word boundary: Bun preceded by y"],
     ["obj.require('x');", "word boundary: require in property access"],
     ["x.eval('y');", "word boundary: eval in property access"],
-    ["const myprocess = 1;", "word boundary: process has preceding letter"],
+    ["const myprocess = {}; return myprocess.env;", "word boundary: process preceded by y"],
+    ["const reimport = (x) => x; reimport(y);", "word boundary: import preceded by e"],
+    ["const myself = this; return myself.fetch(u);", "aliased this should not match globalThis"],
+    ["const itself = obj; return itself.eval(code);", "aliased obj should not match globalThis"],
+    [
+      "const notglobalThis = {}; notglobalThis.fetch(u);",
+      "substring should not match with lookbehind",
+    ],
   ])("accepts %s — %s", (body) => {
     expect(() => scanBodyForForbiddenGlobals(body)).not.toThrow();
   });

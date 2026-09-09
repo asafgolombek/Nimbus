@@ -54,20 +54,32 @@ const FORBIDDEN: ReadonlyArray<{ readonly re: RegExp; readonly what: string }> =
   { re: /(?<![\w$.])fetch\s*\(/, what: "the global fetch()" },
   { re: /(?<![\w$.])require\s*\(/, what: "require()" },
   { re: /(?<![\w$.])eval\s*\(/, what: "eval()" },
-  { re: /(?<![\w$.])process\./, what: "process" },
-  { re: /(?<![\w$.])Bun\./, what: "Bun" },
+  { re: /(?<![\w$.])process\s*\./, what: "process" },
+  { re: /(?<![\w$.])Bun\s*\./, what: "Bun" },
   { re: /(?<![\w$.])import\s*[\s(]/, what: "an import" },
   // Standard global object property access forms (accidental, not adversarial)
   {
-    re: /(?:globalThis|window|self)\.fetch\s*\(/,
+    re: /(?<![\w$.])(?:globalThis|window|self)\.fetch\s*\(/,
     what: "the global fetch() via globalThis/window/self",
   },
-  { re: /(?:globalThis|window|self)\.require\s*\(/, what: "require() via globalThis/window/self" },
-  { re: /(?:globalThis|window|self)\.eval\s*\(/, what: "eval() via globalThis/window/self" },
-  { re: /(?:globalThis|window|self)\.process\./, what: "process via globalThis/window/self" },
-  { re: /(?:globalThis|window|self)\.Bun\./, what: "Bun via globalThis/window/self" },
   {
-    re: /(?:globalThis|window|self)\.import\s*[\s(]/,
+    re: /(?<![\w$.])(?:globalThis|window|self)\.require\s*\(/,
+    what: "require() via globalThis/window/self",
+  },
+  {
+    re: /(?<![\w$.])(?:globalThis|window|self)\.eval\s*\(/,
+    what: "eval() via globalThis/window/self",
+  },
+  {
+    re: /(?<![\w$.])(?:globalThis|window|self)\.process\s*\./,
+    what: "process via globalThis/window/self",
+  },
+  {
+    re: /(?<![\w$.])(?:globalThis|window|self)\.Bun\s*\./,
+    what: "Bun via globalThis/window/self",
+  },
+  {
+    re: /(?<![\w$.])(?:globalThis|window|self)\.import\s*[\s(]/,
     what: "an import via globalThis/window/self",
   },
 ];
