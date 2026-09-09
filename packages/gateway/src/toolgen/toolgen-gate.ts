@@ -214,7 +214,15 @@ export async function createGeneratedTool(
     // Normalised, not trusted as typed: a user will paste `https://api.example.com/v1` or
     // `api.example.com:443`, and an unnormalised entry would never match the broker's
     // `url.hostname` comparison — silently producing a tool that can reach nothing.
-    const hosts = [...new Set(req.hosts.map(normalizeHost))].sort();
+    // Sorted with an EXPLICIT code-point comparator, deliberately not `localeCompare`. This list
+    // is rendered verbatim in the owner's approval prompt and stored in the artifact they approve,
+    // so the ordering has to be identical on every machine; `localeCompare` is locale-dependent by
+    // definition and would let two installs show the same envelope in two different orders. Host
+    // names are already lowercased ASCII by `normalizeHost`, so code-point order IS alphabetical
+    // here — the comparator makes that a property of the code rather than of the default sort.
+    const hosts = [...new Set(req.hosts.map(normalizeHost))].sort((a, b) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
     if (hosts.length === 0) {
       throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", "at least one --host is required");
     }

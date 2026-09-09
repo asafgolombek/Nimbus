@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { assertToolConfinement, resolveProbeScriptForTest } from "./toolgen-confinement.ts";
+import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
+import {
+  assertToolConfinement,
+  defaultSpawnProbe,
+  resolveProbeScriptForTest,
+} from "./toolgen-confinement.ts";
 import { buildGeneratedManifest } from "./toolgen-stub.ts";
 import { ToolgenError } from "./toolgen-types.ts";
 
@@ -118,5 +123,92 @@ describe("the DEFAULT probe spawn — the path production actually takes", () =>
         cwd: process.cwd(),
       }),
     ).rejects.toThrow(/ENOENT/);
+  });
+});
+
+describe("the probe is BOUNDED and its pipes are drained", () => {
+  function stallingRunner(opts: { emitClose?: boolean } = {}): {
+    runner: import("../platform/sandbox/sandbox-runner.ts").SandboxRunner;
+    killed: () => Array<string | number | undefined>;
+    resumed: () => string[];
+  } {
+    const killed: Array<string | number | undefined> = [];
+    const resumed: string[] = [];
+    const runner = {
+      canConfine: () => null,
+      spawn: () => {
+        const child = new EventEmitter() as EventEmitter & {
+          stdout?: { resume: () => void };
+          stderr?: { resume: () => void };
+          kill: (s?: string | number) => void;
+        };
+        child.stdout = {
+          resume: () => {
+            resumed.push("stdout");
+          },
+        };
+        child.stderr = {
+          resume: () => {
+            resumed.push("stderr");
+          },
+        };
+        child.kill = (s) => {
+          killed.push(s);
+        };
+        if (opts.emitClose === true) setTimeout(() => child.emit("close", 10), 0);
+        // Otherwise: never emits anything, standing in for a stalled sandbox helper.
+        return child as unknown as import("node:child_process").ChildProcess;
+      },
+    } as unknown as import("../platform/sandbox/sandbox-runner.ts").SandboxRunner;
+    return { runner, killed: () => killed, resumed: () => resumed };
+  }
+
+  test("a probe that never exits is KILLED and resolves to a non-pass code, rather than hanging", async () => {
+    // Without the bound this call never returns, and `createGeneratedTool` hangs BEFORE the owner
+    // is prompted -- no approval, no refusal, nothing to see.
+    const r = stallingRunner();
+    const exit = await defaultSpawnProbe(
+      r.runner,
+      policyFromManifest(buildGeneratedManifest("tg_a")),
+      process.cwd(),
+      25,
+    );
+    expect(exit).not.toBe(10);
+    expect(r.killed()).toEqual(["SIGKILL"]);
+  });
+
+  test("a timed-out probe surfaces as a confinement REFUSAL through the gate", async () => {
+    const r = stallingRunner();
+    await expect(
+      assertToolConfinement({
+        runner: r.runner,
+        manifest: buildGeneratedManifest("tg_a"),
+        cwd: process.cwd(),
+        spawnProbe: (runner, policy, cwd) => defaultSpawnProbe(runner, policy, cwd, 25),
+      }),
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CONFINEMENT_FAILED" });
+  });
+
+  test("both pipes are drained, so a chatty probe cannot block on a write nobody reads", () => {
+    const r = stallingRunner({ emitClose: true });
+    void defaultSpawnProbe(
+      r.runner,
+      policyFromManifest(buildGeneratedManifest("tg_a")),
+      process.cwd(),
+      50,
+    );
+    expect(r.resumed().sort()).toEqual(["stderr", "stdout"]);
+  });
+
+  test("a probe that exits in time is NOT killed -- the bound is the exception, not the path", async () => {
+    const r = stallingRunner({ emitClose: true });
+    const exit = await defaultSpawnProbe(
+      r.runner,
+      policyFromManifest(buildGeneratedManifest("tg_a")),
+      process.cwd(),
+      5_000,
+    );
+    expect(exit).toBe(10);
+    expect(r.killed()).toEqual([]);
   });
 });

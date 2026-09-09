@@ -1701,6 +1701,11 @@ error: tool drafting is not implemented in this release.
        drafts the tool body is not. See docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md § 10.
 ```
 
+The transcript above is verbatim CLI output, so the path in it is deliberately left unbackticked —
+it is what the command actually prints. The same reference, in auditable form, is
+[`docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md`](./superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md)
+§ 10, so `audit:doc-refs` resolves it and the path cannot rot unnoticed.
+
 That is the honest, permanent-for-this-release shape of the command, not a bug to route around:
 designing the prompt that authors code which then runs with the owner's own credentials is its own
 reviewed piece of work, deferred on purpose rather than improvised late inside this slice.

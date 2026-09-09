@@ -285,9 +285,28 @@ describe("handleToolApprovalBroadcast", () => {
     expect(h.answered[0]?.approved).toBe(false);
   });
 
-  test("cancelling the prompt is a denial, never an approval", async () => {
-    const cancelSymbol = Symbol.for("clack:cancel");
-    const h = harness(cancelSymbol);
+  // A review comment asked for `@clack/prompts`'s canonical `CANCEL_SYMBOL` here instead of the
+  // registered symbol below, on the grounds that `isCancel(Symbol.for("clack:cancel"))` is false
+  // and so this test never reaches the cancel arm. The first half is correct and is why the test
+  // changed. The suggested fix is not available: `CANCEL_SYMBOL` is NOT exported by
+  // `@clack/prompts` (v1.7) -- `isCancel` closes over a module-private, UNREGISTERED `Symbol()`,
+  // verified by probing the package -- so importing it would not compile, and there is no value a
+  // test can construct for which `isCancel` returns true.
+  //
+  // What actually makes cancellation safe is therefore not `isCancel` at all: it is the
+  // `answer === true` conjunct, which admits ONLY the boolean. A cancel is one member of the set
+  // of non-`true` answers, so pinning the whole set is a stronger statement than pinning the one
+  // member would have been, and it does not depend on a private symbol staying private.
+  test.each([
+    ["a foreign symbol standing in for a cancel", Symbol.for("clack:cancel")],
+    ["a bare symbol", Symbol("anything")],
+    ["undefined, as an abandoned prompt yields", undefined],
+    ["null", null],
+    ["the STRING 'true', not the boolean", "true"],
+    ["1, which is truthy but not true", 1],
+    ["an object", {}],
+  ])("%s is a denial, never an approval", async (_label, answer) => {
+    const h = harness(answer);
     await handleToolApprovalBroadcast(REQ, h.ask, h.respond);
     expect(h.answered[0]?.approved).toBe(false);
   });

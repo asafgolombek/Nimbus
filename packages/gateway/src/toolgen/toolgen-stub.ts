@@ -96,8 +96,14 @@ ${input.body}
 }
 
 let __buf = "";
+// Decode stdin as UTF-8 ONCE, at the stream, so a multi-byte character split across two \`data\`
+// events is reassembled instead of becoming U+FFFD on both sides. Per-chunk \`chunk.toString()\`
+// corrupts it silently: the torn line then fails \`JSON.parse\` and is dropped by the \`catch\`
+// below, so a brokered-fetch reply or a \`call\` request carrying non-ASCII text is simply lost and
+// its pending promise never settles. Setting the encoding makes \`data\` deliver complete strings.
+process.stdin.setEncoding("utf8");
 process.stdin.on("data", async (chunk) => {
-  __buf += chunk.toString();
+  __buf += chunk;
   let nl;
   while ((nl = __buf.indexOf("\\n")) >= 0) {
     const line = __buf.slice(0, nl);

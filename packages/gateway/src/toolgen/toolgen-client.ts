@@ -74,7 +74,12 @@ export interface GeneratedToolHandle {
 export interface ToolChildIo {
   writeLine(line: string): void;
   onStdoutData(cb: (chunk: Uint8Array) => void): void;
-  kill(): void;
+  /**
+   * Signal the child. Defaults to the platform's terminate signal; `close()` passes `"SIGKILL"`
+   * when the graceful window expires. Optional rather than required so an existing no-op fake
+   * still satisfies the shape.
+   */
+  kill(signal?: NodeJS.Signals | number): void;
   /** Resolves once the child has actually exited. */
   waitExit(): Promise<void>;
 }
@@ -108,8 +113,14 @@ export function ioFromSpawnedChild<Err extends "pipe" | "inherit" | "ignore" = "
     onStdoutData: (cb) => {
       onData = cb;
     },
-    kill: () => {
-      child.kill();
+    kill: (signal) => {
+      // Already-exited children make this a no-op on some platforms and an ESRCH throw on others;
+      // either way a kill that finds nothing to kill is success, not a failure to propagate.
+      try {
+        child.kill(signal);
+      } catch {
+        /* the child is already gone, which is the outcome this call wanted */
+      }
     },
     waitExit: async () => {
       await child.exited;
@@ -183,6 +194,13 @@ export function wireToolProtocol(
   let seq = 0;
   let buf = "";
   let closed = false;
+  // ONE decoder for the life of the handle, fed with `{ stream: true }`. Decoding each chunk
+  // independently corrupts any multi-byte character the pipe happens to split: both halves become
+  // U+FFFD, and because the surrounding JSON still parses, a `call` result or a `describe`
+  // description silently loses characters instead of failing loudly. A stateful decoder holds the
+  // partial sequence across the boundary, which is the only way the reassembled line is the text
+  // the tool actually wrote.
+  const decoder = new TextDecoder("utf-8");
 
   const send = (msg: Record<string, unknown>): void => {
     io.writeLine(JSON.stringify(msg));
@@ -194,7 +212,7 @@ export function wireToolProtocol(
   };
 
   io.onStdoutData((chunk) => {
-    buf += Buffer.from(chunk).toString("utf8");
+    buf += decoder.decode(chunk, { stream: true });
     let nl = buf.indexOf("\n");
     while (nl >= 0) {
       const line = buf.slice(0, nl);
@@ -278,9 +296,14 @@ export function wireToolProtocol(
       failAllPending("generated tool handle was closed");
       io.kill();
       // A generated tool has no signal-handling logic of its own (`emitToolScript` installs none),
-      // so SIGTERM is expected to end it promptly. This bound exists only so a hung child cannot
-      // make `close()` itself hang forever — and the fallback timer is cleared on the fast path so
-      // it never outlives `close()` itself and dangles in a caller's (e.g. a test's) event loop.
+      // so SIGTERM is expected to end it promptly. When it does not — an ignored signal, a tight
+      // loop that never yields — the window expires and this ESCALATES to SIGKILL rather than
+      // merely giving up waiting. That distinction is the whole point: `ToolgenRegistry.revokeAll`
+      // awaits these calls and the shutdown drain treats a resolved `close()` as success, so
+      // resolving on a still-live child would report a clean drain while the process survived the
+      // gateway — breaking the "ephemeral means ephemeral" guarantee that is this feature's reason
+      // for having no schema migration at all. The timer is cleared on the fast path so it never
+      // outlives `close()` and dangles in a caller's (e.g. a test's) event loop.
       await new Promise<void>((resolve) => {
         let settled = false;
         const finish = (): void => {
@@ -289,7 +312,10 @@ export function wireToolProtocol(
           clearTimeout(timer);
           resolve();
         };
-        const timer = setTimeout(finish, CLOSE_ESCALATION_MS);
+        const timer = setTimeout(() => {
+          io.kill("SIGKILL");
+          finish();
+        }, CLOSE_ESCALATION_MS);
         void io.waitExit().then(finish);
       });
     },
@@ -338,12 +364,19 @@ export async function spawnGeneratedTool(
   onExit?: () => void,
 ): Promise<GeneratedToolHandle> {
   const spec = buildToolSpawnSpec(envelope, cwd);
-  const child = Bun.spawn<"pipe", "pipe", "pipe">([spec.command, ...spec.args], {
+  // stderr is INHERITED, not piped. A pipe nothing reads is a deadlock: `ioFromSpawnedChild`
+  // consumes only stdout, so once a generated tool wrote about one pipe buffer of stderr its
+  // writes would block forever, and the tool would stop answering `describe`/`call` while
+  // `wireToolProtocol` reported it as merely wedged. A generated body is owner-approved code that
+  // may legitimately log, and the runtime itself prints warning traces there, so this is a
+  // reachable state rather than a theoretical one. Inheriting also puts that output where an owner
+  // debugging their own tool can actually see it.
+  const child = Bun.spawn<"pipe", "pipe", "inherit">([spec.command, ...spec.args], {
     env: spec.env,
     cwd,
     stdin: "pipe",
     stdout: "pipe",
-    stderr: "pipe",
+    stderr: "inherit",
   });
   const io = ioFromSpawnedChild(child);
   if (onExit !== undefined) {

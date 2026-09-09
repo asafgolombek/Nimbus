@@ -192,7 +192,22 @@ export class ToolgenBroker {
     }
 
     const headers = { ...req.headers };
-    const binding = await this.#deps.readCredential(toolId, host);
+    // Inside a try for the same reason the resolve above is: `readCredential` reads the VAULT, so
+    // it can reject for reasons that have nothing to do with the tool -- a locked keychain, a
+    // libsecret failure, a Vault IPC error. An escaping rejection here would leave `handleFetch`
+    // with ZERO rows for a destination that is already known, contradicting this class's own
+    // contract that every refusal past URL parsing appends a `blocked` row first. Refusing rather
+    // than continuing uncredentialed is the fail-closed half: a tool whose credential could not be
+    // read must not silently send the request without it.
+    let binding: ToolCredentialBinding | null;
+    try {
+      binding = await this.#deps.readCredential(toolId, host);
+    } catch (err) {
+      return refuse(
+        "ERR_TOOLGEN_CREDENTIAL_UNAVAILABLE",
+        `failed to read the credential bound to ${host}: ${(err as Error).message}`,
+      );
+    }
     if (binding !== null) applyCredential(headers, binding);
 
     // Ledger BEFORE the request. A throw here aborts without fetching — fail-closed.

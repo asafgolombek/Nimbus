@@ -41,10 +41,31 @@ export interface ToolConfinementDeps {
   ) => Promise<number>;
 }
 
-function defaultSpawnProbe(
+/**
+ * How long the confinement probe may take before it is killed and treated as a failure.
+ *
+ * `assertToolConfinement` runs BEFORE the owner is prompted, so a probe that never exits does not
+ * merely slow the gate down — it hangs `createGeneratedTool` outright, with no prompt and no
+ * refusal. Two reachable ways that happens: the sandbox helper itself stalls (a Windows
+ * AppContainer ACL grant over a large tree is a recorded case), or the probe outgrows the pipe
+ * buffer and blocks on a write nothing is reading.
+ */
+const PROBE_TIMEOUT_MS = 30_000;
+
+/** Not `PROBE_EXIT_FS_DENIED`, so a timed-out probe lands on the refusal side by construction. */
+const PROBE_EXIT_TIMEOUT = -2;
+
+/**
+ * Exported, and taking `timeoutMs`, purely so the timeout and drain paths are testable without a
+ * 30-second test — the same seam `wireToolProtocol` already uses for its own request timeout.
+ * Production always calls it through the `deps.spawnProbe ?? defaultSpawnProbe` default below,
+ * with the real bound.
+ */
+export function defaultSpawnProbe(
   runner: SandboxRunner,
   policy: ReturnType<typeof policyFromManifest>,
   cwd: string,
+  timeoutMs: number = PROBE_TIMEOUT_MS,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = runner.spawn(
@@ -57,8 +78,32 @@ function defaultSpawnProbe(
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
-    child.on("error", reject);
-    child.on("close", (code) => resolve(code ?? -1));
+
+    let settled = false;
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+
+    // DRAIN both pipes. `stdio: ["ignore", "pipe", "pipe"]` creates pipes with no reader, so a
+    // probe that prints more than one buffer's worth blocks on write and never reaches `close` —
+    // the hang this timeout exists to bound, arriving by the most ordinary route there is. The
+    // output itself is discarded: the probe's verdict is its EXIT CODE, and nothing here should
+    // start parsing what an unconfined process chose to print.
+    child.stdout?.resume();
+    child.stderr?.resume();
+
+    const timer = setTimeout(() => {
+      finish(() => {
+        child.kill("SIGKILL");
+        resolve(PROBE_EXIT_TIMEOUT);
+      });
+    }, timeoutMs);
+
+    child.on("error", (err) => finish(() => reject(err)));
+    child.on("close", (code) => finish(() => resolve(code ?? -1)));
   });
 }
 

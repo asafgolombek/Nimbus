@@ -1,9 +1,16 @@
 # S2 — Runtime Tool Generation
 
-> **Status: DESIGNED 2026-09-09, NOT IMPLEMENTED.** Nothing in this document exists in the code
-> yet. Invariant **I39**, static rule **D29**, the `tool` egress coverage class, the
-> `[tool_generation]` config section, the `toolgen.*` IPC namespace and the `nimbus tool`
-> subcommands are all **reserved names in this spec only** — do not cite any of them as shipped.
+> **Status: PR 1 of 3 SHIPPED 2026-09-09 — the SUBSTRATE. Drafting is NOT implemented.**
+> Invariant **I39**, static rule **D29**, the `tool` egress coverage class at `per-call`, the
+> default-off `[tool_generation]` config section, the LAN-forbidden `toolgen.*` IPC namespace and
+> `nimbus tool create|list|revoke|credential set` are all **live** — cite them as shipped.
+>
+> What is NOT shipped, and must not be cited as such: **drafting** (§ 10) — `ToolgenGateDeps.draftBody`
+> refuses with `ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED`, so `nimbus tool create` runs the entire gate and
+> then declines to author a body — plus agent-initiated generation behind `allow_agent_initiated`
+> (PR 2) and persistence via `nimbus tool save` (PR 3). Sections describing those remain
+> forward-looking design, not a record of the tree. Matches `docs/roadmap.md`'s row for this slice;
+> if the two ever disagree, the roadmap is canonical.
 >
 > The one exception is `tool_generation`, which has been a member of `AI_V2_CAPABILITIES`
 > (`packages/gateway/src/policy/types.ts:52`) since the exec slice and is referenced **nowhere
@@ -574,6 +581,8 @@ One named code per refusal, so a caller can distinguish reasons without matching
 | `ERR_TOOLGEN_HOST_NOT_ALLOWED` | host outside the envelope, or refused by § 6.2.1 |
 | `ERR_TOOLGEN_BUDGET_EXHAUSTED` | `max_requests_per_tool` spent |
 | `ERR_TOOLGEN_RESPONSE_TOO_LARGE` | response exceeded `MAX_BROKERED_RESPONSE_BYTES` |
+| `ERR_TOOLGEN_REDIRECT_REFUSED` | upstream answered with a redirect, which is refused rather than followed (§ 6.2.1) |
+| `ERR_TOOLGEN_CREDENTIAL_UNAVAILABLE` | the Vault read for the host's bound credential FAILED (locked keychain, libsecret error). Distinct from "no credential bound", which is not an error and sends the request uncredentialed |
 
 Registration into the agent follows the `buildComputerUseTools` pattern (`engine/agent.ts:536`): a
 conditional spread contributing `{}` — *no tool at all*, not a disabled tool that errors when

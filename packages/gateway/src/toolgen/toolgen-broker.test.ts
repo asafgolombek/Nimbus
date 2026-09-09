@@ -360,3 +360,51 @@ describe("readBoundedBody", () => {
     ).resolves.toMatchObject({ status: 204, body: "" });
   });
 });
+
+describe("a Vault failure reading the bound credential is REFUSED, and ledgered", () => {
+  // The class contract is that every refusal past URL parsing appends a `blocked` row before
+  // throwing. `readCredential` runs after the host is known, so a rejection there -- a locked
+  // keychain, a libsecret error, a Vault IPC failure -- previously escaped `handleFetch` with the
+  // destination already known and ZERO rows written, which is the one shape `nimbus prove` cannot
+  // account for.
+  test("the rejection becomes a refusal with a blocked row, not an escaping error", async () => {
+    const d = deps({
+      readCredential: async () => {
+        throw new Error("vault is locked");
+      },
+      doFetch: async () => {
+        throw new Error("a credential failure must never reach doFetch");
+      },
+    });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CREDENTIAL_UNAVAILABLE" });
+    expect(rows(d.db)).toEqual([{ destination: "api.example.com", result_status: "blocked" }]);
+  });
+
+  test("it fails CLOSED -- the request is not sent uncredentialed instead", async () => {
+    let fetched = false;
+    const d = deps({
+      readCredential: async () => {
+        throw new Error("vault is locked");
+      },
+      doFetch: async () => {
+        fetched = true;
+        return new Response("ok");
+      },
+    });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).rejects.toThrow(ToolgenError);
+    expect(fetched).toBe(false);
+  });
+
+  test("ABSENT is still not an error -- a host with no bound credential sends uncredentialed", async () => {
+    // The distinction the fix must preserve: `null` means "nothing bound", which is normal.
+    const d = deps({ readCredential: async () => null });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(rows(d.db)).toEqual([{ destination: "api.example.com", result_status: "authorized" }]);
+  });
+});

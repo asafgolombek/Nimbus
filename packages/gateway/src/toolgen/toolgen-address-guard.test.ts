@@ -74,3 +74,32 @@ describe("STRIPPED_REQUEST_HEADERS", () => {
     expect(STRIPPED_REQUEST_HEADERS.has("cookie")).toBe(true);
   });
 });
+describe("NAT64 translation is seen through to the address a caller actually reaches", () => {
+  // The prefix `64:ff9b::/96` is itself public and routable, so every check upstream of this one
+  // reports such a destination as fine. Before this branch existed, an approved hostname resolving
+  // into the prefix reached loopback, RFC 1918 and the cloud metadata endpoint through a
+  // translating gateway -- the exact class I39's address check exists to stop.
+  test.each([
+    ["loopback", "64:ff9b::7f00:1"],
+    ["loopback, dotted tail", "64:ff9b::127.0.0.1"],
+    ["RFC 1918 10/8", "64:ff9b::a00:1"],
+    ["RFC 1918 192.168/16", "64:ff9b::c0a8:1"],
+    ["link-local", "64:ff9b::a9fe:1"],
+    ["cloud metadata 169.254.169.254", "64:ff9b::a9fe:a9fe"],
+  ])("%s embedded in the NAT64 well-known prefix is forbidden", (_label, addr) => {
+    expect(isForbiddenAddress(addr)).toBe(true);
+  });
+
+  test("a NAT64-wrapped PUBLIC address stays allowed -- the embedded address is judged, not the prefix", () => {
+    // 5db8:d822 is 93.184.216.34. Blanket-blocking the prefix would be the lazy fix and would
+    // break every legitimate IPv6-only host behind a NAT64 gateway.
+    expect(isForbiddenAddress("64:ff9b::5db8:d822")).toBe(false);
+  });
+
+  test("the prefix is matched exactly -- a lookalike that merely starts with 64: is not treated as NAT64", () => {
+    // 64:ff9c is NOT the well-known prefix, so its low bits are not an embedded IPv4 and must not
+    // be reinterpreted as one. It is an ordinary public address.
+    expect(isForbiddenAddress("64:ff9c::7f00:1")).toBe(false);
+    expect(isForbiddenAddress("0064:ff9b:1::7f00:1")).toBe(false);
+  });
+});

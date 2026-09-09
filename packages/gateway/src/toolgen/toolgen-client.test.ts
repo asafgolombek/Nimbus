@@ -285,13 +285,17 @@ interface ControllableIo {
   /** Feed raw bytes to the protocol reader, exactly as a child's stdout would. */
   readonly feed: (s: string) => void;
   /** Every line the gateway wrote back to the child, parsed. */
+  /** Feed raw bytes, for split multi-byte sequences a string cannot express. */
+  readonly feedBytes: (b: Uint8Array) => void;
   readonly writes: Array<Record<string, unknown>>;
   readonly kills: () => number;
+  readonly signals: () => Array<NodeJS.Signals | number | undefined>;
 }
 
 function controllableIo(opts: { neverExits?: boolean } = {}): ControllableIo {
   const writes: Array<Record<string, unknown>> = [];
   let onData: ((chunk: Uint8Array) => void) | undefined;
+  const signals: Array<NodeJS.Signals | number | undefined> = [];
   let killCount = 0;
   const exited =
     opts.neverExits === true ? new Promise<void>(() => {}) : Promise.resolve<void>(undefined);
@@ -301,14 +305,17 @@ function controllableIo(opts: { neverExits?: boolean } = {}): ControllableIo {
       onStdoutData: (cb) => {
         onData = cb;
       },
-      kill: () => {
+      kill: (signal) => {
         killCount += 1;
+        signals.push(signal);
       },
       waitExit: () => exited,
     },
     feed: (s) => onData?.(new TextEncoder().encode(s)),
+    feedBytes: (b) => onData?.(b),
     writes,
     kills: () => killCount,
+    signals: () => signals,
   };
 }
 
@@ -504,14 +511,115 @@ describe("GeneratedToolHandle.close()", () => {
     await expect(pending).rejects.toThrow(/closed/);
   });
 
-  test("a child that never exits does not hang close() forever", async () => {
-    // The escalation timer is the only thing bounding this: `waitExit()` here never resolves, the
-    // way a wedged child's would not. Without the timer, `close()` would never return at all.
+  test("a child that never exits is ESCALATED to SIGKILL, not merely waited out", async () => {
+    // `waitExit()` here never resolves, the way a wedged child's would not. Resolving `close()`
+    // without escalating would report a clean shutdown drain while the process survived the
+    // gateway -- `ToolgenRegistry.revokeAll` awaits these calls and treats resolution as success.
     const c = controllableIo({ neverExits: true });
     const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
     const started = Date.now();
     await handle.close();
     expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
-    expect(c.kills()).toBe(1);
+    // Two kills: the graceful SIGTERM first, then the escalation once the window expired.
+    expect(c.kills()).toBe(2);
+    expect(c.signals()).toEqual([undefined, "SIGKILL"]);
   }, 15_000);
+
+  test("a child that exits promptly is NOT escalated -- SIGKILL is the exception, not the path", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    await handle.close();
+    expect(c.kills()).toBe(1);
+    expect(c.signals()).toEqual([undefined]);
+  });
+});
+
+describe("wireToolProtocol -- a multi-byte character split across pipe chunks survives", () => {
+  // The corruption this guards is silent, which is what makes it worth a test: decoding each
+  // chunk independently turns the two halves of one UTF-8 sequence into U+FFFD on both sides, the
+  // surrounding JSON still parses, and the caller receives a result that is subtly wrong rather
+  // than an error. An ASCII-only split-chunk test cannot see it -- every ASCII byte is its own
+  // complete sequence -- so this one splits INSIDE a character.
+  test("a 4-byte emoji cut in half across two chunks is reassembled, not replaced", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    const pending = handle.call({});
+    const id = c.writes[0]?.["id"] as string;
+
+    const payload = `${JSON.stringify({ id, result: { text: "café 🚀 naïve" } })}\n`;
+    const bytes = new TextEncoder().encode(payload);
+    // Find a split point that lands strictly INSIDE the emoji's 4-byte sequence: a continuation
+    // byte is 0b10xxxxxx, so cutting before one guarantees a torn character.
+    const cut = bytes.findIndex((b) => (b & 0xc0) === 0x80 && b !== bytes[0]);
+    expect(cut).toBeGreaterThan(0);
+
+    c.feedBytes(bytes.slice(0, cut));
+    c.feedBytes(bytes.slice(cut));
+
+    await expect(pending).resolves.toEqual({ text: "café 🚀 naïve" });
+  });
+
+  test("a character split across THREE chunks (one byte at a time) still survives", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    const pending = handle.call({});
+    const id = c.writes[0]?.["id"] as string;
+    const bytes = new TextEncoder().encode(`${JSON.stringify({ id, result: "日本語" })}\n`);
+    for (const b of bytes) c.feedBytes(new Uint8Array([b]));
+    await expect(pending).resolves.toBe("日本語");
+  });
+});
+
+describe("end-to-end: non-ASCII survives a REAL spawned child in both directions", () => {
+  // The two decoding fixes sit on opposite ends of one pipe -- `wireToolProtocol` reads the
+  // child's stdout, `emitToolScript` reads the gateway's stdin -- and each was tested in
+  // isolation against a fake. This drives a real child so a mismatch between the two ends cannot
+  // hide behind agreeing fakes. The argument is large enough to make a chunk split likely, and
+  // the body echoes it back so a corruption on EITHER leg shows up in the assertion.
+  test("a large non-ASCII argument round-trips through a real child unchanged", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-toolgen-utf8-"));
+    try {
+      const scriptPath = join(dir, "index.ts");
+      writeFileSync(
+        scriptPath,
+        emitToolScript({
+          toolId: "u1",
+          toolName: "Unicode Tool",
+          description: "échoes ünicode 🚀",
+          body: "return { echoed: args.text, len: args.text.length };",
+        }),
+      );
+      const child = Bun.spawn<"pipe", "pipe", "inherit">({
+        cmd: [
+          process.execPath,
+          "-e",
+          `await import(${JSON.stringify(pathToFileURL(scriptPath).href)});`,
+        ],
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "inherit",
+      });
+      const handle = wireToolProtocol(
+        ioFromSpawnedChild(child),
+        { ...envelope, scriptPath },
+        unreachableBroker(),
+      );
+      try {
+        // Long enough that the runtime is very likely to split it across pipe chunks, and mixed
+        // 2-, 3- and 4-byte sequences so any tear lands inside a character rather than between.
+        const text = "café 🚀 naïve 日本語 Ωμέγα ".repeat(400);
+        const described = await handle.describe();
+        expect(described.description).toBe("échoes ünicode 🚀");
+        const called = (await handle.call({ text })) as { echoed: string; len: number };
+        expect(called.echoed).toBe(text);
+        expect(called.len).toBe(text.length);
+        expect(called.echoed).not.toContain("�");
+      } finally {
+        await handle.close();
+        child.kill();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

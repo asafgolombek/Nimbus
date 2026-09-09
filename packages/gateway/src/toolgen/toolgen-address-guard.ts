@@ -189,5 +189,24 @@ export function isForbiddenAddress(ip: string): boolean {
     return isForbiddenAddress(`${a}.${b}.${c}.${d}`);
   }
 
+  // NAT64 well-known prefix `64:ff9b::/96` (RFC 6052 § 2.1) → h[0]=0x0064, h[1]=0xff9b, h[2..5]=0,
+  // with the translated IPv4 in the low 32 bits. The prefix itself is NOT a private range — it is a
+  // real, routable prefix a NAT64 gateway assigns — so nothing above catches it, and without this
+  // branch `64:ff9b::a9fe:a9fe` reaches the cloud metadata endpoint through a translating gateway
+  // while every check upstream reports the destination as public. What a caller actually reaches is
+  // the EMBEDDED address, so that is what gets judged, exactly as for `::ffff:` above.
+  //
+  // `util/safe-fetch.ts` already saw through this shape (`extractNat64V4`); this is the same policy
+  // in the hextet form this file parses to. Stated bound, matching safe-fetch rather than widening
+  // past it: RFC 6052 also permits network-specific prefixes (/32 … /64), which are not recognised
+  // here because they are not identifiable from the address alone.
+  if (h[0] === 0x0064 && h[1] === 0xff9b && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+    const a = (h[6] >> 8) & 0xff;
+    const b = h[6] & 0xff;
+    const c = (h[7] >> 8) & 0xff;
+    const d = h[7] & 0xff;
+    return isForbiddenAddress(`${a}.${b}.${c}.${d}`);
+  }
+
   return false;
 }
