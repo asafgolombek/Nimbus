@@ -89,7 +89,7 @@ its requests for it.** § 4.
 
 ### 4.1 The shape
 
-```
+```text
   owner ──"nimbus tool create"──▶ toolgen-gate.ts
                                        │
                           (refusals BEFORE consent: § 5)
@@ -184,7 +184,7 @@ its `Server` inside the generated tool — is **unrunnable on the child side**, 
 script under `<configDir>/toolgen/ephemeral/<toolId>/` cannot resolve a bare specifier, because Bun
 resolves from the importing file's directory and there is no `node_modules` on that path:
 
-```
+```text
 
 error: Cannot find module '@modelcontextprotocol/sdk/server/index.js'
        from '…/tg_probe/index.ts'
@@ -446,7 +446,7 @@ But the default runner, `__defaultRunProbe`, spawns `process.execPath` through a
 `/etc/passwd` successfully, so the probe exits `unexpected` rather than `fsDenied`, and the
 function throws:
 
-```
+```text
 
 fs-denied probe should have returned EACCES (exit 10); got exit 2.
 

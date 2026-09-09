@@ -56,7 +56,7 @@ Below are critical implementation resolutions, protocol specifications, edge-cas
   Because `/etc/passwd` is world-readable on Linux and macOS, an **unconfined** child process will read it successfully and exit with status `2` (`SANDBOX_PROBE_EXIT.unexpected`).  
   `runSandboxContractTests` will then throw:
 
-  ```
+```text
 
   Error: fs-denied probe should have returned EACCES (exit 10); got exit 2.
 
@@ -192,7 +192,7 @@ export interface BrokeredFetchResponse {
 
 ```
 
-#### Gateway Broker Security Validations (`toolgen-broker.ts`):
+#### Gateway Broker Security Validations (`toolgen-broker.ts`)
 
 1. **Protocol & Host Extraction:**  
    Parse target URL with `new URL(req.url)`. Must enforce `url.protocol === "https:"` (or `"http:"` only if explicitly opted in; reject `file:`, `data:`, `gopher:`, `javascript:`).

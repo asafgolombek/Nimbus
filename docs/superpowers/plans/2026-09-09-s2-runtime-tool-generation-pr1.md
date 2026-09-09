@@ -30,10 +30,12 @@
 ### Task 1: `[tool_generation]` config section
 
 **Files:**
+
 - Modify: `packages/gateway/src/config/nimbus-toml.ts`
 - Test: `packages/gateway/src/config/nimbus-toml.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `NimbusToolGenerationToml`, `DEFAULT_NIMBUS_TOOL_GENERATION_TOML`, `parseNimbusToolGenerationToml(raw, defaults?)`, `loadNimbusToolGenerationFromConfigDir(configDir)`.
 
@@ -198,6 +200,7 @@ git commit -m "feat(toolgen): add the default-off [tool_generation] config secti
 ### Task 2: The `tool` egress source type, coverage class, and appender
 
 **Files:**
+
 - Modify: `packages/gateway/src/egress/egress-source-type.ts`
 - Modify: `packages/gateway/src/egress/egress-coverage.ts`
 - Modify: `packages/cli/src/commands/prove.ts`
@@ -205,8 +208,10 @@ git commit -m "feat(toolgen): add the default-off [tool_generation] config secti
 - Test: `packages/gateway/src/egress/tool-egress.test.ts`
 
 **Interfaces:**
+
 - Consumes: `appendEgressEntry` (`egress/egress-ledger.ts`), `redactEgressSummary` (`egress/egress-record.ts`).
 - Produces: `recordToolEgress(db, args): { rowHash: string }` where `args` is
+
   `{ toolId: string; destination: string; method: string; resultStatus: "authorized" | "blocked"; now: number; requestMethod?: string; requestBytes?: number }`.
 
 **Note on coverage granularity:** this task adds `tool` to `COVERAGE_CLASSES` at **`"none"`**. It is raised to `"per-call"` in **Task 12**, the task that first gives a generated tool the ability to make a brokered request. Raising it here would claim coverage of a path no code can reach.
@@ -417,11 +422,13 @@ git commit -m "feat(egress): add the tool source type, coverage class and append
 ### Task 3: Types and the canonical artifact
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-types.ts`
 - Create: `packages/gateway/src/toolgen/toolgen-artifact.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-artifact.test.ts`
 
 **Interfaces:**
+
 - Consumes: `canonicalize` (`extensions/canonical-json.ts`), `ExtensionManifest` (`extensions/manifest.ts`).
 - Produces: `BROKERED_FETCH_METHOD`, `ToolgenError`, `ToolCredentialBinding`, `GeneratedToolArtifact`, `ToolgenEnvelope`, `canonicalArtifactBytes(artifact): string`, `artifactDigest(artifact): string`.
 
@@ -607,10 +614,12 @@ git commit -m "feat(toolgen): add the canonical generated-tool artifact and shar
 ### Task 4: The destination guard (SSRF)
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-address-guard.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-address-guard.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ToolgenError` (Task 3).
 - Produces: `isForbiddenAddress(ip: string): boolean`, `assertAllowedScheme(url: URL): void`, `STRIPPED_REQUEST_HEADERS: ReadonlySet<string>`.
 
@@ -781,11 +790,13 @@ git commit -m "feat(toolgen): refuse loopback, private and metadata destinations
 ### Task 5: Per-host credential store
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-credentials.ts`
 - Modify: `scripts/structure-audit/check-nimbus-invariants.ts` (add to `VAULT_KEY_ALLOW_LIST`)
 - Test: `packages/gateway/src/toolgen/toolgen-credentials.test.ts`
 
 **Interfaces:**
+
 - Consumes: `VaultReader`/`VaultWriter` (`vault/nimbus-vault.ts`), `ToolCredentialBinding` (Task 3).
 - Produces: `toolCredentialKey(toolId, host): string`, `readToolCredential(vault, toolId, host): Promise<ToolCredentialBinding | null>`, `writeToolCredential(vault, toolId, host, binding): Promise<void>`.
 
@@ -965,12 +976,15 @@ git commit -m "feat(toolgen): add the per-host, never-inherited tool credential 
 ### Task 6: The broker
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-broker.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-broker.test.ts`
 
 **Interfaces:**
+
 - Consumes: `recordToolEgress` (Task 2), `isForbiddenAddress`/`assertAllowedScheme`/`STRIPPED_REQUEST_HEADERS` (Task 4), `readToolCredential` (Task 5), `ToolgenError`/`BROKERED_FETCH_METHOD` (Task 3).
 - Produces: `MAX_BROKERED_RESPONSE_BYTES`, `ToolgenBroker` class with
+
   `handleFetch(toolId: string, params: unknown): Promise<BrokeredFetchResponse>`, and
   `BrokeredFetchResponse = { status: number; statusText: string; headers: Record<string,string>; body: string }`.
 
@@ -1341,12 +1355,15 @@ git commit -m "feat(toolgen): add the brokered-egress chokepoint with fail-close
 ### Task 7: The stub emitter
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-stub.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-stub.test.ts`
 
 **Interfaces:**
+
 - Consumes: `BROKERED_FETCH_METHOD`, `ToolgenError` (Task 3), `ExtensionManifest` (`extensions/manifest.ts`).
 - Produces: `buildGeneratedManifest(toolId, opts?): ExtensionManifest`, `emitToolScript(input): string` where
+
   `input = { toolId: string; toolName: string; description: string; body: string }`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1566,7 +1583,7 @@ process.stdin.on("data", async (chunk) => {
 under `<configDir>/toolgen/ephemeral/<toolId>/` cannot resolve a bare specifier, because Bun
 resolves from the importing file's directory and there is no `node_modules` on that path —
 
-```
+```text
 
 error: Cannot find module '@modelcontextprotocol/sdk/server/index.js'
        from '…/tg_probe/index.ts'
@@ -1610,12 +1627,15 @@ git commit -m "feat(toolgen): emit the tool skeleton with a network-free manifes
 ### Task 8: Confinement verification
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-confinement.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-confinement.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SandboxRunner` (`platform/sandbox/sandbox-runner.ts`), `policyFromManifest` (`platform/sandbox/sandbox-policy.ts`), `probePath` (`@nimbus-dev/sdk/testing`).
 - Produces: `assertToolConfinement(deps): Promise<void>` where
+
   `deps = { runner: SandboxRunner; manifest: ExtensionManifest; cwd: string; spawnProbe?: (...) => Promise<number> }`.
 
 **Why not `runSandboxContractTests`:** spec § 7.1–7.2. Its default probe runner spawns **unsandboxed**, so a bare call fails 100% on Linux/macOS for an empty-network manifest; and its `ProbeRunner` is synchronous while `SandboxRunner` exposes only async `spawn`, so injecting a sandboxed runner does not type-check. We reuse the SDK's **probe script** and supply our own async runner.
@@ -1799,10 +1819,12 @@ git commit -m "feat(toolgen): verify sandbox confinement under the real runner b
 ### Task 9: Consent broker
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-consent-broker.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-consent-broker.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ConsentBroker` (`util/consent-broker.ts`).
 - Produces: `ToolgenApprovalInput`, `ToolgenConsentBroker`, `toolgenConsent` (process singleton).
 
@@ -1922,10 +1944,12 @@ git commit -m "feat(toolgen): add the owner consent broker for tool registration
 ### Task 10: Ephemeral registry
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-registry.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-registry.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ToolgenEnvelope`, `GeneratedToolArtifact` (Task 3).
 - Produces: `ToolgenRegistry` with `register(envelope, close)`, `forSession(sessionId): ToolgenEnvelope[]`, `get(toolId)`, `countForSession(sessionId): number`, `markTerminated(toolId)`, `isTerminated(toolId)`, `revoke(toolId): Promise<void>`, `revokeAll(): Promise<void>`.
 
@@ -2109,10 +2133,12 @@ git commit -m "feat(toolgen): add the in-memory session-scoped tool registry"
 ### Task 11: Ephemeral script store
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-script-store.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-script-store.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing beyond `node:fs/promises` and `node:path`.
 - Produces: `toolScriptDir(configDir, toolId): string`, `writeToolScript(configDir, toolId, source): Promise<string>`, `removeToolScript(configDir, toolId): Promise<void>`, `removeAllToolScripts(configDir): Promise<void>`.
 
@@ -2278,11 +2304,13 @@ git commit -m "feat(toolgen): add the ephemeral, owner-only generated-script sto
 ### Task 12: Spawn the tool and wire the broker (raises coverage to `per-call`)
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-client.ts`
 - Modify: `packages/gateway/src/egress/egress-coverage.ts` (raise `tool` to `"per-call"`)
 - Test: `packages/gateway/src/toolgen/toolgen-client.test.ts`
 
 **Interfaces:**
+
 - Consumes: `wrapServerSpec` (`connectors/lazy-mesh/wrap-server-spec.ts`), `extensionProcessEnv` (`extensions/spawn-env.ts`), `policyFromManifest` + `SandboxRunner` (`platform/sandbox/*`), `ToolgenBroker` (Task 6), `BROKERED_FETCH_METHOD` + `ToolgenEnvelope` (Task 3).
 - Produces: `buildToolSpawnSpec(envelope, cwd): { command: string; args: string[]; env: Record<string,string> }`, `GeneratedToolHandle` = `{ describe(): Promise<{name: string; description: string}>; call(args: Record<string, unknown>): Promise<unknown>; close(): Promise<void> }`, and `spawnGeneratedTool(envelope, broker, cwd, runner): Promise<GeneratedToolHandle>`.
 
@@ -2533,12 +2561,15 @@ git commit -m "feat(toolgen): spawn generated tools on the official MCP SDK and 
 ### Task 13: The gate
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-gate.ts`
 - Test: `packages/gateway/src/toolgen/toolgen-gate.test.ts`
 
 **Interfaces:**
+
 - Consumes: everything from Tasks 1, 3, 5, 7, 8, 9, 10, 11, 12; `appendAuditEntry` (`audit/…`, same import `exec-gate.ts` uses); `EnforcedPolicy` (`policy/types.ts`).
 - Produces: `createGeneratedTool(req, deps): Promise<ToolgenOutcome>` where
+
   `ToolgenOutcome = { status: "registered"; toolId: string } | { status: "denied" } | { status: "refused"; code: string }`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2938,11 +2969,13 @@ git commit -m "feat(toolgen): add the ordered tool-generation gate with refusals
 ### Task 14: Expose generated tools to the agent
 
 **Files:**
+
 - Create: `packages/gateway/src/toolgen/toolgen-agent-tools.ts`
 - Modify: `packages/gateway/src/engine/agent.ts` (the three `new Agent({... tools ...})` calls)
 - Test: `packages/gateway/src/toolgen/toolgen-agent-tools.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ToolgenRegistry` (Task 10), `wrapToolForLlm` (existing in `engine/agent.ts`), `getAgentRequestSessionId` (`engine/agent-request-context.ts`).
 - Produces: `buildGeneratedTools(sessionId: string | undefined, registry: ToolgenRegistry, invoke: (toolId, args) => Promise<unknown>, wrap: <T>(service: string, tool: string, def: T) => T): Record<string, unknown>`. The `wrap` parameter is the I11 envelope and is REQUIRED — see the doc comment.
 
@@ -3107,6 +3140,7 @@ git commit -m "feat(toolgen): expose session-scoped generated tools via Mastra d
 ### Task 15: IPC surface and LAN forbid
 
 **Files:**
+
 - Create: `packages/gateway/src/ipc/toolgen-rpc.ts`
 - Modify: `packages/gateway/src/ipc/lan-rpc.ts`
 - Modify: `packages/gateway/src/ipc/server/dispatchers.ts` (register the handlers)
@@ -3115,6 +3149,7 @@ git commit -m "feat(toolgen): expose session-scoped generated tools via Mastra d
 - Test: `packages/gateway/src/ipc/lan-rpc.test.ts` (extend)
 
 **Interfaces:**
+
 - Consumes: `createGeneratedTool` (Task 13), `toolgenConsent` (Task 9), `ToolgenRegistry` (Task 10).
 - Produces: handlers for `toolgen.create`, `toolgen.approvalRespond`, `toolgen.list`, `toolgen.revoke`.
 
@@ -3213,12 +3248,14 @@ git commit -m "feat(toolgen): add the LAN-forbidden toolgen IPC namespace"
 ### Task 16: The `nimbus tool` CLI
 
 **Files:**
+
 - Create: `packages/cli/src/commands/tool.ts`
 - Modify: `packages/cli/src/commands/registry.ts` (add `"tool"`)
 - Modify: `docs/cli-reference.md`
 - Test: `packages/cli/src/commands/tool.test.ts`
 
 **Interfaces:**
+
 - Consumes: `withGatewayIpc` (`../lib/with-gateway-ipc.ts`), `INTERACTIVE_RPC_TIMEOUT_MS` (`../lib/rpc-timeouts.ts`).
 - Produces: `parseToolArgs(argv): ParsedToolArgs`, `TOOL_EXIT_CODES`, the command entry point.
 
@@ -3292,6 +3329,7 @@ Create `packages/cli/src/commands/tool.ts` modelled on `commands/exec.ts`. Requi
 - `TOOL_EXIT_CODES = { denied: 126, refused: 127 } as const` — same reserved band and rationale as `EXEC_EXIT_CODES`.
 - `nimbus tool create --description <text> --host <h> [--host <h>…]` — sends `toolgen.create`; on an approval prompt notification, prints the **full body**, the host list and the credential bindings, then a `[y/N]` confirm via `@clack/prompts`.
 - **Refuse outright in a non-TTY**, exactly as `nimbus media allow-remote` does — a piped `y` must
+
   not approve model-authored code:
 
   ```ts
@@ -3305,15 +3343,18 @@ Create `packages/cli/src/commands/tool.ts` modelled on `commands/exec.ts`. Requi
   ```
 
 - **Credentials are supplied at CREATE time**, not afterwards:
+
   `nimbus tool create … --credential <host>=<bearer-token>` (repeatable). The toolId does not exist
   before create, so a credential could not be in the Vault at approval time — which would make the
   prompt's credential disclosure permanently empty.
 - `nimbus tool credential set <tool-id> …` therefore **refuses a LIVE tool**, with a message saying
+
   to revoke and recreate. Adding a credential to an approved tool changes the artifact the owner
   approved (§ 4.5 puts `credentialHosts` inside the hashed object precisely so a change invalidates
   it), and silently widening what an approved tool may send is the failure this whole gate exists
   to prevent.
 - `nimbus tool revoke <tool-id>` must call BOTH `registry.revoke` (closes the child) and Task 11's
+
   `removeToolScript` (drops the body from disk) — a revoked tool that leaves its script behind is a
   tool the next session could still be pointed at.
 - `nimbus tool list [--json]`, `nimbus tool credential set <tool-id> <host> (--bearer <token> | --header <name> <value> | --basic <user> <pass>)`.
@@ -3340,6 +3381,7 @@ git commit -m "feat(cli): add nimbus tool create/list/revoke/credential"
 ### Task 17: Invariant I39 and static rule D29
 
 **Files:**
+
 - Modify: `packages/gateway/src/security-invariants.test.ts`
 - Modify: `scripts/structure-audit/check-nimbus-invariants.ts`
 - Modify: `docs/SECURITY-INVARIANTS.md`
@@ -3411,6 +3453,7 @@ git commit -m "feat(toolgen): add invariant I39 and static rule D29"
 ### Task 18: Cross-platform integration test — a raw `fetch()` really is blocked
 
 **Files:**
+
 - Create: `packages/gateway/test/integration/toolgen/toolgen-network-denied.test.ts`
 
 This is the load-bearing test of the whole PR. It must run on Windows, macOS and Linux.
