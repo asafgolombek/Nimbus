@@ -38,19 +38,38 @@ export function verifyBodySyntax(body: string): void {
  * NOT A SECURITY BOUNDARY. The sandbox is: `permissions.network` is `[]` by construction, so a raw
  * `fetch()` fails at the OS on all three platforms, and the emitted skeleton makes no
  * `require`/`import` available regardless. This exists so the owner is never asked to approve a
- * body that provably cannot work. Describing it as a defense would be the shape recorded in
- * `airgap-was-inert-while-docs-promised-it`.
+ * body that provably cannot work.
+ *
+ * Catches the common accidental forms a model actually emits: bare globals and access through
+ * globalThis/window/self. Does NOT chase optional chaining (`require?.(`), computed access
+ * (`globalThis["fetch"]`), or aliasing (`const f = fetch`) — those remain out of reach and are
+ * stated as the residual bound. An arms race in a non-boundary check buys nothing while every
+ * added pattern raises false-positive risk.
  *
  * Matched on word boundaries, never by substring: `prefetch(` and `client.fetch(` both CONTAIN
- * `fetch(` and are legitimate.
+ * `fetch(` and are legitimate. The lookbehind `(?<![\w$.])` excludes word characters, dots, and
+ * dollar signs to avoid false positives on property access and variable names.
  */
 const FORBIDDEN: ReadonlyArray<{ readonly re: RegExp; readonly what: string }> = [
   { re: /(?<![\w$.])fetch\s*\(/, what: "the global fetch()" },
   { re: /(?<![\w$.])require\s*\(/, what: "require()" },
   { re: /(?<![\w$.])eval\s*\(/, what: "eval()" },
-  { re: /(?<![\w$.])process\s*\./, what: "process" },
-  { re: /(?<![\w$.])Bun\s*\./, what: "Bun" },
+  { re: /(?<![\w$.])process\./, what: "process" },
+  { re: /(?<![\w$.])Bun\./, what: "Bun" },
   { re: /(?<![\w$.])import\s*[\s(]/, what: "an import" },
+  // Standard global object property access forms (accidental, not adversarial)
+  {
+    re: /(?:globalThis|window|self)\.fetch\s*\(/,
+    what: "the global fetch() via globalThis/window/self",
+  },
+  { re: /(?:globalThis|window|self)\.require\s*\(/, what: "require() via globalThis/window/self" },
+  { re: /(?:globalThis|window|self)\.eval\s*\(/, what: "eval() via globalThis/window/self" },
+  { re: /(?:globalThis|window|self)\.process\./, what: "process via globalThis/window/self" },
+  { re: /(?:globalThis|window|self)\.Bun\./, what: "Bun via globalThis/window/self" },
+  {
+    re: /(?:globalThis|window|self)\.import\s*[\s(]/,
+    what: "an import via globalThis/window/self",
+  },
 ];
 
 export function scanBodyForForbiddenGlobals(body: string): void {
