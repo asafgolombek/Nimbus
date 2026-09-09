@@ -8,6 +8,64 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-09-10 — Runtime tool generation, PR 2 of 3: drafting.** `nimbus tool create` now actually
+  drafts a tool body via a model instead of refusing — `ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED` is gone.
+  **No schema migration, no new invariant** — PR 2 builds entirely on I39's substrate (PR 1,
+  below).
+
+  **The model returns a body AND an input schema in one structured reply.** The schema is inside
+  the artifact the owner approves (never beside it), is covered by the artifact digest, is baked
+  into the emitted script, and drives the parameters the calling model sees — a later change to the
+  parameters invalidates the approval exactly as a change to `credentialHosts` already did. A
+  four-rung validation ladder runs before the owner is ever prompted — the reply parses as JSON,
+  the schema fits the restricted input-schema subset, the body parses as valid JavaScript, the body
+  contains no construct the sandbox would refuse — with exactly ONE bounded redraft on the first
+  failure, so a real defect does not silently exhaust a model's or an owner's patience.
+
+  **New config: `[tool_generation] drafting`, values `"off"` / `"local"` / `"allow-remote"`,
+  DEFAULT `"local"`.** Mirrors `[agents] synthesis` (I31) and `[fleet] allow_remote` (I38):
+  **configuring `[llm.remote.<vendor>]` for interactive use grants drafting nothing on its own** —
+  the owner must opt in per-capability. A remote draft (under `"allow-remote"`) sends the owner's
+  tool description and indexed endpoint paths drawn from their own private index, never a
+  credential value. `"allow-remote"` **defers** to the owner's `[llm] prefer_local` preference
+  rather than forcing a remote call — a local model already registered still drafts locally unless
+  the owner has separately turned preference itself toward remote.
+
+  **The drafting prompt is grounded on API endpoints already indexed from OpenAPI specs under
+  `[[filesystem.roots]]`** — a local hybrid (BM25 + vector) index read, zero egress regardless of
+  drafting mode. When nothing matches, the model drafts from the description alone and the
+  approval prompt discloses that rather than implying the draft was grounded.
+
+  **`nimbus tool create --credential <host>=<token>` now actually transmits and binds a BEARER
+  credential per host,** written to a per-host Vault entry before the owner is prompted. `header`
+  and `basic` bindings exist in the broker and are applied correctly, but are reachable from no
+  user-facing path this release — no CLI flag constructs one. `nimbus tool credential set` remains
+  a permanent refusal stub: credentials bind only at create time, so adding one to a live tool
+  would change an artifact the owner already approved; the refusal names the fix (revoke, then
+  recreate with `--credential`).
+
+  **The approval prompt now shows the drafted parameters and the grounding provenance,** alongside
+  the tool's still-verbatim body and host/credential lists — never a digest, never a credential
+  value.
+
+  **PLATFORM BOUND, stated rather than shipped silently: `nimbus tool create` is non-functional on
+  Windows.** The pre-consent confinement probe (`toolgen-confinement.ts`) spawns a diagnostic
+  script from `@nimbus-dev/sdk/testing` as a bare file entry point, and a bare file entry point
+  cannot start under a restrictive manifest inside the Windows AppContainer sandbox — the same
+  `CouldntReadCurrentDirectory` dead end the tool's own post-approval launcher already works around
+  via an `-e` import stub, which the pre-approval probe does not use. The probe therefore never
+  produces its expected exit code on Windows, and the gate refuses (`ERR_TOOLGEN_CONFINEMENT_FAILED`)
+  before the owner is ever prompted, even when drafting itself would have succeeded. **Not fixable
+  from this repository:** the probe script lives in the separate `nimbus-sdk` repo and needs a
+  change plus a version bump there. It predates this PR — it shipped with PR 1's substrate below —
+  but PR 1 always refused at the drafting step first, so the confinement gap was invisible until
+  drafting made the command otherwise functional. See `docs/cli-reference.md`'s `nimbus tool`
+  section for the full statement.
+
+  **Not shipped:** agent-initiated tool proposal (`allow_agent_initiated` + `allowed_hosts`),
+  persistence via `nimbus tool save`, and the `header`/`basic` credential bindings above. Design:
+  [`2026-09-09-s2-toolgen-drafting-design.md`](./superpowers/specs/2026-09-09-s2-toolgen-drafting-design.md).
+
 - **2026-09-09 — Runtime tool generation, PR 1 of 3: the substrate. Drafting is NOT implemented.**
   Closes the last unstarted S2 spine row's first slice. New invariant **I39** + static rule **D29**
   (three sub-rules), a tenth I29 egress coverage class `tool` at `per-call`, the default-off
