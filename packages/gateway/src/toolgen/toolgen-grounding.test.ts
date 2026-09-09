@@ -50,6 +50,16 @@ describe("createEndpointFinder", () => {
     expect(await createEndpointFinder(index as never)("q", 8)).toEqual([]);
   });
 
+  test("AsyncAPI channels are deliberately excluded: a generated tool has no pub/sub transport", async () => {
+    const index = {
+      searchRankedAsync: async () => [
+        rankedItem("PUBLISH user/signedup", { service_name: "kafka", tags: ["user"] }),
+        rankedItem("SUBSCRIBE user/signedup", { service_name: "kafka", tags: ["user"] }),
+      ],
+    };
+    expect(await createEndpointFinder(index as never)("q", 8)).toEqual([]);
+  });
+
   test("an index error yields no grounding rather than failing the draft", async () => {
     const index = {
       searchRankedAsync: async () => {

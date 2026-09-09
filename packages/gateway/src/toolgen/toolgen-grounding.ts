@@ -13,7 +13,15 @@ export type DraftGrounding =
   | { readonly kind: "endpoints"; readonly count: number; readonly services: readonly string[] }
   | { readonly kind: "description_only" };
 
-/** Titles are written by `openapi-indexer-sync.ts` as `${method} ${path}`. */
+/**
+ * Titles are written by `openapi-indexer-sync.ts` as `${method} ${path}`.
+ * The regex requires the path to begin with `/`, which deliberately excludes AsyncAPI channel
+ * names. AsyncAPI channels (e.g. `PUBLISH user/signedup`, `SUBSCRIBE user/signedup`) are pub/sub
+ * — MQTT, Kafka, AMQP, WebSocket — and a generated tool reaches the network only through the
+ * https-only broker (invariant I39). A generated tool has no transport for pub/sub channels, so
+ * grounding the model on such an endpoint could only produce a draft that cannot work. The
+ * exclusion prevents this by construction.
+ */
 const TITLE = /^([A-Z]+) (\/\S*)$/;
 
 const SUMMARY_MAX = 200;
