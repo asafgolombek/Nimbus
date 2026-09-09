@@ -27,7 +27,7 @@ describe("assertToolConfinement", () => {
         cwd: process.cwd(),
         spawnProbe: async () => 2,
       }),
-    ).rejects.toThrow(/ERR_TOOLGEN_CONFINEMENT_FAILED/);
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CONFINEMENT_FAILED" });
   });
 
   test("the probe script resolves to a real file — a bad path reports as a sandbox failure", async () => {

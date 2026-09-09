@@ -84,7 +84,7 @@ export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<
   if (exit !== PROBE_EXIT_FS_DENIED) {
     throw new ToolgenError(
       "ERR_TOOLGEN_CONFINEMENT_FAILED",
-      `ERR_TOOLGEN_CONFINEMENT_FAILED: sandbox confinement probe returned exit ${exit}, expected ${PROBE_EXIT_FS_DENIED}`,
+      `sandbox confinement probe returned exit ${exit}, expected ${PROBE_EXIT_FS_DENIED}`,
     );
   }
 }
