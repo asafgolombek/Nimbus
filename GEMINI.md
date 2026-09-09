@@ -137,9 +137,35 @@ not here. Where the Gateway also carries per-connector sync/indexing logic, a fe
 ### CI gating
 
 PRs run the Ubuntu `pr-quality` set **and** `pr-quality-cross-platform` — one macOS leg and one
-Windows leg. Pushes run the full 3-OS matrix. Exactly one status check gates the merge:
-**`PR quality — required gates`**, an `if: always()` aggregator that `needs:` every other PR job —
-so adding or renaming a gate never needs a ruleset edit, and a red leg reds the aggregator.
+Windows leg. Pushes run the full 3-OS matrix.
+
+**TEN status checks gate the merge, not one.** The _General_ ruleset (14784377) requires all of:
+`PR quality — required gates`, `Dependency audit`, `Trivy vulnerability scan`, `Gitleaks secret
+scan`, `Gateway audit JSON + connector.remove vault restore`, `Cargo audit (Tauri)`, `Cargo deny
+(licenses + advisories + bans)`, `Analyze (javascript-typescript)`, `Analyze (rust)`, and `cla`.
+Only the FIRST is an aggregator: `PR quality — required gates` is an `if: always()` job that
+`needs:` every other job in the PR-quality workflow, so adding or renaming a gate **inside that
+workflow** never needs a ruleset edit, and a red leg there reds the aggregator. The other nine come
+from separate workflows (Security, CodeQL, CLA) and are named in the ruleset individually — adding
+one there IS a ruleset edit.
+
+This sentence read "exactly one status check gates the merge" until 2026-09-09, and the error is
+the kind that costs a merge: on #1475 the Dependency audit and Trivy checks were red, this file
+said they could not be blocking, and the ruleset disagreed. Both are required, both were genuinely
+blocking, and neither was the PR's fault — they had gone red repo-wide overnight on newly published
+advisories, the same sha having passed hours earlier. **When a check is red and this file says it
+should not matter, re-derive the list from the ruleset** (`gh api
+repos/nimbus-agent/Nimbus/rulesets/14784377`) rather than trusting the prose.
+
+**A failing step HIDES every later step in the same job.** Both of these jobs are step sequences,
+and a red one reports only its first failure — so "one gate is red" routinely means several are,
+serialised one CI round-trip apart. `Dependency audit` runs `bun audit` → `audit:advisories` →
+`audit:js-licenses`, and on #1475 each fix revealed the next, three pushes for what looked like one
+problem. `Unit + Coverage` runs `audit:coverage-floor` → `audit:coverage-scopes` → the SonarQube
+gate, and a floor failure means the scopes gate **never executed at all** — it is not passing, it
+is unmeasured. Before pushing a fix for any red job, read its whole step list
+(`gh api repos/nimbus-agent/Nimbus/actions/jobs/<id> --jq '.steps[] | "\(.conclusion) \(.name)"'`)
+and run the later steps locally too.
 
 **The PR cross-platform legs run the same test PATHS as the push matrix** —
 `bun test packages/gateway packages/cli scripts`, whole-repo and in ONE
