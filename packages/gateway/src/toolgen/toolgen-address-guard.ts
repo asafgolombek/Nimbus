@@ -35,6 +35,78 @@ function parseIpv4(ip: string): readonly number[] | null {
 }
 
 /**
+ * Parse an IPv6 address string into an array of 8 hextets (16-bit values).
+ * Handles `::` compression, full 8-group form, and trailing dotted-quad for IPv4-mapped/compatible.
+ * Returns null if the address is malformed.
+ */
+function parseIpv6(
+  ip: string,
+): readonly [number, number, number, number, number, number, number, number] | null {
+  // Strip surrounding brackets
+  let addr = ip.toLowerCase().replace(/^\[|\]$/g, "");
+
+  // Handle IPv4-mapped (::ffff:x.x.x.x) and IPv4-compatible (::x.x.x.x) forms
+  let groups = addr.split(":");
+  const lastGroup = groups[groups.length - 1];
+  if (lastGroup?.includes(".")) {
+    // Parse the dotted-quad
+    const v4 = parseIpv4(lastGroup);
+    if (v4 === null) return null;
+    const [a, b, c, d] = v4 as [number, number, number, number];
+    // Replace the last group with its hex representation
+    const hexHigh = ((a << 8) | b).toString(16);
+    const hexLow = ((c << 8) | d).toString(16);
+    groups[groups.length - 1] = hexHigh;
+    groups.push(hexLow);
+    addr = groups.join(":");
+    groups = addr.split(":");
+  }
+
+  // Check for more than one `::`
+  const doubleColonCount = (addr.match(/::/g) || []).length;
+  if (doubleColonCount > 1) return null;
+
+  let hextets: number[] = [];
+
+  if (addr.includes("::")) {
+    // Handle `::` compression
+    const [before, after] = addr.split("::");
+    const beforeGroups = before ? before.split(":") : [];
+    const afterGroups = after ? after.split(":") : [];
+
+    // Validate before and after groups
+    for (const g of [...beforeGroups, ...afterGroups]) {
+      if (g && (!/^[0-9a-f]{1,4}$/.test(g) || Number.parseInt(g, 16) > 0xffff)) {
+        return null;
+      }
+    }
+
+    const beforeHex = beforeGroups.map((g) => Number.parseInt(g, 16));
+    const afterHex = afterGroups.map((g) => Number.parseInt(g, 16));
+    const totalGroups = beforeHex.length + afterHex.length;
+
+    if (totalGroups >= 8) return null; // Can't have 8+ groups with compression
+
+    const zerosPadding = 8 - totalGroups;
+    hextets = [...beforeHex, ...Array(zerosPadding).fill(0), ...afterHex];
+  } else {
+    // Full 8-group form
+    if (groups.length !== 8) return null;
+
+    for (const g of groups) {
+      if (!/^[0-9a-f]{1,4}$/.test(g) || Number.parseInt(g, 16) > 0xffff) {
+        return null;
+      }
+    }
+
+    hextets = groups.map((g) => Number.parseInt(g, 16));
+  }
+
+  if (hextets.length !== 8) return null;
+  return hextets as [number, number, number, number, number, number, number, number];
+}
+
+/**
  * Addresses the broker refuses EVEN WHEN THE OWNER APPROVED THE HOST — the one place this design
  * overrides an owner approval, and deliberately.
  *
@@ -57,12 +129,65 @@ export function isForbiddenAddress(ip: string): boolean {
     if (a === 169 && b === 254) return true; // link-local, incl. 169.254.169.254 cloud metadata
     return false;
   }
-  const v6 = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  if (v6 === "::1" || v6 === "::") return true;
-  if (v6.startsWith("fe80:")) return true; // link-local
-  if (/^f[cd]/.test(v6)) return true; // unique-local fc00::/7
-  // An IPv4-mapped IPv6 address (::ffff:127.0.0.1) must be judged on its embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
-  if (mapped?.[1] !== undefined) return isForbiddenAddress(mapped[1]);
+
+  const h = parseIpv6(ip);
+  if (h === null) return false; // Unparseable string is not an address we can judge
+
+  // All 8 zero → unspecified `::`
+  if (
+    h[0] === 0 &&
+    h[1] === 0 &&
+    h[2] === 0 &&
+    h[3] === 0 &&
+    h[4] === 0 &&
+    h[5] === 0 &&
+    h[6] === 0 &&
+    h[7] === 0
+  ) {
+    return true;
+  }
+
+  // h[0..6] zero and h[7] === 1 → loopback `::1`
+  if (
+    h[0] === 0 &&
+    h[1] === 0 &&
+    h[2] === 0 &&
+    h[3] === 0 &&
+    h[4] === 0 &&
+    h[5] === 0 &&
+    h[6] === 0 &&
+    h[7] === 1
+  ) {
+    return true;
+  }
+
+  // (h[0] & 0xffc0) === 0xfe80 → link-local fe80::/10 (fe80–febf)
+  if ((h[0] & 0xffc0) === 0xfe80) {
+    return true;
+  }
+
+  // (h[0] & 0xfe00) === 0xfc00 → unique-local fc00::/7
+  if ((h[0] & 0xfe00) === 0xfc00) {
+    return true;
+  }
+
+  // h[0..4] zero and h[5] === 0xffff → IPv4-mapped ::ffff:x.x.x.x
+  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0xffff) {
+    const a = (h[6] >> 8) & 0xff;
+    const b = h[6] & 0xff;
+    const c = (h[7] >> 8) & 0xff;
+    const d = h[7] & 0xff;
+    return isForbiddenAddress(`${a}.${b}.${c}.${d}`);
+  }
+
+  // h[0..5] all zero and not already matched → IPv4-compatible ::x.x.x.x
+  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+    const a = (h[6] >> 8) & 0xff;
+    const b = h[6] & 0xff;
+    const c = (h[7] >> 8) & 0xff;
+    const d = h[7] & 0xff;
+    return isForbiddenAddress(`${a}.${b}.${c}.${d}`);
+  }
+
   return false;
 }

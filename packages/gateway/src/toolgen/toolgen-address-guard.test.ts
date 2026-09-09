@@ -17,19 +17,34 @@ describe("isForbiddenAddress", () => {
     ["192.168.1.1", "RFC 1918"],
     ["169.254.1.1", "link-local"],
     ["169.254.169.254", "cloud metadata"],
+    ["::", "IPv6 unspecified"],
     ["::1", "IPv6 loopback"],
+    ["0:0:0:0:0:0:0:1", "IPv6 loopback (uncompressed)"],
     ["fe80::1", "IPv6 link-local"],
+    ["fea0::1", "IPv6 link-local (fe80::/10 coverage)"],
+    ["febf::1", "IPv6 link-local upper bound (fe80::/10 coverage)"],
     ["fc00::1", "IPv6 unique-local"],
+    ["fd12:3456::1", "IPv6 unique-local (fc00::/7 coverage)"],
+    ["::ffff:127.0.0.1", "IPv6 IPv4-mapped loopback"],
+    ["::ffff:7f00:1", "IPv6 IPv4-mapped loopback (hex form)"],
+    ["::ffff:10.0.0.1", "IPv6 IPv4-mapped RFC 1918"],
+    ["::127.0.0.1", "IPv6 IPv4-compatible loopback"],
   ])("refuses %s (%s)", (ip) => {
     expect(isForbiddenAddress(ip)).toBe(true);
   });
 
-  test.each([["93.184.216.34"], ["8.8.8.8"], ["172.32.0.1"], ["2606:2800:220:1::1"]])(
-    "allows public address %s",
-    (ip) => {
-      expect(isForbiddenAddress(ip)).toBe(false);
-    },
-  );
+  test.each([
+    ["93.184.216.34"],
+    ["8.8.8.8"],
+    ["172.32.0.1"],
+    ["2606:2800:220:1::1"],
+    ["fec0::1"],
+    ["::ffff:8.8.8.8"],
+    ["not-an-ip"],
+    ["fe80::1::2"],
+  ])("allows public address %s", (ip) => {
+    expect(isForbiddenAddress(ip)).toBe(false);
+  });
 
   test("172.32.0.0 is NOT private — the RFC 1918 block ends at 172.31", () => {
     expect(isForbiddenAddress("172.15.255.255")).toBe(false);
