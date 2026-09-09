@@ -1071,8 +1071,17 @@ export function loadNimbusComputerUseFromConfigDir(configDir: string): NimbusCom
   );
 }
 
+export type ToolgenDraftingMode = "off" | "local" | "allow-remote";
+
 export type NimbusToolGenerationToml = {
   enabled: boolean;
+  /**
+   * Which model may author a tool body. Mirrors `[agents] synthesis` (I31) and `[fleet]
+   * allow_remote` (I38): a frontier key configured for interactive use grants drafting nothing.
+   * Defaults to "local" because a remote draft sends the owner's description AND indexed endpoint
+   * paths drawn from their private index.
+   */
+  drafting: ToolgenDraftingMode;
   maxToolsPerSession: number;
   maxRequestsPerTool: number;
   requestTimeoutMs: number;
@@ -1085,6 +1094,7 @@ export type NimbusToolGenerationToml = {
  */
 export const DEFAULT_NIMBUS_TOOL_GENERATION_TOML: NimbusToolGenerationToml = {
   enabled: false,
+  drafting: "local",
   maxToolsPerSession: 3,
   maxRequestsPerTool: 50,
   requestTimeoutMs: 10_000,
@@ -1120,6 +1130,18 @@ function applyNimbusToolGenerationKey(
         out.requestTimeoutMs = n;
       });
       break;
+    case "drafting": {
+      // An unrecognised value leaves the default in place, matching the positive-number keys
+      // above: a typo must never widen what may draft.
+      const v = valRaw
+        .trim()
+        .toLowerCase()
+        .replace(/^["']|["']$/g, "");
+      if (v === "off" || v === "local" || v === "allow-remote") {
+        out.drafting = v;
+      }
+      break;
+    }
     default:
       break;
   }
