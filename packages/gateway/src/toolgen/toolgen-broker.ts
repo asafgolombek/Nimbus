@@ -1,0 +1,238 @@
+import type { Database } from "bun:sqlite";
+import { recordToolEgress } from "../egress/tool-egress.ts";
+import {
+  assertAllowedScheme,
+  isForbiddenAddress,
+  STRIPPED_REQUEST_HEADERS,
+} from "./toolgen-address-guard.ts";
+import { type ToolCredentialBinding, ToolgenError } from "./toolgen-types.ts";
+
+/**
+ * The broker runs INSIDE the gateway, so an unbounded response is an OOM in the gateway rather than
+ * in the tool. Same class as I32: a bounds limit whose loss is confined to the attempted operation.
+ */
+export const MAX_BROKERED_RESPONSE_BYTES = 5 * 1024 * 1024;
+
+export interface BrokeredFetchResponse {
+  readonly status: number;
+  readonly statusText: string;
+  readonly headers: Record<string, string>;
+  readonly body: string;
+}
+
+export interface ToolgenBrokerDeps {
+  readonly db: Database;
+  readonly now: () => number;
+  readonly maxRequestsPerTool: number;
+  readonly requestTimeoutMs: number;
+  readonly resolveHost: (host: string) => Promise<string>;
+  readonly readCredential: (toolId: string, host: string) => Promise<ToolCredentialBinding | null>;
+  readonly approvedHostsFor: (toolId: string) => readonly string[];
+  readonly doFetch: (url: string, init: RequestInit) => Promise<Response>;
+}
+
+interface ParsedRequest {
+  readonly url: string;
+  readonly method: string;
+  readonly headers: Record<string, string>;
+  readonly body?: string | undefined;
+}
+
+function parseParams(params: unknown): ParsedRequest {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) {
+    throw new ToolgenError("ERR_TOOLGEN_BAD_REQUEST", "fetch params must be an object");
+  }
+  const o = params as Record<string, unknown>;
+  if (typeof o["url"] !== "string") {
+    throw new ToolgenError("ERR_TOOLGEN_BAD_REQUEST", "fetch params.url must be a string");
+  }
+  const method = typeof o["method"] === "string" ? o["method"].toUpperCase() : "GET";
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].includes(method)) {
+    throw new ToolgenError("ERR_TOOLGEN_BAD_REQUEST", `unsupported method: ${method}`);
+  }
+  const headers: Record<string, string> = {};
+  const rawHeaders = o["headers"];
+  if (rawHeaders !== undefined && rawHeaders !== null) {
+    if (typeof rawHeaders !== "object" || Array.isArray(rawHeaders)) {
+      throw new ToolgenError("ERR_TOOLGEN_BAD_REQUEST", "fetch params.headers must be an object");
+    }
+    for (const [k, v] of Object.entries(rawHeaders as Record<string, unknown>)) {
+      // Silently DROPPED rather than refused: a stripped auth header is the design working, not a
+      // caller error, and refusing would tell a hostile body which header names are interesting.
+      if (typeof v === "string" && !STRIPPED_REQUEST_HEADERS.has(k.toLowerCase())) headers[k] = v;
+    }
+  }
+  const body = typeof o["body"] === "string" ? o["body"] : undefined;
+  return { url: o["url"], method, headers, ...(body === undefined ? {} : { body }) };
+}
+
+function applyCredential(headers: Record<string, string>, binding: ToolCredentialBinding): void {
+  switch (binding.type) {
+    case "bearer":
+      headers["Authorization"] = `Bearer ${binding.token}`;
+      break;
+    case "header":
+      headers[binding.headerName] = binding.value;
+      break;
+    case "basic":
+      headers["Authorization"] =
+        `Basic ${Buffer.from(`${binding.username}:${binding.password}`).toString("base64")}`;
+      break;
+  }
+}
+
+/**
+ * The ONLY site that performs a generated tool's outbound request (invariant I39).
+ *
+ * Order is load-bearing: parse, then budget, then scheme, then approved-host match, then RESOLVE,
+ * then the address check, then attach a credential, then LEDGER, then fetch. Every refusal past
+ * parsing appends a `blocked` row before throwing, so a refused destination is as visible in
+ * `nimbus prove` as a successful one — a tool probing for reachable internal hosts leaves a trail
+ * rather than silence. The authorized row is appended BEFORE the fetch, so an append failure aborts
+ * the request and a zero-row window means nothing left the machine.
+ */
+export class ToolgenBroker {
+  readonly #deps: ToolgenBrokerDeps;
+  readonly #spent = new Map<string, number>();
+
+  constructor(deps: ToolgenBrokerDeps) {
+    this.#deps = deps;
+  }
+
+  async handleFetch(toolId: string, params: unknown): Promise<BrokeredFetchResponse> {
+    const req = parseParams(params);
+    const url = new URL(req.url);
+    const host = url.hostname.toLowerCase();
+
+    const ledger = (resultStatus: "authorized" | "blocked"): void => {
+      recordToolEgress(this.#deps.db, {
+        toolId,
+        destination: host,
+        method: "tool.fetch",
+        resultStatus,
+        now: this.#deps.now(),
+        requestMethod: req.method,
+        requestBytes: req.body === undefined ? 0 : Buffer.byteLength(req.body),
+      });
+    };
+    const refuse = (code: string, message: string): never => {
+      ledger("blocked");
+      // The code is folded into the message text (not just the `.code` field) so a caller can
+      // `toThrow(/ERR_.../)` against a plain ToolgenError without reaching for `.code` — the same
+      // reason Node's own `Error.cause`/error-code conventions repeat the code in `message`.
+      throw new ToolgenError(code, `${code}: ${message}`);
+    };
+
+    const spent = this.#spent.get(toolId) ?? 0;
+    if (spent >= this.#deps.maxRequestsPerTool) {
+      return refuse(
+        "ERR_TOOLGEN_BUDGET_EXHAUSTED",
+        `tool ${toolId} has spent its ${this.#deps.maxRequestsPerTool}-request budget`,
+      );
+    }
+
+    try {
+      assertAllowedScheme(url);
+    } catch (err) {
+      return refuse("ERR_TOOLGEN_HOST_NOT_ALLOWED", (err as Error).message);
+    }
+
+    // Exact match only. A suffix match would let `evil-api.example.com` satisfy `api.example.com`.
+    if (!this.#deps.approvedHostsFor(toolId).some((h) => h.toLowerCase() === host)) {
+      return refuse("ERR_TOOLGEN_HOST_NOT_ALLOWED", `host not on the approved envelope: ${host}`);
+    }
+
+    // On the RESOLVED address, not the hostname — the address we validated is the one we connect
+    // to, so a rebind between check and request cannot move the target.
+    //
+    // The resolve is inside the try because a REJECTION here (ENOTFOUND, offline, a DNS timeout)
+    // would otherwise escape `handleFetch` with no row appended — and a resolver lookup is itself
+    // traffic the tool caused, so it belongs in the ledger like any other refused destination.
+    let address: string;
+    try {
+      address = await this.#deps.resolveHost(host);
+    } catch (err) {
+      return refuse(
+        "ERR_TOOLGEN_HOST_NOT_ALLOWED",
+        `failed to resolve ${host}: ${(err as Error).message}`,
+      );
+    }
+    if (isForbiddenAddress(address)) {
+      return refuse(
+        "ERR_TOOLGEN_HOST_NOT_ALLOWED",
+        `${host} resolves to a forbidden address (${address})`,
+      );
+    }
+
+    const headers = { ...req.headers };
+    const binding = await this.#deps.readCredential(toolId, host);
+    if (binding !== null) applyCredential(headers, binding);
+
+    // Ledger BEFORE the request. A throw here aborts without fetching — fail-closed.
+    ledger("authorized");
+    this.#spent.set(toolId, spent + 1);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.#deps.requestTimeoutMs);
+    try {
+      const res = await this.#deps.doFetch(req.url, {
+        method: req.method,
+        headers,
+        signal: controller.signal,
+        ...(req.body === undefined ? {} : { body: req.body }),
+      });
+      const bytes = await readBoundedBody(res, controller);
+      const outHeaders: Record<string, string> = {};
+      res.headers.forEach((v, k) => {
+        outHeaders[k] = v;
+      });
+      return {
+        status: res.status,
+        statusText: res.statusText,
+        headers: outHeaders,
+        body: new TextDecoder().decode(bytes),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * Reads the response body chunk by chunk and ABORTS the underlying request as soon as the running
+ * total crosses `MAX_BROKERED_RESPONSE_BYTES`, rather than buffering the whole body with
+ * `res.arrayBuffer()` and discarding it after the fact — the broker runs inside the gateway, so a
+ * hostile or oversized upstream response should never sit fully in memory even transiently.
+ */
+async function readBoundedBody(res: Response, controller: AbortController): Promise<Uint8Array> {
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array(0);
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BROKERED_RESPONSE_BYTES) {
+        controller.abort();
+        throw new ToolgenError(
+          "ERR_TOOLGEN_RESPONSE_TOO_LARGE",
+          `ERR_TOOLGEN_RESPONSE_TOO_LARGE: response exceeded ${MAX_BROKERED_RESPONSE_BYTES} bytes`,
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
