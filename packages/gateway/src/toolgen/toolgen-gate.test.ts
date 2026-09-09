@@ -133,6 +133,7 @@ describe("createGeneratedTool refusals happen BEFORE consent", () => {
               permissions: { network: [], filesystem: { read: [], write: [] } },
               updateChannel: "stable",
             },
+            inputSchema: { type: "object", properties: {} },
           },
         },
         async () => {},

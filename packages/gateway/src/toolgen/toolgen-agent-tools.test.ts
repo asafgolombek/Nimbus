@@ -40,6 +40,7 @@ function env(toolId: string, sessionId: string): ToolgenEnvelope {
         permissions: { network: [], filesystem: { read: [], write: [] } },
         updateChannel: "stable",
       },
+      inputSchema: { type: "object", properties: {} },
     },
   };
 }
@@ -82,5 +83,28 @@ describe("buildGeneratedTools", () => {
     // A generated tool returns a remote API response straight into the model's context. If this
     // ever passes vacuously, an external server can address the agent directly.
     expect(wrapped).toEqual(["toolgen:tg_a"]);
+  });
+
+  test("a generated tool advertises its approved parameters, not a passthrough schema", () => {
+    const schema = {
+      type: "object",
+      properties: { owner: { type: "string" } },
+      required: ["owner"],
+    };
+    const registry = {
+      forSession: () => [{ artifact: { toolId: "t1", description: "d", inputSchema: schema } }],
+    };
+    const tools = buildGeneratedTools(
+      "s1",
+      registry as never,
+      async () => ({}),
+      (_s, _t, def) => def,
+    );
+    const tool = (
+      tools as Record<string, { inputSchema: { safeParse(v: unknown): { success: boolean } } }>
+    )["t1"];
+    if (tool === undefined) throw new Error("expected tool t1 to be registered");
+    expect(tool.inputSchema.safeParse({}).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ owner: "nimbus" }).success).toBe(true);
   });
 });

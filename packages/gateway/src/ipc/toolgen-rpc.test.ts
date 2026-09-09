@@ -48,6 +48,7 @@ function makeEnvelope(toolId: string, sessionId: string): ToolgenEnvelope {
         permissions: { network: [], filesystem: { read: [], write: [] } },
         updateChannel: "stable",
       },
+      inputSchema: { type: "object", properties: {} },
     },
   };
 }
@@ -85,7 +86,11 @@ function makeCtx(over: Partial<ToolgenGateDeps> = {}): TestCtx {
       scriptDir: () => "/tmp/tg",
       writeScript: async () => "/tmp/tg/index.ts",
       spawn: async () => ({
-        describe: async () => ({ name: "t", description: "d" }),
+        describe: async () => ({
+          name: "t",
+          description: "d",
+          inputSchema: { type: "object", properties: {} },
+        }),
         call: async () => null,
         close: async () => {},
       }),

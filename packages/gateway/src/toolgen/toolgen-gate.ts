@@ -237,6 +237,9 @@ export async function createGeneratedTool(
       approvedHosts: hosts,
       credentialHosts,
       manifest,
+      // Placeholder until Task 9 rewires this gate to draft via `deps.draftTool` and thread the
+      // real `DraftedTool.inputSchema` through. `draftBody` (this task's dep) returns only a body.
+      inputSchema: { type: "object", properties: {} },
     };
 
     // 6. Owner approves the VERBATIM artifact.

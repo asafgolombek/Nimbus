@@ -37,6 +37,7 @@ const envelope: ToolgenEnvelope = {
       permissions: { network: [], filesystem: { read: ["/opt/nimbus/toolgen/tg_a"], write: [] } },
       updateChannel: "stable",
     },
+    inputSchema: { type: "object", properties: {} },
   },
 };
 
@@ -125,6 +126,10 @@ describe("runtime round trip", () => {
           toolName: "Round Trip Tool",
           description: "adds two numbers",
           body: "return { ok: true, sum: (args.a ?? 0) + (args.b ?? 0) };",
+          inputSchema: {
+            type: "object",
+            properties: { a: { type: "number" }, b: { type: "number" } },
+          },
         }),
       );
 
@@ -143,7 +148,14 @@ describe("runtime round trip", () => {
       );
       try {
         const described = await handle.describe();
-        expect(described).toEqual({ name: "Round Trip Tool", description: "adds two numbers" });
+        expect(described).toEqual({
+          name: "Round Trip Tool",
+          description: "adds two numbers",
+          inputSchema: {
+            type: "object",
+            properties: { a: { type: "number" }, b: { type: "number" } },
+          },
+        });
 
         const called = await handle.call({ a: 2, b: 3 });
         expect(called).toEqual({ ok: true, sum: 5 });
@@ -466,6 +478,7 @@ describe("GeneratedToolHandle -- describe() tolerates a child that answers badly
     await expect(answering("not an object").describe()).resolves.toEqual({
       name: envelope.artifact.toolName,
       description: "",
+      inputSchema: undefined,
     });
   });
 
@@ -473,13 +486,21 @@ describe("GeneratedToolHandle -- describe() tolerates a child that answers badly
     await expect(answering({ name: 42, description: null }).describe()).resolves.toEqual({
       name: envelope.artifact.toolName,
       description: "",
+      inputSchema: undefined,
     });
   });
 
   test("a well-formed describe result is used as-is", async () => {
     await expect(
       answering({ name: "real-name", description: "real-desc" }).describe(),
-    ).resolves.toEqual({ name: "real-name", description: "real-desc" });
+    ).resolves.toEqual({ name: "real-name", description: "real-desc", inputSchema: undefined });
+  });
+
+  test("a describe result carrying an inputSchema is passed through UNVALIDATED — the registry's artifact remains the source of truth", async () => {
+    const schema = { type: "object", properties: { owner: { type: "string" } } };
+    await expect(
+      answering({ name: "real-name", description: "real-desc", inputSchema: schema }).describe(),
+    ).resolves.toEqual({ name: "real-name", description: "real-desc", inputSchema: schema });
   });
 });
 
@@ -587,6 +608,7 @@ describe("end-to-end: non-ASCII survives a REAL spawned child in both directions
           toolName: "Unicode Tool",
           description: "échoes ünicode 🚀",
           body: "return { echoed: args.text, len: args.text.length };",
+          inputSchema: { type: "object", properties: { text: { type: "string" } } },
         }),
       );
       const child = Bun.spawn<"pipe", "pipe", "inherit">({

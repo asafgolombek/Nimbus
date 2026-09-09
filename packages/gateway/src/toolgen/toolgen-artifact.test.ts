@@ -16,6 +16,7 @@ function artifact(overrides: Partial<GeneratedToolArtifact> = {}): GeneratedTool
       permissions: { network: [], filesystem: { read: [], write: [] } },
       updateChannel: "stable",
     },
+    inputSchema: { type: "object", properties: {} },
     ...overrides,
   };
 }

@@ -67,6 +67,15 @@ export interface GeneratedToolArtifact {
   readonly approvedHosts: readonly string[];
   readonly credentialHosts: readonly string[];
   readonly manifest: ExtensionManifest;
+  /**
+   * The parameters the owner approved.
+   *
+   * INSIDE the canonical artifact, not beside it: "this tool takes a repo name and a page number"
+   * is part of what is being consented to, it is covered by `artifactDigest`, and PR 3 signs it —
+   * so a later change to the parameters invalidates the approval, exactly as `credentialHosts`
+   * already does.
+   */
+  readonly inputSchema: ToolInputSchema;
 }
 
 /** A registered, live tool: the approved artifact plus its runtime bookkeeping. */
