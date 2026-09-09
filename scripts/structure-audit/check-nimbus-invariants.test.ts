@@ -6,6 +6,7 @@ import {
   assertScanIsMeaningful,
   checkActuationConfinement,
   checkAgentEmitterImportConfinement,
+  checkBrokeredFetchLiteralConfinement,
   checkChatopsUnwrappedPost,
   checkConnectorSpawnIsHidden,
   checkConnectorWriteConfinement,
@@ -16,6 +17,7 @@ import {
   checkFlatUpsertGraphEntityCoOwnedTypes,
   checkFleetClientKindConfinement,
   checkForwardShareConfinement,
+  checkGeneratedManifestConfinement,
   checkMediaGrantStoreConfinement,
   checkRemoteVlmConfinement,
   checkRunConfinedConfinement,
@@ -23,6 +25,7 @@ import {
   checkSharePublishConfinement,
   checkSpawnInvariant,
   checkSyncContextNoRawHandles,
+  checkToolgenVaultKeyConfinement,
   checkTribalKbWriteInvariant,
   checkVaultKeyAllowList,
   checkWrapServerSpecInvariant,
@@ -232,12 +235,15 @@ describe("D11 — checkVaultKeyAllowList", () => {
 });
 
 describe("D11 — VAULT_KEY_ALLOW_LIST is frozen at structural entries", () => {
-  test("VAULT_KEY_ALLOW_LIST has exactly 10 entries", () => {
+  test("VAULT_KEY_ALLOW_LIST has exactly 11 entries", () => {
     // 9 → 10: slice 2b adds ONLY `llm/vendor-vault-keys.ts`, which owns the vendor keyspace. The
-    // `<vendor>.api_key` when resolving the credential per call. The count is frozen ON PURPOSE —
-    // a file gaining permission to construct a vault key is a decision, so it must be made
-    // deliberately in a commit that also explains it, never absorbed silently.
-    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(10);
+    // `<vendor>.api_key` when resolving the credential per call. 10 → 11: the toolgen credential
+    // store (`toolgen-credentials.ts`) composes the DYNAMIC `toolgen.<toolId>.<hostSlug>` keyspace
+    // (D29(c)'s stated bound — a text scan cannot see it, capability confinement is the real
+    // defense, and this entry documents the keyspace). The count is frozen ON PURPOSE — a file
+    // gaining permission to construct a vault key is a decision, so it must be made deliberately in
+    // a commit that also explains it, never absorbed silently.
+    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(11);
   });
 });
 
@@ -1969,6 +1975,152 @@ describe("D27(b) media_grant table confinement", () => {
     ).toEqual([]);
   });
 });
+
+describe("D29(a) — nimbus/fetch method literal confinement (I39)", () => {
+  const file = (relPath: string, contents: string): FileEntry => ({ relPath, contents });
+  const definition = "packages/gateway/src/toolgen/toolgen-types.ts";
+  const elsewhere = "packages/gateway/src/toolgen/toolgen-rogue.ts";
+
+  test("allows the definition site", () => {
+    expect(
+      checkBrokeredFetchLiteralConfinement([
+        file(definition, 'export const BROKERED_FETCH_METHOD = "nimbus/fetch";'),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("a comment mentioning the method does NOT trip it", () => {
+    expect(
+      checkBrokeredFetchLiteralConfinement([
+        file(
+          elsewhere,
+          '// this asks the broker to call "nimbus/fetch" on our behalf\nconst x = 1;',
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("FAILS on a second CODE occurrence", () => {
+    expect(
+      checkBrokeredFetchLiteralConfinement([file(elsewhere, 'const METHOD = "nimbus/fetch";')]),
+    ).toHaveLength(1);
+  });
+
+  test("FAILS regardless of quote style", () => {
+    expect(
+      checkBrokeredFetchLiteralConfinement([file(elsewhere, "const m = `nimbus/fetch`;")]),
+    ).toHaveLength(1);
+  });
+
+  test("does not trip on an unrelated string sharing a prefix", () => {
+    expect(
+      checkBrokeredFetchLiteralConfinement([
+        file(elsewhere, 'const m = "nimbus/fetch-something-else";'),
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("D29(b) — generated-manifest constructor confinement (I39)", () => {
+  const file = (relPath: string, contents: string): FileEntry => ({ relPath, contents });
+  const definition = "packages/gateway/src/toolgen/toolgen-stub.ts";
+  const elsewhere = "packages/gateway/src/toolgen/toolgen-rogue.ts";
+
+  test("allows the one approved definition with an empty network literal", () => {
+    expect(
+      checkGeneratedManifestConfinement([
+        file(
+          definition,
+          "export function buildGeneratedManifest(toolId) {\n  return { permissions: { network: [] } };\n}",
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("does NOT trip on an ordinary call, an import, or a typeof query", () => {
+    expect(
+      checkGeneratedManifestConfinement([
+        file(
+          elsewhere,
+          'import { buildGeneratedManifest } from "./toolgen-stub.ts";\nconst m = buildGeneratedManifest("tg_a");\ntype M = ReturnType<typeof buildGeneratedManifest>;',
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("FAILS on a second definition elsewhere", () => {
+    expect(
+      checkGeneratedManifestConfinement([
+        file(elsewhere, "export function buildGeneratedManifest(toolId) { return {}; }"),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  test("FAILS when the approved file assigns network a non-empty literal", () => {
+    expect(
+      checkGeneratedManifestConfinement([
+        file(
+          definition,
+          'export function buildGeneratedManifest(toolId) {\n  return { permissions: { network: ["api.example.com"] } };\n}',
+        ),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  test("does not trip on a non-literal network assignment in the approved file", () => {
+    expect(
+      checkGeneratedManifestConfinement([
+        file(
+          definition,
+          "export function buildGeneratedManifest(toolId, opts) {\n  return { permissions: { network: opts.network } };\n}",
+        ),
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("D29(c) — toolgen. Vault-key prefix confinement (I39)", () => {
+  const file = (relPath: string, contents: string): FileEntry => ({ relPath, contents });
+  const definition = "packages/gateway/src/toolgen/toolgen-credentials.ts";
+  const elsewhere = "packages/gateway/src/toolgen/toolgen-rogue.ts";
+
+  test("allows the one composition site", () => {
+    expect(
+      checkToolgenVaultKeyConfinement([
+        file(
+          definition,
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+          "return `toolgen.${toolId}.${slug}`;",
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("FAILS on a toolgen. key composed outside toolgen-credentials.ts", () => {
+    expect(
+      checkToolgenVaultKeyConfinement([
+        file(
+          elsewhere,
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+          "const leaked = `toolgen.${toolId}.${slug}`;",
+        ),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  test("does not trip on the unrelated single-segment extension id", () => {
+    expect(
+      checkToolgenVaultKeyConfinement([
+        file(
+          "packages/gateway/src/toolgen/toolgen-stub.ts",
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+          "id: `toolgen.${toolId}`,",
+        ),
+      ]),
+    ).toEqual([]);
+  });
+});
+
 describe("D28 — fleet ClientKind confinement (I38)", () => {
   const file = (relPath: string, contents: string): FileEntry => ({ relPath, contents });
   const ROGUE = "packages/gateway/src/agents/rogue.ts";
