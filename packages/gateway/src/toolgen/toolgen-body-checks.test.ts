@@ -43,6 +43,25 @@ describe("verifyBodySyntax", () => {
       expect((e as ToolgenError).code).toBe("ERR_TOOLGEN_DRAFT_SYNTAX");
     }
   });
+
+  test("falls back to String(err) when the constructor throws a non-Error value", () => {
+    // `new AsyncFunction("args", body)` calls ToString(body) internally, so a `body`-shaped value
+    // whose own `toString()` throws a non-Error reaches the catch block's `err instanceof Error`
+    // false arm. This is a real, reachable path (not a contrived mock of the constructor) — it is
+    // exactly what happens if a caller's body value is not a plain string.
+    const notReallyAString = {
+      toString(): string {
+        throw "not an Error instance";
+      },
+    };
+    try {
+      verifyBodySyntax(notReallyAString as unknown as string);
+      throw new Error("expected a throw");
+    } catch (e) {
+      expect((e as ToolgenError).code).toBe("ERR_TOOLGEN_DRAFT_SYNTAX");
+      expect((e as ToolgenError).message).toBe("tool body does not parse: not an Error instance");
+    }
+  });
 });
 
 describe("scanBodyForForbiddenGlobals", () => {

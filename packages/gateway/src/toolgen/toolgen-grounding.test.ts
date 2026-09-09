@@ -68,6 +68,67 @@ describe("createEndpointFinder", () => {
     };
     expect(await createEndpointFinder(index as never)("q", 8)).toEqual([]);
   });
+
+  test("an item with no rawMeta at all falls back to item.service, null operationId, empty summary", async () => {
+    // `rawMeta` is optional on NimbusItem — a real indexed item can carry none.
+    const item = {
+      id: "GET /health",
+      service: "internal-api",
+      itemType: "api_endpoint",
+      name: "GET /health",
+      score: 1,
+      indexPrimaryKey: "GET /health",
+      indexedType: "api_endpoint",
+      // rawMeta intentionally absent
+    } as unknown as RankedIndexItem;
+    const index = { searchRankedAsync: async () => [item] };
+    expect(await createEndpointFinder(index as never)("q", 8)).toEqual([
+      {
+        serviceName: "internal-api",
+        method: "GET",
+        path: "/health",
+        operationId: null,
+        summary: "",
+      },
+    ]);
+  });
+
+  test("rawMeta.tags absent or not an array falls back to an empty summary, not a throw", async () => {
+    const index = {
+      searchRankedAsync: async () => [
+        rankedItem("GET /a", { service_name: "svc", tags: "not-an-array" }),
+        rankedItem("GET /b", {}),
+      ],
+    };
+    const out = await createEndpointFinder(index as never)("q", 8);
+    expect(out.map((e) => e.summary)).toEqual(["", ""]);
+  });
+
+  test("non-string entries in rawMeta.tags are filtered out of the summary", async () => {
+    const index = {
+      searchRankedAsync: async () => [
+        rankedItem("GET /a", { service_name: "svc", tags: ["issues", 42, null, "open"] }),
+      ],
+    };
+    const out = await createEndpointFinder(index as never)("q", 8);
+    expect(out[0]?.summary).toBe("issues open");
+  });
+
+  test("a wrong-typed service_name falls back to item.service rather than the bad value", async () => {
+    const index = {
+      searchRankedAsync: async () => [rankedItem("GET /a", { service_name: 12345 })],
+    };
+    const out = await createEndpointFinder(index as never)("q", 8);
+    expect(out[0]?.serviceName).toBe("openapi"); // rankedItem()'s item.service
+  });
+
+  test("a wrong-typed operation_id falls back to null rather than the bad value", async () => {
+    const index = {
+      searchRankedAsync: async () => [rankedItem("GET /a", { operation_id: 999 })],
+    };
+    const out = await createEndpointFinder(index as never)("q", 8);
+    expect(out[0]?.operationId).toBeNull();
+  });
 });
 
 describe("groundingOf", () => {
@@ -88,5 +149,22 @@ describe("groundingOf", () => {
       count: 3,
       services: ["a", "b"],
     });
+  });
+
+  test("sorts services presented out of order (exercises the descending comparator branch)", () => {
+    const ep = (serviceName: string) => ({
+      serviceName,
+      method: "GET",
+      path: "/x",
+      operationId: null,
+      summary: "",
+    });
+    // Fed in reverse alphabetical order: the comparator must return the > branch (1) to sort
+    // these back into order, not just the < branch a same-order input would exercise.
+    const grounding = groundingOf([ep("c"), ep("b"), ep("a")]);
+    expect(grounding.kind).toBe("endpoints");
+    if (grounding.kind === "endpoints") {
+      expect(grounding.services).toEqual(["a", "b", "c"]);
+    }
   });
 });
