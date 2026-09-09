@@ -124,6 +124,28 @@ function audit(
 }
 
 /**
+ * `deps.revokeCredentials` called and its failure swallowed, never propagated.
+ *
+ * There are two call sites below -- the denial path (inside the main `try`) and the outer `catch`
+ * -- and both must go through this rather than calling `deps.revokeCredentials` directly. An
+ * unguarded revoke on the denial path that throws would escape into the outer `catch`, which would
+ * then see `credentialsBound` still `true` and call `revokeCredentials` again, unguarded -- and if
+ * THAT throws too, the exception escapes `createGeneratedTool` entirely and NEITHER `audit()` call
+ * ever runs, so the denial (or the post-approval failure) that triggered the revoke in the first
+ * place is never recorded at all. A revoke that fails to clean up a Vault entry is a leftover
+ * secret worth fixing on its own -- never worth losing the audit row for the outcome that caused
+ * it.
+ */
+async function safeRevokeCredentials(deps: ToolgenGateDeps, toolId: string): Promise<void> {
+  try {
+    await deps.revokeCredentials(toolId);
+  } catch {
+    // Swallowed -- see the docstring above. The caller's own outcome (denial / failure) still
+    // surfaces and is still audited.
+  }
+}
+
+/**
  * The ONE path from a model-authored body to a registered, callable tool (invariant I39).
  *
  * The ORDER is load-bearing and mirrors `runExecution`: every refusal decidable WITHOUT the owner
@@ -223,8 +245,10 @@ export async function createGeneratedTool(
     );
     if (!approved) {
       // A denial must not leave a credential behind under a toolId nothing will ever call again.
+      // Guarded via `safeRevokeCredentials` -- see its docstring for why an unguarded revoke here
+      // could take out the `audit()` call below with it.
       if (credentialsBound) {
-        await deps.revokeCredentials(toolId);
+        await safeRevokeCredentials(deps, toolId);
       }
       audit(deps, "rejected", "denied_by_owner", { toolId, body, hosts });
       return { status: "denied" };
@@ -252,9 +276,11 @@ export async function createGeneratedTool(
   } catch (err) {
     // A registration that fails after approval (`writeScript`/`spawn` throwing) never reaches
     // `registry.register`, so its toolId is dead the same way a denial's is -- clean up the same
-    // way.
+    // way. Guarded for the identical reason as the denial path above: this IS the outer catch, so
+    // an unguarded revoke failure here would escape `createGeneratedTool` outright and neither
+    // `audit()` call below would ever run.
     if (credentialsBound) {
-      await deps.revokeCredentials(toolId);
+      await safeRevokeCredentials(deps, toolId);
     }
     const code = err instanceof ToolgenError ? err.code : "ERR_TOOLGEN_INTERNAL";
     // An owner-approved attempt that then failed is recorded as APPROVED, because it was: the owner

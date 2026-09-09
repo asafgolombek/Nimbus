@@ -3812,6 +3812,9 @@ export async function assemblePlatformServices(
     // revoked toolId gets NO approved hosts (the `?? []`), so every request from it is refused
     // and ledgered `blocked` rather than falling back to some other notion of "approved".
     approvedHostsFor: (toolId) => toolgenRegistry.get(toolId)?.artifact.approvedHosts ?? [],
+    // A bare pass-through, deliberately -- `redirect: "error"` is set by `toolgen-broker.ts`
+    // itself on the `init` it builds, not here, so the guarantee travels with the broker's checks
+    // rather than living in this one wiring site (see `ToolgenBroker.handleFetch`'s docstring).
     doFetch: (url, init) => fetch(url, init),
   });
   const toolgenGateDeps: ToolgenGateDeps = {
@@ -3841,7 +3844,13 @@ export async function assemblePlatformServices(
     // cwd is the script's OWN directory: the manifest grants read only to `scriptDir(toolId)` plus
     // the runtime's own read paths, so spawning from anywhere else grants nothing extra and only
     // adds a directory the sandbox does not know about.
-    spawn: (envelope) => spawnGeneratedTool(envelope, toolgenBroker, dirname(envelope.scriptPath)),
+    // The exit callback is what makes `forSession`/`countForSession`'s "live tools only" claim
+    // real: without it, nothing ever observes a generated tool's child dying, so a crashed tool
+    // stays listed, stays model-visible and permanently burns a `maxToolsPerSession` slot.
+    spawn: (envelope) =>
+      spawnGeneratedTool(envelope, toolgenBroker, dirname(envelope.scriptPath), () =>
+        toolgenRegistry.markTerminated(envelope.artifact.toolId),
+      ),
     requestApproval: (input, ttlMs) => toolgenConsent.request(input, ttlMs),
     // PR 1's `toolgen.create` params carry no credential material (Task 16's `--credential` CLI
     // flag is a later, separate widening of that wire contract) -- a freshly minted toolId can

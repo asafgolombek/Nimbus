@@ -160,4 +160,52 @@ describe("ToolgenBroker.handleFetch", () => {
     ).rejects.toMatchObject({ code: "ERR_TOOLGEN_BAD_REQUEST" });
     expect(rows(d.db)).toEqual([]);
   });
+
+  test('every request to `doFetch` carries redirect: "error" — a future change dropping it fails loudly', async () => {
+    let seenInit: RequestInit | undefined;
+    const d = deps({
+      doFetch: async (_u: string, init: RequestInit) => {
+        seenInit = init;
+        return new Response("ok");
+      },
+    });
+    await new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" });
+    expect(seenInit?.redirect).toBe("error");
+  });
+
+  test("a redirect is REFUSED rather than followed, and appends a blocked row on top of the authorized one", async () => {
+    // The exact shape Bun's `fetch` rejects with under `redirect: "error"` (probed against
+    // 1.3.14) — a plain Error carrying `code: "UnexpectedRedirect"`, not a subclass and not a
+    // distinguishing message. `isUnexpectedRedirectError` narrows on `.code`, so the fake matches
+    // that, not the human-readable text.
+    const redirectErr = Object.assign(new Error("UnexpectedRedirect fetching ..."), {
+      code: "UnexpectedRedirect",
+    });
+    const d = deps({
+      doFetch: async () => {
+        throw redirectErr;
+      },
+    });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_REDIRECT_REFUSED" });
+    // TWO rows for the one call: the first records the authorized attempt itself, the second that
+    // it was then cut short by the redirect refusal before any response reached the tool.
+    expect(rows(d.db)).toEqual([
+      { destination: "api.example.com", result_status: "authorized" },
+      { destination: "api.example.com", result_status: "blocked" },
+    ]);
+  });
+
+  test("a genuine network failure that is NOT a redirect still propagates as before, with no second row", async () => {
+    const d = deps({
+      doFetch: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).rejects.toThrow("ECONNREFUSED");
+    expect(rows(d.db)).toEqual([{ destination: "api.example.com", result_status: "authorized" }]);
+  });
 });

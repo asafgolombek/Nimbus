@@ -421,6 +421,33 @@ describe("runTool create — non-TTY refusal (load-bearing #1)", () => {
   });
 });
 
+describe("runTool create — the RPC call carries no credential material", () => {
+  test("a --credential token never appears anywhere in the toolgen.create RPC params", async () => {
+    const SECRET = "sk_live_never_sent_over_ipc_1a2b3c";
+    const h = fakeDeps();
+    await runTool(
+      [
+        "create",
+        "--description",
+        "d",
+        "--host",
+        "a.example.com",
+        "--credential",
+        `a.example.com=${SECRET}`,
+      ],
+      h.d,
+    );
+    const createCall = h.calls.find((c) => c.method === "toolgen.create");
+    expect(createCall).toBeDefined();
+    const params = createCall?.params as Record<string, unknown>;
+    // Not just "the secret isn't in there" -- the FIELD itself must be absent. Docs and the
+    // gateway wiring both say credential material is never transmitted; a `credentials` key
+    // present with an empty/redacted value would still contradict that.
+    expect(params["credentials"]).toBeUndefined();
+    expect(JSON.stringify(params)).not.toContain(SECRET);
+  });
+});
+
 describe("runTool create — credentials never echoed (load-bearing #2)", () => {
   test("a --credential token never appears in any rendered output, including on failure", async () => {
     const SECRET = "sk_live_super_secret_value_9f8e7d";

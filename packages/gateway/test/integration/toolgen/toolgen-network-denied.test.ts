@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveRuntimeById } from "../../../src/exec/exec-runtimes.ts";
-import { extensionProcessEnv } from "../../../src/extensions/spawn-env.ts";
 import { policyFromManifest } from "../../../src/platform/sandbox/sandbox-policy.ts";
 import { createSandboxRunner } from "../../../src/platform/sandbox/sandbox-runner.ts";
+import { buildToolSpawnSpec } from "../../../src/toolgen/toolgen-client.ts";
 import { buildGeneratedManifest } from "../../../src/toolgen/toolgen-stub.ts";
+import type { ToolgenEnvelope } from "../../../src/toolgen/toolgen-types.ts";
 
 /**
  * The load-bearing test of the whole runtime-tool-generation feature: proof that a raw `fetch()`
@@ -88,7 +89,7 @@ describe("a generated tool's raw fetch() is blocked on this platform", () => {
     expect(hits).toBe(1);
   }, 30_000);
 
-  test("confined with an empty network set, the request never arrives", async () => {
+  test("confined via buildToolSpawnSpec — the SAME wrapped spec production spawns — the request never arrives", async () => {
     const before = hits;
     const runner = await createSandboxRunner();
 
@@ -100,6 +101,7 @@ describe("a generated tool's raw fetch() is blocked on this platform", () => {
     // comment above).
     const runtime = resolveRuntimeById("bun");
     const manifest = buildGeneratedManifest("tg_probe", {
+      scriptDir: workDir,
       runtimeReadPaths: runtime.requiredReadPaths(),
     });
     const policy = policyFromManifest(manifest);
@@ -108,27 +110,65 @@ describe("a generated tool's raw fetch() is blocked on this platform", () => {
     // sandbox actually confines. Fail loudly with the exact reason instead.
     expect(runner.canConfine(policy)).toBeNull();
 
-    const child = runner.spawn(process.execPath, ["-e", SCRIPT(url)], {
-      policy,
-      env: extensionProcessEnv({}),
+    // The probe script lives on disk, exactly as a real generated tool's approved body does —
+    // `buildToolSpawnSpec` always `import()`s a file, never an inline `-e` body.
+    const scriptPath = join(workDir, "probe.mjs");
+    writeFileSync(scriptPath, SCRIPT(url));
+
+    const envelope: ToolgenEnvelope = {
+      sessionId: "test",
+      scriptPath,
+      approvedAt: Date.now(),
+      artifact: {
+        toolId: "tg_probe",
+        toolName: "probe",
+        description: "network-denial probe",
+        body: "",
+        approvedHosts: [],
+        credentialHosts: [],
+        manifest,
+      },
+    };
+
+    // THIS is the fix for the finding this test exists to close: an earlier version of this test
+    // called `runner.spawn` directly, which would still pass unchanged if `buildToolSpawnSpec`
+    // ever stopped wrapping the spec through `wrapServerSpec` at all — it exercised the sandbox
+    // runner, never the production wrapping that routes a generated tool's spawn through it.
+    // `buildToolSpawnSpec` is the exact function `spawnGeneratedTool` calls in production
+    // (`toolgen-client.ts`); spawning its OUTPUT plainly, the way this does, is what
+    // `spawnGeneratedTool` itself does — no second, caller-side `SandboxRunner` here either,
+    // matching its own docstring.
+    const spec = buildToolSpawnSpec(envelope, workDir);
+    const env = { ...spec.env };
+    // Test-only forwarding, not a production concern: `extensionProcessEnv`'s I1 baseline-key
+    // scoping deliberately does NOT include `NIMBUS_SANDBOX_HELPER_PATH`, so the module-level
+    // override above (which only ever reached THIS process's `process.env`) does not reach the
+    // spawned `__nimbus-sandbox` wrapper's own process — and that wrapper is what re-resolves the
+    // helper path, in ITS OWN process, when it builds its own `SandboxRunner`. Without forwarding
+    // it explicitly here, the wrapper would look beside `process.execPath` (the installed `bun`
+    // this test binary runs as) rather than this repo's `src-native` build output.
+    if (process.env["NIMBUS_SANDBOX_HELPER_PATH"] !== undefined) {
+      env["NIMBUS_SANDBOX_HELPER_PATH"] = process.env["NIMBUS_SANDBOX_HELPER_PATH"];
+    }
+
+    const child = Bun.spawn([spec.command, ...spec.args], {
+      env,
       cwd: workDir,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
     });
 
     let out = "";
     let err = "";
     try {
-      child.stdout?.on("data", (c: Buffer) => {
-        out += c.toString();
-      });
-      child.stderr?.on("data", (c: Buffer) => {
-        err += c.toString();
-      });
-
-      const code = await new Promise<number>((res) => {
-        child.on("error", () => res(-1));
-        child.on("close", (c) => res(c ?? -1));
-      });
+      const [outText, errText, exitCode] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      out = outText;
+      err = errText;
 
       // All THREE conditions, not two. `STARTED` proves the child really ran; the absence of
       // `REACHED:` proves the fetch never got a response; the unchanged hit count proves the
@@ -137,7 +177,7 @@ describe("a generated tool's raw fetch() is blocked on this platform", () => {
       // from "the process never started".
       expect(out).toContain("STARTED");
       expect(out).not.toContain("REACHED:");
-      expect(code).not.toBe(0);
+      expect(exitCode).not.toBe(0);
       expect(hits).toBe(before);
     } finally {
       try {

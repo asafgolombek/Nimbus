@@ -91,6 +91,15 @@ function applyCredential(headers: Record<string, string>, binding: ToolCredentia
  * rather than silence. (A malformed URL itself appends nothing — the host isn't known yet, so
  * there is no destination to record.) The authorized row is appended BEFORE the fetch, so an
  * append failure aborts the request and a zero-row window means nothing left the machine.
+ *
+ * Every check above runs against the INITIAL url only — so the fetch itself is issued with
+ * `redirect: "error"`, refusing rather than following any redirect the destination returns. A
+ * followed hop would reach a host, scheme or resolved address none of those checks ever saw,
+ * silently re-entering the network outside every guarantee this class makes. A redirect refusal
+ * appends its OWN `blocked` row (`ERR_TOOLGEN_REDIRECT_REFUSED`), on top of the `authorized` row
+ * already appended for the attempt itself — two rows for one call, deliberately: the first records
+ * that a real request to the approved host was authorized and attempted, the second that it was
+ * then cut short before any response body reached the tool.
  */
 export class ToolgenBroker {
   readonly #deps: ToolgenBrokerDeps;
@@ -193,12 +202,29 @@ export class ToolgenBroker {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#deps.requestTimeoutMs);
     try {
-      const res = await this.#deps.doFetch(req.url, {
-        method: req.method,
-        headers,
-        signal: controller.signal,
-        ...(req.body === undefined ? {} : { body: req.body }),
-      });
+      let res: Response;
+      try {
+        res = await this.#deps.doFetch(req.url, {
+          method: req.method,
+          headers,
+          signal: controller.signal,
+          // Refuse a redirect rather than follow it. Set HERE, in the broker, not in the
+          // `doFetch` closure a caller supplies — the guarantee belongs with the checks above,
+          // which all ran against the url ABOVE this call, never with one wiring site a second
+          // caller could build without it. See I39 § 6.2.1 and `isUnexpectedRedirectError`.
+          redirect: "error",
+          ...(req.body === undefined ? {} : { body: req.body }),
+        });
+      } catch (err) {
+        if (isUnexpectedRedirectError(err)) {
+          return refuse(
+            "ERR_TOOLGEN_REDIRECT_REFUSED",
+            `${host} responded with a redirect, which is refused rather than followed — a hop is ` +
+              `not re-checked against the approved envelope`,
+          );
+        }
+        throw err;
+      }
       const bytes = await readBoundedBody(res, controller);
       const outHeaders: Record<string, string> = {};
       res.headers.forEach((v, k) => {
@@ -214,6 +240,27 @@ export class ToolgenBroker {
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * `redirect: "error"` (set unconditionally by `handleFetch`, below) makes Bun's `fetch` REJECT
+ * rather than follow — every check above (scheme, approved-host, resolved-address) ran on the
+ * INITIAL url only, so a followed hop would reach a host, scheme or address none of them ever saw.
+ * Bun surfaces this as a plain `Error` carrying `code: "UnexpectedRedirect"` (probed against
+ * 1.3.14; see the design spec § 6.2.1) — narrowed here rather than matched on `.message`, which is
+ * not a stable contract. **Stated bound:** this is a Bun-runtime-specific error shape, not a
+ * WHATWG-standardised one; a future Bun version changing it would make this check silently stop
+ * firing, and a redirect would then propagate as an ordinary unhandled fetch failure instead of a
+ * ledgered refusal — narrower than a false negative that lets the redirect through, but still a
+ * gap worth a comment. Anything else thrown by `doFetch` itself (a genuine network failure, the
+ * request timeout) is NOT this and is left to propagate exactly as before.
+ */
+function isUnexpectedRedirectError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    (err as { readonly code?: unknown }).code === "UnexpectedRedirect"
+  );
 }
 
 /**

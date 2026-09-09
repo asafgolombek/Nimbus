@@ -1715,15 +1715,27 @@ max_requests_per_tool   = 50
 request_timeout_ms      = 10000
 ```
 
+**What `max_tools_per_session` actually bounds from the CLI.** Every `nimbus tool` invocation
+shares one fixed session id (`cli`), so `nimbus tool list` run from a fresh process can find a tool
+a previous `nimbus tool create` invocation just registered — a random id per invocation would make
+that impossible, since each command is its own short-lived process. The tradeoff: for
+CLI-originated tools, `max_tools_per_session` is not a per-command limit at all — it is a single
+budget of `max_tools_per_session` LIVE generated tools shared by every `nimbus tool create` call
+this gateway process serves, for as long as that process runs (the registry is in-memory only and
+resets on a gateway restart). A real agent conversation does not share this bound: it mints a fresh
+session id per conversation via `agentRequestContext`, so its budget really is per-conversation.
+
 ```bash
 nimbus tool create --description "fetch the weather" --host api.example.com
 nimbus tool create --description "post to my tracker" --host api.example.com \
   --host files.example.com --credential api.example.com=sk_live_...
 nimbus tool list
 nimbus tool list --json
-nimbus tool revoke tg_a1b2c3
-nimbus tool credential set tg_a1b2c3 api.example.com --bearer sk_live_...
+nimbus tool revoke 3fa85f64-5717-4562-b3fc-2c963f66afa6
+nimbus tool credential set 3fa85f64-5717-4562-b3fc-2c963f66afa6 api.example.com --bearer sk_live_...
 ```
+
+A tool id is a raw `randomUUID()` value (`ToolgenGateDeps.newId`) — there is no `tg_`-style prefix.
 
 | Subcommand | Meaning |
 | --- | --- |

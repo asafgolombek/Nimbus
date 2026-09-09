@@ -7,6 +7,16 @@ import { BROKERED_FETCH_METHOD, type ToolgenEnvelope } from "./toolgen-types.ts"
 /** How long a `close()` waits for a graceful exit before escalating to SIGKILL. */
 const CLOSE_ESCALATION_MS = 2_000;
 
+/**
+ * Backstop for a single `describe`/`call` round trip over `wireToolProtocol`'s wire, when the
+ * caller does not supply its own. Deliberately generous and distinct from
+ * `[tool_generation].request_timeout_ms` (the BROKER's per-fetch bound): a `call` invocation can
+ * legitimately make several sequential brokered fetches, each already bounded on its own, so this
+ * only needs to catch a child that is genuinely wedged — an infinite loop, a hung await on
+ * something that will never resolve — never a slow-but-working one.
+ */
+const DEFAULT_PROTOCOL_REQUEST_TIMEOUT_MS = 60_000;
+
 export interface ToolSpawnSpec {
   readonly command: string;
   readonly args: string[];
@@ -167,6 +177,7 @@ export function wireToolProtocol(
   io: ToolChildIo,
   envelope: ToolgenEnvelope,
   broker: ToolgenBroker,
+  requestTimeoutMs = DEFAULT_PROTOCOL_REQUEST_TIMEOUT_MS,
 ): GeneratedToolHandle {
   const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   let seq = 0;
@@ -219,11 +230,31 @@ export function wireToolProtocol(
     }
   });
 
+  // A wedged child (an infinite loop, a hung await on something that never resolves) must not
+  // hang a `describe`/`call` caller forever — the request-timeout bound applies to the BROKER's
+  // own outbound fetch, not to the child's own compute, so nothing else catches this.
   const request = (method: string, params: unknown): Promise<unknown> => {
     if (closed) return Promise.reject(new Error("generated tool handle is closed"));
     const id = `g${String(++seq)}`;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(
+          new Error(`generated tool did not respond to "${method}" within ${requestTimeoutMs}ms`),
+        );
+      }, requestTimeoutMs);
+      // Wrapped so EITHER a real reply or the timeout above clears the other's timer/pending
+      // entry — whichever settles first must not leave the loser dangling.
+      pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
       send({ id, method, params });
     });
   };
@@ -279,11 +310,32 @@ export function wireToolProtocol(
  *
  * The only evidence of confinement visible from here is that `buildToolSpawnSpec`'s returned `env`
  * carries `NIMBUS_SANDBOX_POLICY_JSON` — asserted directly in `toolgen-client.test.ts`.
+ *
+ * `onExit`, when supplied, fires once the child has actually exited — for ANY reason, including a
+ * crash, not only a graceful `close()`. The wiring caller (`platform/assemble.ts`) uses it to call
+ * `ToolgenRegistry.markTerminated`, so a dead tool stops being offered to the model and stops
+ * counting against the session's tool budget (`forSession`/`countForSession`) the moment it is
+ * actually dead, rather than only when something later happens to notice. Firing it after an
+ * owner-initiated `revoke()` is harmless and expected: `revoke()` already deletes the registry
+ * entry before this fires, and `markTerminated` on an unknown toolId is a no-op.
  */
+/**
+ * Wires `onExit` to fire once the child behind `io` has actually exited, for any reason.
+ *
+ * Factored out of `spawnGeneratedTool` so the exit-detection logic itself can be exercised in a
+ * test against a REAL, unsandboxed child (`toolgen-client.test.ts`) the same way `wireToolProtocol`
+ * already is — sandbox confinement is a separate concern owned by `buildToolSpawnSpec` and the
+ * integration test under `test/integration/toolgen/`, not this function's job.
+ */
+export function wireExitCallback(io: ToolChildIo, onExit: () => void): void {
+  void io.waitExit().then(onExit);
+}
+
 export async function spawnGeneratedTool(
   envelope: ToolgenEnvelope,
   broker: ToolgenBroker,
   cwd: string,
+  onExit?: () => void,
 ): Promise<GeneratedToolHandle> {
   const spec = buildToolSpawnSpec(envelope, cwd);
   const child = Bun.spawn<"pipe", "pipe", "pipe">([spec.command, ...spec.args], {
@@ -293,5 +345,9 @@ export async function spawnGeneratedTool(
     stdout: "pipe",
     stderr: "pipe",
   });
-  return wireToolProtocol(ioFromSpawnedChild(child), envelope, broker);
+  const io = ioFromSpawnedChild(child);
+  if (onExit !== undefined) {
+    wireExitCallback(io, onExit);
+  }
+  return wireToolProtocol(io, envelope, broker);
 }

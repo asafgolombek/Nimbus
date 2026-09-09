@@ -8,7 +8,14 @@ import { THIS_BINARY_COVERAGE } from "../egress/egress-coverage.ts";
 import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { ToolgenBroker } from "./toolgen-broker.ts";
-import { buildToolSpawnSpec, ioFromSpawnedChild, wireToolProtocol } from "./toolgen-client.ts";
+import {
+  buildToolSpawnSpec,
+  ioFromSpawnedChild,
+  type ToolChildIo,
+  wireExitCallback,
+  wireToolProtocol,
+} from "./toolgen-client.ts";
+import { ToolgenRegistry } from "./toolgen-registry.ts";
 import { emitToolScript } from "./toolgen-stub.ts";
 import type { ToolgenEnvelope } from "./toolgen-types.ts";
 
@@ -145,6 +152,122 @@ describe("runtime round trip", () => {
         await handle.close();
         child.kill();
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+});
+
+describe("wireToolProtocol — a wedged child does not hang a call forever (minor: bounded request timeout)", () => {
+  test("call() rejects once the given timeout elapses, when the child never replies", async () => {
+    const io: ToolChildIo = {
+      writeLine: () => {
+        /* the "child" never writes a reply back */
+      },
+      onStdoutData: () => {},
+      kill: () => {},
+      waitExit: () => new Promise(() => {}), // never exits either, for this test's purposes
+    };
+    // A tiny override so the test doesn't wait out the real (60s) default.
+    const handle = wireToolProtocol(io, envelope, unreachableBroker(), 25);
+    await expect(handle.call({})).rejects.toThrow(/did not respond/);
+  });
+
+  test("a reply that DOES arrive before the timeout still resolves normally", async () => {
+    let onData: ((chunk: Uint8Array) => void) | undefined;
+    const io: ToolChildIo = {
+      writeLine: (line) => {
+        const msg = JSON.parse(line) as { id: string };
+        // Reply immediately, well inside the timeout window.
+        onData?.(
+          new TextEncoder().encode(`${JSON.stringify({ id: msg.id, result: { ok: true } })}\n`),
+        );
+      },
+      onStdoutData: (cb) => {
+        onData = cb;
+      },
+      kill: () => {},
+      waitExit: () => new Promise(() => {}),
+    };
+    const handle = wireToolProtocol(io, envelope, unreachableBroker(), 25);
+    await expect(handle.call({})).resolves.toEqual({ ok: true });
+  });
+});
+
+describe("wireExitCallback", () => {
+  test("fires once, only once waitExit resolves — not before, not synchronously", async () => {
+    let calls = 0;
+    let resolveExit: () => void = () => {};
+    const exited = new Promise<void>((resolve) => {
+      resolveExit = resolve;
+    });
+    const io: ToolChildIo = {
+      writeLine: () => {},
+      onStdoutData: () => {},
+      kill: () => {},
+      waitExit: () => exited,
+    };
+    wireExitCallback(io, () => {
+      calls += 1;
+    });
+    expect(calls).toBe(0);
+    resolveExit();
+    await exited;
+    // Flush the microtask queue so the `.then()` chained onto `exited` inside `wireExitCallback`
+    // has had a turn to run.
+    await Promise.resolve();
+    expect(calls).toBe(1);
+  });
+});
+
+describe("a generated tool's exit is observed and marks it terminated (load-bearing #3)", () => {
+  // Deliberately NOT through `buildToolSpawnSpec` -- same reasoning as the "runtime round trip"
+  // test above: sandbox confinement is `buildToolSpawnSpec`/Task 18's concern (covered by
+  // `test/integration/toolgen/toolgen-network-denied.test.ts`), not this test's. This exercises
+  // the REAL exit-detection code (`wireExitCallback`, over the REAL `ioFromSpawnedChild` adapter)
+  // against a REAL, unsandboxed child that exits on its own -- proving the wiring a previous
+  // review found had no production caller now actually observes a dead tool and updates a REAL
+  // `ToolgenRegistry`, which is what makes `forSession`'s "live tools only" claim true.
+  test("a child that exits on its own marks the tool terminated and it drops out of forSession", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-toolgen-exit-"));
+    try {
+      const scriptPath = join(dir, "index.mjs");
+      // Exits immediately and on its own -- standing in for a crash, distinct from an
+      // owner-initiated `close()`/`revoke()`, which this test does not call at all.
+      writeFileSync(scriptPath, "process.exit(3);\n");
+
+      const child = Bun.spawn<"pipe", "pipe", "inherit">({
+        cmd: [
+          process.execPath,
+          "-e",
+          `await import(${JSON.stringify(pathToFileURL(scriptPath).href)});`,
+        ],
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "inherit",
+      });
+      const io = ioFromSpawnedChild(child);
+
+      const registry = new ToolgenRegistry();
+      const toolEnvelope: ToolgenEnvelope = { ...envelope, scriptPath, sessionId: "s1" };
+      registry.register(toolEnvelope, async () => {
+        child.kill();
+      });
+      wireExitCallback(io, () => registry.markTerminated(toolEnvelope.artifact.toolId));
+      // wireToolProtocol is not needed for this test's assertions, but wiring it mirrors what
+      // `spawnGeneratedTool` actually does (broker requests would otherwise never be served).
+      wireToolProtocol(io, toolEnvelope, unreachableBroker());
+
+      expect(registry.forSession("s1")).toHaveLength(1);
+      expect(registry.isTerminated(toolEnvelope.artifact.toolId)).toBe(false);
+
+      await child.exited;
+      // Flush the microtask queue for the `.then()` `wireExitCallback` chained onto `waitExit()`.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(registry.isTerminated(toolEnvelope.artifact.toolId)).toBe(true);
+      expect(registry.forSession("s1")).toHaveLength(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

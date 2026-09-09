@@ -255,6 +255,27 @@ describe("createGeneratedTool outcomes", () => {
     expect(auditRows(d.db)[0]?.hitl_status).toBe("rejected");
   });
 
+  test("a THROWING revokeCredentials on the denial path still returns 'denied' and still audits — the outcome is not lost (load-bearing #4)", async () => {
+    // A previous version of the gate called `deps.revokeCredentials` unguarded on this path. If
+    // that throws, it escapes into the outer `catch`, which then sees `credentialsBound` still
+    // `true` and calls `revokeCredentials` again -- also unguarded -- and a SECOND throw there
+    // escapes `createGeneratedTool` entirely, so no `audit()` call ever runs for a denial the
+    // owner actually gave. This test fails on that regression: the `throw` below is designed to
+    // hit exactly that unguarded second call if `safeRevokeCredentials`'s swallow is ever removed.
+    const d = deps({
+      bindCredentials: async () => ["api.example.com"],
+      requestApproval: async () => false,
+      revokeCredentials: async () => {
+        throw new Error("vault unavailable");
+      },
+    });
+    const outcome = await createGeneratedTool(req, d as never);
+    expect(outcome).toEqual({ status: "denied" });
+    const row = auditRows(d.db)[0];
+    expect(row?.hitl_status).toBe("rejected");
+    expect(row?.action_json).toContain("denied_by_owner");
+  });
+
   test("the audit row carries the VERBATIM body, and never hitl_status not_required", async () => {
     const d = deps({ draftBody: async () => "VERBATIM-BODY" });
     await createGeneratedTool(req, d as never);

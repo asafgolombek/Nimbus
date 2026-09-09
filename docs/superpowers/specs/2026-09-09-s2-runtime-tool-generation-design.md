@@ -361,6 +361,20 @@ own account before consulting the envelope:
 6. **A resolution FAILURE is a refusal, not an escape.** If the destination will not resolve, the
    broker appends a `blocked` row and refuses, rather than letting the rejection propagate out
    unledgered — a resolver lookup is itself traffic the tool caused.
+7. **Redirects are refused, not followed.** `handleFetch` issues the fetch with `redirect: "error"`
+   — set unconditionally inside the broker, not in the `doFetch` closure a caller supplies, so the
+   guarantee travels with checks 1–6 rather than living in one wiring site a second caller could
+   build without it. Every check above runs against the INITIAL url only; a plain `fetch` with its
+   spec default (`redirect: "follow"`, up to 20 hops) would let an approved host redirect the
+   request to any other host, scheme or resolved address — including the cloud metadata address or
+   the Gateway's own loopback API check 2 exists specifically to keep out — with none of checks
+   1–6 re-run and no second ledger row, silently re-entering the network outside every guarantee
+   this section makes. Refusing the hop is therefore not a narrower version of following it; it is
+   the only shape that keeps this section's claims true. A refused redirect appends its own
+   `blocked` row (`ERR_TOOLGEN_REDIRECT_REFUSED`) on top of the `authorized` row already appended
+   for the attempt itself — two rows for one call, deliberately, matching the resolution-failure
+   case in (6): the first records that a real request to the approved host was authorized and
+   attempted, the second that it was then cut short before any response body reached the tool.
 
 ### 6.2.2 Bounds on the response
 

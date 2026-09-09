@@ -247,6 +247,13 @@ export function parseToolArgs(argv: readonly string[]): ParsedToolArgs {
  * unable to find a tool `nimbus tool create` had just registered in a different process. A single
  * fixed id groups every CLI-originated tool into one stable, listable session for the life of the
  * gateway process (the registry itself is in-memory only and does not survive a restart).
+ *
+ * **This is a real, stated tradeoff, not a bug:** because every CLI invocation is a SEPARATE
+ * process sharing this ONE id, `max_tools_per_session` is NOT a per-command-invocation limit for
+ * the CLI the way it is for a real agent conversation. It is a single budget of
+ * `max_tools_per_session` live generated tools shared by every `nimbus tool create` this gateway
+ * process ever serves, gateway-process-lifetime rather than per-invocation. See
+ * `docs/cli-reference.md`'s "What `max_tools_per_session` actually bounds from the CLI" note.
  */
 export const CLI_TOOLGEN_SESSION_ID = "cli";
 
@@ -453,12 +460,14 @@ async function runCreateCmd(
         sessionId: CLI_TOOLGEN_SESSION_ID,
         description: parsed.description,
         hosts: parsed.hosts,
-        // Forward-compatible only: PR 1's `toolgen.create` RPC handler does not read a
-        // `credentials` field yet, and `ToolgenGateDeps.bindCredentials` is an honest no-op until
-        // drafting itself ships (the gate refuses before it would ever be consulted -- see
-        // `DRAFT_NOT_IMPLEMENTED_MESSAGE` above). Sending the shape now means the wire contract's
-        // eventual widening needs no CLI change; it changes nothing observable today.
-        credentials: parsed.credentials,
+        // `parsed.credentials` is validated client-side (host membership against `--host`,
+        // non-empty value -- see `parseCreateArgs`) but deliberately NOT sent here. PR 1's
+        // `toolgen.create` RPC handler does not read a `credentials` field at all, and
+        // `docs/cli-reference.md` + `platform/assemble.ts`'s `bindCredentials` closure both say
+        // the value is never transmitted / carries no credential material -- sending a live
+        // bearer token over IPC to a handler that discards it would make one of those two
+        // surfaces false. The wire contract widens, if at all, only when the gateway side is
+        // actually built to consume it -- not ahead of that, and not silently.
       })) as ToolOutcomeShape;
     });
 
