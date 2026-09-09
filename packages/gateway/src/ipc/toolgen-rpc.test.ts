@@ -1,0 +1,254 @@
+import { Database } from "bun:sqlite";
+import { afterEach, describe, expect, test } from "bun:test";
+import { DEFAULT_NIMBUS_TOOL_GENERATION_TOML } from "../config/nimbus-toml.ts";
+import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
+import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
+import { ToolgenConsentBroker } from "../toolgen/toolgen-consent-broker.ts";
+import type { ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
+import { ToolgenRegistry } from "../toolgen/toolgen-registry.ts";
+import type { ToolgenEnvelope } from "../toolgen/toolgen-types.ts";
+import { checkLanMethodAllowed, LanError } from "./lan-rpc.ts";
+import { dispatchToolgenRpc, type ToolgenRpcCtx } from "./toolgen-rpc.ts";
+
+describe("toolgen is LAN-forbidden as a WHOLE namespace", () => {
+  test.each([
+    ["toolgen.create"],
+    ["toolgen.approvalRespond"],
+    ["toolgen.list"],
+    ["toolgen.revoke"],
+  ])("%s is refused over LAN", (method) => {
+    expect(() => checkLanMethodAllowed(method, { peerId: "p", writeAllowed: true })).toThrow(
+      LanError,
+    );
+  });
+});
+
+const brokers: ToolgenConsentBroker[] = [];
+// Pending approvals hold live TTL timers; without this, a test that leaves one pending hangs
+// `bun test` teardown on Windows (the same trap `exec-rpc.test.ts` guards against).
+afterEach(() => {
+  for (const b of brokers.splice(0)) b.clear();
+});
+
+function makeEnvelope(toolId: string, sessionId: string): ToolgenEnvelope {
+  return {
+    sessionId,
+    scriptPath: "/tmp/tg/index.ts",
+    approvedAt: 1,
+    artifact: {
+      toolId,
+      toolName: toolId,
+      description: "d",
+      body: "return 1;",
+      approvedHosts: ["api.example.com"],
+      credentialHosts: [],
+      manifest: {
+        id: `toolgen.${toolId}`,
+        version: "0.0.0",
+        permissions: { network: [], filesystem: { read: [], write: [] } },
+        updateChannel: "stable",
+      },
+    },
+  };
+}
+
+interface TestCtx extends ToolgenRpcCtx {
+  broadcasts: Array<Record<string, unknown>>;
+  removeScriptCalls: string[];
+}
+
+function makeCtx(over: Partial<ToolgenGateDeps> = {}): TestCtx {
+  const db = new Database(":memory:");
+  runIndexedSchemaMigrations(db, CURRENT_SCHEMA_VERSION);
+  const consent = new ToolgenConsentBroker();
+  brokers.push(consent);
+  const broadcasts: Array<Record<string, unknown>> = [];
+  consent.setBroadcast((_m, params) => {
+    broadcasts.push(params as Record<string, unknown>);
+  });
+  const registry = new ToolgenRegistry();
+  const removeScriptCalls: string[] = [];
+  return {
+    consent,
+    broadcasts,
+    removeScriptCalls,
+    removeScript: async (toolId: string) => {
+      removeScriptCalls.push(toolId);
+    },
+    gateDeps: {
+      db,
+      config: { ...DEFAULT_NIMBUS_TOOL_GENERATION_TOML, enabled: true },
+      enforced: { capabilitiesDisabled: new Set<string>() },
+      registry,
+      draftBody: async () => "return 1;",
+      assertConfinement: async () => {},
+      scriptDir: () => "/tmp/tg",
+      writeScript: async () => "/tmp/tg/index.ts",
+      spawn: async () => ({
+        describe: async () => ({ name: "t", description: "d" }),
+        call: async () => null,
+        close: async () => {},
+      }),
+      // Route through the broker so the RPC pair is exercised end to end, not stubbed out.
+      requestApproval: (input, ttlMs) => consent.request(input, ttlMs),
+      bindCredentials: async () => [],
+      revokeCredentials: async () => {},
+      now: () => 1_700_000_000_000,
+      newId: () => "tg_a",
+      ...over,
+    },
+  };
+}
+
+describe("toolgen RPC", () => {
+  test("an unknown toolgen.* method MISSES rather than throwing", async () => {
+    const out = await dispatchToolgenRpc("toolgen.nope", {}, makeCtx());
+    expect(out.kind).toBe("miss");
+  });
+
+  test("toolgen.create reaches the gate and returns its outcome", async () => {
+    const ctx = makeCtx({ config: { ...DEFAULT_NIMBUS_TOOL_GENERATION_TOML, enabled: false } });
+    const out = await dispatchToolgenRpc(
+      "toolgen.create",
+      { sessionId: "s1", description: "d", hosts: ["api.example.com"] },
+      ctx,
+    );
+    expect(out.kind).toBe("hit");
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect((out.value as { status: string }).status).toBe("refused");
+  });
+
+  test("toolgen.create without sessionId is an invalid-params error, not a silent default", async () => {
+    await expect(
+      dispatchToolgenRpc(
+        "toolgen.create",
+        { description: "d", hosts: ["api.example.com"] },
+        makeCtx(),
+      ),
+    ).rejects.toThrow();
+  });
+
+  test("toolgen.create without description is an invalid-params error", async () => {
+    await expect(
+      dispatchToolgenRpc(
+        "toolgen.create",
+        { sessionId: "s1", hosts: ["a.example.com"] },
+        makeCtx(),
+      ),
+    ).rejects.toThrow();
+  });
+
+  test("a non-array hosts value is treated as an empty list, refused by the gate itself", async () => {
+    const out = await dispatchToolgenRpc(
+      "toolgen.create",
+      { sessionId: "s1", description: "d", hosts: "api.example.com" },
+      makeCtx(),
+    );
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect(out.value).toEqual({ status: "refused", code: "ERR_TOOLGEN_HOST_NOT_ALLOWED" });
+  });
+
+  test("toolgen.approvalRespond resolves the pending approval the broker broadcast", async () => {
+    const ctx = makeCtx();
+    const run = dispatchToolgenRpc(
+      "toolgen.create",
+      { sessionId: "s1", description: "d", hosts: ["api.example.com"] },
+      ctx,
+    );
+    // Let the gate reach the consent step and broadcast.
+    await Bun.sleep(1);
+    const requestId = ctx.broadcasts[0]?.["requestId"] as string;
+    expect(typeof requestId).toBe("string");
+
+    const resp = await dispatchToolgenRpc(
+      "toolgen.approvalRespond",
+      { requestId, approved: false },
+      ctx,
+    );
+    if (resp.kind !== "hit") throw new Error("unreachable");
+    expect((resp.value as { matched: boolean }).matched).toBe(true);
+
+    const out = await run;
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect((out.value as { status: string }).status).toBe("denied");
+  });
+
+  test("toolgen.approvalRespond reports no match for an unknown requestId", async () => {
+    const out = await dispatchToolgenRpc(
+      "toolgen.approvalRespond",
+      { requestId: "nope", approved: true },
+      makeCtx(),
+    );
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect((out.value as { matched: boolean }).matched).toBe(false);
+  });
+
+  test("approved defaults to FALSE when the field is absent or non-boolean", async () => {
+    // Fail-closed: a malformed respond payload must never read as approval.
+    const ctx = makeCtx();
+    const run = dispatchToolgenRpc(
+      "toolgen.create",
+      { sessionId: "s1", description: "d", hosts: ["api.example.com"] },
+      ctx,
+    );
+    await Bun.sleep(1);
+    const requestId = ctx.broadcasts[0]?.["requestId"] as string;
+    await dispatchToolgenRpc("toolgen.approvalRespond", { requestId, approved: "yes" }, ctx);
+    const out = await run;
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect((out.value as { status: string }).status).toBe("denied");
+  });
+
+  test("toolgen.list returns only the CURRENT session's live tools", async () => {
+    const ctx = makeCtx();
+    ctx.gateDeps.registry.register(makeEnvelope("tg_a", "s1"), async () => {});
+    ctx.gateDeps.registry.register(makeEnvelope("tg_b", "s2"), async () => {});
+    const out = await dispatchToolgenRpc("toolgen.list", { sessionId: "s1" }, ctx);
+    if (out.kind !== "hit") throw new Error("unreachable");
+    const tools = (out.value as { tools: Array<{ toolId: string }> }).tools;
+    expect(tools.map((t) => t.toolId)).toEqual(["tg_a"]);
+  });
+
+  test("toolgen.list omits the body/manifest/scriptPath", async () => {
+    const ctx = makeCtx();
+    ctx.gateDeps.registry.register(makeEnvelope("tg_a", "s1"), async () => {});
+    const out = await dispatchToolgenRpc("toolgen.list", { sessionId: "s1" }, ctx);
+    if (out.kind !== "hit") throw new Error("unreachable");
+    const tools = (out.value as { tools: Array<Record<string, unknown>> }).tools;
+    expect(tools[0]).not.toHaveProperty("body");
+    expect(tools[0]).not.toHaveProperty("manifest");
+    expect(tools[0]).not.toHaveProperty("scriptPath");
+  });
+
+  test("toolgen.list without sessionId is an invalid-params error", async () => {
+    await expect(dispatchToolgenRpc("toolgen.list", {}, makeCtx())).rejects.toThrow();
+  });
+
+  test("toolgen.revoke drops BOTH the live registry entry and the on-disk script", async () => {
+    const ctx = makeCtx();
+    let closed = false;
+    ctx.gateDeps.registry.register(makeEnvelope("tg_a", "s1"), async () => {
+      closed = true;
+    });
+    const out = await dispatchToolgenRpc("toolgen.revoke", { toolId: "tg_a" }, ctx);
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect(out.value).toEqual({ revoked: true });
+    expect(closed).toBe(true);
+    expect(ctx.gateDeps.registry.get("tg_a")).toBeUndefined();
+    // The failure worth catching: a drain that clears the registry but leaves the script behind
+    // looks identical to success unless this call is independently asserted.
+    expect(ctx.removeScriptCalls).toEqual(["tg_a"]);
+  });
+
+  test("toolgen.revoke on an unknown toolId still calls removeScript (idempotent, no probe-first)", async () => {
+    const ctx = makeCtx();
+    const out = await dispatchToolgenRpc("toolgen.revoke", { toolId: "tg_ghost" }, ctx);
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect(out.value).toEqual({ revoked: true });
+    expect(ctx.removeScriptCalls).toEqual(["tg_ghost"]);
+  });
+
+  test("toolgen.revoke without toolId is an invalid-params error", async () => {
+    await expect(dispatchToolgenRpc("toolgen.revoke", {}, makeCtx())).rejects.toThrow();
+  });
+});

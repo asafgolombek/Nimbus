@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Logger } from "pino";
 import {
@@ -83,6 +84,7 @@ import {
   loadNimbusScimFromConfigDir,
   loadNimbusServiceConfigsFromConfigDir,
   loadNimbusShareHttpSink,
+  loadNimbusToolGenerationFromConfigDir,
   loadNimbusTribalFromConfigDir,
   loadNimbusUpdaterFromConfigDir,
   type NimbusChatopsToml,
@@ -283,6 +285,19 @@ import {
 import { spawnTeamToolAndCall } from "../teamvault/team-tool-spawn.ts";
 import { TeamVaultStore } from "../teamvault/team-vault-store.ts";
 import { startTelemetryFlushScheduler } from "../telemetry/flush-scheduler.ts";
+import { ToolgenBroker } from "../toolgen/toolgen-broker.ts";
+import { spawnGeneratedTool } from "../toolgen/toolgen-client.ts";
+import { assertToolConfinement } from "../toolgen/toolgen-confinement.ts";
+import { toolgenConsent } from "../toolgen/toolgen-consent-broker.ts";
+import { readToolCredential } from "../toolgen/toolgen-credentials.ts";
+import type { ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
+import { ToolgenRegistry } from "../toolgen/toolgen-registry.ts";
+import {
+  removeToolScript,
+  toolScriptDir,
+  writeToolScript,
+} from "../toolgen/toolgen-script-store.ts";
+import { ToolgenError } from "../toolgen/toolgen-types.ts";
 import { type SynthSource, synthesizeAnswer } from "../tribal/answer-synthesizer.ts";
 import type { TribalCluster } from "../tribal/cluster-store.ts";
 import { buildTribalBoot, type TribalBoot } from "../tribal/tribal-boot.ts";
@@ -3772,6 +3787,77 @@ export async function assemblePlatformServices(
     now: () => Date.now(),
   };
 
+  // I39 (S2 runtime tool generation): the sandboxed, owner-approved, session-ephemeral tool
+  // registration surface. DEFAULT OFF -- `enabled` is read from `[tool_generation]`, and
+  // `createGeneratedTool` refuses before consent when it is false, so wiring the ctx
+  // unconditionally does not enable anything. The org-policy half is read LAZILY through
+  // `policyGate.enforced()` rather than snapshotted here, so a policy installed after boot
+  // tightens the next registration rather than the next restart -- the same shape as execRpcCtx
+  // and computerRpcCtx above.
+  //
+  // `toolgenRegistry` is the ONE registry instance shared by three places: the gate (counts a
+  // session's budget and registers a live tool), the broker's `approvedHostsFor` (reads back the
+  // artifact the owner approved -- fail-closed `?? []` for an unknown/revoked toolId), and
+  // `PlatformServices.toolgenRegistry`, which `gateway-main.ts`'s shutdown drains.
+  const toolGenerationCfg = loadNimbusToolGenerationFromConfigDir(paths.configDir);
+  const toolgenRegistry = new ToolgenRegistry();
+  const toolgenBroker = new ToolgenBroker({
+    db,
+    now: () => Date.now(),
+    maxRequestsPerTool: toolGenerationCfg.maxRequestsPerTool,
+    requestTimeoutMs: toolGenerationCfg.requestTimeoutMs,
+    resolveHost: async (host) => (await lookup(host, { all: true })).map((r) => r.address),
+    readCredential: (toolId, host) => readToolCredential(vault, toolId, host),
+    // The artifact the owner approved IS the source of truth for this list -- an unknown or
+    // revoked toolId gets NO approved hosts (the `?? []`), so every request from it is refused
+    // and ledgered `blocked` rather than falling back to some other notion of "approved".
+    approvedHostsFor: (toolId) => toolgenRegistry.get(toolId)?.artifact.approvedHosts ?? [],
+    doFetch: (url, init) => fetch(url, init),
+  });
+  const toolgenGateDeps: ToolgenGateDeps = {
+    db,
+    config: toolGenerationCfg,
+    get enforced() {
+      return policyGate.enforced();
+    },
+    registry: toolgenRegistry,
+    // No task in this PR wires an LLM-based drafting flow -- Task 15's own brief scopes this task
+    // to the IPC surface, the LAN forbid, and wiring the gate/registry/broker/consent pieces
+    // together, not to authoring the highest-blast-radius prompt in the repository without a spec
+    // for it. `[tool_generation] enabled` defaults to false, so this refusal is unreachable unless
+    // an operator opts in; when they do, `toolgen.create` fails closed here with a named code
+    // rather than silently degrading to something unreviewed. A follow-up task that adds real
+    // drafting (local-first, per non-negotiable 1) must replace this closure.
+    draftBody: async () => {
+      throw new ToolgenError(
+        "ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED",
+        "no tool-body drafting path is wired yet in this build",
+      );
+    },
+    assertConfinement: (manifest) =>
+      assertToolConfinement({ runner: sandboxRunner, manifest, cwd: paths.configDir }),
+    scriptDir: (toolId) => toolScriptDir(paths.configDir, toolId),
+    writeScript: (toolId, source) => writeToolScript(paths.configDir, toolId, source),
+    // cwd is the script's OWN directory: the manifest grants read only to `scriptDir(toolId)` plus
+    // the runtime's own read paths, so spawning from anywhere else grants nothing extra and only
+    // adds a directory the sandbox does not know about.
+    spawn: (envelope) => spawnGeneratedTool(envelope, toolgenBroker, dirname(envelope.scriptPath)),
+    requestApproval: (input, ttlMs) => toolgenConsent.request(input, ttlMs),
+    // PR 1's `toolgen.create` params carry no credential material (Task 16's `--credential` CLI
+    // flag is a later, separate widening of that wire contract) -- a freshly minted toolId can
+    // therefore never already hold a Vault entry, so there is truthfully nothing to bind or
+    // revoke yet. Real once a caller can supply credential bindings at create time.
+    bindCredentials: async () => [],
+    revokeCredentials: async () => {},
+    now: () => Date.now(),
+    newId: () => randomUUID(),
+  };
+  ipcOpts.toolgenRpcCtx = {
+    consent: toolgenConsent,
+    gateDeps: toolgenGateDeps,
+    removeScript: (toolId) => removeToolScript(paths.configDir, toolId),
+  };
+
   ipcOpts.glossaryRefresher = glossaryRefresher;
   assignIfPresent(ipcOpts, "decisionsRefresher", decisionsRefresher);
   assignIfPresent(ipcOpts, "ownershipRefresher", ownershipRefresher);
@@ -3793,6 +3879,11 @@ export async function assemblePlatformServices(
   // times out and the capability silently never works (fail-closed, but indistinguishable from a
   // bug). The gate is still fail-closed either way: no answer means no spawn.
   execConsent.setBroadcast((method, params) => ipc.broadcast(method, asBroadcastParams(params)));
+
+  // I39 (S2 runtime tool generation): the tool-registration approval prompt reaches the local
+  // owner via the same broadcast channel; they answer through toolgen.approvalRespond.
+  // UNCONDITIONAL for the same reason as share/exec above.
+  toolgenConsent.setBroadcast((method, params) => ipc.broadcast(method, asBroadcastParams(params)));
 
   // I35 (S2 slice 2): the computer-use approval prompts (session-open envelope + per-action) reach
   // the local owner via the same broadcast channel; they answer through computer.approvalRespond.
@@ -3876,6 +3967,7 @@ export async function assemblePlatformServices(
     openUrl: openUrlInDefaultBrowser,
     sandboxRunner,
     hostActivity,
+    toolgenRegistry,
     ...(fleetScheduler === undefined ? {} : { fleetScheduler }),
     llmRegistry,
     ...(agentVendor === undefined ? {} : { agentVendor }),
