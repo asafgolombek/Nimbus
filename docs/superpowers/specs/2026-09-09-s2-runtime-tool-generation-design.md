@@ -587,7 +587,23 @@ not a property anyone approved.
 
 ## 10. Delivery split
 
-**PR 1 — owner-initiated, ephemeral, brokered.** The `toolgen/` chokepoint, `egress/tool-egress.ts`,
+**PR 1 — the owner-initiated, ephemeral, brokered SUBSTRATE. Drafting is stubbed.**
+
+**Stated during implementation, not discovered later:** PR 1 ships every safety mechanism and the
+seam a model would draft through, but **not the drafting itself**. `ToolgenGateDeps.draftBody` — the
+step where the model actually authors the tool body — has no implementation in this PR; the wiring
+supplies a refusal (`ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED`). `nimbus tool create` therefore exercises
+the whole gate and refuses at the last step rather than producing a tool.
+
+That is deliberate. Drafting means designing an LLM prompt for the highest-blast-radius capability
+in the repository, whose output is code that then runs with the owner's credentials. That prompt
+deserves its own design pass and its own review, not an improvisation added late inside a large PR
+to make a command look finished. Everything here is default-off (`[tool_generation] enabled =
+false`), so the stub changes no shipped behaviour. The credential-binding deps are honest no-ops
+for the same reason: `toolgen.create`'s wire contract carries no credential material yet, and
+widening it belongs with the CLI flag that needs it.
+
+What PR 1 does deliver, fully tested: the `toolgen/` chokepoint, `egress/tool-egress.ts`,
 the `tool` coverage class, I39, D29(a)+(b), `[tool_generation]` (`enabled` +
 `max_tools_per_session` + `max_requests_per_tool` + `request_timeout_ms`), the `toolgen.*` IPC
 namespace, `nimbus tool create|list|revoke|credential set`, the LAN-forbid, and `tool_generation`
