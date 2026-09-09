@@ -26,6 +26,45 @@ function deps(
   };
 }
 
+/**
+ * Like `deps`, but records every prompt handed to `generate` — in call order — so a test can
+ * inspect what the SECOND call actually said, not just that a second call happened.
+ */
+function depsCapturingPrompts(replies: (string | null)[]): {
+  readonly deps: ToolgenDraftDeps;
+  readonly prompts: string[];
+} {
+  const queue = [...replies];
+  const prompts: string[] = [];
+  return {
+    prompts,
+    deps: {
+      generate: async (prompt) => {
+        prompts.push(prompt);
+        const next = queue.shift();
+        return next === undefined || next === null ? null : { text: next, isLocal: true };
+      },
+      findEndpoints: async () => [],
+    },
+  };
+}
+
+// One bad reply per rung, reused by both the existing "redrafts once" cases and the new
+// attribution tests below — same payloads, so the rung/reason each produces is pinned once.
+const RUNG_1_BAD = "Here is your tool!"; // fails JSON.parse entirely
+const RUNG_2_BAD = JSON.stringify({
+  inputSchema: { type: "object", properties: { a: { type: "object" } } },
+  body: "return 1;",
+});
+const RUNG_3_BAD = JSON.stringify({
+  inputSchema: { type: "object", properties: {} },
+  body: "const = ;",
+});
+const RUNG_4_BAD = JSON.stringify({
+  inputSchema: { type: "object", properties: {} },
+  body: 'await fetch("https://x");',
+});
+
 describe("extractJsonPayload", () => {
   const obj = '{"a":1}';
 
@@ -108,6 +147,62 @@ describe("draftGeneratedTool", () => {
     }
   });
 
+  // FINDING 1: each redraft prompt must ATTRIBUTE the correct rung and reason, not just exist.
+  // Swapping two rung labels or reordering two catch blocks would pass every test above this one.
+  describe("redraft attribution", () => {
+    test("a rung 1 (output envelope) failure is attributed by name and reason", async () => {
+      const { deps: d, prompts } = depsCapturingPrompts([RUNG_1_BAD, GOOD]);
+      const out = await draftGeneratedTool(REQ, d, SUBJECT);
+      expect(out.attempts).toBe(2);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain("Failed check: rung 1 (output envelope)");
+      expect(prompts[1]).toContain("Reason: reply is not JSON:");
+    });
+
+    test("a rung 2 (input schema) failure is attributed by name and reason", async () => {
+      const { deps: d, prompts } = depsCapturingPrompts([RUNG_2_BAD, GOOD]);
+      const out = await draftGeneratedTool(REQ, d, SUBJECT);
+      expect(out.attempts).toBe(2);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain("Failed check: rung 2 (input schema)");
+      expect(prompts[1]).toContain(
+        'Reason: property "a" has unsupported type "object" (nested objects are not allowed)',
+      );
+    });
+
+    test("a rung 3 (body syntax) failure is attributed by name and reason", async () => {
+      const { deps: d, prompts } = depsCapturingPrompts([RUNG_3_BAD, GOOD]);
+      const out = await draftGeneratedTool(REQ, d, SUBJECT);
+      expect(out.attempts).toBe(2);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain("Failed check: rung 3 (body syntax)");
+      expect(prompts[1]).toContain("Reason: tool body does not parse:");
+    });
+
+    test("a rung 4 (forbidden globals) failure is attributed by name and reason", async () => {
+      const { deps: d, prompts } = depsCapturingPrompts([RUNG_4_BAD, GOOD]);
+      const out = await draftGeneratedTool(REQ, d, SUBJECT);
+      expect(out.attempts).toBe(2);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain("Failed check: rung 4 (forbidden globals)");
+      expect(prompts[1]).toContain("Reason: tool body uses the global fetch()");
+    });
+
+    test("the final ERR_TOOLGEN_DRAFT_INVALID message names the SECOND attempt's rung, not the first's", async () => {
+      // First attempt fails rung 2, second attempt fails rung 3 — `last` is reassigned each
+      // iteration, so the thrown message must report rung 3, never the discarded rung 2.
+      try {
+        await draftGeneratedTool(REQ, deps([RUNG_2_BAD, RUNG_3_BAD]), SUBJECT);
+        throw new Error("expected a throw");
+      } catch (e) {
+        const err = e as ToolgenError;
+        expect(err.code).toBe("ERR_TOOLGEN_DRAFT_INVALID");
+        expect(err.message).toContain("rung 3 (body syntax)");
+        expect(err.message).not.toContain("rung 2 (input schema)");
+      }
+    });
+  });
+
   test("never makes a third attempt", async () => {
     let calls = 0;
     const d: ToolgenDraftDeps = {
@@ -129,11 +224,30 @@ describe("draftGeneratedTool", () => {
   });
 
   test("refuses with ERR_TOOLGEN_NO_DRAFT_MODEL when no provider answers", async () => {
+    // `null` on the FIRST attempt: there is no prior failure to report, so the message stays
+    // exactly what it always was.
     try {
       await draftGeneratedTool(REQ, deps([null]), SUBJECT);
       throw new Error("expected a throw");
     } catch (e) {
-      expect((e as ToolgenError).code).toBe("ERR_TOOLGEN_NO_DRAFT_MODEL");
+      const err = e as ToolgenError;
+      expect(err.code).toBe("ERR_TOOLGEN_NO_DRAFT_MODEL");
+      expect(err.message).toBe("no model is available to draft a tool body");
+    }
+  });
+
+  // FINDING 2: a `null` on the REDRAFT call must not discard the first attempt's real failure —
+  // the owner must not be sent off to configure a model that demonstrably just answered.
+  test("refuses with ERR_TOOLGEN_NO_DRAFT_MODEL naming the first attempt's failure when the redraft finds no model", async () => {
+    try {
+      await draftGeneratedTool(REQ, deps([RUNG_3_BAD, null]), SUBJECT);
+      throw new Error("expected a throw");
+    } catch (e) {
+      const err = e as ToolgenError;
+      expect(err.code).toBe("ERR_TOOLGEN_NO_DRAFT_MODEL");
+      expect(err.message).toContain("rung 3 (body syntax)");
+      expect(err.message).toContain("tool body does not parse:");
+      expect(err.message).not.toBe("no model is available to draft a tool body");
     }
   });
 

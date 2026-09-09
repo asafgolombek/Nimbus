@@ -162,9 +162,16 @@ export async function draftGeneratedTool(
   for (const attempt of [1, 2] as const) {
     const generated = await deps.generate(current);
     if (generated === null) {
+      // A `null` on the redraft call means the FIRST attempt's failure is being discarded —
+      // the owner must not be sent off to "configure a model" when one just answered and failed
+      // validation. State both facts: what the first attempt got wrong, and that the redraft
+      // could not reach a model at all. A `null` on the very first call has no prior failure to
+      // report, so `last` is `null` there and the message stays exactly as it always was.
       throw new ToolgenError(
         "ERR_TOOLGEN_NO_DRAFT_MODEL",
-        "no model is available to draft a tool body",
+        last === null
+          ? "no model is available to draft a tool body"
+          : `the first attempt failed at ${last.rung}: ${last.reason} — no model was available for the redraft`,
       );
     }
     const result = runLadder(generated.text);
