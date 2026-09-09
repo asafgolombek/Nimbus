@@ -139,7 +139,9 @@ Every rung runs **before consent**, in this order. Each rung's failure names its
    alternative considered and rejected was skipping the check and letting the post-approval spawn
    fail — which turns `failed_after_approval`, an audit outcome that should be rare, into the
    routine way a bad draft is discovered, after the owner has already spent their judgment.
-4. **The body scan.** Rejects `fetch(`, `require(`, `import `, `process.`, `Bun.` and `eval(`.
+4. **The body scan.** Rejects `fetch(`, `require(`, `eval(`, `process.`, `Bun.` and a bare
+   `import` statement (matched as the keyword followed by whitespace, so an `important` identifier
+   is not caught by it).
 
 **Rung 4 is not a security boundary, and must never be described as one.** The sandbox is: a body
 calling raw `fetch` fails at the OS on all three platforms because `permissions.network` is `[]` by
