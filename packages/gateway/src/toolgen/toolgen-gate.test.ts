@@ -19,7 +19,13 @@ function deps(over: Record<string, unknown> = {}) {
     config: { ...DEFAULT_NIMBUS_TOOL_GENERATION_TOML, enabled: true },
     enforced: { capabilitiesDisabled: new Set<string>() },
     registry: new ToolgenRegistry(),
-    draftBody: async () => "return 1;",
+    draftTool: async () => ({
+      body: "return 1;",
+      inputSchema: { type: "object", properties: {} },
+      grounding: { kind: "description_only" },
+      attempts: 1,
+      locality: "local",
+    }),
     assertConfinement: async () => {},
     writeScript: async () => {
       calls.writeScript++;
@@ -278,7 +284,15 @@ describe("createGeneratedTool outcomes", () => {
   });
 
   test("the audit row carries the VERBATIM body, and never hitl_status not_required", async () => {
-    const d = deps({ draftBody: async () => "VERBATIM-BODY" });
+    const d = deps({
+      draftTool: async () => ({
+        body: "VERBATIM-BODY",
+        inputSchema: { type: "object", properties: {} },
+        grounding: { kind: "description_only" },
+        attempts: 1,
+        locality: "local",
+      }),
+    });
     await createGeneratedTool(req, d as never);
     const row = auditRows(d.db)[0];
     expect(row?.action_json).toContain("VERBATIM-BODY");
@@ -330,5 +344,98 @@ describe("createGeneratedTool outcomes", () => {
     expect(row?.action_json).not.toContain("refused_before_consent");
     // The toolId will never register (writeScript failed), so its bound credential must not survive.
     expect(d.calls.revokeCredentials).toBe(1);
+  });
+});
+
+describe("createGeneratedTool drafting and credential binding (Task 9)", () => {
+  test("the drafted schema reaches the approval prompt and the artifact", async () => {
+    const prompts: Array<{ inputSchema: unknown }> = [];
+    const d = deps({
+      draftTool: async () => ({
+        body: "return 1;",
+        inputSchema: { type: "object", properties: { owner: { type: "string" } } },
+        grounding: { kind: "description_only" },
+        attempts: 1,
+        locality: "local",
+      }),
+      requestApproval: async (input: { inputSchema: unknown }) => {
+        prompts.push(input);
+        return true;
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out.status).toBe("registered");
+    expect(prompts[0]?.inputSchema).toEqual({
+      type: "object",
+      properties: { owner: { type: "string" } },
+    });
+  });
+
+  test("credentials are bound before consent and NOT passed to the drafter", async () => {
+    let draftArg: unknown;
+    const bound: unknown[] = [];
+    const d = deps({
+      draftTool: async (r: unknown) => {
+        draftArg = r;
+        return {
+          body: "return 1;",
+          inputSchema: { type: "object", properties: {} },
+          grounding: { kind: "description_only" },
+          attempts: 1,
+          locality: "local",
+        };
+      },
+      bindCredentials: async (_toolId: string, creds: Array<{ host: string }>) => {
+        bound.push(creds);
+        return creds.map((c) => c.host);
+      },
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    // `req` is exactly what reaches `draftTool` -- credentials are a SEPARATE parameter to
+    // `createGeneratedTool` and never merged onto it (Task 9 controller ruling 1).
+    expect(JSON.stringify(draftArg)).not.toContain("s3cret");
+    expect(bound).toHaveLength(1);
+  });
+
+  test("a denial revokes the credentials supplied via the credentials parameter", async () => {
+    const revoked: string[] = [];
+    const d = deps({
+      requestApproval: async () => false,
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      revokeCredentials: async (id: string) => {
+        revoked.push(id);
+      },
+    });
+    const out = await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("denied");
+    expect(revoked).toHaveLength(1);
+  });
+
+  test("the audit row records the draft attempts, grounding and locality", async () => {
+    const d = deps({
+      draftTool: async () => ({
+        body: "return 1;",
+        inputSchema: { type: "object", properties: {} },
+        grounding: { kind: "endpoints", count: 2, services: ["github"] },
+        attempts: 2,
+        locality: "remote",
+      }),
+    });
+    await createGeneratedTool(req, d as never);
+    const row = auditRows(d.db)[0];
+    expect(row).toBeDefined();
+    const payload = JSON.parse(row?.action_json ?? "{}") as Record<string, unknown>;
+    expect(payload["draftAttempts"]).toBe(2);
+    expect(payload["draftGrounding"]).toEqual({
+      kind: "endpoints",
+      count: 2,
+      services: ["github"],
+    });
+    expect(payload["draftLocality"]).toBe("remote");
   });
 });

@@ -102,6 +102,19 @@ export interface DraftSubject {
   readonly credentialHosts: readonly string[];
 }
 
+/**
+ * One host's credential, as it crosses `toolgen.create`.
+ *
+ * A SEPARATE parameter to `createGeneratedTool`, never a field of `CreateGeneratedToolRequest`:
+ * the gate hands the request straight to `draftTool`, so a `credentials` field on the request
+ * would place raw tokens on the input to a drafting prompt — and a secret in a remote model's
+ * context has left the machine (spec § 9.1). NEVER reaches a drafting prompt.
+ */
+export interface ToolCredentialParam {
+  readonly host: string;
+  readonly binding: ToolCredentialBinding;
+}
+
 export interface DraftGeneration {
   readonly text: string;
   readonly isLocal: boolean;

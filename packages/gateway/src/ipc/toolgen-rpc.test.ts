@@ -81,7 +81,13 @@ function makeCtx(over: Partial<ToolgenGateDeps> = {}): TestCtx {
       config: { ...DEFAULT_NIMBUS_TOOL_GENERATION_TOML, enabled: true },
       enforced: { capabilitiesDisabled: new Set<string>() },
       registry,
-      draftBody: async () => "return 1;",
+      draftTool: async () => ({
+        body: "return 1;",
+        inputSchema: { type: "object", properties: {} },
+        grounding: { kind: "description_only" },
+        attempts: 1,
+        locality: "local",
+      }),
       assertConfinement: async () => {},
       scriptDir: () => "/tmp/tg",
       writeScript: async () => "/tmp/tg/index.ts",
@@ -272,9 +278,15 @@ describe("params that are not a keyed record at all", () => {
     async (_label, params) => {
       let reached = false;
       const ctx = makeCtx({
-        draftBody: async () => {
+        draftTool: async () => {
           reached = true;
-          return "return 1;";
+          return {
+            body: "return 1;",
+            inputSchema: { type: "object", properties: {} },
+            grounding: { kind: "description_only" },
+            attempts: 1,
+            locality: "local",
+          };
         },
       });
       await expect(dispatchToolgenRpc("toolgen.create", params, ctx)).rejects.toMatchObject({

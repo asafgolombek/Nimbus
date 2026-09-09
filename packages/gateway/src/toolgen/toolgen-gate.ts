@@ -6,12 +6,15 @@ import type { EnforcedPolicy } from "../policy/policy-gate.ts";
 import { artifactDigest } from "./toolgen-artifact.ts";
 import type { GeneratedToolHandle } from "./toolgen-client.ts";
 import type { ToolgenApprovalInput } from "./toolgen-consent-broker.ts";
+import type { DraftedTool } from "./toolgen-draft.ts";
 import type { ToolgenRegistry } from "./toolgen-registry.ts";
 import { assertSafeToolId } from "./toolgen-script-store.ts";
 import { buildGeneratedManifest, emitToolScript } from "./toolgen-stub.ts";
 import {
   type CreateGeneratedToolRequest,
+  type DraftSubject,
   type GeneratedToolArtifact,
+  type ToolCredentialParam,
   type ToolgenEnvelope,
   ToolgenError,
 } from "./toolgen-types.ts";
@@ -56,7 +59,16 @@ export interface ToolgenGateDeps {
   readonly config: NimbusToolGenerationToml;
   readonly enforced?: Pick<EnforcedPolicy, "capabilitiesDisabled"> | undefined;
   readonly registry: ToolgenRegistry;
-  readonly draftBody: (req: CreateGeneratedToolRequest) => Promise<string>;
+  /**
+   * `subject` carries the NORMALISED approved hosts and the subset that will hold a credential --
+   * names only. It is a second parameter rather than a field of `req` because `req` is the object
+   * the drafting prompt is built from, and a `credentials` field there would place raw tokens in a
+   * model's context (spec § 9.1).
+   */
+  readonly draftTool: (
+    req: CreateGeneratedToolRequest,
+    subject: DraftSubject,
+  ) => Promise<DraftedTool>;
   readonly assertConfinement: (
     manifest: ReturnType<typeof buildGeneratedManifest>,
   ) => Promise<void>;
@@ -77,17 +89,21 @@ export interface ToolgenGateDeps {
    * (§ 4.5 puts `credentialHosts` inside the signed/hashed object precisely so that a change
    * invalidates the approval). `nimbus tool credential set` therefore REFUSES a live tool.
    */
-  readonly bindCredentials: (toolId: string, hosts: readonly string[]) => Promise<string[]>;
+  readonly bindCredentials: (
+    toolId: string,
+    credentials: readonly ToolCredentialParam[],
+  ) => Promise<string[]>;
   /**
-   * Undo `bindCredentials` for a toolId that will never register -- an owner denial, or a failure
-   * after approval that never reaches `registry.register`. Without this, a denied tool's credentials
-   * stay in the Vault forever under a toolId nothing will ever call again: `bindCredentials` writes
-   * BEFORE consent (so the approval prompt can name a real host list), but consent can still say no,
-   * and that "no" must not leave a secret behind. MUST be idempotent -- called only when
-   * `bindCredentials` is known to have run, but a real implementation should tolerate being asked to
-   * remove nothing.
+   * Undo `bindCredentials` for a toolId that will never register.
+   *
+   * Takes `hosts` rather than looking them up: this runs on paths where the tool was NEVER
+   * registered -- an owner denial, or a failure between approval and `registry.register` -- so
+   * `registry.get(toolId)` returns `undefined` on exactly the calls that matter, and a lookup would
+   * silently delete nothing, leaving the secret in the Vault forever. MUST be idempotent -- called
+   * only when `bindCredentials` is known to have run, but a real implementation should tolerate
+   * being asked to remove nothing.
    */
-  readonly revokeCredentials: (toolId: string) => Promise<void>;
+  readonly revokeCredentials: (toolId: string, hosts: readonly string[]) => Promise<void>;
   readonly now: () => number;
   readonly newId: () => string;
 }
@@ -137,9 +153,13 @@ function audit(
  * secret worth fixing on its own -- never worth losing the audit row for the outcome that caused
  * it.
  */
-async function safeRevokeCredentials(deps: ToolgenGateDeps, toolId: string): Promise<void> {
+async function safeRevokeCredentials(
+  deps: ToolgenGateDeps,
+  toolId: string,
+  hosts: readonly string[],
+): Promise<void> {
   try {
-    await deps.revokeCredentials(toolId);
+    await deps.revokeCredentials(toolId, hosts);
   } catch {
     // Swallowed -- see the docstring above. The caller's own outcome (denial / failure) still
     // surfaces and is still audited.
@@ -157,6 +177,10 @@ async function safeRevokeCredentials(deps: ToolgenGateDeps, toolId: string): Pro
 export async function createGeneratedTool(
   req: CreateGeneratedToolRequest,
   deps: ToolgenGateDeps,
+  // A SEPARATE parameter, never a field of `req`: the gate hands `req` straight to `draftTool`, so
+  // a `credentials` field there would place raw tokens on the drafting prompt's input, and a secret
+  // in a remote model's context has left the machine (spec § 9.1).
+  credentials: readonly ToolCredentialParam[] = [],
 ): Promise<ToolgenOutcome> {
   const toolId = deps.newId();
   let approved = false;
@@ -166,6 +190,12 @@ export async function createGeneratedTool(
   // that will never register. Tracked so both non-registering exits can clean up, and so a
   // pre-consent refusal that never got this far (the common case) does not call revoke for nothing.
   let credentialsBound = false;
+  // The hosts that `bindCredentials` was actually asked to bind -- its own return value, i.e. the
+  // hosts that now (or may now) hold a Vault entry. Function-scoped, not `const` inside the `try`,
+  // so BOTH non-registering exits below (the denial branch and the outer `catch`) can pass the same
+  // list to `revokeCredentials` explicitly (Task 9 controller ruling 3) rather than looking it up
+  // from `registry.get(toolId)`, which returns `undefined` on exactly the calls that matter.
+  let credentialHosts: readonly string[] = [];
   try {
     // The id is minted by the gateway, never supplied by a caller -- but it is validated anyway,
     // because it is interpolated into a filesystem path AND into a `//` comment in the emitted
@@ -192,26 +222,12 @@ export async function createGeneratedTool(
         `session already holds ${deps.config.maxToolsPerSession} generated tools`,
       );
     }
-    // 4. Draft, then build the manifest -- network EMPTY by construction.
-    const body = await deps.draftBody(req);
-    // The script DIRECTORY is derived before the manifest so the manifest can grant read to it.
-    // Nothing is WRITTEN there until after approval (step 7) — a derived path touches no disk.
+    // 4. Normalise the requested hosts -- moved ABOVE the draft (Task 9): the drafting prompt must
+    //    name the hosts the broker will actually match, and the credential filter below must run
+    //    before drafting. Refusing a malformed host here, before a model call is even attempted,
+    //    also beats refusing after -- `normalizeHost` throws `ERR_TOOLGEN_HOST_NOT_ALLOWED`.
+    //    Everything here stays pre-consent, so the gate's ordering rule is untouched.
     //
-    // The interpreter's OWN read paths must be granted too, not just the script directory: on
-    // Windows the AppContainer helper writes one ACE per granted path, so an interpreter outside
-    // every grant is simply unreadable and the child dies at exit 68 -- no stdout, no stderr, before
-    // running a line (`exec/exec-runtimes.ts`'s `requiredReadPaths` doc; `exec-gate.ts` grants the
-    // same for the same reason). Every generated tool runs on bun (`toolgen-client.ts` always
-    // launches via `process.execPath`), so the runtime is resolved by fixed id, not derived from the
-    // request.
-    const runtime = resolveRuntimeById("bun");
-    const manifest = buildGeneratedManifest(toolId, {
-      scriptDir: deps.scriptDir(toolId),
-      runtimeReadPaths: runtime.requiredReadPaths(),
-    });
-    // 5. Prove confinement on THIS machine, still before consent.
-    await deps.assertConfinement(manifest);
-
     // Normalised, not trusted as typed: a user will paste `https://api.example.com/v1` or
     // `api.example.com:443`, and an unnormalised entry would never match the broker's
     // `url.hostname` comparison — silently producing a tool that can reach nothing.
@@ -227,7 +243,41 @@ export async function createGeneratedTool(
     if (hosts.length === 0) {
       throw new ToolgenError("ERR_TOOLGEN_HOST_NOT_ALLOWED", "at least one --host is required");
     }
-    const credentialHosts = await deps.bindCredentials(toolId, hosts);
+    // Only hosts the owner also granted via --host. The CLI already enforces this, but the gate is
+    // the boundary: the prompt and the artifact must never name a host the tool cannot reach.
+    const forApprovedHosts = credentials.filter((c) => hosts.includes(normalizeHost(c.host)));
+
+    // 5. Draft, then build the manifest -- network EMPTY by construction.
+    const draft = await deps.draftTool(req, {
+      hosts,
+      // NAMES the credentials will be bound under, derived from `forApprovedHosts` rather than
+      // from the Vault -- nothing has been written there yet at this point, since `bindCredentials`
+      // runs after drafting.
+      credentialHosts: forApprovedHosts.map((c) => normalizeHost(c.host)),
+    });
+    const body = draft.body;
+    // The script DIRECTORY is derived before the manifest so the manifest can grant read to it.
+    // Nothing is WRITTEN there until after approval (step 8) — a derived path touches no disk.
+    //
+    // The interpreter's OWN read paths must be granted too, not just the script directory: on
+    // Windows the AppContainer helper writes one ACE per granted path, so an interpreter outside
+    // every grant is simply unreadable and the child dies at exit 68 -- no stdout, no stderr, before
+    // running a line (`exec/exec-runtimes.ts`'s `requiredReadPaths` doc; `exec-gate.ts` grants the
+    // same for the same reason). Every generated tool runs on bun (`toolgen-client.ts` always
+    // launches via `process.execPath`), so the runtime is resolved by fixed id, not derived from the
+    // request.
+    const runtime = resolveRuntimeById("bun");
+    const manifest = buildGeneratedManifest(toolId, {
+      scriptDir: deps.scriptDir(toolId),
+      runtimeReadPaths: runtime.requiredReadPaths(),
+    });
+    // 6. Prove confinement on THIS machine, still before consent.
+    await deps.assertConfinement(manifest);
+
+    // 7. Bind credentials, still before consent -- `bindCredentials`'s return stays authoritative
+    //    for the artifact: it reports what a write actually succeeded for, which the pre-draft
+    //    `forApprovedHosts` list cannot.
+    credentialHosts = await deps.bindCredentials(toolId, forApprovedHosts);
     credentialsBound = true;
     const artifact: GeneratedToolArtifact = {
       toolId,
@@ -237,12 +287,10 @@ export async function createGeneratedTool(
       approvedHosts: hosts,
       credentialHosts,
       manifest,
-      // Placeholder until Task 9 rewires this gate to draft via `deps.draftTool` and thread the
-      // real `DraftedTool.inputSchema` through. `draftBody` (this task's dep) returns only a body.
-      inputSchema: { type: "object", properties: {} },
+      inputSchema: draft.inputSchema,
     };
 
-    // 6. Owner approves the VERBATIM artifact.
+    // 8. Owner approves the VERBATIM artifact.
     approved = await deps.requestApproval(
       {
         toolId,
@@ -251,6 +299,8 @@ export async function createGeneratedTool(
         body: artifact.body,
         approvedHosts: hosts,
         credentialHosts,
+        inputSchema: artifact.inputSchema,
+        grounding: draft.grounding,
         initiator: "owner",
       },
       APPROVAL_TTL_MS,
@@ -260,13 +310,20 @@ export async function createGeneratedTool(
       // Guarded via `safeRevokeCredentials` -- see its docstring for why an unguarded revoke here
       // could take out the `audit()` call below with it.
       if (credentialsBound) {
-        await safeRevokeCredentials(deps, toolId);
+        await safeRevokeCredentials(deps, toolId, credentialHosts);
       }
-      audit(deps, "rejected", "denied_by_owner", { toolId, body, hosts });
+      audit(deps, "rejected", "denied_by_owner", {
+        toolId,
+        body,
+        hosts,
+        draftAttempts: draft.attempts,
+        draftGrounding: draft.grounding,
+        draftLocality: draft.locality,
+      });
       return { status: "denied" };
     }
 
-    // 7. Only now does anything reach the filesystem or spawn.
+    // 9. Only now does anything reach the filesystem or spawn.
     const scriptPath = await deps.writeScript(toolId, emitToolScript(artifact));
     const envelope: ToolgenEnvelope = {
       artifact,
@@ -283,6 +340,9 @@ export async function createGeneratedTool(
       hosts,
       credentialHosts,
       artifactDigest: artifactDigest(artifact),
+      draftAttempts: draft.attempts,
+      draftGrounding: draft.grounding,
+      draftLocality: draft.locality,
     });
     return { status: "registered", toolId };
   } catch (err) {
@@ -292,7 +352,7 @@ export async function createGeneratedTool(
     // an unguarded revoke failure here would escape `createGeneratedTool` outright and neither
     // `audit()` call below would ever run.
     if (credentialsBound) {
-      await safeRevokeCredentials(deps, toolId);
+      await safeRevokeCredentials(deps, toolId, credentialHosts);
     }
     const code = err instanceof ToolgenError ? err.code : "ERR_TOOLGEN_INTERNAL";
     // An owner-approved attempt that then failed is recorded as APPROVED, because it was: the owner

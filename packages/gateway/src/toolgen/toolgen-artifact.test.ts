@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { artifactDigest, canonicalArtifactBytes } from "./toolgen-artifact.ts";
+import { validateInputSchema } from "./toolgen-schema.ts";
 import type { GeneratedToolArtifact } from "./toolgen-types.ts";
 
 function artifact(overrides: Partial<GeneratedToolArtifact> = {}): GeneratedToolArtifact {
@@ -80,5 +81,15 @@ describe("canonical artifact", () => {
       },
     });
     expect(artifactDigest(a)).toBe(artifactDigest(b));
+  });
+
+  test("the digest is IDENTICAL whether `required` was omitted or an explicit empty array — same schema, same canonical bytes", () => {
+    const omitted = artifact({
+      inputSchema: validateInputSchema({ type: "object", properties: {} }),
+    });
+    const explicitEmpty = artifact({
+      inputSchema: validateInputSchema({ type: "object", properties: {}, required: [] }),
+    });
+    expect(artifactDigest(explicitEmpty)).toBe(artifactDigest(omitted));
   });
 });

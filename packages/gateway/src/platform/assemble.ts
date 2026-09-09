@@ -3824,14 +3824,13 @@ export async function assemblePlatformServices(
       return policyGate.enforced();
     },
     registry: toolgenRegistry,
-    // No task in this PR wires an LLM-based drafting flow -- Task 15's own brief scopes this task
-    // to the IPC surface, the LAN forbid, and wiring the gate/registry/broker/consent pieces
-    // together, not to authoring the highest-blast-radius prompt in the repository without a spec
-    // for it. `[tool_generation] enabled` defaults to false, so this refusal is unreachable unless
-    // an operator opts in; when they do, `toolgen.create` fails closed here with a named code
-    // rather than silently degrading to something unreviewed. A follow-up task that adds real
-    // drafting (local-first, per non-negotiable 1) must replace this closure.
-    draftBody: async () => {
+    // No task in this PR wires this closure to `draftGeneratedTool`'s real LLM-drafting flow (its
+    // own module scopes THAT task to grounding + the retry ladder, not to wiring the router here
+    // without a spec for it). `[tool_generation] enabled` defaults to false, so this refusal is
+    // unreachable unless an operator opts in; when they do, `toolgen.create` fails closed here with
+    // a named code rather than silently degrading to something unreviewed. A follow-up task that
+    // wires the real drafting flow (local-first, per non-negotiable 1) must replace this closure.
+    draftTool: async () => {
       throw new ToolgenError(
         "ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED",
         "no tool-body drafting path is wired yet in this build",

@@ -106,7 +106,14 @@ export function validateInputSchema(raw: unknown): ToolInputSchema {
   // that `artifactDigest` hashes and PR 3 signs, so two schemas that mean the same thing must not
   // produce two digests. `zodSchemaFromInputSchema` already dedupes via a Set, so this changes no
   // behaviour — only the canonical bytes.
-  return { type: "object", properties, required: [...new Set(rawRequired as string[])] };
+  const required = [...new Set(rawRequired as string[])];
+  // OMITTED when empty after dedup, for the same reason: `{ required: [] }` and an absent
+  // `required` are the same schema, but differ in canonical bytes unless collapsed to one shape
+  // here. Left as two spellings, a re-validation of an already-approved artifact (Task 9) could
+  // produce a digest that no longer matches the one the owner approved.
+  return required.length === 0
+    ? { type: "object", properties }
+    : { type: "object", properties, required };
 }
 
 function zodForProperty(prop: ToolInputProperty): z.ZodTypeAny {
