@@ -1132,11 +1132,9 @@ function applyNimbusToolGenerationKey(
       break;
     case "drafting": {
       // An unrecognised value leaves the default in place, matching the positive-number keys
-      // above: a typo must never widen what may draft.
-      const v = valRaw
-        .trim()
-        .toLowerCase()
-        .replace(/^["']|["']$/g, "");
+      // above: a typo must never widen what may draft. Mirrors `setEmbeddingProvider`'s
+      // closed-enum-string shape (nimbus-toml.ts:174-178).
+      const v = parseString(valRaw).toLowerCase();
       if (v === "off" || v === "local" || v === "allow-remote") {
         out.drafting = v;
       }
