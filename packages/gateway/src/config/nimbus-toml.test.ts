@@ -2016,3 +2016,61 @@ enabled = true
     expect(DEFAULT_NIMBUS_LLM_TOML.remoteVendors.size).toBe(0);
   });
 });
+
+import {
+  DEFAULT_NIMBUS_TOOL_GENERATION_TOML,
+  parseNimbusToolGenerationToml,
+} from "./nimbus-toml.ts";
+
+describe("[tool_generation]", () => {
+  test("defaults are off and bounded", () => {
+    expect(DEFAULT_NIMBUS_TOOL_GENERATION_TOML).toEqual({
+      enabled: false,
+      maxToolsPerSession: 3,
+      maxRequestsPerTool: 50,
+      requestTimeoutMs: 10_000,
+    });
+  });
+
+  test("an absent section yields the defaults", () => {
+    expect(parseNimbusToolGenerationToml("")).toEqual(DEFAULT_NIMBUS_TOOL_GENERATION_TOML);
+  });
+
+  test("parses enabled and the three bounds", () => {
+    const cfg = parseNimbusToolGenerationToml(
+      [
+        "[tool_generation]",
+        "enabled = true",
+        "max_tools_per_session = 7",
+        "max_requests_per_tool = 9",
+        "request_timeout_ms = 250",
+      ].join("\n"),
+    );
+    expect(cfg).toEqual({
+      enabled: true,
+      maxToolsPerSession: 7,
+      maxRequestsPerTool: 9,
+      requestTimeoutMs: 250,
+    });
+  });
+
+  test("a non-positive bound is IGNORED, keeping the default — never zero", () => {
+    const cfg = parseNimbusToolGenerationToml(
+      ["[tool_generation]", "max_requests_per_tool = 0", "request_timeout_ms = -5"].join("\n"),
+    );
+    expect(cfg.maxRequestsPerTool).toBe(50);
+    expect(cfg.requestTimeoutMs).toBe(10_000);
+  });
+
+  test("an unknown key is ignored, not carried", () => {
+    const cfg = parseNimbusToolGenerationToml(
+      ["[tool_generation]", "allow_agent_initiated = true"].join("\n"),
+    );
+    expect(Object.keys(cfg).sort()).toEqual([
+      "enabled",
+      "maxRequestsPerTool",
+      "maxToolsPerSession",
+      "requestTimeoutMs",
+    ]);
+  });
+});
