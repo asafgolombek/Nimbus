@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { OutcomeSink, RunToolDeps, ToolClient } from "./tool.ts";
 import {
   CLI_TOOLGEN_SESSION_ID,
@@ -192,6 +193,12 @@ describe("exitCodeForTool", () => {
 });
 
 describe("formatToolApprovalPrompt", () => {
+  // Shared minimal values for the tests below that aren't exercising `inputSchema`/`grounding`
+  // themselves -- an empty schema and an ungrounded draft, matching the CLI's own defaults for a
+  // malformed broadcast.
+  const NO_PARAMS = { type: "object" as const, properties: {} };
+  const UNGROUNDED = { kind: "description_only" as const };
+
   test("shows the tool body VERBATIM, not a digest", () => {
     const text = formatToolApprovalPrompt({
       toolName: "generated_tg_a",
@@ -199,6 +206,8 @@ describe("formatToolApprovalPrompt", () => {
       body: "export default async function main() { return 1; }",
       approvedHosts: ["api.example.com"],
       credentialHosts: [],
+      inputSchema: NO_PARAMS,
+      grounding: UNGROUNDED,
     });
     expect(text).toContain("export default async function main() { return 1; }");
   });
@@ -210,6 +219,8 @@ describe("formatToolApprovalPrompt", () => {
       body: "1",
       approvedHosts: ["a.example.com", "b.example.com"],
       credentialHosts: ["a.example.com"],
+      inputSchema: NO_PARAMS,
+      grounding: UNGROUNDED,
     });
     expect(text).toContain("a.example.com, b.example.com");
     expect(text.toLowerCase()).toContain("credential hosts:");
@@ -222,6 +233,8 @@ describe("formatToolApprovalPrompt", () => {
       body: "1",
       approvedHosts: ["a.example.com"],
       credentialHosts: [],
+      inputSchema: NO_PARAMS,
+      grounding: UNGROUNDED,
     });
     expect(text.toLowerCase()).toContain("credential hosts: none");
   });
@@ -238,11 +251,45 @@ describe("formatToolApprovalPrompt", () => {
       body: "1",
       approvedHosts: ["a.example.com"],
       credentialHosts: [],
+      inputSchema: NO_PARAMS,
+      grounding: UNGROUNDED,
     });
     expect(text).toContain(
       "note: an approved host may receive anything this tool can compute. The host list bounds",
     );
     expect(text).toContain("WHERE it may send, never WHAT.");
+  });
+
+  test("the approval prompt shows the parameters the owner is approving", () => {
+    const out = formatToolApprovalPrompt({
+      toolName: "generated_t1",
+      description: "d",
+      body: "return 1;",
+      approvedHosts: ["api.github.com"],
+      credentialHosts: [],
+      inputSchema: {
+        type: "object",
+        properties: { owner: { type: "string" } },
+        required: ["owner"],
+      },
+      grounding: { kind: "endpoints", count: 3, services: ["github-api"] },
+    });
+    expect(out).toContain("owner");
+    expect(out).toContain("required");
+    expect(out).toContain("3 indexed endpoint");
+  });
+
+  test("the prompt discloses when the draft was NOT grounded", () => {
+    const out = formatToolApprovalPrompt({
+      toolName: "generated_t1",
+      description: "d",
+      body: "return 1;",
+      approvedHosts: ["api.github.com"],
+      credentialHosts: [],
+      inputSchema: NO_PARAMS,
+      grounding: { kind: "description_only" },
+    });
+    expect(out).toContain("no indexed API specification");
   });
 });
 
@@ -330,23 +377,61 @@ describe("handleToolApprovalBroadcast", () => {
     expect(h.answered[0]?.requestId).toBe("r4");
     expect(h.shown[0]).toContain("none"); // malformed hosts render as "none", not a crash
   });
+
+  test("a malformed inputSchema renders as 'none', never throws before responding", async () => {
+    const h = harness(false);
+    await handleToolApprovalBroadcast(
+      { ...REQ, requestId: "r5", inputSchema: "not a schema" },
+      h.ask,
+      h.respond,
+    );
+    expect(h.answered[0]?.requestId).toBe("r5");
+    expect(h.shown[0]).toContain("parameters:       none");
+  });
+
+  test("a malformed grounding renders as description_only, never throws before responding", async () => {
+    const h = harness(false);
+    await handleToolApprovalBroadcast(
+      { ...REQ, requestId: "r6", grounding: { kind: "not-a-real-kind" } },
+      h.ask,
+      h.respond,
+    );
+    expect(h.answered[0]?.requestId).toBe("r6");
+    expect(h.shown[0]).toContain("no indexed API specification");
+  });
+
+  test("an inputSchema/grounding entirely absent from the broadcast still renders safely", async () => {
+    const h = harness(false);
+    await handleToolApprovalBroadcast({ requestId: "r7" }, h.ask, h.respond);
+    expect(h.answered[0]?.requestId).toBe("r7");
+    expect(h.shown[0]).toContain("parameters:       none");
+    expect(h.shown[0]).toContain("no indexed API specification");
+  });
 });
 
+function fakeSink(): OutcomeSink & { readonly errText: string; readonly outText: string } {
+  const errChunks: string[] = [];
+  const outChunks: string[] = [];
+  return {
+    out: (s) => outChunks.push(s),
+    err: (s) => errChunks.push(s),
+    get errText() {
+      return errChunks.join("");
+    },
+    get outText() {
+      return outChunks.join("");
+    },
+  };
+}
+
 describe("renderToolOutcome — the drafting refusal is surfaced honestly", () => {
-  test("the ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED refusal names the gap and points at the design spec", () => {
-    const err: string[] = [];
-    renderToolOutcome(
-      { status: "refused", code: "ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED" },
-      { out: () => {}, err: (s) => err.push(s) },
-    );
-    const text = err.join("");
-    expect(text).toContain("tool drafting is not implemented in this release");
-    expect(text).toContain("gate, sandbox and broker are in place");
-    expect(text).toContain(
-      "docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md",
-    );
-    // Not a bare error code -- a caller reading this must not need to go look the code up.
-    expect(text).not.toContain("ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED");
+  // PR 1's special-cased ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED message (naming the design spec) is
+  // gone -- the stub it explained no longer exists as a permanent-for-this-release refusal, so it
+  // now falls through to the same generic "refused (<code>)" line as any other refusal code.
+  test("ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED falls through to the generic refusal message", () => {
+    const sink = fakeSink();
+    renderToolOutcome({ status: "refused", code: "ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED" }, sink);
+    expect(sink.errText).toContain("nimbus: refused (ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED)");
   });
 
   test("a different refused code still gets an honest, distinguishable message", () => {
@@ -365,6 +450,41 @@ describe("renderToolOutcome — the drafting refusal is surfaced honestly", () =
       { out: (s) => out.push(s), err: () => {} },
     );
     expect(out.join("")).toContain("tg_a");
+  });
+
+  test("ERR_TOOLGEN_DRAFT_INVALID from a local model names both ways out", () => {
+    const sink = fakeSink();
+    renderToolOutcome(
+      { status: "refused", code: "ERR_TOOLGEN_DRAFT_INVALID", locality: "local" },
+      sink,
+    );
+    expect(sink.errText).toContain("allow-remote");
+    expect(sink.errText).toContain("min_reasoning_params");
+  });
+
+  // Suggesting a bigger local model to someone already on a frontier model is noise, not help.
+  test("ERR_TOOLGEN_DRAFT_INVALID from a REMOTE model does NOT show the local-model hint", () => {
+    const sink = fakeSink();
+    renderToolOutcome(
+      { status: "refused", code: "ERR_TOOLGEN_DRAFT_INVALID", locality: "remote" },
+      sink,
+    );
+    expect(sink.errText).not.toContain("min_reasoning_params");
+    expect(sink.errText).not.toContain("allow-remote");
+  });
+
+  // A refusal decided before drafting (e.g. disabled/policy) never carries a locality at all --
+  // the hint must not fire just because the code happens to match with no locality present.
+  test("ERR_TOOLGEN_DRAFT_INVALID with no locality at all does NOT show the hint", () => {
+    const sink = fakeSink();
+    renderToolOutcome({ status: "refused", code: "ERR_TOOLGEN_DRAFT_INVALID" }, sink);
+    expect(sink.errText).not.toContain("min_reasoning_params");
+  });
+
+  test("ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED is gone from the CLI", () => {
+    expect(readFileSync("packages/cli/src/commands/tool.ts", "utf8")).not.toContain(
+      "DRAFT_NOT_IMPLEMENTED",
+    );
   });
 });
 
@@ -440,9 +560,9 @@ describe("runTool create — non-TTY refusal (load-bearing #1)", () => {
   });
 });
 
-describe("runTool create — the RPC call carries no credential material", () => {
-  test("a --credential token never appears anywhere in the toolgen.create RPC params", async () => {
-    const SECRET = "sk_live_never_sent_over_ipc_1a2b3c";
+describe("runTool create — the credential IS sent, as a bearer binding, once", () => {
+  test("a --credential host=token pair reaches toolgen.create as {host, token}", async () => {
+    const SECRET = "sk_live_now_sent_over_ipc_1a2b3c";
     const h = fakeDeps();
     await runTool(
       [
@@ -459,11 +579,17 @@ describe("runTool create — the RPC call carries no credential material", () =>
     const createCall = h.calls.find((c) => c.method === "toolgen.create");
     expect(createCall).toBeDefined();
     const params = createCall?.params as Record<string, unknown>;
-    // Not just "the secret isn't in there" -- the FIELD itself must be absent. Docs and the
-    // gateway wiring both say credential material is never transmitted; a `credentials` key
-    // present with an empty/redacted value would still contradict that.
-    expect(params["credentials"]).toBeUndefined();
-    expect(JSON.stringify(params)).not.toContain(SECRET);
+    // The gateway now consumes this field (Task 10) -- the `<host>=<token>` the owner typed reaches
+    // `toolgen.create` as exactly one `{host, token}` pair, not zero and not duplicated.
+    expect(params["credentials"]).toEqual([{ host: "a.example.com", token: SECRET }]);
+  });
+
+  test("no --credential at all still sends an EMPTY credentials array, not an absent field", async () => {
+    const h = fakeDeps();
+    await runTool(["create", "--description", "d", "--host", "a.example.com"], h.d);
+    const createCall = h.calls.find((c) => c.method === "toolgen.create");
+    const params = createCall?.params as Record<string, unknown>;
+    expect(params["credentials"]).toEqual([]);
   });
 });
 

@@ -262,6 +262,12 @@ export interface ToolOutcomeShape {
   readonly status: string;
   readonly code?: string;
   readonly toolId?: string;
+  /**
+   * Mirrors the gateway's `DraftedTool.locality` (packages/gateway/src/toolgen/toolgen-draft.ts).
+   * Present only on a draft-related refusal -- the gate has no locality to report for a refusal
+   * decided before drafting (a disabled capability, org policy, a bad host).
+   */
+  readonly locality?: "local" | "remote";
 }
 
 /** Where rendered output goes. Injected so rendering is testable without a live process. */
@@ -281,22 +287,6 @@ export function exitCodeForTool(outcome: ToolOutcomeShape): number {
 }
 
 /**
- * The message shown for PR 1's known, permanent-for-this-release refusal.
- *
- * `toolgen.create` runs the ENTIRE gate -- the local kill-switch, org policy, the session budget,
- * confinement -- and only THEN refuses, at the point where a model would author the tool body. This
- * command must say exactly that rather than printing a bare error code: a generic "refused
- * (ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED)" would read as a bug to work around, when it is in fact the
- * honest shape of this release -- the gate, sandbox and broker are real; drafting is not, on
- * purpose, because designing that prompt is its own reviewed piece of work.
- */
-const DRAFT_NOT_IMPLEMENTED_MESSAGE = [
-  "error: tool drafting is not implemented in this release.",
-  "       The generation gate, sandbox and broker are in place; the step that",
-  "       drafts the tool body is not. See docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md § 10.",
-].join("\n");
-
-/**
  * Write a `toolgen.create` outcome to the user. Pure over an injected sink, matching
  * `exec.ts`'s `renderOutcome` split.
  */
@@ -309,12 +299,41 @@ export function renderToolOutcome(outcome: ToolOutcomeShape, sink: OutcomeSink):
     sink.err("nimbus: tool registration denied\n");
     return;
   }
-  if (outcome.code === "ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED") {
-    sink.err(`${DRAFT_NOT_IMPLEMENTED_MESSAGE}\n`);
-    return;
-  }
   sink.err(`nimbus: refused (${outcome.code ?? "unknown"})\n`);
+  // Only when the failing route was LOCAL: suggesting a bigger local model to someone already on
+  // a frontier model is noise, not help.
+  if (outcome.code === "ERR_TOOLGEN_DRAFT_INVALID" && outcome.locality === "local") {
+    sink.err(
+      "hint: the local model could not produce a valid tool. Either configure a larger local\n" +
+        "      model (see [llm] min_reasoning_params) or allow remote drafting with\n" +
+        '      [tool_generation] drafting = "allow-remote".\n',
+    );
+  }
 }
+
+/** Mirrors the gateway's `ToolInputScalar` (packages/gateway/src/toolgen/toolgen-types.ts). */
+type ToolInputScalar = "string" | "number" | "boolean";
+
+/** Mirrors the gateway's `ToolInputProperty` (packages/gateway/src/toolgen/toolgen-types.ts). */
+type ToolInputProperty =
+  | { readonly type: ToolInputScalar; readonly description?: string }
+  | {
+      readonly type: "array";
+      readonly items: { readonly type: ToolInputScalar };
+      readonly description?: string;
+    };
+
+/** Mirrors the gateway's `ToolInputSchema` (packages/gateway/src/toolgen/toolgen-types.ts). */
+interface ToolInputSchema {
+  readonly type: "object";
+  readonly properties: Readonly<Record<string, ToolInputProperty>>;
+  readonly required?: readonly string[];
+}
+
+/** Mirrors the gateway's `DraftGrounding` (packages/gateway/src/toolgen/toolgen-grounding.ts). */
+type DraftGrounding =
+  | { readonly kind: "endpoints"; readonly count: number; readonly services: readonly string[] }
+  | { readonly kind: "description_only" };
 
 /** What a `toolgen.approvalRequest` broadcast carries, prior to validation. */
 export interface ToolApprovalPrompt {
@@ -323,9 +342,42 @@ export interface ToolApprovalPrompt {
   readonly body: string;
   readonly approvedHosts: readonly string[];
   readonly credentialHosts: readonly string[];
+  /** The parameters the owner is being asked to approve -- the same object the gateway hashed. */
+  readonly inputSchema: ToolInputSchema;
+  /** How the draft was grounded -- disclosed so the owner can see whether it is a guess. */
+  readonly grounding: DraftGrounding;
 }
 
 const list = (v: readonly string[]): string => (v.length === 0 ? "none" : v.join(", "));
+
+// `string[]` rather than a bare `array`: the element type is part of what the owner is approving,
+// and this prompt is the security boundary -- it should say the most it can in the space it has.
+const formatPropType = (p: ToolInputProperty): string =>
+  p.type === "array" ? `${p.items.type}[]` : p.type;
+
+/**
+ * `(required)` is spelled out rather than left to the absence of a `?` suffix: a required
+ * parameter is the one an owner most needs to notice, and a marker that reads as "not marked
+ * optional" is easy to miss at a glance in a security prompt.
+ */
+const formatParams = (s: ToolInputSchema): string => {
+  const required = new Set(s.required ?? []);
+  const names = Object.entries(s.properties).map(([n, def]) => {
+    const type = formatPropType(def);
+    return required.has(n) ? `${n}: ${type} (required)` : `${n}: ${type}?`;
+  });
+  return names.length === 0 ? "none" : names.join(", ");
+};
+
+/**
+ * Whether the body was written against real indexed endpoints or guessed from the description
+ * alone. Without this the owner cannot tell those two apart, and they are very different things
+ * to be approving (spec § 6.2).
+ */
+const formatGrounding = (g: DraftGrounding): string =>
+  g.kind === "description_only"
+    ? "no indexed API specification matched — drafted from the description alone"
+    : `${g.count} indexed endpoint(s) from ${g.services.join(", ")}`;
 
 /**
  * Render what the owner is being asked to approve.
@@ -349,6 +401,9 @@ export function formatToolApprovalPrompt(p: ToolApprovalPrompt): string {
     "",
     p.body,
     "",
+    `  parameters:       ${formatParams(p.inputSchema)}`,
+    `  grounding:        ${formatGrounding(p.grounding)}`,
+    "",
     `  hosts:            ${list(p.approvedHosts)}`,
     `  credential hosts: ${list(p.credentialHosts)}`,
     "",
@@ -359,10 +414,64 @@ export function formatToolApprovalPrompt(p: ToolApprovalPrompt): string {
 
 type ToolApprovalBroadcast = Partial<ToolApprovalPrompt> & { requestId?: string };
 
+const EMPTY_INPUT_SCHEMA: ToolInputSchema = { type: "object", properties: {} };
+const UNGROUNDED: DraftGrounding = { kind: "description_only" };
+
+const isToolInputScalar = (v: unknown): v is ToolInputScalar =>
+  v === "string" || v === "number" || v === "boolean";
+
+/**
+ * A single malformed property is DROPPED, not treated as invalidating the whole schema -- the
+ * owner still sees every parameter the wire shape got right, rather than "none" over one bad entry
+ * (the same asymmetry `parseCredentials` on the gateway side applies to a malformed credential).
+ */
+function toToolInputProperty(v: unknown): ToolInputProperty | undefined {
+  const r = asRecord(v);
+  if (r["type"] === "array") {
+    const items = asRecord(r["items"]);
+    return isToolInputScalar(items["type"])
+      ? { type: "array", items: { type: items["type"] } }
+      : undefined;
+  }
+  return isToolInputScalar(r["type"]) ? { type: r["type"] } : undefined;
+}
+
+/** A malformed `inputSchema` -- wrong shape, or `type` not `"object"` -- renders as "none". */
+function toToolInputSchema(v: unknown): ToolInputSchema {
+  const r = asRecord(v);
+  if (r["type"] !== "object") return EMPTY_INPUT_SCHEMA;
+  const properties: Record<string, ToolInputProperty> = {};
+  for (const [name, def] of Object.entries(asRecord(r["properties"]))) {
+    const prop = toToolInputProperty(def);
+    if (prop !== undefined) properties[name] = prop;
+  }
+  const required = Array.isArray(r["required"])
+    ? r["required"].filter((e): e is string => typeof e === "string")
+    : [];
+  return required.length === 0
+    ? { type: "object", properties }
+    : { type: "object", properties, required };
+}
+
+/** A malformed `grounding` renders as `description_only` -- the "this was a guess" disclosure. */
+function toDraftGrounding(v: unknown): DraftGrounding {
+  const r = asRecord(v);
+  if (r["kind"] !== "endpoints") return UNGROUNDED;
+  const count = r["count"];
+  const services = Array.isArray(r["services"])
+    ? r["services"].filter((e): e is string => typeof e === "string")
+    : undefined;
+  return typeof count === "number" && services !== undefined
+    ? { kind: "endpoints", count, services }
+    : UNGROUNDED;
+}
+
 /**
  * Answer one `toolgen.approvalRequest` broadcast. Mirrors `exec.ts`'s `handleApprovalBroadcast`:
  * every field validated (including nested arrays) before use, a broadcast with no usable
- * `requestId` is ignored rather than answered, and only an explicit `true` approves.
+ * `requestId` is ignored rather than answered, and only an explicit `true` approves. The prompt
+ * must never throw on bad input -- it is the last thing standing between a model-authored body and
+ * a human's yes.
  */
 export async function handleToolApprovalBroadcast(
   params: unknown,
@@ -382,6 +491,8 @@ export async function handleToolApprovalBroadcast(
       body: typeof p.body === "string" ? p.body : "",
       approvedHosts: strs(p.approvedHosts),
       credentialHosts: strs(p.credentialHosts),
+      inputSchema: toToolInputSchema(p.inputSchema),
+      grounding: toDraftGrounding(p.grounding),
     }),
   );
   await respond(p.requestId, !isCancel(answer) && answer === true);
@@ -460,14 +571,10 @@ async function runCreateCmd(
         sessionId: CLI_TOOLGEN_SESSION_ID,
         description: parsed.description,
         hosts: parsed.hosts,
-        // `parsed.credentials` is validated client-side (host membership against `--host`,
-        // non-empty value -- see `parseCreateArgs`) but deliberately NOT sent here. PR 1's
-        // `toolgen.create` RPC handler does not read a `credentials` field at all, and
-        // `docs/cli-reference.md` + `platform/assemble.ts`'s `bindCredentials` closure both say
-        // the value is never transmitted / carries no credential material -- sending a live
-        // bearer token over IPC to a handler that discards it would make one of those two
-        // surfaces false. The wire contract widens, if at all, only when the gateway side is
-        // actually built to consume it -- not ahead of that, and not silently.
+        // Sent now that the gateway consumes them: `toolgen.create` binds per-host at create time,
+        // because the toolId does not exist until create runs and adding one to a LIVE tool would
+        // change the artifact the owner approved.
+        credentials: parsed.credentials.map((cred) => ({ host: cred.host, token: cred.token })),
       })) as ToolOutcomeShape;
     });
 
