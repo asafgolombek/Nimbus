@@ -336,8 +336,20 @@ own account before consulting the envelope:
    back exactly what the empty network set took away. I33 names the same target for the same
    reason.
 3. **Checked on the RESOLVED address, not the hostname.** A hostname check alone is defeated by a
-   name that resolves to `127.0.0.1`, and by DNS rebinding between the check and the request. The
-   broker resolves, validates the resolved address, and connects to the address it validated.
+   name that resolves to `127.0.0.1`. The broker resolves the host and refuses if **any** returned
+   A/AAAA record is forbidden — all of them, not just the first, so a name answering with one
+   private record among several public ones is refused outright.
+
+   **Stated residual — check-then-connect is NOT closed in PR 1.** An earlier draft of this section
+   claimed the broker "connects to the address it validated". It does not, and could not: Bun's
+   `fetch` exposes no connection-pinning or custom-resolver hook (probed on 1.3.14), so the request
+   is issued against the hostname and the runtime resolves DNS again independently. A caller who
+   controls the DNS for a host the owner **already approved** can therefore answer the validation
+   lookup with a public address and the connection lookup with `127.0.0.1`, reaching the Gateway's
+   own loopback API. Validating every record narrows this but does not close it. Closing it needs a
+   custom HTTP client that connects to a pinned address — tracked, not shipped here. The claim is
+   corrected rather than quietly kept, because an invariant that overstates its bound is the exact
+   failure this project already has twice on record.
 4. **Host match** — `url.hostname` lowercased, compared exactly against the envelope. No suffix
    matching, no wildcards: `evil-api.example.com` must not satisfy `api.example.com`.
 5. **Header stripping** — `Authorization`, `Proxy-Authorization` and `Cookie` supplied by the tool
@@ -605,11 +617,15 @@ row. Credentials are never inherited from a connector, never enter the tool proc
 per-host rather than per-tool. Registration happens only after a green sandbox contract test and
 the owner's approval of the VERBATIM canonical artifact, never a digest.*
 
-***Residual, stated here rather than discovered later: the allow-list bounds WHERE a tool may
+***Residuals, stated here rather than discovered later. (1) The allow-list bounds WHERE a tool may
 send, never WHAT.*** *A tool approved for `api.gitea.example` may send that host anything it can
 compute, including data it legitimately received. The gate proves the owner saw the body and the
 destinations; it does not prove the body is honest about what it does with what it reads. This
-sentence belongs in the approval prompt as well as in this invariant.*
+sentence belongs in the approval prompt as well as in this invariant. **(2) The destination check
+is check-then-connect, not connect-to-checked** — see § 6.2.1's stated residual. The broker
+validates every address a host resolves to, then issues the request against the hostname, because
+the runtime offers no connection pinning; an attacker controlling an APPROVED host's DNS can still
+rebind between the two lookups.*
 
 **D29(a)** — the `nimbus/fetch` method literal is **defined once**, in `toolgen/toolgen-types.ts`,
 and confined there; the stub emitter and the broker import the constant rather than repeating the
