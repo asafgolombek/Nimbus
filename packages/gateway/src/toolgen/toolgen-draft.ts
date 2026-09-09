@@ -159,6 +159,12 @@ export async function draftGeneratedTool(
 
   let current = prompt;
   let last: LadderFailure | null = null;
+  // The locality of the last route that actually ANSWERED, kept across attempts so the final
+  // `ERR_TOOLGEN_DRAFT_INVALID` throw (both attempts answered but failed the ladder) can report
+  // which route produced the body the owner would have been asked to approve. `null` here means
+  // no model has answered yet -- distinct from `ERR_TOOLGEN_NO_DRAFT_MODEL`, which has no locality
+  // to report at all because nothing answered.
+  let lastLocality: "local" | "remote" | null = null;
   for (const attempt of [1, 2] as const) {
     const generated = await deps.generate(current);
     if (generated === null) {
@@ -167,6 +173,10 @@ export async function draftGeneratedTool(
       // validation. State both facts: what the first attempt got wrong, and that the redraft
       // could not reach a model at all. A `null` on the very first call has no prior failure to
       // report, so `last` is `null` there and the message stays exactly as it always was.
+      //
+      // No `locality` here: `ERR_TOOLGEN_NO_DRAFT_MODEL` means no route answered AT ALL on this
+      // call, so there is nothing to report -- reusing `lastLocality` from a PRIOR attempt would
+      // claim a route for a failure that has none.
       throw new ToolgenError(
         "ERR_TOOLGEN_NO_DRAFT_MODEL",
         last === null
@@ -174,21 +184,27 @@ export async function draftGeneratedTool(
           : `the first attempt failed at ${last.rung}: ${last.reason} — no model was available for the redraft`,
       );
     }
+    lastLocality = generated.isLocal ? "local" : "remote";
     const result = runLadder(generated.text);
     if (!isFailure(result)) {
       return {
         ...result,
         grounding,
         attempts: attempt,
-        locality: generated.isLocal ? "local" : "remote",
+        locality: lastLocality,
       };
     }
     last = result;
     current = buildRedraftPrompt(prompt, result.rung, result.reason);
   }
 
+  // Both attempts reached a model and both failed the ladder -- `lastLocality` is the route that
+  // produced the second (most recent) failing draft, carried on the error so the CLI can decide
+  // whether "configure a larger local model" is useful advice (spec: only when the failing route
+  // was local).
   throw new ToolgenError(
     "ERR_TOOLGEN_DRAFT_INVALID",
     `the drafted tool failed validation twice — ${last?.rung ?? "unknown"}: ${last?.reason ?? ""}`,
+    lastLocality ?? undefined,
   );
 }

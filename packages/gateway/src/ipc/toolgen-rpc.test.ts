@@ -6,7 +6,7 @@ import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { ToolgenConsentBroker } from "../toolgen/toolgen-consent-broker.ts";
 import type { ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
 import { ToolgenRegistry } from "../toolgen/toolgen-registry.ts";
-import type { ToolgenEnvelope } from "../toolgen/toolgen-types.ts";
+import { type ToolgenEnvelope, ToolgenError } from "../toolgen/toolgen-types.ts";
 import { checkLanMethodAllowed, LanError } from "./lan-rpc.ts";
 import { dispatchToolgenRpc, type ToolgenRpcCtx } from "./toolgen-rpc.ts";
 
@@ -336,6 +336,34 @@ describe("toolgen RPC", () => {
     const out = await run;
     if (out.kind !== "hit") throw new Error("unreachable");
     expect((out.value as { status: string }).status).toBe("denied");
+  });
+
+  // Fix round 1 on Task 10: `toolgen.create`'s handler returns `createGeneratedTool(...)`'s
+  // outcome WHOLE (it is never reconstructed field by field here), so the newly-optional
+  // `locality` field should already survive. Proven by round-tripping the dispatched value through
+  // `JSON.parse(JSON.stringify(...))`, the same transform the real JSON-RPC transport applies.
+  test("toolgen.create's refused outcome carries `locality` through the RPC dispatch AND JSON serialization", async () => {
+    const ctx = makeCtx({
+      draftTool: async () => {
+        throw new ToolgenError(
+          "ERR_TOOLGEN_DRAFT_INVALID",
+          "the drafted tool failed validation twice",
+          "local",
+        );
+      },
+    });
+    const out = await dispatchToolgenRpc(
+      "toolgen.create",
+      { sessionId: "s1", description: "d", hosts: ["api.example.com"] },
+      ctx,
+    );
+    if (out.kind !== "hit") throw new Error("unreachable");
+    const serialized = JSON.parse(JSON.stringify(out.value));
+    expect(serialized).toEqual({
+      status: "refused",
+      code: "ERR_TOOLGEN_DRAFT_INVALID",
+      locality: "local",
+    });
   });
 });
 

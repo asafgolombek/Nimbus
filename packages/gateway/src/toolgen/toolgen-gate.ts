@@ -121,7 +121,18 @@ export interface ToolgenGateDeps {
 export type ToolgenOutcome =
   | { readonly status: "registered"; readonly toolId: string }
   | { readonly status: "denied" }
-  | { readonly status: "refused"; readonly code: string };
+  | {
+      readonly status: "refused";
+      readonly code: string;
+      /**
+       * The locality of the drafting route that FAILED, present only when the refusal is
+       * draft-related (`ERR_TOOLGEN_DRAFT_INVALID`) and a model actually answered. OPTIONAL, not
+       * defaulted -- most refusals (disabled/policy/budget/bad host/confinement) are decided
+       * before a draft is even attempted and genuinely have no locality to report; forcing a value
+       * there would invent one. Diagnostic only -- never part of the artifact the owner approves.
+       */
+      readonly locality?: "local" | "remote";
+    };
 
 type OutcomeTag =
   | "denied_by_owner"
@@ -393,6 +404,11 @@ export async function createGeneratedTool(
       await safeRevokeCredentials(deps, toolId, attemptedCredentialHosts);
     }
     const code = err instanceof ToolgenError ? err.code : "ERR_TOOLGEN_INTERNAL";
+    // Present only when the caught error is a `ToolgenError` that actually carried one (today,
+    // only `ERR_TOOLGEN_DRAFT_INVALID` does) -- diagnostic about which route FAILED, never part of
+    // the artifact the owner approves. Omitted from the outcome entirely rather than sent as
+    // `undefined`, matching every other optional field on `ToolgenOutcome`.
+    const locality = err instanceof ToolgenError ? err.locality : undefined;
     // An owner-approved attempt that then failed is recorded as APPROVED, because it was: the owner
     // saw and consented to the verbatim body, and a process may already have spawned. Only a
     // pre-consent failure may claim the owner never saw it -- conflating the two would let an
@@ -411,6 +427,8 @@ export async function createGeneratedTool(
         message: (err as Error).message,
       });
     }
-    return { status: "refused", code };
+    return locality === undefined
+      ? { status: "refused", code }
+      : { status: "refused", code, locality };
   }
 }

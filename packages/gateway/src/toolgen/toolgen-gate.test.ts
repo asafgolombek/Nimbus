@@ -5,6 +5,7 @@ import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { createGeneratedTool, normalizeHost } from "./toolgen-gate.ts";
 import { ToolgenRegistry } from "./toolgen-registry.ts";
+import { ToolgenError } from "./toolgen-types.ts";
 
 function deps(over: Record<string, unknown> = {}) {
   const db = new Database(":memory:");
@@ -489,5 +490,66 @@ describe("createGeneratedTool drafting and credential binding (Task 9)", () => {
     expect(bound).toHaveLength(1);
     expect(bound[0]?.map((c) => c.host)).toEqual(["api.example.com"]);
     expect(seenCredentialHosts).toEqual(["api.example.com"]);
+  });
+});
+
+// Fix round 1 on Task 10: the CLI's local-model hint reads `outcome.locality`, and this is the
+// producer -- the outer `catch` must carry a thrown `ToolgenError`'s locality onto the refused
+// outcome, since that is the only place `ToolgenOutcome`'s "refused" variant is constructed.
+describe("createGeneratedTool's refused outcome carries the draft's locality (Task 10 fix round 1)", () => {
+  test('ERR_TOOLGEN_DRAFT_INVALID from a LOCAL route produces a refused outcome with locality "local"', async () => {
+    const d = deps({
+      draftTool: async () => {
+        throw new ToolgenError(
+          "ERR_TOOLGEN_DRAFT_INVALID",
+          "the drafted tool failed validation twice",
+          "local",
+        );
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out).toEqual({
+      status: "refused",
+      code: "ERR_TOOLGEN_DRAFT_INVALID",
+      locality: "local",
+    });
+  });
+
+  test('ERR_TOOLGEN_DRAFT_INVALID from a REMOTE route produces a refused outcome with locality "remote"', async () => {
+    const d = deps({
+      draftTool: async () => {
+        throw new ToolgenError(
+          "ERR_TOOLGEN_DRAFT_INVALID",
+          "the drafted tool failed validation twice",
+          "remote",
+        );
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out).toEqual({
+      status: "refused",
+      code: "ERR_TOOLGEN_DRAFT_INVALID",
+      locality: "remote",
+    });
+  });
+
+  test("ERR_TOOLGEN_NO_DRAFT_MODEL carries NO locality on the refused outcome", async () => {
+    const d = deps({
+      draftTool: async () => {
+        throw new ToolgenError("ERR_TOOLGEN_NO_DRAFT_MODEL", "no model is available");
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    // Not `locality: undefined` -- the KEY itself must be absent, matching every other refusal
+    // that genuinely has none to report (config off, policy, budget, bad host, confinement).
+    expect(out).toEqual({ status: "refused", code: "ERR_TOOLGEN_NO_DRAFT_MODEL" });
+    expect(Object.hasOwn(out, "locality")).toBe(false);
+  });
+
+  test("a pre-draft refusal (config off) carries no locality at all", async () => {
+    const d = deps({ config: DEFAULT_NIMBUS_TOOL_GENERATION_TOML });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out).toEqual({ status: "refused", code: "ERR_TOOLGEN_DISABLED" });
+    expect(Object.hasOwn(out, "locality")).toBe(false);
   });
 });

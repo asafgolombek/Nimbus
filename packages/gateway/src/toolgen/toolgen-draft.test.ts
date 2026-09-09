@@ -147,6 +147,31 @@ describe("draftGeneratedTool", () => {
     }
   });
 
+  // The CLI's local-model hint (`[llm] min_reasoning_params` / `drafting = "allow-remote"`) is
+  // useful ONLY when the failing route was local -- so the thrown error must carry which route it
+  // was, not just that the ladder failed twice.
+  test("ERR_TOOLGEN_DRAFT_INVALID carries the LOCAL route's locality when a local model answered twice and failed", async () => {
+    try {
+      await draftGeneratedTool(REQ, deps(["nope", "still nope"], {}, true), SUBJECT);
+      throw new Error("expected a throw");
+    } catch (e) {
+      const err = e as ToolgenError;
+      expect(err.code).toBe("ERR_TOOLGEN_DRAFT_INVALID");
+      expect(err.locality).toBe("local");
+    }
+  });
+
+  test("ERR_TOOLGEN_DRAFT_INVALID carries the REMOTE route's locality when a remote model answered twice and failed", async () => {
+    try {
+      await draftGeneratedTool(REQ, deps(["nope", "still nope"], {}, false), SUBJECT);
+      throw new Error("expected a throw");
+    } catch (e) {
+      const err = e as ToolgenError;
+      expect(err.code).toBe("ERR_TOOLGEN_DRAFT_INVALID");
+      expect(err.locality).toBe("remote");
+    }
+  });
+
   // FINDING 1: each redraft prompt must ATTRIBUTE the correct rung and reason, not just exist.
   // Swapping two rung labels or reordering two catch blocks would pass every test above this one.
   describe("redraft attribution", () => {
@@ -233,6 +258,8 @@ describe("draftGeneratedTool", () => {
       const err = e as ToolgenError;
       expect(err.code).toBe("ERR_TOOLGEN_NO_DRAFT_MODEL");
       expect(err.message).toBe("no model is available to draft a tool body");
+      // No route answered AT ALL -- there is nothing to attribute a locality to.
+      expect(err.locality).toBeUndefined();
     }
   });
 
@@ -248,6 +275,10 @@ describe("draftGeneratedTool", () => {
       expect(err.message).toContain("rung 3 (body syntax)");
       expect(err.message).toContain("tool body does not parse:");
       expect(err.message).not.toBe("no model is available to draft a tool body");
+      // The FIRST attempt answered and failed the ladder, but the redraft call itself got no
+      // response -- `ERR_TOOLGEN_NO_DRAFT_MODEL` still reports no locality, since reusing the
+      // first attempt's route would claim one for a call that never got an answer.
+      expect(err.locality).toBeUndefined();
     }
   });
 

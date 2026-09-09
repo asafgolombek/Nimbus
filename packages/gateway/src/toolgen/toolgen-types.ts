@@ -34,6 +34,15 @@ export class ToolgenError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    /**
+     * Set only by `draftGeneratedTool` on `ERR_TOOLGEN_DRAFT_INVALID`, where a model DID answer
+     * and the CLI's local-model hint needs to know whether it was the local route. Optional and
+     * `undefined` on every other refusal -- most (disabled/policy/budget/bad host/confinement) are
+     * decided before a draft is even attempted and have no locality to report. A real field on the
+     * error, never smuggled into `message` and parsed back out -- a parsed message is not a
+     * contract.
+     */
+    readonly locality?: "local" | "remote",
   ) {
     super(message);
     this.name = "ToolgenError";
