@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateInputSchema } from "./toolgen-schema.ts";
+import { validateInputSchema, zodSchemaFromInputSchema } from "./toolgen-schema.ts";
 import { ToolgenError } from "./toolgen-types.ts";
 
 const ok = {
@@ -82,5 +82,40 @@ describe("validateInputSchema", () => {
     } catch (e) {
       expect((e as ToolgenError).code).toBe("ERR_TOOLGEN_SCHEMA_INVALID");
     }
+  });
+});
+
+describe("zodSchemaFromInputSchema", () => {
+  const schema = validateInputSchema({
+    type: "object",
+    properties: {
+      owner: { type: "string" },
+      page: { type: "number" },
+      tags: { type: "array", items: { type: "string" } },
+    },
+    required: ["owner"],
+  });
+
+  test("a required property is required", () => {
+    expect(zodSchemaFromInputSchema(schema).safeParse({ page: 1 }).success).toBe(false);
+  });
+
+  test("a property absent from `required` is optional", () => {
+    expect(zodSchemaFromInputSchema(schema).safeParse({ owner: "nimbus" }).success).toBe(true);
+  });
+
+  test("declared types are enforced", () => {
+    const r = zodSchemaFromInputSchema(schema).safeParse({ owner: "n", page: "not-a-number" });
+    expect(r.success).toBe(false);
+  });
+
+  test("an array of scalars parses", () => {
+    const r = zodSchemaFromInputSchema(schema).safeParse({ owner: "n", tags: ["a", "b"] });
+    expect(r.success).toBe(true);
+  });
+
+  test("a schema with no `required` makes every property optional", () => {
+    const none = validateInputSchema({ type: "object", properties: { a: { type: "string" } } });
+    expect(zodSchemaFromInputSchema(none).safeParse({}).success).toBe(true);
   });
 });
