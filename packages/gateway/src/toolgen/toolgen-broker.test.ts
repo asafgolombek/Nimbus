@@ -209,3 +209,154 @@ describe("ToolgenBroker.handleFetch", () => {
     expect(rows(d.db)).toEqual([{ destination: "api.example.com", result_status: "authorized" }]);
   });
 });
+
+describe("parseParams — every refusal happens before a row is appended or a socket is opened", () => {
+  // These all refuse ahead of the ledger, and that is deliberate rather than an omission: until
+  // the URL parses there is no `destination` to record, so a row would have to name something the
+  // caller did not actually ask for. Everything PAST parsing ledgers a `blocked` row instead.
+  async function refuses(params: unknown): Promise<{ code: unknown; rowCount: number }> {
+    const d = deps({
+      doFetch: async () => {
+        throw new Error("parseParams refusal must never reach doFetch");
+      },
+    });
+    try {
+      await new ToolgenBroker(d).handleFetch("tg_a", params);
+    } catch (e) {
+      return { code: (e as ToolgenError).code, rowCount: rows(d.db).length };
+    }
+    throw new Error("expected a refusal");
+  }
+
+  test.each([
+    ["null params", null],
+    ["an array", ["https://api.example.com"]],
+    ["a scalar", "https://api.example.com"],
+    ["a missing url", { method: "GET" }],
+    ["a non-string url", { url: 42 }],
+    ["a headers array", { url: "https://api.example.com/v1", headers: ["X-A", "1"] }],
+    ["a scalar headers", { url: "https://api.example.com/v1", headers: 7 }],
+  ])("%s is refused as a bad request, with no row and no fetch", async (_label, params) => {
+    const { code, rowCount } = await refuses(params);
+    expect(code).toBe("ERR_TOOLGEN_BAD_REQUEST");
+    expect(rowCount).toBe(0);
+  });
+
+  test("an unsupported HTTP method is refused rather than being passed through", async () => {
+    // The verb list is an allow-list, so anything exotic (TRACE, CONNECT, a made-up verb) is a
+    // refusal, not something the broker forwards and lets the upstream decide about.
+    const { code } = await refuses({ url: "https://api.example.com/v1", method: "TRACE" });
+    expect(code).toBe("ERR_TOOLGEN_BAD_REQUEST");
+  });
+
+  test("a lowercase method is accepted and normalised to upper case on the wire", async () => {
+    let seen: RequestInit | undefined;
+    const d = deps({
+      doFetch: async (_u: string, init: RequestInit) => {
+        seen = init;
+        return new Response("ok");
+      },
+    });
+    await new ToolgenBroker(d).handleFetch("tg_a", {
+      url: "https://api.example.com/v1",
+      method: "post",
+      body: "hello",
+    });
+    expect(seen?.method).toBe("POST");
+    expect(seen?.body).toBe("hello");
+  });
+
+  test("a non-string header VALUE is dropped, and the rest of the headers still go out", async () => {
+    let seen: RequestInit | undefined;
+    const d = deps({
+      doFetch: async (_u: string, init: RequestInit) => {
+        seen = init;
+        return new Response("ok");
+      },
+    });
+    await new ToolgenBroker(d).handleFetch("tg_a", {
+      url: "https://api.example.com/v1",
+      headers: { "X-Keep": "yes", "X-Drop": { nested: true }, "X-Also-Drop": 5 },
+    });
+    const headers = seen?.headers as Record<string, string>;
+    expect(headers["X-Keep"]).toBe("yes");
+    expect(headers).not.toHaveProperty("X-Drop");
+    expect(headers).not.toHaveProperty("X-Also-Drop");
+  });
+
+  test("a null/undefined headers field is simply absent, not an error", async () => {
+    const d = deps();
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", {
+        url: "https://api.example.com/v1",
+        headers: null,
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+  });
+
+  test("a non-string body is omitted rather than stringified, and ledgers 0 request bytes", async () => {
+    let seen: RequestInit | undefined;
+    const d = deps({
+      doFetch: async (_u: string, init: RequestInit) => {
+        seen = init;
+        return new Response("ok");
+      },
+    });
+    await new ToolgenBroker(d).handleFetch("tg_a", {
+      url: "https://api.example.com/v1",
+      body: { not: "a string" },
+    });
+    expect(seen?.body).toBeUndefined();
+    const [row] = d.db
+      .query<{ payload_summary: string }, []>(
+        "SELECT payload_summary FROM egress_ledger WHERE source_type = 'tool'",
+      )
+      .all();
+    expect(row?.payload_summary).toContain('"requestBytes":0');
+  });
+});
+
+describe("applyCredential — each binding shape reaches the wire in its own form", () => {
+  async function headersFor(
+    binding: Awaited<ReturnType<ConstructorParameters<typeof ToolgenBroker>[0]["readCredential"]>>,
+  ): Promise<Record<string, string>> {
+    let seen: RequestInit | undefined;
+    const d = deps({
+      readCredential: async () => binding,
+      doFetch: async (_u: string, init: RequestInit) => {
+        seen = init;
+        return new Response("ok");
+      },
+    });
+    await new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" });
+    return (seen?.headers ?? {}) as Record<string, string>;
+  }
+
+  test("a bearer binding becomes an Authorization: Bearer header", async () => {
+    expect((await headersFor({ type: "bearer", token: "t1" }))["Authorization"]).toBe("Bearer t1");
+  });
+
+  test("a header binding uses the operator's OWN header name, not Authorization", async () => {
+    const headers = await headersFor({ type: "header", headerName: "X-Api-Key", value: "k1" });
+    expect(headers["X-Api-Key"]).toBe("k1");
+    expect(headers).not.toHaveProperty("Authorization");
+  });
+
+  test("a basic binding is base64-encoded as user:pass, never sent in the clear", async () => {
+    const headers = await headersFor({ type: "basic", username: "u", password: "p" });
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("u:p").toString("base64")}`);
+    // The point of the encoding assertion: the raw password must not appear verbatim.
+    expect(JSON.stringify(headers)).not.toContain('"p"');
+  });
+});
+
+describe("readBoundedBody", () => {
+  test("a response with NO body at all yields an empty string rather than throwing", async () => {
+    // A 204 has a null `res.body`, so `getReader()` is never reachable — the early return is the
+    // only thing standing between a legitimate empty response and a TypeError inside the broker.
+    const d = deps({ doFetch: async () => new Response(null, { status: 204 }) });
+    await expect(
+      new ToolgenBroker(d).handleFetch("tg_a", { url: "https://api.example.com/v1" }),
+    ).resolves.toMatchObject({ status: 204, body: "" });
+  });
+});

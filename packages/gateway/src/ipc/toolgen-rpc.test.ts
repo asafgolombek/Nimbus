@@ -252,3 +252,57 @@ describe("toolgen RPC", () => {
     await expect(dispatchToolgenRpc("toolgen.revoke", {}, makeCtx())).rejects.toThrow();
   });
 });
+
+describe("params that are not a keyed record at all", () => {
+  // `asRecord` returns undefined for a non-record, and both `requireString` and `toolgen.create`'s
+  // own `?? {}` have to survive that — a JSON-RPC caller can legally send an array or a scalar as
+  // `params`, and neither may reach the gate as a half-read request.
+  test.each([
+    ["an array", [] as unknown],
+    ["a string", "nope" as unknown],
+    ["a number", 7 as unknown],
+    ["null", null as unknown],
+  ])(
+    "toolgen.create with %s is an invalid-params error, never a defaulted call",
+    async (_label, params) => {
+      let reached = false;
+      const ctx = makeCtx({
+        draftBody: async () => {
+          reached = true;
+          return "return 1;";
+        },
+      });
+      await expect(dispatchToolgenRpc("toolgen.create", params, ctx)).rejects.toMatchObject({
+        rpcCode: -32602,
+      });
+      expect(reached).toBe(false);
+    },
+  );
+
+  test("toolgen.list with a non-record params is refused rather than listing every session", async () => {
+    await expect(dispatchToolgenRpc("toolgen.list", [], makeCtx())).rejects.toMatchObject({
+      rpcCode: -32602,
+    });
+  });
+});
+
+describe("a malformed hosts array yields an EMPTY host list, never a partial one", () => {
+  // Silently dropping the bad element would approve a tool for a host list nobody typed. An empty
+  // list is refused outright by the gate, which turns a malformed array into a clean refusal.
+  test("a mixed string/non-string hosts array is refused, not partially granted", async () => {
+    const ctx = makeCtx();
+    const out = await dispatchToolgenRpc(
+      "toolgen.create",
+      { sessionId: "s1", description: "d", hosts: ["api.example.com", 42] },
+      ctx,
+    );
+    expect(out.kind).toBe("hit");
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect(out.value).toMatchObject({
+      status: "refused",
+      code: "ERR_TOOLGEN_HOST_NOT_ALLOWED",
+    });
+    // The point of the test: the ONE good host was not silently kept.
+    expect(ctx.broadcasts).toHaveLength(0);
+  });
+});

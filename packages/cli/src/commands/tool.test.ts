@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { RunToolDeps, ToolClient } from "./tool.ts";
+import type { OutcomeSink, RunToolDeps, ToolClient } from "./tool.ts";
 import {
   CLI_TOOLGEN_SESSION_ID,
   exitCodeForTool,
@@ -613,5 +613,255 @@ describe("runTool orchestration — general", () => {
     });
     const respond = h.calls.find((c) => c.method === "toolgen.approvalRespond");
     expect(respond?.params).toEqual({ requestId: "r9", approved: true });
+  });
+});
+describe("parseToolArgs -- a flag whose value is missing is refused, never defaulted", () => {
+  // A trailing flag with no value is the classic shell typo (`--host` then a newline). Defaulting
+  // it to the empty string would approve a tool for a host list the owner did not type.
+  test.each([
+    ["--description at the end of argv", ["create", "--host", "a.example.com", "--description"]],
+    ["--host at the end of argv", ["create", "--description", "d", "--host"]],
+    ["--credential at the end of argv", ["create", "--description", "d", "--credential"]],
+  ])("%s throws", (_label, argv) => {
+    expect(() => parseToolArgs(argv)).toThrow(/requires a value/);
+  });
+
+  test.each([
+    ["--bearer with no token", ["credential", "set", "tg_a", "h.example.com", "--bearer"]],
+    ["--header with no value", ["credential", "set", "tg_a", "h.example.com", "--header", "X-A"]],
+    ["--basic with no password", ["credential", "set", "tg_a", "h.example.com", "--basic", "u"]],
+  ])("credential set: %s throws", (_label, argv) => {
+    expect(() => parseToolArgs(argv)).toThrow(/requires a value/);
+  });
+});
+
+describe("parseToolArgs -- malformed --credential is refused rather than half-read", () => {
+  test.each([
+    ["no '=' at all", "api.example.com"],
+    ["a leading '=' (empty host)", "=token"],
+  ])("%s is refused", (_label, raw) => {
+    expect(() =>
+      parseToolArgs([
+        "create",
+        "--description",
+        "d",
+        "--host",
+        "api.example.com",
+        "--credential",
+        raw,
+      ]),
+    ).toThrow(/must be <host>=<token>/);
+  });
+});
+
+describe("parseToolArgs -- the remaining refusal arms", () => {
+  test("an unknown flag on list throws rather than being ignored", () => {
+    expect(() => parseToolArgs(["list", "--verbose"])).toThrow(/Unknown flag/);
+  });
+
+  test("an unknown flag on credential set throws", () => {
+    expect(() =>
+      parseToolArgs(["credential", "set", "tg_a", "h.example.com", "--bearer", "t", "--force"]),
+    ).toThrow(/Unknown flag/);
+  });
+
+  test("credential set with a tool id but no host names the missing host, not the tool id", () => {
+    expect(() => parseToolArgs(["credential", "set", "tg_a", "--bearer", "t"])).toThrow(
+      /a host is required/,
+    );
+  });
+
+  test("credential set with neither a tool id nor a host names the tool id first", () => {
+    expect(() => parseToolArgs(["credential", "set", "--bearer", "t"])).toThrow(
+      /a tool id is required/,
+    );
+  });
+
+  test("extra positionals past <tool-id> <host> are ignored rather than shifting the meaning", () => {
+    // `positional[0]`/`[1]` are read by index, so a stray third word must not become the host.
+    const parsed = parseToolArgs([
+      "credential",
+      "set",
+      "tg_a",
+      "h.example.com",
+      "stray",
+      "--bearer",
+      "t",
+    ]);
+    expect(parsed).toMatchObject({ sub: "credential-set", toolId: "tg_a", host: "h.example.com" });
+  });
+
+  test("'nimbus tool credential' with no action at all is refused, not treated as 'set'", () => {
+    expect(() => parseToolArgs(["credential"])).toThrow(/Unknown "nimbus tool credential"/);
+  });
+
+  test("revoke with a flag where the tool id belongs is refused, not read as an id", () => {
+    expect(() => parseToolArgs(["revoke", "--all"])).toThrow(/a tool id is required/);
+  });
+});
+
+describe("renderToolOutcome -- every status arm", () => {
+  function sunk(): { sink: OutcomeSink; out: string[]; err: string[] } {
+    const out: string[] = [];
+    const err: string[] = [];
+    return { sink: { out: (s) => out.push(s), err: (s) => err.push(s) }, out, err };
+  }
+
+  test("a DENIAL is reported on stderr and is not confused with a refusal", () => {
+    const s = sunk();
+    renderToolOutcome({ status: "denied" }, s.sink);
+    expect(s.err.join("")).toContain("denied");
+    // The owner said no; there is no error code to show and none is invented.
+    expect(s.err.join("")).not.toContain("refused");
+    expect(s.out).toHaveLength(0);
+  });
+
+  test("a registered outcome with no toolId says so rather than printing 'undefined'", () => {
+    const s = sunk();
+    renderToolOutcome({ status: "registered" }, s.sink);
+    expect(s.out.join("")).toContain("(unknown id)");
+  });
+
+  test("a refusal with no code at all still names itself a refusal", () => {
+    const s = sunk();
+    renderToolOutcome({ status: "refused" }, s.sink);
+    expect(s.err.join("")).toContain("unknown");
+  });
+});
+
+describe("renderToolList -- a nonsensical approvedAt is disclosed, not rendered as a fake date", () => {
+  test("a non-finite timestamp prints the raw value rather than 'Invalid Date'", () => {
+    const rendered = renderToolList([
+      {
+        toolId: "tg_a",
+        toolName: "t",
+        description: "d",
+        approvedHosts: ["api.example.com"],
+        credentialHosts: [],
+        approvedAt: Number.NaN,
+      },
+    ]);
+    expect(rendered).toContain("unknown (NaN)");
+  });
+});
+
+describe("runTool list -- a malformed wire shape degrades to fewer entries, never a wrong one", () => {
+  function listing(res: unknown) {
+    const h = fakeDeps({
+      runWithClient: async (fn) =>
+        fn({
+          onNotification: () => {},
+          call: async () => res,
+        }),
+    });
+    return h;
+  }
+
+  test("entries missing a required string field are DROPPED, not rendered with blanks", async () => {
+    const h = listing({
+      tools: [
+        {
+          toolId: "tg_ok",
+          toolName: "ok",
+          description: "d",
+          approvedHosts: [],
+          credentialHosts: [],
+        },
+        { toolName: "no-id", description: "d" },
+        { toolId: "tg_b", description: "d" },
+        { toolId: "tg_c", toolName: "c" },
+        "not an object at all",
+      ],
+    });
+    await runTool(["list"], h.d);
+    const out = h.out.join("");
+    expect(out).toContain("tg_ok");
+    expect(out).not.toContain("tg_b");
+    expect(out).not.toContain("tg_c");
+    expect(out).not.toContain("no-id");
+  });
+
+  test("a non-string host array is emptied rather than partially rendered", async () => {
+    const h = listing({
+      tools: [
+        {
+          toolId: "tg_a",
+          toolName: "t",
+          description: "d",
+          approvedHosts: ["api.example.com", 42],
+          credentialHosts: "not-an-array",
+          approvedAt: "not-a-number",
+        },
+      ],
+    });
+    await runTool(["list"], h.d);
+    const out = h.out.join("");
+    // Neither the good element nor a coerced form of the bad one survives -- an all-or-nothing
+    // read, so the owner never sees a host list that is a subset of the real one.
+    expect(out).not.toContain("api.example.com");
+    expect(out).toContain("hosts: none");
+  });
+
+  test("a response with no tools array at all renders the empty listing", async () => {
+    const h = listing({ notTools: 1 });
+    await runTool(["list"], h.d);
+    expect(h.out.join("")).toContain("No active generated tools.");
+  });
+
+  test("a non-record response renders the empty listing rather than throwing", async () => {
+    const h = listing("nope");
+    await runTool(["list"], h.d);
+    expect(h.out.join("")).toContain("No active generated tools.");
+  });
+});
+
+describe("runTool -- a transport failure is reported and sets the refused exit code", () => {
+  function throwing(thrown: unknown) {
+    return fakeDeps({
+      runWithClient: async () => {
+        throw thrown;
+      },
+    });
+  }
+
+  test.each([
+    ["list", ["list"]],
+    ["revoke", ["revoke", "tg_a"]],
+    ["create", ["create", "--description", "d", "--host", "api.example.com"]],
+  ])("%s surfaces an Error's message", async (_label, argv) => {
+    const h = throwing(new Error("gateway is not running"));
+    await runTool(argv, h.d);
+    expect(h.err.join("")).toContain("gateway is not running");
+    expect(h.codes).toContain(TOOL_EXIT_CODES.refused);
+  });
+
+  test.each([
+    ["list", ["list"]],
+    ["revoke", ["revoke", "tg_a"]],
+    ["create", ["create", "--description", "d", "--host", "api.example.com"]],
+  ])("%s surfaces a NON-Error throw rather than printing nothing", async (_label, argv) => {
+    // A rejected promise carrying a bare string is the shape that would otherwise render as
+    // "undefined" and leave the operator with no idea what failed.
+    const h = throwing("socket closed");
+    await runTool(argv, h.d);
+    expect(h.err.join("")).toContain("socket closed");
+    expect(h.codes).toContain(TOOL_EXIT_CODES.refused);
+  });
+
+  test("an argv parse failure is reported before any gateway connection is attempted", async () => {
+    const h = fakeDeps();
+    await runTool(["nonsense"], h.d);
+    expect(h.err.join("")).toContain('Unknown "nimbus tool" subcommand');
+    expect(h.codes).toEqual([TOOL_EXIT_CODES.refused]);
+    expect(h.calls).toHaveLength(0);
+  });
+});
+
+describe("runTool revoke -- the success path reports the id it dropped", () => {
+  test("prints the revoked tool id on stdout and leaves the exit code at 0", async () => {
+    const h = fakeDeps();
+    await runTool(["revoke", "tg_a"], h.d);
+    expect(h.out.join("")).toContain("Revoked tg_a.");
+    expect(h.codes).toHaveLength(0);
   });
 });

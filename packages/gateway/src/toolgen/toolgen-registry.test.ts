@@ -80,3 +80,34 @@ describe("ToolgenRegistry", () => {
     expect(closed).toBe(true);
   });
 });
+
+describe("an unknown toolId is a no-op, never a throw", () => {
+  // Both arms matter for a real reason: `wireExitCallback` fires `markTerminated` AFTER an
+  // owner-initiated `revoke()` has already deleted the entry (see `spawnGeneratedTool`'s doc
+  // comment, which calls that sequence "harmless and expected"). If either of these threw or
+  // reported a stale value, that ordinary revoke-then-exit race would surface as an error.
+  test("markTerminated on a toolId that was never registered does nothing", () => {
+    const registry = new ToolgenRegistry();
+    expect(() => registry.markTerminated("tg_never")).not.toThrow();
+    expect(registry.isTerminated("tg_never")).toBe(false);
+  });
+
+  test("markTerminated after revoke() dropped the entry stays a no-op", () => {
+    const registry = new ToolgenRegistry();
+    registry.register(env("tg_a"), async () => {});
+    return registry.revoke("tg_a").then(() => {
+      registry.markTerminated("tg_a");
+      // Not "terminated" — it is GONE, which `isTerminated` reports as false for an absent id.
+      expect(registry.isTerminated("tg_a")).toBe(false);
+      expect(registry.get("tg_a")).toBeUndefined();
+    });
+  });
+
+  test("isTerminated distinguishes registered-and-live from registered-and-terminated", () => {
+    const registry = new ToolgenRegistry();
+    registry.register(env("tg_a"), async () => {});
+    expect(registry.isTerminated("tg_a")).toBe(false);
+    registry.markTerminated("tg_a");
+    expect(registry.isTerminated("tg_a")).toBe(true);
+  });
+});

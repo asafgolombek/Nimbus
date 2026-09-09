@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { assertToolConfinement, resolveProbeScriptForTest } from "./toolgen-confinement.ts";
 import { buildGeneratedManifest } from "./toolgen-stub.ts";
 import { ToolgenError } from "./toolgen-types.ts";
@@ -54,5 +55,68 @@ describe("assertToolConfinement", () => {
       }),
     ).rejects.toThrow(ToolgenError);
     expect(probed).toBe(false);
+  });
+});
+
+describe("the DEFAULT probe spawn — the path production actually takes", () => {
+  // Every test above injects `spawnProbe`, so the real `defaultSpawnProbe` closure — the one
+  // production uses, and the only place the probe's exit code is turned into a number — was never
+  // executed. These drive it through a fake `SandboxRunner.spawn`, so the argv, the close/error
+  // wiring and the exit-code normalisation are exercised without an OS sandbox.
+  function runnerSpawning(emit: (child: EventEmitter) => void): {
+    runner: import("../platform/sandbox/sandbox-runner.ts").SandboxRunner;
+    spawns: Array<{ cmd: string; args: string[] }>;
+  } {
+    const spawns: Array<{ cmd: string; args: string[] }> = [];
+    const runner = {
+      canConfine: () => null,
+      spawn: (cmd: string, args: string[]) => {
+        spawns.push({ cmd, args });
+        const child = new EventEmitter();
+        // Emit on a later turn: production attaches its listeners AFTER `spawn` returns, so a
+        // synchronous emit here would be missed and the promise would hang forever.
+        setTimeout(() => emit(child), 0);
+        return child as unknown as import("node:child_process").ChildProcess;
+      },
+    } as unknown as import("../platform/sandbox/sandbox-runner.ts").SandboxRunner;
+    return { runner, spawns };
+  }
+
+  test("spawns the resolved probe script with --probe=fs-denied and passes on exit 10", async () => {
+    const { runner, spawns } = runnerSpawning((c) => c.emit("close", 10));
+    await expect(
+      assertToolConfinement({
+        runner,
+        manifest: buildGeneratedManifest("tg_a"),
+        cwd: process.cwd(),
+      }),
+    ).resolves.toBeUndefined();
+    expect(spawns).toHaveLength(1);
+    expect(spawns[0]?.args[0]).toBe(resolveProbeScriptForTest());
+    expect(spawns[0]?.args).toContain("--probe=fs-denied");
+  });
+
+  test("a NULL exit code (killed by a signal) is normalised to -1 and REFUSED, not read as success", async () => {
+    // The `code ?? -1` arm. A signal-killed probe proved nothing about confinement, so it must
+    // land on the refusal side rather than resolving because `code` was falsy-but-not-10.
+    const { runner } = runnerSpawning((c) => c.emit("close", null));
+    await expect(
+      assertToolConfinement({
+        runner,
+        manifest: buildGeneratedManifest("tg_a"),
+        cwd: process.cwd(),
+      }),
+    ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CONFINEMENT_FAILED" });
+  });
+
+  test("a spawn 'error' event REJECTS rather than hanging the gate forever", async () => {
+    const { runner } = runnerSpawning((c) => c.emit("error", new Error("ENOENT")));
+    await expect(
+      assertToolConfinement({
+        runner,
+        manifest: buildGeneratedManifest("tg_a"),
+        cwd: process.cwd(),
+      }),
+    ).rejects.toThrow(/ENOENT/);
   });
 });

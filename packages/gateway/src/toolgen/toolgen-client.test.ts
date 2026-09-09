@@ -10,6 +10,7 @@ import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { ToolgenBroker } from "./toolgen-broker.ts";
 import {
   buildToolSpawnSpec,
+  type GeneratedToolHandle,
   ioFromSpawnedChild,
   type ToolChildIo,
   wireExitCallback,
@@ -17,7 +18,7 @@ import {
 } from "./toolgen-client.ts";
 import { ToolgenRegistry } from "./toolgen-registry.ts";
 import { emitToolScript } from "./toolgen-stub.ts";
-import type { ToolgenEnvelope } from "./toolgen-types.ts";
+import { BROKERED_FETCH_METHOD, type ToolgenEnvelope } from "./toolgen-types.ts";
 
 const envelope: ToolgenEnvelope = {
   sessionId: "s1",
@@ -271,5 +272,246 @@ describe("a generated tool's exit is observed and marks it terminated (load-bear
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }, 15_000);
+});
+// ---------------------------------------------------------------------------------------------
+// Wire-protocol narrowing. Every line a generated tool writes is untrusted input (non-negotiable
+// 7): the child is model-authored code the owner approved once, not a trusted peer. These drive
+// `wireToolProtocol` through a fully controllable `ToolChildIo` so each malformed shape is fed in
+// deliberately, rather than hoping a real child happens to produce one.
+// ---------------------------------------------------------------------------------------------
+interface ControllableIo {
+  readonly io: ToolChildIo;
+  /** Feed raw bytes to the protocol reader, exactly as a child's stdout would. */
+  readonly feed: (s: string) => void;
+  /** Every line the gateway wrote back to the child, parsed. */
+  readonly writes: Array<Record<string, unknown>>;
+  readonly kills: () => number;
+}
+
+function controllableIo(opts: { neverExits?: boolean } = {}): ControllableIo {
+  const writes: Array<Record<string, unknown>> = [];
+  let onData: ((chunk: Uint8Array) => void) | undefined;
+  let killCount = 0;
+  const exited =
+    opts.neverExits === true ? new Promise<void>(() => {}) : Promise.resolve<void>(undefined);
+  return {
+    io: {
+      writeLine: (line) => writes.push(JSON.parse(line) as Record<string, unknown>),
+      onStdoutData: (cb) => {
+        onData = cb;
+      },
+      kill: () => {
+        killCount += 1;
+      },
+      waitExit: () => exited,
+    },
+    feed: (s) => onData?.(new TextEncoder().encode(s)),
+    writes,
+    kills: () => killCount,
+  };
+}
+
+describe("wireToolProtocol -- an unparseable or unrecognised line is DROPPED, never guessed at", () => {
+  // The failure mode this guards is worse than a crash: a line that half-parses into something
+  // with a plausible `id` could spuriously resolve a pending `describe`/`call` with garbage, and
+  // the caller would have no way to tell that from a real reply.
+  test.each([
+    ["a line that is not JSON at all", "}{"],
+    ["a JSON null", "null"],
+    ["a JSON array", "[1,2]"],
+    ["a JSON scalar", "42"],
+    ["an object with no id", '{"result":{"ok":true}}'],
+    ["an object whose id is not a string", '{"id":7,"result":{"ok":true}}'],
+    ["a reply whose id matches no pending request", '{"id":"nobody","result":{"ok":true}}'],
+    ["an inbound request naming a method we do not serve", '{"id":"g1","method":"sudo"}'],
+  ])("%s does not settle a pending call", async (_label, line) => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 40);
+    const pending = handle.call({});
+    c.feed(`${line}\n`);
+    // The call is still outstanding, so it can only end at the timeout.
+    await expect(pending).rejects.toThrow(/did not respond/);
+  });
+
+  test("blank lines between real messages are skipped without disturbing framing", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    const pending = handle.call({});
+    const id = c.writes[0]?.["id"] as string;
+    const reply = JSON.stringify({ id, result: { ok: 1 } });
+    // Two blank lines, then a SPLIT message -- the reader has to reassemble across chunk
+    // boundaries as well as tolerate the empties.
+    c.feed("\n\n");
+    c.feed(reply.slice(0, 8));
+    c.feed(`${reply.slice(8)}\n`);
+    await expect(pending).resolves.toEqual({ ok: 1 });
+  });
+
+  test("an inbound request with an unknown method cannot resolve a pending call SHARING its id", async () => {
+    // The specific trap: the child picks an id equal to one of ours. A request (it carries a
+    // `method`) must never be treated as a reply, whatever its id.
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 40);
+    const pending = handle.call({});
+    const id = c.writes[0]?.["id"] as string;
+    c.feed(`${JSON.stringify({ id, method: "whatever", result: { ok: true } })}\n`);
+    await expect(pending).rejects.toThrow(/did not respond/);
+  });
+});
+
+describe("wireToolProtocol -- an error reply rejects the caller, whatever shape it carries", () => {
+  test("a string error becomes the rejection message verbatim", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    const pending = handle.call({});
+    const id = c.writes[0]?.["id"] as string;
+    c.feed(`${JSON.stringify({ id, error: "the tool body threw" })}\n`);
+    await expect(pending).rejects.toThrow("the tool body threw");
+  });
+
+  test("a structured (non-string) error is serialised rather than becoming '[object Object]'", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    const pending = handle.call({});
+    const id = c.writes[0]?.["id"] as string;
+    c.feed(`${JSON.stringify({ id, error: { code: "E_TOOL", detail: "bad" } })}\n`);
+    await expect(pending).rejects.toThrow(/E_TOOL/);
+  });
+});
+
+describe("wireToolProtocol -- a brokered fetch is the tool's ONLY route out (invariant I39)", () => {
+  /** A broker that answers one approved host, so the happy fetch path is real rather than stubbed. */
+  function workingBroker(): ToolgenBroker {
+    const db = new Database(":memory:");
+    runIndexedSchemaMigrations(db, CURRENT_SCHEMA_VERSION);
+    return new ToolgenBroker({
+      db,
+      now: () => 1,
+      maxRequestsPerTool: 5,
+      requestTimeoutMs: 1_000,
+      resolveHost: async () => ["93.184.216.34"],
+      readCredential: async () => null,
+      approvedHostsFor: () => ["api.example.com"],
+      doFetch: async () => new Response("payload", { status: 200 }),
+    });
+  }
+
+  async function firstWrite(c: ControllableIo): Promise<Record<string, unknown>> {
+    for (let i = 0; i < 400 && c.writes.length === 0; i += 1) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const w = c.writes[0];
+    if (w === undefined) throw new Error("the gateway never answered the brokered fetch");
+    return w;
+  }
+
+  test("a brokered fetch request is served and its result returned to the child on the same id", async () => {
+    const c = controllableIo();
+    wireToolProtocol(c.io, envelope, workingBroker(), 5_000);
+    c.feed(
+      `${JSON.stringify({
+        id: "f1",
+        method: BROKERED_FETCH_METHOD,
+        params: { url: "https://api.example.com/v1" },
+      })}\n`,
+    );
+    const reply = await firstWrite(c);
+    expect(reply["id"]).toBe("f1");
+    expect(reply["result"]).toMatchObject({ status: 200, body: "payload" });
+    expect(reply["error"]).toBeUndefined();
+  });
+
+  test("a broker REFUSAL comes back as an error on the same id -- never as a silent success", async () => {
+    // `unreachableBroker` has a zero-request budget, so this exercises the real refusal path
+    // (`ERR_TOOLGEN_BUDGET_EXHAUSTED`) rather than a thrown fake.
+    const c = controllableIo();
+    wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    c.feed(
+      `${JSON.stringify({
+        id: "f2",
+        method: BROKERED_FETCH_METHOD,
+        params: { url: "https://api.example.com/v1" },
+      })}\n`,
+    );
+    const reply = await firstWrite(c);
+    expect(reply["id"]).toBe("f2");
+    expect(reply["result"]).toBeUndefined();
+    expect(String(reply["error"])).toContain("budget");
+  });
+});
+
+describe("GeneratedToolHandle -- describe() tolerates a child that answers badly", () => {
+  function answering(result: unknown): GeneratedToolHandle {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    // Answer whatever the handle asks, on the next turn, with the given result.
+    queueMicrotask(() => {
+      const id = c.writes[0]?.["id"] as string | undefined;
+      if (id !== undefined) c.feed(`${JSON.stringify({ id, result })}\n`);
+    });
+    return handle;
+  }
+
+  test("a non-object describe result falls back to the APPROVED tool name, not an empty one", async () => {
+    // The name shown to the model has to come from the artifact the owner approved when the child
+    // declines to supply one -- never from nothing.
+    await expect(answering("not an object").describe()).resolves.toEqual({
+      name: envelope.artifact.toolName,
+      description: "",
+    });
+  });
+
+  test("a describe result with non-string fields falls back field by field", async () => {
+    await expect(answering({ name: 42, description: null }).describe()).resolves.toEqual({
+      name: envelope.artifact.toolName,
+      description: "",
+    });
+  });
+
+  test("a well-formed describe result is used as-is", async () => {
+    await expect(
+      answering({ name: "real-name", description: "real-desc" }).describe(),
+    ).resolves.toEqual({ name: "real-name", description: "real-desc" });
+  });
+});
+
+describe("GeneratedToolHandle.close()", () => {
+  test("a call made AFTER close is rejected outright, never written to a dead child", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    await handle.close();
+    const writesBefore = c.writes.length;
+    await expect(handle.call({})).rejects.toThrow(/closed/);
+    expect(c.writes).toHaveLength(writesBefore);
+  });
+
+  test("close() is idempotent -- a second call neither re-kills the child nor hangs", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    await handle.close();
+    expect(c.kills()).toBe(1);
+    await handle.close();
+    expect(c.kills()).toBe(1);
+  });
+
+  test("close() fails every in-flight call rather than leaving it to time out", async () => {
+    const c = controllableIo();
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 30_000);
+    const pending = handle.call({});
+    await handle.close();
+    // The request timeout is 30s, so anything but an immediate rejection here hangs this test.
+    await expect(pending).rejects.toThrow(/closed/);
+  });
+
+  test("a child that never exits does not hang close() forever", async () => {
+    // The escalation timer is the only thing bounding this: `waitExit()` here never resolves, the
+    // way a wedged child's would not. Without the timer, `close()` would never return at all.
+    const c = controllableIo({ neverExits: true });
+    const handle = wireToolProtocol(c.io, envelope, unreachableBroker(), 5_000);
+    const started = Date.now();
+    await handle.close();
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
+    expect(c.kills()).toBe(1);
   }, 15_000);
 });

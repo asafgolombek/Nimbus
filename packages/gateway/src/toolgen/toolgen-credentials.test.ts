@@ -86,3 +86,62 @@ describe("round-trip", () => {
     expect(await readToolCredential(v2, "tg_a", "api.example.com")).toBeNull();
   });
 });
+
+describe("every binding shape survives a real write/read round trip", () => {
+  // `applyCredential` in the broker switches on `type`, so a shape that writes but fails to parse
+  // back would leave the request UNAUTHENTICATED rather than erroring — the tool would see a 401
+  // from the upstream and the owner would have no signal the binding was the problem.
+  test("a header binding round-trips with its name and value intact", async () => {
+    const vault = memoryVault();
+    await writeToolCredential(vault, "tg_a", "api.example.com", {
+      type: "header",
+      headerName: "X-Api-Key",
+      value: "k1",
+    });
+    expect(await readToolCredential(vault, "tg_a", "api.example.com")).toEqual({
+      type: "header",
+      headerName: "X-Api-Key",
+      value: "k1",
+    });
+  });
+
+  test("a basic binding round-trips with its username and password intact", async () => {
+    const vault = memoryVault();
+    await writeToolCredential(vault, "tg_a", "api.example.com", {
+      type: "basic",
+      username: "u",
+      password: "p",
+    });
+    expect(await readToolCredential(vault, "tg_a", "api.example.com")).toEqual({
+      type: "basic",
+      username: "u",
+      password: "p",
+    });
+  });
+});
+
+describe("a credential that cannot be parsed reads as ABSENT, never half-applied", () => {
+  async function readRaw(raw: string): Promise<unknown> {
+    const vault = memoryVault();
+    await vault.set(toolCredentialKey("tg_a", "api.example.com"), raw);
+    return readToolCredential(vault, "tg_a", "api.example.com");
+  }
+
+  // The distinction that matters: `null` means the broker attaches NOTHING and the request goes
+  // out unauthenticated, which is visible upstream. A partially-applied binding — a `basic` with
+  // a username and no password, say — would put a half-formed secret on the wire instead.
+  test.each([
+    ["not JSON at all", "}{"],
+    ["a JSON null", "null"],
+    ["a JSON array", '["bearer"]'],
+    ["a JSON scalar", "42"],
+    ["an unknown type", '{"type":"mtls","cert":"c"}'],
+    ["bearer with a non-string token", '{"type":"bearer","token":123}'],
+    ["header missing its value", '{"type":"header","headerName":"X-Api-Key"}'],
+    ["header with a non-string name", '{"type":"header","headerName":1,"value":"v"}'],
+    ["basic missing its password", '{"type":"basic","username":"u"}'],
+    ["basic with a non-string username", '{"type":"basic","username":1,"password":"p"}'],
+  ])("%s reads as null", async (_label, raw) => {
+    expect(await readRaw(raw)).toBeNull();
+  });
+});
