@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789021242565,
+  "lastUpdate": 1789022678205,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d7b3b6f2e1e2d3875005a67c2b342192932db8e9",
-          "message": "chore(release): combine component release PRs to stop manifest conflicts (#748)\n\n## Problem\n\nPRs like #744 (sdk) and #746 (nimbus) conflict **every time** more than\none component release is in flight at once.\n\n**Root cause:** release-please manifest mode stores all component\nversions in a single shared `.release-please-manifest.json`:\n\n```json\n{ \".\": \"0.18.0\", \"packages/client\": \"0.2.6\", \"packages/sdk\": \"1.2.0\" }\n```\n\nWith `separate-pull-requests: true`, each component (nimbus / client /\nsdk) opens its own release PR — but all of them edit that one manifest.\nrelease-please only rewrites a component's PR branch when *that*\ncomponent gets new commits. So when the client release (`0.2.5 → 0.2.6`)\nmerged to main, it did **not** refresh #744/#746, which kept a stale\n`packages/client: 0.2.5` line and now conflict with main's `0.2.6`.\n\n| | `.` | `packages/client` | `packages/sdk` |\n|---|---|---|---|\n| main | 0.18.0 | **0.2.6** | 1.2.0 |\n| #744 (sdk) | 0.18.0 | **0.2.5** | 1.2.1 |\n| #746 (nimbus) | 0.18.1 | **0.2.5** | 1.2.0 |\n\n## Fix\n\nSet `separate-pull-requests: false`. When multiple components are\npending simultaneously they land in **one** combined release PR that\nedits the manifest exactly once → no inter-PR conflicts. A single\npending component still produces a single PR, and merging still cuts\n**separate git tags + GitHub releases per component**\n(`include-component-in-tag` unchanged).\n\n## Effect on the current jam\n\nOnce this merges, the next release-please run will **supersede the\nconflicting #744 and #746 with one combined release PR** (nimbus 0.18.1\n+ sdk 1.2.1) — no hand-merging of release branches needed.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-23T18:42:17+03:00",
-          "tree_id": "742739e6a79999c8709d6bd975b53f9406a1ef9d",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/d7b3b6f2e1e2d3875005a67c2b342192932db8e9"
-        },
-        "date": 1782231139646,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 297.1691791000052,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 295.88383919999467,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 339.7899983999985,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c98cc510a3f70d3ab2d05e38fc20bec1a253b5dd",
+          "message": "chore: release main (#1484)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>7.16.0</summary>\n\n##\n[7.16.0](https://github.com/nimbus-agent/Nimbus/compare/v7.15.1...v7.16.0)\n(2026-09-10)\n\n\n### Features\n\n* **toolgen:** draft a tool body and its input schema, and bind\ncredentials at create time\n([#1481](https://github.com/nimbus-agent/Nimbus/issues/1481))\n([ecd1a04](https://github.com/nimbus-agent/Nimbus/commit/ecd1a04f8c8f47032992b2475cd67334f8afe0dd))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-10T09:32:23+03:00",
+          "tree_id": "67ca68b3951113757d53e1401673199aadb546f7",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c98cc510a3f70d3ab2d05e38fc20bec1a253b5dd"
+        },
+        "date": 1789022674664,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 353.47221590000333,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 353.54145415001113,
             "unit": "ms"
           }
         ]
