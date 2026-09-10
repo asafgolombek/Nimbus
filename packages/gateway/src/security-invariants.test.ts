@@ -3812,6 +3812,38 @@ describe("I39 — generated tools reach the network only through the broker", ()
     );
   });
 
+  // The confinement probe is I39's substrate: it is what proves, BEFORE the owner is prompted,
+  // that this machine can actually confine the policy the tool will spawn under. It had no
+  // enforcement test until now, and it needed one — the probe shipped MEASURING NOTHING on all
+  // three platforms and no suite noticed, because BOTH test layers injected around
+  // `defaultSpawnProbe`: the unit tests through the `spawnProbe` seam and the e2e through its own
+  // inline copy. A seam that every layer bypasses leaves the production default unexecuted while
+  // the suite stays green. This test is the guard against that specific shape recurring.
+  test("no PRODUCTION file injects around defaultSpawnProbe", async () => {
+    // BOTH property forms. `spawnProbe:` alone missed ES6 shorthand — a production object written
+    // `{ spawnProbe }` would inject around the default and this guard would not see it, which is
+    // the allow-list-shaped failure: written as "what I expect to find" instead of "what cannot
+    // pass". The three shapes deliberately NOT matched are the only three that exist in production
+    // today, and none of them injects: `readonly spawnProbe?:` DECLARES the seam, and
+    // `deps.spawnProbe ?? defaultSpawnProbe` READS it (twice — code and its docstring). A `?`
+    // follows `spawnProbe` in the first and a space-then-`?` in the others, so neither reaches the
+    // `[:,}]` class.
+    const injectors = await grepRepo(/spawnProbe\s*[:,}]/);
+    expect(injectors).toEqual([]);
+  });
+
+  test("the inline probe is static — nothing is interpolated into the code it constructs", async () => {
+    const src = await readFile(
+      resolve(REPO_ROOT, "packages/gateway/src/toolgen/toolgen-confinement.ts"),
+      "utf8",
+    );
+    const probe = /const INLINE_FS_DENIED_PROBE = \[([\s\S]*?)\]\.join/.exec(src);
+    expect(probe).not.toBeNull();
+    // A template substitution here would reintroduce the code-construction shape CodeQL flagged,
+    // in the one file whose job is proving a security property.
+    expect(probe?.[1] ?? "").not.toContain("${");
+  });
+
   test("recordToolEgress is the ONLY tool-class appender in the tree", async () => {
     // A second `sourceType: "tool"` row anywhere else would mean a second, unreviewed path
     // recording brokered egress — exactly the completeness property I29's `tool` class claims.

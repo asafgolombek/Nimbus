@@ -1,7 +1,7 @@
 import type { ToolsInput } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
-import { z } from "zod";
 import type { ToolgenRegistry } from "./toolgen-registry.ts";
+import { zodSchemaFromInputSchema } from "./toolgen-schema.ts";
 
 /**
  * The model-facing surface for generated tools.
@@ -26,14 +26,14 @@ export function buildGeneratedTools(
   if (sessionId === undefined) return {};
   const out: ToolsInput = {};
   for (const envelope of registry.forSession(sessionId)) {
-    const { toolId, description } = envelope.artifact;
+    const { toolId, description, inputSchema } = envelope.artifact;
     out[toolId] = wrap(
       "toolgen",
       toolId,
       createTool({
         id: toolId,
         description: `${description} (runtime-generated, approved this session)`,
-        inputSchema: z.object({}).passthrough(),
+        inputSchema: zodSchemaFromInputSchema(inputSchema),
         execute: async (input: unknown) => await invoke(toolId, input as Record<string, unknown>),
       }),
     );

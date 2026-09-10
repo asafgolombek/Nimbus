@@ -1,7 +1,7 @@
 import { asRecord } from "../connectors/unknown-record.ts";
 import type { ToolgenConsentBroker } from "../toolgen/toolgen-consent-broker.ts";
 import { createGeneratedTool, type ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
-import type { ToolgenEnvelope } from "../toolgen/toolgen-types.ts";
+import type { ToolCredentialParam, ToolgenEnvelope } from "../toolgen/toolgen-types.ts";
 import {
   dispatchByMethod,
   type RpcMethodHandlerMap,
@@ -63,6 +63,30 @@ function stringArray(v: unknown): string[] {
 }
 
 /**
+ * `<host>=<token>` from `nimbus tool create` means a BEARER binding (spec § 9.2). `header` and
+ * `basic` bindings are reachable from no user-facing path in this slice — a stated bound, not an
+ * oversight: the broker applies them correctly and nothing yet writes one.
+ *
+ * A malformed entry is DROPPED rather than throwing: a partially-typed credential must not abort a
+ * create the owner is about to be asked to approve, and the approval prompt shows the hosts that
+ * actually got one, so a dropped entry is visible there.
+ */
+function parseCredentials(raw: unknown): ToolCredentialParam[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ToolCredentialParam[] = [];
+  for (const entry of raw) {
+    const rec = asRecord(entry);
+    if (rec === undefined) continue;
+    const host = rec["host"];
+    const token = rec["token"];
+    if (typeof host !== "string" || host === "") continue;
+    if (typeof token !== "string" || token === "") continue;
+    out.push({ host, binding: { type: "bearer", token } });
+  }
+  return out;
+}
+
+/**
  * The `toolgen.list` wire shape: enough for an owner to recognise and manage a tool (I don't
  * return `body`/`manifest`/`scriptPath` here — those are plumbing, not a listing). The full
  * artifact the owner approved is `toolgen.approvalRequest`'s payload, not this one.
@@ -87,7 +111,11 @@ const HANDLERS: RpcMethodHandlerMap<ToolgenRpcCtx> = {
     const sessionId = requireString(params, "sessionId");
     const description = requireString(params, "description");
     const hosts = stringArray(rec["hosts"]);
-    return createGeneratedTool({ sessionId, description, hosts }, ctx.gateDeps);
+    return createGeneratedTool(
+      { sessionId, description, hosts },
+      ctx.gateDeps,
+      parseCredentials(rec["credentials"]),
+    );
   },
 
   "toolgen.approvalRespond": (params, ctx) => {

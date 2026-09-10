@@ -60,7 +60,7 @@ export function buildToolSpawnSpec(envelope: ToolgenEnvelope, cwd: string): Tool
 }
 
 export interface GeneratedToolHandle {
-  describe(): Promise<{ name: string; description: string }>;
+  describe(): Promise<{ name: string; description: string; inputSchema: unknown }>;
   call(args: Record<string, unknown>): Promise<unknown>;
   close(): Promise<void>;
 }
@@ -287,6 +287,10 @@ export function wireToolProtocol(
       return {
         name: typeof o["name"] === "string" ? o["name"] : envelope.artifact.toolName,
         description: typeof o["description"] === "string" ? o["description"] : "",
+        // `unknown`, deliberately: this crosses a process boundary and is untrusted until a caller
+        // validates it. The REGISTRY's artifact remains the source of truth; this value exists so a
+        // caller can COMPARE the two and detect an altered on-disk script.
+        inputSchema: o["inputSchema"],
       };
     },
     call: async (args) => await request("call", args),
