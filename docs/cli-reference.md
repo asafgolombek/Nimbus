@@ -3472,7 +3472,15 @@ nimbus extension install https://example.com/nimbus-ext.tar.gz
 
 ### `nimbus extension list [--tree] [--json]`
 
-List installed extensions with their status (enabled / disabled).
+List installed extensions with their status (`enabled` / `disabled` / `disabled (signature)`).
+
+`disabled (signature)` means the Gateway hard-disabled the extension at startup because its Ed25519 manifest signature did not verify (I16) — it is **not** the same as an extension you disabled yourself. Such a row is bold red on a TTY and carries an annotation line naming the machine-readable reason:
+
+```text
+  com.example.notion@2.0.0 [signature: signature_failed]
+```
+
+The four reasons are `publisher_key_missing`, `publisher_key_mismatch`, `signature_failed` and `signature_malformed`. Run `nimbus extension info <id>` for the remediation — the remedies differ (a key problem is fixed by `nimbus extension sync`; a signature problem is not). Separately, the `(unverified)` badge in the **Publisher** column means the manifest declares no publisher at all, which is the normal state of an unsigned extension and says nothing about verification having failed.
 
 `--tree` — print an ASCII dependency forest of installed extensions with their forward-dep edges; cycle-safe; NO_COLOR-aware (T2 PR 4).
 
@@ -3487,6 +3495,15 @@ nimbus extension list --tree
 ### `nimbus extension info <id> [--deps] [--json]`
 
 Show details for an installed extension. `--deps` appends a Dependencies section showing forward deps (extensions this one requires) and reverse deps (extensions that depend on this one) from the `extension_dependency` table (T2 PR 4).
+
+When the extension was hard-disabled by the startup signature check (I16), the `Enabled:` line names the reason and the remediation follows below it:
+
+```text
+Enabled:   no  (signature verification failed: publisher_key_missing)
+…
+Extension com.example.notion v2.0.0 failed signature verification at startup (publisher_key_missing) and was disabled.
+No publisher key is cached for it. Re-fetch keys: nimbus extension sync — or reinstall with a key you already hold: nimbus extension install <path> --publisher-key <path>
+```
 
 ```bash
 nimbus extension info com.example.notion

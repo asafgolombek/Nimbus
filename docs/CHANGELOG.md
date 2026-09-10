@@ -73,6 +73,63 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   **Not shipped:** agent-initiated tool proposal (`allow_agent_initiated` + `allowed_hosts`),
   persistence via `nimbus tool save`, and the `header`/`basic` credential bindings above. Design:
   [`2026-09-09-s2-toolgen-drafting-design.md`](./superpowers/specs/2026-09-09-s2-toolgen-drafting-design.md).
+- **2026-09-10 — Three documented gaps in ✅-complete phases, closed. No new invariant, no schema
+  migration, no new egress class.** Each of these was work a phase marked complete had explicitly
+  NOT shipped, and each had a doc line saying so.
+
+  **1. `nimbus extension list` / `info` now say WHY an extension was signature-disabled (I16).**
+  `SignatureDisabledRegistry` has recorded `extension_id → SignatureDisableReason` since T2 PR 2,
+  and until now its only production reader was a COUNT in `diag.snapshot` — `reasonFor()` and
+  `list()` were called from tests only, the B1 "defined but not consumed" shape, which
+  `docs/SECURITY-INVARIANTS.md` had been stating about itself since 2026-08-16. A user could not
+  tell an extension they had disabled from one that failed Ed25519 verification at startup.
+  `extension.list` now carries `signature_disabled` + `disabled_reason`, `extension.info` adds a
+  per-reason remediation `message` (`signatureDisableMessage`, an exhaustive switch — a
+  `publisher_key_*` failure is fixed by `nimbus extension sync` and a `signature_*` failure never
+  is), and the CLI renders `disabled (signature)` in bold red with a `[signature: <reason>]`
+  annotation line. **Three non-changes, on purpose:** the `(unverified)` publisher badge is
+  untouched and still means "declares no publisher" — a different fact from "verification failed",
+  and conflating them would paint a healthy install red; `needs_reinstall` stays pre-T2-only so
+  `--filter needs-reinstall` keeps its meaning; and the desktop Marketplace still renders `enabled`
+  as a bare toggle — `extension.list` IS renderer-callable so the fields reach it, but nothing
+  there reads them yet, which is unbuilt work rather than a described behaviour. One of the tests
+  runs the real `verifyExtensionsBestEffort` pass over a real signed extension with no cached key,
+  so the reason string in the CLI's output is the one `verify-extensions.ts` produced, not one a
+  fixture invented.
+
+  **2. The `connector.startAuth` alias is gone.** `docs/roadmap.md` said it would be removed "in
+  Phase 5 once the desktop UI has migrated entirely to `connector.auth`"; Phases 5 and 6 both closed
+  with it still routing, its once-per-run deprecation warning still firing, and the onboarding page
+  still calling it. `ui/src/pages/onboarding/Connect.tsx` now calls `connector.auth`; the `case`,
+  the warning and the `_resetStartAuthWarnFlagForTest` helper that existed only to test the warning
+  are deleted. The Tauri allowlist entry was **swapped, not deleted** — `connector.auth` had never
+  been on it, so migrating the caller alone would have made the renderer's only auth path fail
+  -32601, which is the exact defect S4-F2 was filed for. `ALLOWED_METHODS` therefore stays at 105
+  with a changed enumeration (105 + 1 − 1), asserted by name on both sides in
+  `allowlist_connector_auth_not_start_auth` and written out in the I7 prose ledger.
+
+  **3. URL-userinfo redaction fixtures — and the second copy of the regex nobody had noticed.**
+  The roadmap named `updater/updater.ts` as the home of `URL_USERINFO_RE`. It was in **two** files,
+  byte-identical: `updater/updater.ts` and `updater/manifest-fetcher.ts` (`ManifestFetchError`'s
+  constructor). Both now import one definition, `updater/redact-url-userinfo.ts` — a third module,
+  because `updater.ts` imports `manifest-fetcher.ts` and circular imports are forbidden. The
+  fixtures cover `git+https://`, `svn+ssh://`, `ssh://`, `s3://` and two must-NOT-redact cases, and
+  they record something the roadmap row's framing got wrong: narrowing the scheme class back to
+  letters-only does **not** leak `git+https://` or `svn+ssh://` credentials — the inner `https://` /
+  `ssh://` still matches on its own and only the path is mangled. It leaks `s3://` completely,
+  because a scheme ending in a digit has no inner match to fall back on. Verified by narrowing the
+  class and re-running before the fixtures were written.
+
+  **And the row's premise was half wrong, which the fixtures exposed.** "The regex broadening is
+  already done" was true of the SCHEME class only. The userinfo and authority classes were bounded
+  at `{1,256}`, and both bounds failed OPEN — the worst failure mode a redactor has, since no match
+  means the credential ships verbatim rather than partially. A userinfo longer than 256 characters
+  (an ordinary length for a bearer token or PAT) matched nothing; so did `https://user:secret@`
+  with an empty authority, because the host class demanded at least one character. Both are fixed,
+  both have fixtures, and a time-bounded test asserts the now-unbounded classes stay linear on a
+  200,000-character adversarial input rather than assuming it — the classes are disjoint at the
+  `@` boundary, so there is no backtracking ambiguity to exploit. Found in review on #1480, not by
+  the fixtures themselves: every secret in them was short and every authority non-empty.
 
 - **2026-09-09 — Runtime tool generation, PR 1 of 3: the substrate. Drafting is NOT implemented.**
   Closes the last unstarted S2 spine row's first slice. New invariant **I39** + static rule **D29**

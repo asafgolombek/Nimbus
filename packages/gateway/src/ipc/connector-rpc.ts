@@ -20,8 +20,6 @@ import { asRecord, ConnectorRpcError } from "./connector-rpc-shared.ts";
 
 export { ConnectorRpcError } from "./connector-rpc-shared.ts";
 
-let warnedConnectorStartAuth = false;
-
 export async function dispatchConnectorRpc(options: {
   method: string;
   params: unknown;
@@ -109,21 +107,9 @@ export async function dispatchConnectorRpc(options: {
     }
     case "connector.sync":
       return handleConnectorSync(ctx);
-    case "connector.startAuth":
-    case "connector.auth": {
-      if (method === "connector.startAuth" && !warnedConnectorStartAuth) {
-        warnedConnectorStartAuth = true;
-        process.stderr.write(
-          "connector.startAuth is deprecated; use connector.auth (S4-F2 alias)\n",
-        );
-      }
+    case "connector.auth":
       return handleConnectorAuth(ctx);
-    }
     default:
       return { kind: "miss" };
   }
-}
-
-export function _resetStartAuthWarnFlagForTest(): void {
-  warnedConnectorStartAuth = false;
 }

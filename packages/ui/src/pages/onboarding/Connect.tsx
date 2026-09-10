@@ -88,7 +88,7 @@ export function Connect() {
     for (const name of services) setAuthStatus(name, "authenticating");
     for (const name of services) {
       try {
-        await client.call("connector.startAuth", { service: name });
+        await client.call("connector.auth", { service: name });
       } catch {
         setAuthStatus(name, "failed");
       }

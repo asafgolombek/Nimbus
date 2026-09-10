@@ -15,7 +15,9 @@ import {
   preT2DisabledIds,
   preT2DisableMessage,
   signatureDisabledRegistry,
+  signatureDisableMessage,
 } from "./hard-disable.ts";
+import type { SignatureDisableReason } from "./verify-signature.ts";
 
 function memoryLogger(): { logger: Logger; warns: unknown[] } {
   const warns: unknown[] = [];
@@ -227,5 +229,63 @@ describe("signatureDisabledRegistry", () => {
     signatureDisabledRegistry.mark("ext-a", "signature_failed");
     signatureDisabledRegistry.reset();
     expect(signatureDisabledRegistry.count()).toBe(0);
+  });
+});
+
+describe("signatureDisableMessage", () => {
+  // Every reason gets its own remediation because the remedies genuinely differ: a missing or
+  // rotated publisher key is fixed by re-fetching the key (`nimbus extension sync`), while a
+  // failed or malformed signature means the bytes on disk no longer match what was signed, and
+  // re-fetching a key would not help. A single generic "reinstall it" line would be wrong for
+  // half the set, which is why the switch is exhaustive over `SignatureDisableReason` rather
+  // than defaulting.
+  // A hand-written tuple would compile happily when a fifth reason is added, and that reason
+  // would then never reach the distinctness check below. `Record<SignatureDisableReason, true>`
+  // makes omitting one a compile error — the same shape the repo uses for `GapCategory`.
+  const REASON_SET: Record<SignatureDisableReason, true> = {
+    publisher_key_missing: true,
+    publisher_key_mismatch: true,
+    signature_failed: true,
+    signature_malformed: true,
+  };
+  const REASONS = Object.keys(REASON_SET) as SignatureDisableReason[];
+
+  test("names the extension, the version and the machine-readable reason", () => {
+    const msg = signatureDisableMessage("acme.foo", "3.1.4", "signature_failed");
+    expect(msg).toContain("acme.foo");
+    expect(msg).toContain("3.1.4");
+    expect(msg).toContain("signature_failed");
+  });
+
+  test("says the extension was disabled, never that the user disabled it", () => {
+    const msg = signatureDisableMessage("acme.foo", "3.1.4", "publisher_key_missing");
+    expect(msg).toMatch(/signature verification/i);
+    // The positive assertion alone would pass on a message that ALSO blamed the owner, which is
+    // the one reading this whole feature exists to rule out. Both word orders, since "you
+    // disabled it" and "disabled by you" are the same mistake.
+    expect(msg).not.toMatch(
+      /\b(?:user|you|owner)\b[^.]*\bdisabled\b|\bdisabled\b[^.]*\b(?:user|you|owner)\b/i,
+    );
+  });
+
+  test("every reason yields a distinct, non-empty remediation", () => {
+    const remediations = REASONS.map((r) => signatureDisableMessage("acme.foo", "1.0.0", r));
+    for (const m of remediations) expect(m.trim().length).toBeGreaterThan(0);
+    expect(new Set(remediations).size).toBe(REASONS.length);
+  });
+
+  test("a key-resolution failure points at `extension sync`, a bytes failure does not", () => {
+    expect(signatureDisableMessage("acme.foo", "1.0.0", "publisher_key_missing")).toContain(
+      "nimbus extension sync",
+    );
+    expect(signatureDisableMessage("acme.foo", "1.0.0", "publisher_key_mismatch")).toContain(
+      "nimbus extension sync",
+    );
+    expect(signatureDisableMessage("acme.foo", "1.0.0", "signature_failed")).not.toContain(
+      "nimbus extension sync",
+    );
+    expect(signatureDisableMessage("acme.foo", "1.0.0", "signature_malformed")).not.toContain(
+      "nimbus extension sync",
+    );
   });
 });

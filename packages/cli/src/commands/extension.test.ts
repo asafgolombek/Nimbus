@@ -13,6 +13,7 @@ import type { AvailableUpdateCli, SyncResult, UpdateApplyResultCli } from "./ext
 const extensionMod = await import("./extension.ts");
 const {
   fetchSandboxPosture,
+  formatEnabledLine,
   formatExtensionInfoHuman,
   formatExtensionListTable,
   hasFlag,
@@ -144,6 +145,30 @@ describe("runExtensionList", () => {
     expect(out.stdout).toContain("disabled");
     expect(out.stdout).toContain("(unverified)");
     expect(out.stdout).toContain("e.f@3.0.0 [needs-reinstall]");
+  });
+
+  test("annotates a signature-disabled row with its reason, distinctly from needs-reinstall", async () => {
+    const { client } = createMockIpcClient([
+      {
+        extensions: [
+          { id: "a.b", version: "1.0.0", enabled: 0 },
+          { id: "c.d", version: "2.0.0", enabled: 1, needs_reinstall: true },
+          {
+            id: "e.f",
+            version: "3.0.0",
+            enabled: 0,
+            signature_disabled: true,
+            disabled_reason: "signature_failed",
+          },
+        ],
+      },
+    ]);
+    await runExtensionList(client, ["list"]);
+    expect(out.stdout).toContain("c.d@2.0.0 [needs-reinstall]");
+    expect(out.stdout).toContain("e.f@3.0.0 [signature: signature_failed]");
+    // The plainly-disabled row gets no annotation line at all — that is the contrast the whole
+    // feature exists to draw.
+    expect(out.stdout).not.toContain("a.b@1.0.0 [");
   });
 
   test("--filter is forwarded as params.filter", async () => {
@@ -834,6 +859,84 @@ describe("formatExtensionListTable (T2 PR 2)", () => {
   });
 });
 
+describe("formatExtensionListTable — signature-disabled is distinguishable (I16)", () => {
+  // The acceptance criterion for closing the I16 surfacing gap: a user must be able to tell
+  // "I disabled this" from "this failed integrity verification at startup" without reading the
+  // audit log. Both rows below are `enabled: 0`; the ONLY difference is signatureDisabled.
+  const ROWS = [
+    { id: "ext.manual", version: "1.0.0", enabled: 0 },
+    { id: "ext.tampered", version: "2.0.0", enabled: 0, signatureDisabled: true },
+  ] as const;
+
+  test("the two disabled rows do not render the same Status", () => {
+    const formatted = formatExtensionListTable([...ROWS], { isTty: false, noColor: true });
+    const manual = formatted.split("\n").find((l) => l.startsWith("ext.manual")) ?? "";
+    const tampered = formatted.split("\n").find((l) => l.startsWith("ext.tampered")) ?? "";
+    expect(manual).not.toBe("");
+    expect(tampered).not.toBe("");
+    expect(manual.trimEnd().endsWith("disabled")).toBe(true);
+    expect(tampered).toContain("disabled (signature)");
+  });
+
+  test("the publisher column is NOT the signal — an unsigned row is not signature-disabled", () => {
+    // `(unverified)` means "this manifest declares no publisher", which is the normal state of
+    // every unsigned extension and says nothing about verification having FAILED. Conflating the
+    // two would mark most of a healthy install red.
+    const formatted = formatExtensionListTable(
+      [{ id: "ext.manual", version: "1.0.0", enabled: 0 }],
+      {
+        isTty: false,
+        noColor: true,
+      },
+    );
+    expect(formatted).toContain("(unverified)");
+    expect(formatted).not.toContain("disabled (signature)");
+  });
+
+  test("signature-disabled status is ANSI red on a TTY and plain under NO_COLOR", () => {
+    const ESC = String.fromCodePoint(27);
+    const colored = formatExtensionListTable(
+      [{ id: "ext.tampered", version: "2.0.0", enabled: 0, signatureDisabled: true }],
+      { isTty: true, noColor: false },
+    );
+    expect(colored).toMatch(new RegExp(String.raw`${ESC}\[1;31mdisabled \(signature\)`));
+    const plain = formatExtensionListTable(
+      [{ id: "ext.tampered", version: "2.0.0", enabled: 0, signatureDisabled: true }],
+      { isTty: true, noColor: true },
+    );
+    expect(plain).not.toMatch(new RegExp(String.raw`${ESC}\[`));
+    expect(plain).toContain("disabled (signature)");
+  });
+});
+
+describe("formatEnabledLine (I16)", () => {
+  test("enabled reads 'yes'", () => {
+    expect(formatEnabledLine({ enabled: 1 })).toBe("yes");
+  });
+
+  test("owner-disabled reads exactly 'no', with no reason invented", () => {
+    expect(formatEnabledLine({ enabled: 0 })).toBe("no");
+  });
+
+  test("signature-disabled names the reason on the same line", () => {
+    expect(
+      formatEnabledLine({
+        enabled: 0,
+        signature_disabled: true,
+        disabled_reason: "publisher_key_mismatch",
+      }),
+    ).toBe("no  (signature verification failed: publisher_key_mismatch)");
+  });
+
+  test("a signature_disabled row with no reason still says a check failed", () => {
+    // Defensive: the gateway always sends both together, but printing a bare `no` here would
+    // silently re-open the exact gap this closes.
+    expect(formatEnabledLine({ enabled: 0, signature_disabled: true })).toBe(
+      "no  (signature verification failed: unknown)",
+    );
+  });
+});
+
 describe("formatExtensionInfoHuman (T2 PR 2)", () => {
   test("shows Publisher section with id + truncated key for signed extensions", () => {
     const formatted = formatExtensionInfoHuman({
@@ -885,6 +988,40 @@ describe("runExtensionInfo publisher (T2 PR 2)", () => {
     ]);
     await runExtensionInfo(client, ["ext-b"], ["info", "ext-b"]);
     expect(out.stdout).toMatch(/Publisher:\s+\(unverified\)/);
+  });
+
+  test("a signature-disabled extension says WHY next to Enabled: no", async () => {
+    const { client } = createMockIpcClient([
+      {
+        extension: {
+          id: "ext-tampered",
+          version: "2.0.0",
+          enabled: 0,
+          signature_disabled: true,
+          disabled_reason: "signature_failed",
+          publisher: { id: "pub-a", key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
+        },
+        message: "Extension ext-tampered v2.0.0 failed signature verification (signature_failed).",
+      },
+      { sandbox: { platform_capabilities: { network: "per_host", reason: null } } },
+    ]);
+    await runExtensionInfo(client, ["ext-tampered"], ["info", "ext-tampered"]);
+    expect(out.stdout).toMatch(
+      /Enabled:\s+no\s+\(signature verification failed: signature_failed\)/,
+    );
+    // The gateway's remediation text is printed verbatim rather than re-authored here — one
+    // definition of the advice, in `hard-disable.ts`.
+    expect(out.stdout).toContain("failed signature verification (signature_failed)");
+  });
+
+  test("a plainly-disabled extension says only 'no'", async () => {
+    const { client } = createMockIpcClient([
+      { extension: { id: "ext-off", version: "1.0.0", enabled: 0 } },
+      { sandbox: { platform_capabilities: { network: "per_host", reason: null } } },
+    ]);
+    await runExtensionInfo(client, ["ext-off"], ["info", "ext-off"]);
+    expect(out.stdout).toMatch(/Enabled:\s+no\s*\n/);
+    expect(out.stdout).not.toContain("signature verification failed");
   });
 
   test("--json output includes full publisher.key (not truncated)", async () => {
