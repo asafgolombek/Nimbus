@@ -178,12 +178,20 @@ async function safeRevokeCredentials(
   deps: ToolgenGateDeps,
   toolId: string,
   hosts: readonly string[],
-): Promise<void> {
+): Promise<boolean> {
   try {
     await deps.revokeCredentials(toolId, hosts);
+    return true;
   } catch {
-    // Swallowed -- see the docstring above. The caller's own outcome (denial / failure) still
-    // surfaces and is still audited.
+    // Still swallowed -- see the docstring above: letting this escape would take out the `audit()`
+    // call that records the outcome, which is strictly worse than a failed cleanup.
+    //
+    // But swallowing it SILENTLY meant a bearer token could stay in the Vault under a toolId that
+    // never registers with nothing anywhere saying so. The caller now records the failure on the
+    // audit row instead, which is what makes it actionable: an operator can find the tool id and
+    // remove the key by hand. A durable retry queue would be the fuller answer and is deliberately
+    // not built here -- it is a store with its own lifecycle, and this is a leaf cleanup path.
+    return false;
   }
 }
 
@@ -388,10 +396,15 @@ export async function createGeneratedTool(
       // Guarded via `safeRevokeCredentials` -- see its docstring for why an unguarded revoke here
       // could take out the `audit()` call below with it. Revokes the ATTEMPTED set, not
       // `bindCredentials`'s return value -- see `attemptedCredentialHosts`'s declaration above.
+      let revokeFailed = false;
       if (credentialsBound) {
-        await safeRevokeCredentials(deps, toolId, attemptedCredentialHosts);
+        revokeFailed = !(await safeRevokeCredentials(deps, toolId, attemptedCredentialHosts));
       }
       audit(deps, "rejected", "denied_by_owner", {
+        // Only present when TRUE, so its absence is not read as a claim that cleanup succeeded on
+        // a run where nothing was bound. When present it means a bearer token may still sit in the
+        // Vault under this toolId and wants removing by hand.
+        ...(revokeFailed ? { credentialRevokeFailed: true } : {}),
         toolId,
         body,
         hosts,
@@ -441,8 +454,9 @@ export async function createGeneratedTool(
     // is. All three clean up the same way, against the ATTEMPTED set. Guarded for the identical
     // reason as the denial path above: this IS the outer catch, so an unguarded revoke failure here
     // would escape `createGeneratedTool` outright and neither `audit()` call below would ever run.
+    let revokeFailed = false;
     if (credentialsBound) {
-      await safeRevokeCredentials(deps, toolId, attemptedCredentialHosts);
+      revokeFailed = !(await safeRevokeCredentials(deps, toolId, attemptedCredentialHosts));
     }
     const code = err instanceof ToolgenError ? err.code : "ERR_TOOLGEN_INTERNAL";
     // Present only when the caught error is a `ToolgenError` that actually carried one (today,
@@ -457,12 +471,18 @@ export async function createGeneratedTool(
     // approved (mirrors `exec-gate.ts`'s `approvedAt` sentinel and its identical reasoning).
     if (approved) {
       audit(deps, "approved", "failed_after_approval", {
+        // See the denial arm: present ONLY when a bound credential failed to revoke, so an
+        // operator can find the toolId and remove the key by hand.
+        ...(revokeFailed ? { credentialRevokeFailed: true } : {}),
         toolId,
         code,
         message: (err as Error).message,
       });
     } else {
       audit(deps, "rejected", "refused_before_consent", {
+        // See the denial arm: present ONLY when a bound credential failed to revoke, so an
+        // operator can find the toolId and remove the key by hand.
+        ...(revokeFailed ? { credentialRevokeFailed: true } : {}),
         toolId,
         code,
         message: (err as Error).message,

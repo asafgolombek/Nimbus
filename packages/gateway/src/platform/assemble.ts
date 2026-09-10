@@ -3889,10 +3889,22 @@ export async function assemblePlatformServices(
     // `deleteToolCredential` on an absent key is a no-op. `hosts` comes from the GATE's ATTEMPTED
     // set (Task 9 step 8), never a registry lookup -- the tool is by definition unregistered on
     // every path that calls this.
+    // EVERY host is attempted even when one delete rejects. Without the per-host guard the first
+    // Vault or keychain error skipped every remaining host, and the gate's `safeRevokeCredentials`
+    // then swallowed it -- so a single transient failure could leave later bearer tokens in the
+    // Vault under a toolId that never registers, which is the exact leak this callback exists to
+    // close. The last error is re-thrown AFTER the loop so the gate stays the single place that
+    // decides to ignore a cleanup failure.
     revokeCredentials: async (toolId, hosts) => {
+      let lastError: unknown;
       for (const host of hosts) {
-        await deleteToolCredential(vault, toolId, host);
+        try {
+          await deleteToolCredential(vault, toolId, host);
+        } catch (err) {
+          lastError = err;
+        }
       }
+      if (lastError !== undefined) throw lastError;
     },
     now: () => Date.now(),
     newId: () => randomUUID(),
