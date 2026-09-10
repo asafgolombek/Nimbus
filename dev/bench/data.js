@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789014330010,
+  "lastUpdate": 1789021242565,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "469076098cd15cfbc66ad1dc6f083a1f8a8c8d06",
-          "message": "chore(main): release client 0.2.6 (#745)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.2.6](https://github.com/nimbus-agent/Nimbus/compare/client-v0.2.5...client-v0.2.6)\n(2026-06-23)\n\n\n### Dependencies\n\n* The following workspace dependencies were updated\n  * dependencies\n    * @nimbus-dev/sdk bumped to 1.2.1\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n  * Released client package version 0.2.6\n  * Updated workspace dependency versions\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
-          "timestamp": "2026-06-23T18:29:04+03:00",
-          "tree_id": "58bb6a815f1703c97fb922a33c2ce53413e74faa",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/469076098cd15cfbc66ad1dc6f083a1f8a8c8d06"
-        },
-        "date": 1782229957722,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 324.44057080000096,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 324.86832155000303,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 320.608145250009,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ecd1a04f8c8f47032992b2475cd67334f8afe0dd",
+          "message": "feat(toolgen): draft a tool body and its input schema, and bind credentials at create time (#1481)\n\n## Summary\n\nReplaces the `ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED` stub so `nimbus tool\ncreate` actually produces a\nworking, owner-approved, sandboxed tool instead of walking the whole\ngate and refusing at the last\nstep. A model now authors both the tool body **and** its input schema;\nthe schema goes inside the\nartifact the owner approves, is covered by `artifactDigest`, is baked\ninto the emitted script, and\ndrives the parameters the calling model sees. A four-rung validation\nladder runs before the owner is\nprompted, with exactly one bounded redraft. The drafting prompt is\ngrounded on API endpoints already\nindexed from OpenAPI specs under `[[filesystem.roots]]`.\n\nAlso closes two things PR 1 left inert: `--credential <host>=<token>` is\nnow transmitted and binds a\nbearer credential per host, and the drafting locality is\nowner-controlled via a new\n`[tool_generation] drafting` key defaulting to `\"local\"`.\n\nNo schema migration. No new invariant — this rides I39, the existing\n`model` egress class and the\nexisting `tool.generate` audit row.\n\nDesign:\n`docs/superpowers/specs/2026-09-09-s2-toolgen-drafting-design.md`\nPlan: `docs/superpowers/plans/2026-09-09-s2-toolgen-drafting.md`\n\n## Related Issue\n\nN/A — planned work from the Spine S2 runtime-tool-generation row in\n`docs/roadmap.md`.\n\n## Type of Change\n\n- [ ] Bug fix (non-breaking change that fixes an issue)\n- [x] New feature (non-breaking change that adds functionality)\n- [ ] Breaking change (fix or feature that changes existing behaviour)\n- [ ] Refactor (no behaviour change)\n- [ ] Test improvement\n- [ ] Documentation only\n- [ ] CI / tooling\n\nDeliberately **not** marked breaking. Nothing an existing user has to\nchange: the new config key is\nadditive and defaults to the safe value, `--credential` previously\nparsed and discarded its value so\nhonouring it breaks nobody, and the removed error code was never a\ndocumented contract.\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes — Biome, format + lint\n- [x] All existing tests pass — 22,200 pass / 70 skip / 0 fail across\n1,497 files\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] Does not touch `docs/README.md`\n\n## Coverage\n\n`engine/` and `vault/` are untouched, so those two gates are not\napplicable. `audit:coverage-floor`\npasses on an authoritative Docker-Linux build.\n\n## Testing\n\n- Whole-repo suite: `bun test packages/gateway packages/cli scripts` —\n22,200 pass, 70 skip, 0 fail.\n- Full `bun run preflight`, plus `audit:doc-refs`, `audit:status-drift`,\n`lint:markdown`.\n- Sandbox behaviour exercised end to end on Windows against the real\nhelper and on Linux under\n  bubblewrap. macOS is reasoned but not measured — see below.\n\n## Notes for Reviewers\n\n**The most important change is not the drafting.** Building the\nend-to-end test against a real\nsandbox revealed that the pre-consent confinement probe was measuring\nnothing on any platform. It\nread `/etc/passwd` and expected denial, but `bwrap` `--ro-bind`s `/etc`,\nso the read succeeded and\nthe probe reported \"unconfined\"; macOS has the same hole via `subpath\n/private/etc`. Linux was\nalready red on this branch and nobody had seen it, because **both test\nlayers injected around\n`defaultSpawnProbe`** — the unit tests through the `spawnProbe` seam,\nthe e2e through its own inline\nprobe — so the production default was executed by no test at all.\n\nThe probe is now inline, and its target is a parent-written sentinel\nplaced outside every grant,\nwith the parent proving the sentinel readable first, so any read failure\ncounts as denial. That\nmatters because the three platforms deny three different ways. A control\nrun against the real\nWindows helper confirms it discriminates: exit 2 for a target inside a\ngranted directory, exit 10\noutside every grant.\n\n**Stated residuals, none softened:**\n- macOS is reasoned, not measured on hardware. The e2e does not skip, so\nthe macOS PR leg will\nexecute the real probe — a failure there reds this PR rather than\n`main`.\n- `header` and `basic` credential bindings exist in the broker but no\nuser-facing path produces one.\n- Agent-initiated tool proposal and persistence via `nimbus tool save`\nare explicitly not shipped.\n- One doc sentence is loose and known: \"both test layers now drive the\nreal probe\" overstates the\nunit layer, which drives the real function against a fake runner. Worth\na one-line follow-up.\n\n**Where I would look hardest:** `toolgen-gate.ts`'s ordering — every\nrefusal decidable without the\nowner must precede the consent prompt — and the credential path, where a\nraw-vs-normalised host\nsplit could previously strand a bearer token in the Vault on a denial.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01TCGiUd9StvWkDv7pPgAG1r\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- `nimbus tool create` can draft tool code and input schemas using\nindexed API information.\n- Drafts are validated and may receive one automatic correction before\napproval.\n- Approval details now show parameters, hosts, credentials, provenance,\nand model locality.\n- Credentials can be securely bound to supported hosts during tool\ncreation.\n- Tool generation supports disabled, local-only, and explicitly\nremote-enabled drafting modes.\n  - Generated tools enforce their approved input parameters.\n\n- **Bug Fixes**\n- Improved cross-platform confinement verification with fail-closed\nbehavior.\n\n- **Documentation**\n- Updated the changelog, CLI reference, roadmap, and project status\ndocumentation.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-10T06:07:54Z",
+          "tree_id": "7fe2485615addde3acc71f95c7f68165b15cba84",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ecd1a04f8c8f47032992b2475cd67334f8afe0dd"
+        },
+        "date": 1789021239144,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 335.11619964999556,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 339.7899983999985,
             "unit": "ms"
           }
         ]
