@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789012516002,
+  "lastUpdate": 1789014330010,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2401330932fa941bdf584c87bca88ea69167fa0c",
-          "message": "fix(sonar): clear the board — S3776/S8786/S7735 sweep + warehouse-mapper dedup (#743)\n\n## Summary\n\nTakes the SonarCloud board to **zero open issues** (the gate was already\nPASSED — these 6 were advisory CODE_SMELLs) and trims duplication. No\nbehavior changes; all extractions are behavior-preserving.\n\n## Sonar smells cleared (6 → 0)\n\n**S3776 — cognitive complexity:**\n- `ipc/http-server.ts` — extract `resolveExpectedToken` /\n`resolveKnownServices` / `resolveMessagingSurface` from\n`resolveWriteRouteDeps` (17 → <15).\n- `connectors/workday-sync.ts` — extract the RaaS-reports loop into\n`syncRaasReports` (19 → <15).\n- `config/nimbus-toml-workday.ts` — extract `sectionForHeader` (16 →\n<15).\n\n**S8786 — super-linear regex:**\n- `connectors/obsidian-parsing.ts` — the wikilink content class now also\nexcludes `[`, which is what Sonar flags (content overlapping the `[[`\nmatch-restart). Benchmarked: the old regex was genuinely **O(n²)** on\n`[`-heavy input (130→527→2125 ms at 20k/40k/80k); the new one is\n**O(n)** (0.08 ms at 160k). All existing wikilink tests unchanged — a\nvalid Obsidian target never contains a bare `[`.\n- `tribal/tribal-chat-capture.ts` — replace the `(\\S+)(.*)` overlap with\n`(\\S+)(?:\\s+(.*))?`. Cluster-id and `--target` parsing are identical for\nthe documented `tribal capture <id> [--target …]` format.\n\n**S7735 — negated condition:**\n- `config/nimbus-toml-workday.ts` — invert the `r.fields !== undefined`\nternary.\n\n## Duplication (jscpd 3.98% → 3.93%)\n\nExtracted the byte-identical `epochToMs` / `parseTimestampMs` / `clamp`\n+ `TITLE_MAX` / `BODY_MAX` from the three AWS warehouse mappers (athena\n/ sagemaker / cloudwatch) into a shared\n`connectors/warehouse-mapping-primitives.ts`, with a branch-complete\nunit test. (The remaining ~3.9% is inherent connector boilerplate that\nneeds codegen, not extraction.)\n\n## Verification\n\n- `tsc --noEmit` clean across all packages.\n- Biome clean (`bunx biome check packages scripts`, 2918 files).\n- Static structure/invariant audit clean; `audit:boundaries` /\n`audit:any` / `audit:exclusion-parity` / `audit:cross-platform` clean.\n- All affected tests pass (workday-sync, nimbus-toml-workday,\ntribal-chat-capture, obsidian, http-server, 3 warehouse mappers + syncs,\nnew primitives test).\n- All changed/new files pass the per-file coverage floor (new primitives\nfile: 100% line / 94% branch).\n- Independent code review confirmed every change behavior-preserving.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added comprehensive test suite validating shared mapping utilities for\nwarehouse and ML connectors.\n\n* **Bug Fixes**\n  * Tightened Obsidian wikilink parsing to reject invalid characters.\n  * Improved Tribal chat command parsing for cluster ID extraction.\n\n* **Refactor**\n* Consolidated shared mapping utilities (timestamp parsing, field\nclamping) used across AWS connectors.\n  * Reorganized Workday report syncing logic into dedicated handler.\n  * Simplified HTTP server dependency resolution.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-23T18:25:32+03:00",
-          "tree_id": "138768faf232cd6d53cdd80dc7ea16cc9f174d7a",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/2401330932fa941bdf584c87bca88ea69167fa0c"
-        },
-        "date": 1782229223034,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 313.95909144999933,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 318.1784813000002,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 324.64954020000334,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa3bca8911bec017713cd420ae7ed8a99823b656",
+          "message": "chore: release main (#1482)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>7.15.1</summary>\n\n##\n[7.15.1](https://github.com/nimbus-agent/Nimbus/compare/v7.15.0...v7.15.1)\n(2026-09-10)\n\n\n### Bug Fixes\n\n* close three documented gaps in completed phases (I16 reasons,\nconnector.startAuth, redaction fixtures)\n([#1480](https://github.com/nimbus-agent/Nimbus/issues/1480))\n([da5d239](https://github.com/nimbus-agent/Nimbus/commit/da5d2399eae49412d82d4f2be94be1b2c50c7d25))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-10T07:13:13+03:00",
+          "tree_id": "3871dd21baa274a358b717528974a30f92827c08",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/aa3bca8911bec017713cd420ae7ed8a99823b656"
+        },
+        "date": 1789014326911,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.4748014000026,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 320.608145250009,
             "unit": "ms"
           }
         ]
