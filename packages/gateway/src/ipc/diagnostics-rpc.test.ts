@@ -632,6 +632,90 @@ describe("db.getMeta / db.setMeta", () => {
   });
 });
 
+describe("index.health", () => {
+  test("requires a local index", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-health-no-"));
+    try {
+      expect(() => dispatchDiagnosticsRpc("index.health", null, makeCtx(dir))).toThrow(
+        /local index/i,
+      );
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("returns the health report across the IPC seam, confidence included", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-health-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        const r = await dispatchDiagnosticsRpc("index.health", null, ctx);
+        expect(r.kind).toBe("hit");
+        const v = (
+          r as {
+            value: {
+              totalItems: number;
+              confidence: number | null;
+              confidenceUnavailableReason: string | null;
+              connectors: unknown[];
+              sparseTypes: unknown[];
+              staleThresholdDays: number;
+            };
+          }
+        ).value;
+        // An empty migrated index: the report must SAY it has nothing to judge rather than
+        // reporting a zero that reads as a quality verdict.
+        expect(v.totalItems).toBe(0);
+        expect(v.confidence).toBeNull();
+        expect(v.confidenceUnavailableReason).toBe("empty_index");
+        expect(Array.isArray(v.connectors)).toBe(true);
+        expect(Array.isArray(v.sparseTypes)).toBe(true);
+        expect(v.staleThresholdDays).toBe(7);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("honours a caller-supplied staleThresholdDays", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-health-thr-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        const r = await dispatchDiagnosticsRpc("index.health", { staleThresholdDays: 30 }, ctx);
+        expect((r as { value: { staleThresholdDays: number } }).value.staleThresholdDays).toBe(30);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("rejects a non-numeric or negative staleThresholdDays with -32602", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-health-bad-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        // Synchronous `toThrow`, not `rejects`: the guard runs before the handler awaits
+        // anything, so the throw never becomes a rejected promise. A `rejects` assertion here
+        // fails on a CORRECT implementation, which is how this test caught its own shape.
+        for (const bad of ["7", -1, Number.NaN]) {
+          expect(() =>
+            dispatchDiagnosticsRpc("index.health", { staleThresholdDays: bad }, ctx),
+          ).toThrow(/staleThresholdDays/);
+        }
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+});
+
 describe("index.metrics", () => {
   test("requires a local index", () => {
     const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-metrics-no-"));

@@ -1370,6 +1370,23 @@ describe("tryDispatchDiagnosticsRpc — optional spread branches", () => {
     }
   });
 
+  test("index.health is ROUTED to the diagnostics dispatcher, not skipped", async () => {
+    // The bug this pins, found only by running against a live gateway: `dispatchers.ts` keeps its
+    // OWN allow-list of which `index.*` methods reach the diagnostics handler (deliberately
+    // minimum-necessary). Adding a `case` inside `dispatchDiagnosticsRpc` is NOT enough — every
+    // unit test that calls that function directly bypasses this gate, so the whole feature
+    // returned "Method not found: index.health" over a real socket while 60+ tests were green.
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    const tmp = mkdtempSync(join(tmpdir(), "nimbus-diag-health-"));
+    const ctx = makeCtx({ localIndex, dataDir: tmp });
+    const out = await tryDispatchDiagnosticsRpc(ctx, "index.health", {});
+    // `diagnosticsRpcSkipped` is the sentinel meaning "not my method" — the caller then falls
+    // through to -32601. Asserting merely "defined" would pass on that sentinel.
+    expect(out).not.toBe(diagnosticsRpcSkipped);
+    expect(out).toHaveProperty("confidence");
+  });
+
   test("db.* method falls into wantsDiagnostics path", async () => {
     const db = trackedDb();
     const localIndex = new LocalIndex(db);
