@@ -547,6 +547,94 @@ describe("B11 — redactUrlUserinfo branches", () => {
     expect(result).toContain("https://");
   });
 
+  // Compound-scheme fixtures — the reason `URL_USERINFO_RE`'s scheme class is
+  // `[a-zA-Z0-9+\-.]{1,32}` and not `[a-zA-Z]+`. Narrowing it back to letters-only was run against
+  // these cases before they were written, and the damage is NOT uniform, so the comment says which
+  // is which rather than claiming every compound scheme leaks:
+  //
+  //   - `git+https://` and `svn+ssh://` still redact under a letters-only class, because the inner
+  //     `https://` / `ssh://` matches on its own. What breaks is the OUTPUT, not the secret:
+  //     `git+https://github.com//org/repo.git`.
+  //   - a scheme whose last character is not a letter has no inner match to fall back on. `s3://`
+  //     is the fixture for that, and under a letters-only class it emits the access key and secret
+  //     verbatim. That case is the confidentiality argument for the broad class.
+  //
+  // Every `expected` below is the helper's REAL output. Note the `//` on the plain-https case: the
+  // regex match ends at the authority (its last class excludes `/`), so `URL.toString()` re-adds the
+  // root slash for a SPECIAL scheme and the unmatched path follows it. Non-special schemes
+  // (`ssh:`, `s3:`, `git+https:`) get no such slash, which is why only that one row shows it.
+  // Cosmetic, pre-existing, and asserted rather than hidden — the credential is gone either way.
+  const USERINFO_FIXTURES: readonly {
+    name: string;
+    input: string;
+    expected: string;
+    secret?: string;
+  }[] = [
+    {
+      name: "git+https:// with user:password",
+      input: "clone failed: git+https://octo:ghp_secret@github.com/org/repo.git",
+      expected: "clone failed: git+https://github.com/org/repo.git",
+      secret: "ghp_secret",
+    },
+    {
+      name: "svn+ssh:// with user:password",
+      input: "checkout failed: svn+ssh://svcacct:hunter2@svn.example.com/trunk",
+      expected: "checkout failed: svn+ssh://svn.example.com/trunk",
+      secret: "hunter2",
+    },
+    {
+      // The confidentiality case. `s3` ends in a digit, so a letters-only scheme class finds no
+      // match at all — not even a partial one — and both halves of the credential survive into the
+      // message. Verified by narrowing the class and re-running, 2026-09-10.
+      name: "s3:// (a digit-bearing scheme) with key:secret",
+      input: "upload failed: s3://AKIAEXAMPLE:wJalrSecret@bucket.example.com/key",
+      expected: "upload failed: s3://bucket.example.com/key",
+      secret: "wJalrSecret",
+    },
+    {
+      name: "ssh:// with a username and no password",
+      input: "ssh://git@github.com/org/repo.git unreachable",
+      expected: "ssh://github.com/org/repo.git unreachable",
+      secret: "git@github.com",
+    },
+    {
+      name: "https:// with a username and no password",
+      input: "fetch failed at https://deploytoken@cdn.example.com/latest.json",
+      expected: "fetch failed at https://cdn.example.com//latest.json",
+      secret: "deploytoken",
+    },
+    {
+      name: "https:// with no userinfo is left untouched",
+      input: "no credentials: https://cdn.example.com/latest.json",
+      expected: "no credentials: https://cdn.example.com/latest.json",
+    },
+    {
+      name: "a bare email address is not a URL and is left untouched",
+      input: "contact ops@example.com about the outage",
+      expected: "contact ops@example.com about the outage",
+    },
+  ];
+
+  for (const fx of USERINFO_FIXTURES) {
+    test(`fixture: ${fx.name}`, () => {
+      const out = redactUrlUserinfo(fx.input);
+      expect(out).toBe(fx.expected);
+      if (fx.secret !== undefined) expect(out).not.toContain(fx.secret);
+    });
+  }
+
+  test("the canonical helper is the one `manifest-fetcher.ts` uses", async () => {
+    // Both files carried their own copy of the regex and the try/catch until 2026-09-10. The
+    // duplicate is why this assertion is worth making: a fixture proving `updater.ts` redacts
+    // `git+https://` said nothing about the copy that redacts `ManifestFetchError` messages.
+    const { ManifestFetchError } = await import("./manifest-fetcher.ts");
+    const e = new ManifestFetchError(
+      "clone failed: git+https://octo:ghp_secret@github.com/org/repo.git",
+    );
+    expect(e.message).toBe("clone failed: git+https://github.com/org/repo.git");
+    expect(e.message).not.toContain("ghp_secret");
+  });
+
   test("replaces [REDACTED-URL] when matched text is not a valid URL", () => {
     // A digit-leading scheme matches URL_USERINFO_RE (the scheme class allows [0-9]) but
     // new URL() rejects a scheme that does not start with a letter → the catch arm fires
