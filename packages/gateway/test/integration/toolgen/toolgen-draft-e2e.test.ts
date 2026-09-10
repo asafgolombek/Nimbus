@@ -27,6 +27,7 @@ import { toolScriptDir, writeToolScript } from "../../../src/toolgen/toolgen-scr
 import type {
   CreateGeneratedToolRequest,
   ToolgenEnvelope,
+  ToolInputSchema,
 } from "../../../src/toolgen/toolgen-types.ts";
 
 /**
@@ -300,7 +301,12 @@ describe("toolgen drafting end to end", () => {
       expect(outcome.status).toBe("registered");
       if (outcome.status !== "registered") throw new Error("unreachable");
 
-      const approvedSchema = {
+      // Annotated, not inferred: without it TypeScript widens `type` to `string` and the
+      // `toEqual` overload rejects it against `ToolInputSchema`'s literal `"object"` and scalar
+      // union. `bun run typecheck` cannot see this file — no tsconfig `include` covers
+      // `packages/gateway/test/**` — so only `typecheck:tests` catches it, and that gate is
+      // advisory on Windows and Linux-authoritative in CI.
+      const approvedSchema: ToolInputSchema = {
         type: "object",
         properties: { resource: { type: "string", description: "the path segment to fetch" } },
         required: ["resource"],

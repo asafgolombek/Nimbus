@@ -79,17 +79,22 @@ describe("parseToolArgs", () => {
     // Stated over-refusal: `packages/cli` may not import gateway source, so the CLI deliberately
     // does NOT reimplement the rest of `normalizeHost` (scheme/port stripping) — one boundary, one
     // copy. The gateway would accept this pair; the CLI asks the owner to spell them the same way.
-    expect(() =>
-      parseToolArgs([
-        "create",
-        "--description",
-        "d",
-        "--host",
-        "a.example.com",
-        "--credential",
-        "https://a.example.com/v1=tok",
-      ]),
-    ).toThrow(/https:\/\/a\.example\.com\/v1/);
+    expect(
+      () =>
+        parseToolArgs([
+          "create",
+          "--description",
+          "d",
+          "--host",
+          "a.example.com",
+          "--credential",
+          "https://a.example.com/v1=tok",
+        ]),
+      // A plain string, not a regex: `toThrow` already does substring matching, and an unanchored
+      // URL-shaped regex trips CodeQL's `js/regex/missing-regexp-anchor` — correctly in general,
+      // since such a pattern would match arbitrary hosts either side if it were ever used to
+      // VALIDATE a URL rather than to assert on an error message.
+    ).toThrow("https://a.example.com/v1");
   });
 
   test("credential set requires a tool id, a host and exactly one scheme", () => {
