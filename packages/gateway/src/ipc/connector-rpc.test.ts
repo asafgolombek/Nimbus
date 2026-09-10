@@ -249,40 +249,36 @@ describe("connector.setConfig", () => {
   });
 });
 
-describe("connector.startAuth deprecated alias (S4-F2)", () => {
-  test("connector.startAuth dispatches to the same handler as connector.auth", async () => {
-    const baseLocalIndex = makeIndex();
-    const start = dispatchConnectorRpc({
+describe("connector.startAuth deprecated alias — REMOVED (2026-09-10)", () => {
+  // The alias shipped in S4-F2 with a note that it would be deleted "in Phase 5 once the desktop
+  // UI has migrated entirely to connector.auth". Phases 5 and 6 both closed with it still routing.
+  // It is gone now, and gone means it dispatches like any other unknown method: a `miss`, which
+  // the server turns into -32601. Asserting `miss` rather than `rejects` is the point — an alias
+  // that threw a connector-shaped error would be indistinguishable from one still wired up.
+  test("connector.startAuth is no longer routed and returns a miss", async () => {
+    const idx = makeIndex();
+    const gone = await dispatchConnectorRpc({
       ...baseOpts,
-      localIndex: baseLocalIndex,
+      localIndex: idx,
       method: "connector.startAuth",
       params: { service: "totally-not-a-real-connector" },
     });
-    const auth = dispatchConnectorRpc({
-      ...baseOpts,
-      localIndex: baseLocalIndex,
-      method: "connector.auth",
-      params: { service: "totally-not-a-real-connector" },
-    });
-    let startErr: unknown;
-    let authErr: unknown;
-    try {
-      await start;
-    } catch (e) {
-      startErr = e;
-    }
-    try {
-      await auth;
-    } catch (e) {
-      authErr = e;
-    }
-    expect(startErr).toBeDefined();
-    expect(authErr).toBeDefined();
-    expect((startErr as Error).constructor.name).toBe((authErr as Error).constructor.name);
-    expect((startErr as Error).message).toBe((authErr as Error).message);
+    expect(gone.kind).toBe("miss");
   });
 
-  test("connector.unknown returns miss; connector.startAuth does not", async () => {
+  test("connector.auth itself still routes to the auth handler", async () => {
+    const idx = makeIndex();
+    await expect(
+      dispatchConnectorRpc({
+        ...baseOpts,
+        localIndex: idx,
+        method: "connector.auth",
+        params: { service: "totally-not-a-real-connector" },
+      }),
+    ).rejects.toBeDefined();
+  });
+
+  test("an unknown connector method returns a miss too", async () => {
     const idx = makeIndex();
     const miss = await dispatchConnectorRpc({
       ...baseOpts,
@@ -291,14 +287,6 @@ describe("connector.startAuth deprecated alias (S4-F2)", () => {
       params: {},
     });
     expect(miss.kind).toBe("miss");
-    await expect(
-      dispatchConnectorRpc({
-        ...baseOpts,
-        localIndex: idx,
-        method: "connector.startAuth",
-        params: {},
-      }),
-    ).rejects.toBeDefined();
   });
 });
 
