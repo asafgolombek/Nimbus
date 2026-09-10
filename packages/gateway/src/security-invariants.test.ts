@@ -3820,7 +3820,15 @@ describe("I39 — generated tools reach the network only through the broker", ()
   // inline copy. A seam that every layer bypasses leaves the production default unexecuted while
   // the suite stays green. This test is the guard against that specific shape recurring.
   test("no PRODUCTION file injects around defaultSpawnProbe", async () => {
-    const injectors = await grepRepo(/spawnProbe\s*:/);
+    // BOTH property forms. `spawnProbe:` alone missed ES6 shorthand — a production object written
+    // `{ spawnProbe }` would inject around the default and this guard would not see it, which is
+    // the allow-list-shaped failure: written as "what I expect to find" instead of "what cannot
+    // pass". The three shapes deliberately NOT matched are the only three that exist in production
+    // today, and none of them injects: `readonly spawnProbe?:` DECLARES the seam, and
+    // `deps.spawnProbe ?? defaultSpawnProbe` READS it (twice — code and its docstring). A `?`
+    // follows `spawnProbe` in the first and a space-then-`?` in the others, so neither reaches the
+    // `[:,}]` class.
+    const injectors = await grepRepo(/spawnProbe\s*[:,}]/);
     expect(injectors).toEqual([]);
   });
 
