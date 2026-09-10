@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createToolgenDraftLlm } from "./toolgen-draft-llm.ts";
+import { createToolgenDraftLlm, createToolgenDraftRouteProbe } from "./toolgen-draft-llm.ts";
 
 function router(provider: { isLocal: boolean } | undefined) {
   const calls: unknown[] = [];
@@ -68,10 +68,27 @@ describe("createToolgenDraftLlm", () => {
     });
   });
 
-  test('mode "local" REFUSES a remote provider rather than using it', async () => {
-    expect(
-      await createToolgenDraftLlm(router({ isLocal: false }) as never, "local")("p"),
-    ).toBeNull();
+  test('mode "local" REFUSES a remote provider rather than using it — and never calls generate', async () => {
+    // `toBeNull()` alone proved only that nothing was RETURNED. The half that matters is that
+    // nothing was SENT: a refusal that still calls `generate` has already put the owner's tool
+    // description and indexed endpoint paths in a vendor's context, and would ledger a `model`-class
+    // row for a draft the config forbade. Counting the calls is what pins that.
+    let generates = 0;
+    const remote = {
+      calls: [] as unknown[],
+      selectProvider: async (task: string) => {
+        remote.calls.push(task);
+        return {
+          isLocal: false,
+          generate: async () => {
+            generates += 1;
+            return { text: "drafted" };
+          },
+        };
+      },
+    };
+    expect(await createToolgenDraftLlm(remote as never, "local")("p")).toBeNull();
+    expect(generates).toBe(0);
   });
 
   test('mode "allow-remote" uses a remote provider and reports isLocal false', async () => {
@@ -106,5 +123,57 @@ describe("createToolgenDraftLlm", () => {
     const r = preferenceHonouringRouter(true, { isLocal: true }, { isLocal: false });
     const result = await createToolgenDraftLlm(r as never, "allow-remote")("p");
     expect(result).toEqual({ text: "drafted", isLocal: true });
+  });
+});
+
+describe("createToolgenDraftRouteProbe", () => {
+  // The probe is what lets `draftGeneratedTool` refuse BEFORE it grounds — and grounding embeds the
+  // owner's description, which is a real outbound request on a remote-embedder install. It shares
+  // `resolveDraftProvider` with `createToolgenDraftLlm`, so these assert the same three answers the
+  // generator gives, from the other side of that shared decision.
+  test('"off" answers false without asking the router at all', async () => {
+    const r = router({ isLocal: true });
+    expect(await createToolgenDraftRouteProbe(r as never, "off")()).toBe(false);
+    expect(r.calls).toEqual([]);
+  });
+
+  test("no provider at all answers false", async () => {
+    expect(await createToolgenDraftRouteProbe(router(undefined) as never, "local")()).toBe(false);
+  });
+
+  test('"local" answers FALSE for a remote provider — matching what the generator would refuse', async () => {
+    expect(await createToolgenDraftRouteProbe(router({ isLocal: false }) as never, "local")()).toBe(
+      false,
+    );
+  });
+
+  test('"allow-remote" answers true for a remote provider', async () => {
+    expect(
+      await createToolgenDraftRouteProbe(router({ isLocal: false }) as never, "allow-remote")(),
+    ).toBe(true);
+  });
+
+  test("a local provider answers true in both non-off modes", async () => {
+    expect(await createToolgenDraftRouteProbe(router({ isLocal: true }) as never, "local")()).toBe(
+      true,
+    );
+    expect(
+      await createToolgenDraftRouteProbe(router({ isLocal: true }) as never, "allow-remote")(),
+    ).toBe(true);
+  });
+
+  test("it never GENERATES — asking whether a route exists must not send a prompt", async () => {
+    let generates = 0;
+    const r = {
+      selectProvider: async () => ({
+        isLocal: true,
+        generate: async () => {
+          generates += 1;
+          return { text: "drafted" };
+        },
+      }),
+    };
+    expect(await createToolgenDraftRouteProbe(r as never, "local")()).toBe(true);
+    expect(generates).toBe(0);
   });
 });

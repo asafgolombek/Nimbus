@@ -32,6 +32,19 @@ export type { DraftGeneration };
 export interface ToolgenDraftDeps {
   /** Narrowed router view. `null` means no eligible provider — never an empty string. */
   readonly generate: (prompt: string) => Promise<DraftGeneration | null>;
+  /**
+   * Whether a drafting route exists, asked WITHOUT generating.
+   *
+   * Exists so `draftGeneratedTool` can refuse before it grounds. `findEndpoints` is a local index
+   * read, but the query EMBEDDING it computes follows `[embedding]`, and against a remote vendor
+   * that is a real outbound request carrying the owner's tool description. Refusing `off` (or "no
+   * eligible provider") after that would have sent the description to an embedding vendor for a
+   * draft that could never happen.
+   *
+   * Built by `createToolgenDraftRouteProbe`, which shares ONE mode/locality decision with
+   * `createToolgenDraftLlm` — see its docstring for why they must not be two copies.
+   */
+  readonly hasDraftRoute: () => Promise<boolean>;
   readonly findEndpoints: (query: string, limit: number) => Promise<GroundedEndpoint[]>;
 }
 
@@ -145,6 +158,23 @@ export async function draftGeneratedTool(
   deps: ToolgenDraftDeps,
   subject: DraftSubject,
 ): Promise<DraftedTool> {
+  // BEFORE grounding, deliberately. `findEndpoints` reads the local index, but the query embedding
+  // it computes on `req.description` follows the `[embedding]` configuration, and a remote embedder
+  // makes that a real outbound request (ledgered `model`-class, but outbound all the same). A mode
+  // of `"off"` — or a machine with no eligible drafting route — must therefore refuse here rather
+  // than one line later, or an owner who switched drafting OFF would still have watched their tool
+  // description leave the machine.
+  //
+  // The message and the error code are exactly what the in-loop `null` produces on a FIRST attempt
+  // (`last === null` there), because that is the same fact: no model is available. The in-loop check
+  // below stays, and still carries the two-part message for a redraft that loses its route
+  // mid-draft.
+  if (!(await deps.hasDraftRoute())) {
+    throw new ToolgenError(
+      "ERR_TOOLGEN_NO_DRAFT_MODEL",
+      "no model is available to draft a tool body",
+    );
+  }
   const endpoints = await deps.findEndpoints(req.description, GROUNDING_LIMIT);
   const grounding = groundingOf(endpoints);
   const prompt = buildDraftPrompt({

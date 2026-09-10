@@ -21,6 +21,10 @@ function deps(
       const next = queue.shift();
       return next === undefined || next === null ? null : { text: next, isLocal };
     },
+    // Default TRUE so the pre-grounding gate is transparent to every test written before it: a
+    // `null` reply still exercises the IN-LOOP refusal (including the two-part redraft message).
+    // The tests that care about the pre-grounding refusal override it explicitly.
+    hasDraftRoute: async () => true,
     findEndpoints: async () => [],
     ...extra,
   };
@@ -44,6 +48,7 @@ function depsCapturingPrompts(replies: (string | null)[]): {
         const next = queue.shift();
         return next === undefined || next === null ? null : { text: next, isLocal: true };
       },
+      hasDraftRoute: async () => true,
       findEndpoints: async () => [],
     },
   };
@@ -235,10 +240,40 @@ describe("draftGeneratedTool", () => {
         calls += 1;
         return { text: "nope", isLocal: true };
       },
+      hasDraftRoute: async () => true,
       findEndpoints: async () => [],
     };
     await expect(draftGeneratedTool(REQ, d, SUBJECT)).rejects.toThrow();
     expect(calls).toBe(2);
+  });
+
+  // The description reaches `findEndpoints` -> `searchRankedAsync` -> `embedQueryDual`, and with a
+  // remote embedder configured THAT is a real outbound request carrying the owner's text. So a
+  // refusal that is decidable without a model must happen BEFORE the search, not after it — the
+  // same ordering rule the gate applies to consent. Asserting the CALL COUNT rather than the
+  // outcome: the thrown error was already correct when the search ran first.
+  test("refuses BEFORE grounding when no drafting route exists — findEndpoints is never called", async () => {
+    let searches = 0;
+    const d: ToolgenDraftDeps = {
+      generate: async () => {
+        throw new Error("generate must not be reached either");
+      },
+      hasDraftRoute: async () => false,
+      findEndpoints: async () => {
+        searches += 1;
+        return [];
+      },
+    };
+    try {
+      await draftGeneratedTool(REQ, d, SUBJECT);
+      throw new Error("expected a throw");
+    } catch (e) {
+      const err = e as ToolgenError;
+      expect(err.code).toBe("ERR_TOOLGEN_NO_DRAFT_MODEL");
+      // The SAME message the in-loop first-attempt `null` produces — one fact, one wording.
+      expect(err.message).toBe("no model is available to draft a tool body");
+    }
+    expect(searches).toBe(0);
   });
 
   test("locality is DERIVED from the provider, not from the config mode", async () => {

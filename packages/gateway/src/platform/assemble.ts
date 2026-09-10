@@ -295,7 +295,10 @@ import {
   writeToolCredential,
 } from "../toolgen/toolgen-credentials.ts";
 import { createDraftToolClosure } from "../toolgen/toolgen-draft.ts";
-import { createToolgenDraftLlm } from "../toolgen/toolgen-draft-llm.ts";
+import {
+  createToolgenDraftLlm,
+  createToolgenDraftRouteProbe,
+} from "../toolgen/toolgen-draft-llm.ts";
 import type { ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
 import { createEndpointFinder } from "../toolgen/toolgen-grounding.ts";
 import { ToolgenRegistry } from "../toolgen/toolgen-registry.ts";
@@ -3835,8 +3838,9 @@ export async function assemblePlatformServices(
     // boot, while approved hosts and their credential subset are per-request, and at draft time
     // nothing has been written to the Vault yet (`bindCredentials` runs AFTER drafting), so
     // probing the Vault from this closure would report nothing even if a boot-time closure could
-    // see the request. `generate`/`findEndpoints` are the only deps `draftGeneratedTool` needs;
-    // both are cheap, stateless wrappers over services already in scope here.
+    // see the request. `generate`/`hasDraftRoute`/`findEndpoints` are the only deps
+    // `draftGeneratedTool` needs; all three are cheap, stateless wrappers over services already in
+    // scope here.
     //
     // Built via `createDraftToolClosure` (`toolgen-draft.ts`), not an inline arrow, so the e2e test
     // (`test/integration/toolgen/toolgen-draft-e2e.test.ts`) drives this EXACT composition over its
@@ -3844,6 +3848,13 @@ export async function assemblePlatformServices(
     // this call, or how it is built, changes what that test exercises too.
     draftTool: createDraftToolClosure({
       generate: createToolgenDraftLlm(llmRegistry.llmRouter, toolGenerationCfg.drafting),
+      // Shares ONE mode/locality decision with `generate` above (`resolveDraftProvider`), and is
+      // what lets `draftGeneratedTool` refuse `drafting = "off"` BEFORE `findEndpoints` embeds the
+      // description — which is an outbound request whenever `[embedding]` names a remote vendor.
+      hasDraftRoute: createToolgenDraftRouteProbe(
+        llmRegistry.llmRouter,
+        toolGenerationCfg.drafting,
+      ),
       findEndpoints: createEndpointFinder(localIndex),
     }),
     assertConfinement: (manifest) =>

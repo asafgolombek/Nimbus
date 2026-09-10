@@ -281,7 +281,15 @@ guessed body is one the owner approves and then watches fail.
 The repository already indexes the answer. `connectors/openapi-indexer-sync.ts` parses OpenAPI and
 AsyncAPI specs found under `[[filesystem.roots]]` into `api_endpoint` rows — `serviceName`, `path`,
 `method`, `operationId`, `tags` — plus a searchable body item per endpoint. `openapi` is in
-`LOCAL_ONLY_SYNC_SERVICES`, so reading any of it costs **zero egress**.
+`LOCAL_ONLY_SYNC_SERVICES`, so INDEXING it costs zero egress.
+
+> **Correction, 2026-09-10 (implementation).** Reading it back is not unconditionally zero-egress,
+> and this sentence originally said it was. `findEndpoints` goes through `searchRankedAsync`, which
+> embeds the QUERY — the owner's tool description — through whatever `[embedding]` is configured
+> with. On a remote-embedder install that is a real outbound request, ledgered `model`-class by
+> `wrapLedgeredEmbedder` (I29). The retrieval is local; the query embedding follows the embedding
+> configuration. `draftGeneratedTool` now resolves the drafting mode BEFORE grounding, so
+> `drafting = "off"` (and a machine with no eligible route) refuses without embedding anything.
 
 **Retrieval keys on the description, not the host.** `api_endpoint.serviceName` is derived from the
 spec's `info.title`, its enclosing directory, or a `nimbus.openapi.toml` override — never from a
