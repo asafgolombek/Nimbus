@@ -75,19 +75,22 @@ describe("extractJsonPayload", () => {
 
   test.each([
     ["bare JSON", obj],
-    ["a fenced block", "```json\n" + obj + "\n```"],
-    ["an unlabelled fence", "```\n" + obj + "\n```"],
+    ["a fenced block", `\`\`\`json\n${obj}\n\`\`\``],
+    ["an unlabelled fence", `\`\`\`\n${obj}\n\`\`\``],
     // THE case an anchored regex fails: a benign preamble would otherwise burn the single redraft.
-    ["a fence with a preamble", "Here is the tool you asked for:\n```json\n" + obj + "\n```"],
-    ["a fence with a trailing note", "```json\n" + obj + "\n```\nLet me know if you need changes."],
-    ["a bare object with prose around it", "Sure! " + obj + " Hope that helps."],
+    ["a fence with a preamble", `Here is the tool you asked for:\n\`\`\`json\n${obj}\n\`\`\``],
+    [
+      "a fence with a trailing note",
+      `\`\`\`json\n${obj}\n\`\`\`\nLet me know if you need changes.`,
+    ],
+    ["a bare object with prose around it", `Sure! ${obj} Hope that helps.`],
   ])("extracts the object from %s", (_label, raw) => {
     expect(JSON.parse(extractJsonPayload(raw))).toEqual({ a: 1 });
   });
 
   test("a closing brace inside a string value does not truncate the object", () => {
     const withBrace = JSON.stringify({ body: "if (x) { return 1; }" });
-    expect(JSON.parse(extractJsonPayload("```json\n" + withBrace + "\n```"))).toEqual({
+    expect(JSON.parse(extractJsonPayload(`\`\`\`json\n${withBrace}\n\`\`\``))).toEqual({
       body: "if (x) { return 1; }",
     });
   });
@@ -109,7 +112,7 @@ describe("draftGeneratedTool", () => {
   test("a fenced reply with a preamble succeeds on the FIRST attempt", async () => {
     const out = await draftGeneratedTool(
       REQ,
-      deps(["Here you go:\n```json\n" + GOOD + "\n```"]),
+      deps([`Here you go:\n\`\`\`json\n${GOOD}\n\`\`\``]),
       SUBJECT,
     );
     // The point is `attempts === 1`: a formatting artifact must not spend the redraft budget that
