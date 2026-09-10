@@ -59,8 +59,7 @@ const PROBE_TARGET_PREFIX = "nimbus-probe-target=";
  * `EPERM` on macOS under `(deny default)`; an ACL denial on Windows, where the AppContainer holds
  * no ACE for that path) — which is exactly why the probe must not enumerate error codes the way the
  * SDK one did.
- */
-/**
+ *
  * FULLY STATIC on purpose — every line is a literal and nothing is interpolated in.
  *
  * An earlier revision built this with `${JSON.stringify(PROBE_TARGET_PREFIX)}` and
