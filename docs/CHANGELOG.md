@@ -36,6 +36,17 @@ Phase-level history before `v0.1.0` (Phases 1â€“4) lives in [`docs/roadmap.md` Â
   `sync_state` row is disclosed as `no_sync_record`, distinct from `never_synced`, because the two
   have different fixes.
 
+  **Two defects that only a live gateway could show, both fixed before merge.** (1) The feature was
+  completely UNREACHABLE over a socket: `ipc/server/dispatchers.ts` keeps its OWN minimum-necessary
+  allow-list of which `index.*` methods reach the diagnostics handler, and adding a `case` inside
+  `dispatchDiagnosticsRpc` does not enter it - every unit test calls that function directly and
+  sails past the gate, so `index.health` returned `Method not found` while 60+ tests were green. Now
+  pinned by a test at `tryDispatchDiagnosticsRpc`, asserting against the `diagnosticsRpcSkipped`
+  sentinel rather than merely "defined". (2) The human render was unusable: the gateway registers a
+  `sync_state` row for every known connector at boot, so a real install printed 97 rows of which 90
+  were empty and never configured. Zero-item connectors are now omitted by default behind a
+  disclosed count and a `--all` flag; `--json` stays complete, since the filtering is render-only.
+
   Coverage is weighted `0.6` against freshness `0.4` because they fail differently: an unembedded
   item cannot be retrieved at all, while a stale one is retrievable and merely out of date.
   `nimbus doctor` warns below 60 (exactly 60 passes) via a SEPARATE `index.health` call rather than

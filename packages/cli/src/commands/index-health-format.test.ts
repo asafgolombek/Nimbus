@@ -216,3 +216,66 @@ describe("formatIndexHealth — disclosure", () => {
     expect(out).toMatch(new RegExp(String.fromCodePoint(27)));
   });
 });
+
+describe("formatIndexHealth — empty connectors are hidden by default", () => {
+  // Found by running against a live gateway, not by any unit test: the gateway registers a
+  // `sync_state` row for EVERY known connector at boot, so a real install renders 97 rows of which
+  // ~90 hold zero items and have never been configured. The six that matter are buried.
+  const withEmpties = (n: number): IndexHealthReport =>
+    report({
+      totalItems: 10,
+      connectors: [
+        {
+          service: "github",
+          items: 10,
+          embeddedItems: 10,
+          embeddingCoveragePercent: 100,
+          lastSyncMs: NOW - 3_600_000,
+          staleDays: 0,
+          stale: false,
+          staleReason: null,
+        },
+        ...Array.from({ length: n }, (_, i) => ({
+          service: `empty${i}`,
+          items: 0,
+          embeddedItems: 0,
+          embeddingCoveragePercent: 0,
+          lastSyncMs: null,
+          staleDays: null,
+          stale: true,
+          staleReason: "never_synced" as const,
+        })),
+      ],
+    });
+
+  test("a connector with zero items is omitted from the default render", () => {
+    const out = formatIndexHealth(withEmpties(3), { nowMs: NOW, noColor: true });
+    expect(out).toContain("github");
+    expect(out).not.toContain("empty0");
+  });
+
+  test("the omission is DISCLOSED with a count, never silent", () => {
+    // Hiding rows without saying so would make the table lie by omission — a user looking for a
+    // connector they configured would conclude it is not indexed at all.
+    const out = formatIndexHealth(withEmpties(90), { nowMs: NOW, noColor: true });
+    expect(out).toMatch(/90 connector/);
+    expect(out).toMatch(/--all/);
+  });
+
+  test("--all shows them", () => {
+    const out = formatIndexHealth(withEmpties(3), { nowMs: NOW, noColor: true, all: true });
+    expect(out).toContain("empty0");
+    expect(out).toContain("empty2");
+  });
+
+  test("no disclosure line when there is nothing to hide", () => {
+    const out = formatIndexHealth(withEmpties(0), { nowMs: NOW, noColor: true });
+    expect(out).not.toMatch(/--all/);
+  });
+
+  test("the connector COUNT in the summary still counts every connector", () => {
+    // The count is a fact about the install, not about what this render chose to print.
+    const out = formatIndexHealth(withEmpties(90), { nowMs: NOW, noColor: true });
+    expect(out).toMatch(/91 connector\(s\)/);
+  });
+});

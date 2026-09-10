@@ -3290,7 +3290,8 @@ nimbus index health --json
 | Flag | Required | Description |
 |---|---|---|
 | `--stale-days N` | no | Age above which a connector counts as stale. Default **7**. A malformed or negative value is a hard error client-side, because `Number("")` is `0` and silently treating that as the threshold would mark the entire index stale. |
-| `--json` | no | The raw report, for machine consumption. |
+| `--all` | no | Also list connectors holding zero indexed items. Off by default: the gateway registers a `sync_state` row for **every** known connector at boot, so a real install has ~90 empty rows that bury the handful in use. The omission is always disclosed with a count, and `--json` is never filtered. |
+| `--json` | no | The raw report, for machine consumption. Always complete — `--all` affects only the human render. |
 
 **What it reports:**
 

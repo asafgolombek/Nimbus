@@ -97,6 +97,28 @@ function missingParts(t: SparseTypeReport): string {
 export interface FormatOptions {
   readonly nowMs: number;
   readonly noColor: boolean;
+  /** List connectors holding zero items. Off by default — see `visibleConnectors`. */
+  readonly all?: boolean;
+}
+
+/**
+ * Hide connectors with no indexed items unless `--all`.
+ *
+ * Not cosmetic. The gateway registers a `sync_state` row for EVERY known connector at boot, so a
+ * real install renders 97 rows of which ~90 are empty and were never configured — the handful that
+ * matter are unreadable in the noise. Found by running the command against a live gateway; every
+ * unit test used a hand-built two-connector report and could not see it.
+ *
+ * The omission is always DISCLOSED with a count, and `--json` is unaffected: the wire payload stays
+ * complete, and only the human render is filtered.
+ */
+function visibleConnectors(
+  connectors: readonly ConnectorReport[],
+  all: boolean,
+): { shown: readonly ConnectorReport[]; hidden: number } {
+  if (all) return { shown: connectors, hidden: 0 };
+  const shown = connectors.filter((c) => c.items > 0);
+  return { shown, hidden: connectors.length - shown.length };
 }
 
 function confidenceBlock(r: IndexHealthReport, opts: FormatOptions): string[] {
@@ -127,17 +149,23 @@ export function formatIndexHealth(r: IndexHealthReport, opts: FormatOptions): st
     "",
   );
 
-  if (r.connectors.length > 0) {
-    const w = Math.max(9, ...r.connectors.map((c) => c.service.length));
+  const { shown, hidden } = visibleConnectors(r.connectors, opts.all === true);
+  if (shown.length > 0) {
+    const w = Math.max(9, ...shown.map((c) => c.service.length));
     lines.push(
       `  ${pad("CONNECTOR", w)}  ${padStart("ITEMS", 9)}  ${padStart("EMBEDDED", 9)}  LAST SYNC`,
     );
-    for (const c of r.connectors) {
+    for (const c of shown) {
       const flag = c.stale ? "  STALE" : "";
       const staleMark = opts.noColor || !c.stale ? flag : `  ${YELLOW}STALE${RESET}`;
       lines.push(
         `  ${pad(c.service, w)}  ${padStart(num(c.items), 9)}  ` +
           `${padStart(`${c.embeddingCoveragePercent}%`, 9)}  ${ageLabel(c, opts.nowMs)}${staleMark}`,
+      );
+    }
+    if (hidden > 0) {
+      lines.push(
+        `  (${num(hidden)} connector(s) with no indexed items omitted — pass --all to list them)`,
       );
     }
     lines.push("");

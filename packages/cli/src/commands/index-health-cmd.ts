@@ -37,5 +37,6 @@ export async function runIndexHealth(client: IPCClient, args: string[]): Promise
 
   const noColorEnv = process.env["NO_COLOR"];
   const noColor = (noColorEnv !== undefined && noColorEnv !== "") || process.stdout.isTTY !== true;
-  process.stdout.write(formatIndexHealth(report, { nowMs: Date.now(), noColor }));
+  const all = args.includes("--all");
+  process.stdout.write(formatIndexHealth(report, { nowMs: Date.now(), noColor, all }));
 }

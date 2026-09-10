@@ -575,6 +575,7 @@ Usage:
                        --since widens the cold-start window past the connector's built-in 30
                        days, for connectors that opt in; others keep their own initial depth.
   nimbus index health [--stale-days N]   (default 7)
+                      [--all]               (list connectors holding zero items)
                       [--json]
                        Index quality report: per-connector embedding coverage, stale connectors,
                        item types with sparse metadata, and an overall 0-100 confidence score.
