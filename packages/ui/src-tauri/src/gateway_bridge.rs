@@ -76,9 +76,9 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "audit.list",
     "audit.verify",
     "chatops.status",
+    "connector.auth",
     "connector.listStatus",
     "connector.setConfig",
-    "connector.startAuth",
     "consent.respond",
     "data.delete",
     "data.export",
@@ -381,7 +381,7 @@ mod tests {
     #[test]
     fn allowlist_ws5a_methods() {
         assert!(is_method_allowed("diag.snapshot"));
-        assert!(is_method_allowed("connector.startAuth"));
+        assert!(is_method_allowed("connector.auth"));
         assert!(is_method_allowed("engine.askStream"));
         assert!(is_method_allowed("db.getMeta"));
         assert!(is_method_allowed("db.setMeta"));
@@ -613,6 +613,18 @@ mod tests {
         assert!(is_method_allowed("agents.glossary"));
         assert!(!is_method_allowed("glossary.refresh"));
         assert!(!is_method_allowed("glossary.rebuild"));
+    }
+
+    #[test]
+    fn allowlist_connector_auth_not_start_auth() {
+        // A one-for-one substitution, 105 → 105: `connector.startAuth` (the S4-F2 deprecated
+        // alias, removed from the gateway on 2026-09-10) out, `connector.auth` (the real method,
+        // and the one the onboarding page now calls) in. allowlist_exact_size cannot see a swap,
+        // so both halves are asserted by name — and the negative half matters most: an allowlist
+        // entry whose gateway handler no longer exists fails every renderer call with -32601,
+        // which is the exact shape S4-F2 was filed for.
+        assert!(is_method_allowed("connector.auth"));
+        assert!(!is_method_allowed("connector.startAuth"));
     }
 
     #[test]

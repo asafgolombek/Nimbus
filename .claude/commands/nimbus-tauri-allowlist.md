@@ -73,7 +73,7 @@ When you add a new namespace, add a new line in `allowlist_rejects_vault_and_raw
 
 When the desktop UI needs a new IPC method:
 
-- [ ] Confirm a Gateway handler already exists for the method id. The Rust bridge does not synthesize handlers; if `connector.startAuth` is in the allowlist but unhandled at the Gateway, every renderer call fails (S4-F2 was exactly this).
+- [ ] Confirm a Gateway handler already exists for the method id. The Rust bridge does not synthesize handlers; an allowlisted method with no handler fails every renderer call with -32601 (S4-F2 was exactly this, on `connector.startAuth`). The same rule bites on **removal**: when that alias was finally deleted on 2026-09-10 the entry had to be *swapped* for `connector.auth`, which had never been on the list — deleting alone would have left the renderer's only auth path unreachable. Check what the caller will actually invoke, not just what you are taking out.
 - [ ] Confirm the method is **not** in any forbidden category above. If it is destructive, route through a HITL-gated wrapper at the Gateway, not directly.
 - [ ] Insert the method id in `ALLOWED_METHODS` **alphabetically**.
 - [ ] Bump the constant in `allowlist_exact_size` to the new total.

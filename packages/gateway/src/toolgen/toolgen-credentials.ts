@@ -1,4 +1,4 @@
-import type { VaultReader, VaultWriter } from "../vault/nimbus-vault.ts";
+import type { VaultDeleter, VaultReader, VaultWriter } from "../vault/nimbus-vault.ts";
 import type { ToolCredentialBinding } from "./toolgen-types.ts";
 
 /**
@@ -69,4 +69,19 @@ export async function writeToolCredential(
   binding: ToolCredentialBinding,
 ): Promise<void> {
   await vault.set(toolCredentialKey(toolId, host), JSON.stringify(binding));
+}
+
+/**
+ * Undo `writeToolCredential` for one host. Called by `revokeCredentials` (`toolgen-gate.ts`) on a
+ * toolId that will never register — an owner denial, or a failure between approval and
+ * `registry.register` — so the Vault entry does not outlive a toolId nothing will ever call
+ * again. MUST tolerate an absent key: `revokeCredentials` is called unconditionally once
+ * `bindCredentials` has run, even for a host that never actually got a binding written.
+ */
+export async function deleteToolCredential(
+  vault: VaultDeleter,
+  toolId: string,
+  host: string,
+): Promise<void> {
+  await vault.delete(toolCredentialKey(toolId, host));
 }

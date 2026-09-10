@@ -1825,6 +1825,7 @@ export async function tryDispatchDiagnosticsRpc(
     method.startsWith("db.") ||
     method.startsWith("diag.") ||
     method === "index.metrics" ||
+    method === "index.health" ||
     method === "index.queryItems" ||
     method === "index.querySql";
   if (!wantsConfig && !wantsTelemetry && !wantsDiagnostics) {

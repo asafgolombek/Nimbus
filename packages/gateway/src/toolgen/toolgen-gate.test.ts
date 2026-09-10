@@ -5,6 +5,7 @@ import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { createGeneratedTool, normalizeHost } from "./toolgen-gate.ts";
 import { ToolgenRegistry } from "./toolgen-registry.ts";
+import { ToolgenError } from "./toolgen-types.ts";
 
 function deps(over: Record<string, unknown> = {}) {
   const db = new Database(":memory:");
@@ -19,7 +20,13 @@ function deps(over: Record<string, unknown> = {}) {
     config: { ...DEFAULT_NIMBUS_TOOL_GENERATION_TOML, enabled: true },
     enforced: { capabilitiesDisabled: new Set<string>() },
     registry: new ToolgenRegistry(),
-    draftBody: async () => "return 1;",
+    draftTool: async () => ({
+      body: "return 1;",
+      inputSchema: { type: "object", properties: {} },
+      grounding: { kind: "description_only" },
+      attempts: 1,
+      locality: "local",
+    }),
     assertConfinement: async () => {},
     writeScript: async () => {
       calls.writeScript++;
@@ -133,6 +140,7 @@ describe("createGeneratedTool refusals happen BEFORE consent", () => {
               permissions: { network: [], filesystem: { read: [], write: [] } },
               updateChannel: "stable",
             },
+            inputSchema: { type: "object", properties: {} },
           },
         },
         async () => {},
@@ -277,7 +285,15 @@ describe("createGeneratedTool outcomes", () => {
   });
 
   test("the audit row carries the VERBATIM body, and never hitl_status not_required", async () => {
-    const d = deps({ draftBody: async () => "VERBATIM-BODY" });
+    const d = deps({
+      draftTool: async () => ({
+        body: "VERBATIM-BODY",
+        inputSchema: { type: "object", properties: {} },
+        grounding: { kind: "description_only" },
+        attempts: 1,
+        locality: "local",
+      }),
+    });
     await createGeneratedTool(req, d as never);
     const row = auditRows(d.db)[0];
     expect(row?.action_json).toContain("VERBATIM-BODY");
@@ -329,5 +345,324 @@ describe("createGeneratedTool outcomes", () => {
     expect(row?.action_json).not.toContain("refused_before_consent");
     // The toolId will never register (writeScript failed), so its bound credential must not survive.
     expect(d.calls.revokeCredentials).toBe(1);
+  });
+});
+
+describe("createGeneratedTool drafting and credential binding (Task 9)", () => {
+  test("the drafted schema reaches the approval prompt and the artifact", async () => {
+    const prompts: Array<{ inputSchema: unknown }> = [];
+    const d = deps({
+      draftTool: async () => ({
+        body: "return 1;",
+        inputSchema: { type: "object", properties: { owner: { type: "string" } } },
+        grounding: { kind: "description_only" },
+        attempts: 1,
+        locality: "local",
+      }),
+      requestApproval: async (input: { inputSchema: unknown }) => {
+        prompts.push(input);
+        return true;
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out.status).toBe("registered");
+    expect(prompts[0]?.inputSchema).toEqual({
+      type: "object",
+      properties: { owner: { type: "string" } },
+    });
+  });
+
+  test("credentials are bound before consent and NOT passed to the drafter", async () => {
+    let draftArg: unknown;
+    const bound: unknown[] = [];
+    const d = deps({
+      draftTool: async (r: unknown) => {
+        draftArg = r;
+        return {
+          body: "return 1;",
+          inputSchema: { type: "object", properties: {} },
+          grounding: { kind: "description_only" },
+          attempts: 1,
+          locality: "local",
+        };
+      },
+      bindCredentials: async (_toolId: string, creds: Array<{ host: string }>) => {
+        bound.push(creds);
+        return creds.map((c) => c.host);
+      },
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    // `req` is exactly what reaches `draftTool` -- credentials are a SEPARATE parameter to
+    // `createGeneratedTool` and never merged onto it (Task 9 controller ruling 1).
+    expect(JSON.stringify(draftArg)).not.toContain("s3cret");
+    expect(bound).toHaveLength(1);
+  });
+
+  test("a denial revokes the credentials supplied via the credentials parameter", async () => {
+    const revoked: string[] = [];
+    const d = deps({
+      requestApproval: async () => false,
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      revokeCredentials: async (id: string) => {
+        revoked.push(id);
+      },
+    });
+    const out = await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("denied");
+    expect(revoked).toHaveLength(1);
+  });
+
+  test("the audit row records the draft attempts, grounding and locality", async () => {
+    const d = deps({
+      draftTool: async () => ({
+        body: "return 1;",
+        inputSchema: { type: "object", properties: {} },
+        grounding: { kind: "endpoints", count: 2, services: ["github"] },
+        attempts: 2,
+        locality: "remote",
+      }),
+    });
+    await createGeneratedTool(req, d as never);
+    const row = auditRows(d.db)[0];
+    expect(row).toBeDefined();
+    const payload = JSON.parse(row?.action_json ?? "{}") as Record<string, unknown>;
+    expect(payload["draftAttempts"]).toBe(2);
+    expect(payload["draftGrounding"]).toEqual({
+      kind: "endpoints",
+      count: 2,
+      services: ["github"],
+    });
+    expect(payload["draftLocality"]).toBe("remote");
+  });
+
+  test("a partial bindCredentials failure still revokes the ATTEMPTED hosts, refused before consent (fix round 1 finding 1)", async () => {
+    // Simulates Task 11's real `bindCredentials`: a sequential per-host write loop that can write
+    // host A's credential to the Vault and THEN throw before it ever returns -- so the flag/list
+    // this test cares about must be set BEFORE the call, not derived from its (never-received)
+    // return value.
+    const revoked: Array<{ toolId: string; hosts: readonly string[] }> = [];
+    const d = deps({
+      bindCredentials: async () => {
+        throw new Error("vault unavailable after writing the first host");
+      },
+      revokeCredentials: async (id: string, hosts: readonly string[]) => {
+        revoked.push({ toolId: id, hosts });
+      },
+    });
+    const out = await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("refused");
+    if (out.status !== "refused") throw new Error("unreachable");
+    expect(out.code).toBe("ERR_TOOLGEN_INTERNAL");
+    // The attempted set, not an empty/never-assigned return value.
+    expect(revoked).toHaveLength(1);
+    expect(revoked[0]?.hosts).toEqual(["api.example.com"]);
+    const row = auditRows(d.db)[0];
+    expect(row?.hitl_status).toBe("rejected");
+    expect(row?.action_json).toContain("refused_before_consent");
+  });
+
+  test("forApprovedHosts drops a credential for a host outside --host, before EITHER bindCredentials or the prompt sees it (fix round 1 finding 2)", async () => {
+    const bound: Array<ReadonlyArray<{ host: string }>> = [];
+    let seenCredentialHosts: readonly string[] | undefined;
+    const d = deps({
+      bindCredentials: async (_toolId: string, creds: Array<{ host: string }>) => {
+        bound.push(creds);
+        return creds.map((c) => c.host);
+      },
+      requestApproval: async (input: { credentialHosts: readonly string[] }) => {
+        seenCredentialHosts = input.credentialHosts;
+        return true;
+      },
+    });
+    // `req.hosts` is `["api.example.com"]` -- only the FIRST of these two is approved.
+    await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "a" } },
+      { host: "not-approved.example.com", binding: { type: "bearer", token: "b" } },
+    ]);
+    // Assert on what the fake RECEIVED, not only on the outcome.
+    expect(bound).toHaveLength(1);
+    expect(bound[0]?.map((c) => c.host)).toEqual(["api.example.com"]);
+    expect(seenCredentialHosts).toEqual(["api.example.com"]);
+  });
+});
+
+// The credential host was FILTERED through `normalizeHost` but forwarded RAW, so one host became
+// two names: the Vault key was written under `https://api_pexample_pcom` while
+// `ToolgenBroker.handleFetch` reads under `url.hostname.toLowerCase()`. Three consequences, all
+// pinned here, and the third is the one that breaks a safety property this gate establishes.
+describe("a credential host is NORMALISED everywhere, not merely matched against a normalised host", () => {
+  const RAW = "https://API.example.com/v1";
+  const NORMALISED = "api.example.com";
+
+  test("bindCredentials RECEIVES the normalised host, not the string the owner typed", async () => {
+    // Captures the WHOLE credential, binding included — a `{ host: string }` capture would make the
+    // "the token travelled with it" assertion below untypeable, and a narrower capture is exactly
+    // how a dropped field goes unnoticed.
+    type Captured = { host: string; binding: { type: string; token: string } };
+    const bound: Array<ReadonlyArray<Captured>> = [];
+    const d = deps({
+      bindCredentials: async (_toolId: string, creds: Captured[]) => {
+        bound.push(creds);
+        return creds.map((c) => c.host);
+      },
+    });
+    // Assert on what the fake RECEIVED: the outcome is `registered` either way, which is exactly
+    // why the raw-host bug survived — the tool registered, then made unauthenticated requests.
+    const out = await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("registered");
+    expect(bound).toHaveLength(1);
+    expect(bound[0]?.map((c) => c.host)).toEqual([NORMALISED]);
+    // The binding travels intact — normalising the host must not drop the token.
+    expect(bound[0]?.[0]).toEqual({
+      host: NORMALISED,
+      binding: { type: "bearer", token: "s3cret" },
+    });
+  });
+
+  test("the approval prompt's credentialHosts AGREES with its approvedHosts", async () => {
+    let seen: { approvedHosts: readonly string[]; credentialHosts: readonly string[] } | undefined;
+    const d = deps({
+      bindCredentials: async (_toolId: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      requestApproval: async (input: {
+        approvedHosts: readonly string[];
+        credentialHosts: readonly string[];
+      }) => {
+        seen = input;
+        return true;
+      },
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    // An owner cannot meaningfully approve an envelope that contradicts itself: two spellings of
+    // one host read as a credential for a host the tool was not approved to reach.
+    expect(seen?.approvedHosts).toEqual([NORMALISED]);
+    expect(seen?.credentialHosts).toEqual([NORMALISED]);
+  });
+
+  test("a DENIAL revokes that same normalised name — the key that was actually written", async () => {
+    const revoked: Array<{ toolId: string; hosts: readonly string[] }> = [];
+    const d = deps({
+      requestApproval: async () => false,
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      revokeCredentials: async (id: string, hosts: readonly string[]) => {
+        revoked.push({ toolId: id, hosts });
+      },
+    });
+    const out = await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("denied");
+    // Under the raw-host bug this named `https://API.example.com/v1`, a key nothing had written,
+    // so the real bearer token SURVIVED in the Vault under a toolId that will never register.
+    expect(revoked).toEqual([{ toolId: "tg_a", hosts: [NORMALISED] }]);
+  });
+
+  test("the denial audit row DISCLOSES the credential hosts a secret may have been written for", async () => {
+    const d = deps({
+      requestApproval: async () => false,
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    const row = auditRows(d.db)[0];
+    const payload = JSON.parse(row?.action_json ?? "{}") as Record<string, unknown>;
+    expect(payload["outcome"]).toBe("denied_by_owner");
+    // `bindCredentials` runs BEFORE consent, so a denial can follow a real Vault write. This is the
+    // row an auditor reads to ask whether one happened; without the field the answer was invisible.
+    expect(payload["credentialHosts"]).toEqual([NORMALISED]);
+    // And never the secret itself.
+    expect(row?.action_json).not.toContain("s3cret");
+  });
+
+  test("two credentials for the SAME host after normalisation are disclosed ONCE, not twice", async () => {
+    let seen: readonly string[] | undefined;
+    const d = deps({
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      requestApproval: async (input: { credentialHosts: readonly string[] }) => {
+        seen = input.credentialHosts;
+        return true;
+      },
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "a" } },
+      { host: "API.example.com:443", binding: { type: "bearer", token: "b" } },
+    ]);
+    expect(seen).toEqual([NORMALISED]);
+  });
+});
+
+// Fix round 1 on Task 10: the CLI's local-model hint reads `outcome.locality`, and this is the
+// producer -- the outer `catch` must carry a thrown `ToolgenError`'s locality onto the refused
+// outcome, since that is the only place `ToolgenOutcome`'s "refused" variant is constructed.
+describe("createGeneratedTool's refused outcome carries the draft's locality (Task 10 fix round 1)", () => {
+  test('ERR_TOOLGEN_DRAFT_INVALID from a LOCAL route produces a refused outcome with locality "local"', async () => {
+    const d = deps({
+      draftTool: async () => {
+        throw new ToolgenError(
+          "ERR_TOOLGEN_DRAFT_INVALID",
+          "the drafted tool failed validation twice",
+          "local",
+        );
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out).toEqual({
+      status: "refused",
+      code: "ERR_TOOLGEN_DRAFT_INVALID",
+      locality: "local",
+    });
+  });
+
+  test('ERR_TOOLGEN_DRAFT_INVALID from a REMOTE route produces a refused outcome with locality "remote"', async () => {
+    const d = deps({
+      draftTool: async () => {
+        throw new ToolgenError(
+          "ERR_TOOLGEN_DRAFT_INVALID",
+          "the drafted tool failed validation twice",
+          "remote",
+        );
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out).toEqual({
+      status: "refused",
+      code: "ERR_TOOLGEN_DRAFT_INVALID",
+      locality: "remote",
+    });
+  });
+
+  test("ERR_TOOLGEN_NO_DRAFT_MODEL carries NO locality on the refused outcome", async () => {
+    const d = deps({
+      draftTool: async () => {
+        throw new ToolgenError("ERR_TOOLGEN_NO_DRAFT_MODEL", "no model is available");
+      },
+    });
+    const out = await createGeneratedTool(req, d as never);
+    // Not `locality: undefined` -- the KEY itself must be absent, matching every other refusal
+    // that genuinely has none to report (config off, policy, budget, bad host, confinement).
+    expect(out).toEqual({ status: "refused", code: "ERR_TOOLGEN_NO_DRAFT_MODEL" });
+    expect(Object.hasOwn(out, "locality")).toBe(false);
+  });
+
+  test("a pre-draft refusal (config off) carries no locality at all", async () => {
+    const d = deps({ config: DEFAULT_NIMBUS_TOOL_GENERATION_TOML });
+    const out = await createGeneratedTool(req, d as never);
+    expect(out).toEqual({ status: "refused", code: "ERR_TOOLGEN_DISABLED" });
+    expect(Object.hasOwn(out, "locality")).toBe(false);
   });
 });

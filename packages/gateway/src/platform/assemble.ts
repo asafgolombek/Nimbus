@@ -289,15 +289,24 @@ import { ToolgenBroker } from "../toolgen/toolgen-broker.ts";
 import { spawnGeneratedTool } from "../toolgen/toolgen-client.ts";
 import { assertToolConfinement } from "../toolgen/toolgen-confinement.ts";
 import { toolgenConsent } from "../toolgen/toolgen-consent-broker.ts";
-import { readToolCredential } from "../toolgen/toolgen-credentials.ts";
+import {
+  deleteToolCredential,
+  readToolCredential,
+  writeToolCredential,
+} from "../toolgen/toolgen-credentials.ts";
+import { createDraftToolClosure } from "../toolgen/toolgen-draft.ts";
+import {
+  createToolgenDraftLlm,
+  createToolgenDraftRouteProbe,
+} from "../toolgen/toolgen-draft-llm.ts";
 import type { ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
+import { createEndpointFinder } from "../toolgen/toolgen-grounding.ts";
 import { ToolgenRegistry } from "../toolgen/toolgen-registry.ts";
 import {
   removeToolScript,
   toolScriptDir,
   writeToolScript,
 } from "../toolgen/toolgen-script-store.ts";
-import { ToolgenError } from "../toolgen/toolgen-types.ts";
 import { type SynthSource, synthesizeAnswer } from "../tribal/answer-synthesizer.ts";
 import type { TribalCluster } from "../tribal/cluster-store.ts";
 import { buildTribalBoot, type TribalBoot } from "../tribal/tribal-boot.ts";
@@ -3824,19 +3833,30 @@ export async function assemblePlatformServices(
       return policyGate.enforced();
     },
     registry: toolgenRegistry,
-    // No task in this PR wires an LLM-based drafting flow -- Task 15's own brief scopes this task
-    // to the IPC surface, the LAN forbid, and wiring the gate/registry/broker/consent pieces
-    // together, not to authoring the highest-blast-radius prompt in the repository without a spec
-    // for it. `[tool_generation] enabled` defaults to false, so this refusal is unreachable unless
-    // an operator opts in; when they do, `toolgen.create` fails closed here with a named code
-    // rather than silently degrading to something unreviewed. A follow-up task that adds real
-    // drafting (local-first, per non-negotiable 1) must replace this closure.
-    draftBody: async () => {
-      throw new ToolgenError(
-        "ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED",
-        "no tool-body drafting path is wired yet in this build",
-      );
-    },
+    // `subject` is resolved by the GATE (Task 9's normalised host list + credential-host subset)
+    // and passed straight through -- it cannot be computed here: this closure is built ONCE at
+    // boot, while approved hosts and their credential subset are per-request, and at draft time
+    // nothing has been written to the Vault yet (`bindCredentials` runs AFTER drafting), so
+    // probing the Vault from this closure would report nothing even if a boot-time closure could
+    // see the request. `generate`/`hasDraftRoute`/`findEndpoints` are the only deps
+    // `draftGeneratedTool` needs; all three are cheap, stateless wrappers over services already in
+    // scope here.
+    //
+    // Built via `createDraftToolClosure` (`toolgen-draft.ts`), not an inline arrow, so the e2e test
+    // (`test/integration/toolgen/toolgen-draft-e2e.test.ts`) drives this EXACT composition over its
+    // own fake `generate`/`findEndpoints` rather than a test-authored copy of the shape -- reverting
+    // this call, or how it is built, changes what that test exercises too.
+    draftTool: createDraftToolClosure({
+      generate: createToolgenDraftLlm(llmRegistry.llmRouter, toolGenerationCfg.drafting),
+      // Shares ONE mode/locality decision with `generate` above (`resolveDraftProvider`), and is
+      // what lets `draftGeneratedTool` refuse `drafting = "off"` BEFORE `findEndpoints` embeds the
+      // description — which is an outbound request whenever `[embedding]` names a remote vendor.
+      hasDraftRoute: createToolgenDraftRouteProbe(
+        llmRegistry.llmRouter,
+        toolGenerationCfg.drafting,
+      ),
+      findEndpoints: createEndpointFinder(localIndex),
+    }),
     assertConfinement: (manifest) =>
       assertToolConfinement({ runner: sandboxRunner, manifest, cwd: paths.configDir }),
     scriptDir: (toolId) => toolScriptDir(paths.configDir, toolId),
@@ -3852,12 +3872,40 @@ export async function assemblePlatformServices(
         toolgenRegistry.markTerminated(envelope.artifact.toolId),
       ),
     requestApproval: (input, ttlMs) => toolgenConsent.request(input, ttlMs),
-    // PR 1's `toolgen.create` params carry no credential material (Task 16's `--credential` CLI
-    // flag is a later, separate widening of that wire contract) -- a freshly minted toolId can
-    // therefore never already hold a Vault entry, so there is truthfully nothing to bind or
-    // revoke yet. Real once a caller can supply credential bindings at create time.
-    bindCredentials: async () => [],
-    revokeCredentials: async () => {},
+    // A SEQUENTIAL per-host write loop -- acceptable because the gate (Task 9) already carries the
+    // compensating guarantee: it records the ATTEMPTED host set and flips its own `credentialsBound`
+    // flag BEFORE awaiting this call, so a throw partway through still leaves the gate with an
+    // accurate cleanup list. No compensating logic belongs here too -- that would be a second place
+    // for the same guarantee to drift from the gate's.
+    bindCredentials: async (toolId, credentials) => {
+      const bound: string[] = [];
+      for (const c of credentials) {
+        await writeToolCredential(vault, toolId, c.host, c.binding);
+        bound.push(c.host);
+      }
+      return bound;
+    },
+    // Idempotent by contract: called on paths where a binding may never have been written, and
+    // `deleteToolCredential` on an absent key is a no-op. `hosts` comes from the GATE's ATTEMPTED
+    // set (Task 9 step 8), never a registry lookup -- the tool is by definition unregistered on
+    // every path that calls this.
+    // EVERY host is attempted even when one delete rejects. Without the per-host guard the first
+    // Vault or keychain error skipped every remaining host, and the gate's `safeRevokeCredentials`
+    // then swallowed it -- so a single transient failure could leave later bearer tokens in the
+    // Vault under a toolId that never registers, which is the exact leak this callback exists to
+    // close. The last error is re-thrown AFTER the loop so the gate stays the single place that
+    // decides to ignore a cleanup failure.
+    revokeCredentials: async (toolId, hosts) => {
+      let lastError: unknown;
+      for (const host of hosts) {
+        try {
+          await deleteToolCredential(vault, toolId, host);
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      if (lastError !== undefined) throw lastError;
+    },
     now: () => Date.now(),
     newId: () => randomUUID(),
   };

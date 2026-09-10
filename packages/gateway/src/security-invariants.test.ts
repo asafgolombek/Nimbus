@@ -1049,6 +1049,21 @@ describe("I7 — Tauri ALLOWED_METHODS surface for T2 PR 3", () => {
     expect(rust).toMatch(/^\s*"connector\.listStatus",\s*$/m);
   });
 
+  // Same reasoning as `connector.list` above, and the same shape as the brief/verb pairs below:
+  // the 2026-09-10 removal of the `connector.startAuth` alias was a one-for-one SWAP, not a
+  // deletion — `connector.auth` had never been on the list, so the count stayed 105 and only the
+  // enumeration moved. Getting this half wrong is worse than a plain removal: the renderer's only
+  // auth path would fail -32601 on every call, which is exactly the S4-F2 defect the alias was
+  // introduced to paper over.
+  test("connector.auth is renderer-exposed; the removed connector.startAuth alias stays absent", async () => {
+    const rust = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
+    expect(rust).toMatch(/^\s*"connector\.auth",\s*$/m);
+    expect(rust).not.toMatch(/^\s*"connector\.startAuth",\s*$/m);
+    // …and the Rust side asserts the same thing at runtime, not just by count.
+    expect(rust).toContain(`assert!(is_method_allowed("connector.auth"));`);
+    expect(rust).toContain(`assert!(!is_method_allowed("connector.startAuth"));`);
+  });
+
   // The count above is NOT sufficient on its own — a one-for-one substitution (e.g.
   // agents.ownership swapped out for the LAN-forbidden ownership.refresh, which clears and
   // re-derives every ownership edge) leaves the count unchanged and would sail through. Name
@@ -3795,6 +3810,38 @@ describe("I39 — generated tools reach the network only through the broker", ()
     expect(() => buildGeneratedManifest("tg_a", { network: ["api.example.com"] })).toThrow(
       ToolgenError,
     );
+  });
+
+  // The confinement probe is I39's substrate: it is what proves, BEFORE the owner is prompted,
+  // that this machine can actually confine the policy the tool will spawn under. It had no
+  // enforcement test until now, and it needed one — the probe shipped MEASURING NOTHING on all
+  // three platforms and no suite noticed, because BOTH test layers injected around
+  // `defaultSpawnProbe`: the unit tests through the `spawnProbe` seam and the e2e through its own
+  // inline copy. A seam that every layer bypasses leaves the production default unexecuted while
+  // the suite stays green. This test is the guard against that specific shape recurring.
+  test("no PRODUCTION file injects around defaultSpawnProbe", async () => {
+    // BOTH property forms. `spawnProbe:` alone missed ES6 shorthand — a production object written
+    // `{ spawnProbe }` would inject around the default and this guard would not see it, which is
+    // the allow-list-shaped failure: written as "what I expect to find" instead of "what cannot
+    // pass". The three shapes deliberately NOT matched are the only three that exist in production
+    // today, and none of them injects: `readonly spawnProbe?:` DECLARES the seam, and
+    // `deps.spawnProbe ?? defaultSpawnProbe` READS it (twice — code and its docstring). A `?`
+    // follows `spawnProbe` in the first and a space-then-`?` in the others, so neither reaches the
+    // `[:,}]` class.
+    const injectors = await grepRepo(/spawnProbe\s*[:,}]/);
+    expect(injectors).toEqual([]);
+  });
+
+  test("the inline probe is static — nothing is interpolated into the code it constructs", async () => {
+    const src = await readFile(
+      resolve(REPO_ROOT, "packages/gateway/src/toolgen/toolgen-confinement.ts"),
+      "utf8",
+    );
+    const probe = /const INLINE_FS_DENIED_PROBE = \[([\s\S]*?)\]\.join/.exec(src);
+    expect(probe).not.toBeNull();
+    // A template substitution here would reintroduce the code-construction shape CodeQL flagged,
+    // in the one file whose job is proving a security property.
+    expect(probe?.[1] ?? "").not.toContain("${");
   });
 
   test("recordToolEgress is the ONLY tool-class appender in the tree", async () => {

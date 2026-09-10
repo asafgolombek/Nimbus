@@ -558,6 +558,16 @@ implement one, delete its "reserved" mention here in the same commit.
 4. **Streaming?** — return `{ streamId }` immediately; emit `namespace.eventName { streamId, ... }` notifications
 5. **Write the handler** — `packages/gateway/src/ipc/handlers/<namespace>.ts`
 6. **Register it** — in the IPC server (handler map)
+6b. **Route it** — `ipc/server/dispatchers.ts` decides which methods reach each sub-dispatcher, and
+   some of those predicates are **explicit per-method allow-lists**, not prefix matches.
+   `tryDispatchDiagnosticsRpc` is the one that bites: `db.*` and `diag.*` match by prefix, but
+   `index.*` is enumerated one method at a time (deliberately minimum-necessary). **Adding a `case`
+   to the sub-dispatcher is not enough** — without the routing entry the method returns
+   `Method not found` over a real socket while every unit test passes, because a test that calls
+   `dispatchDiagnosticsRpc(...)` directly never crosses this gate. `index.health` shipped exactly
+   that way in 2026-09 and was caught only by running the CLI against a live gateway. If you add a
+   test for it, assert against the `diagnosticsRpcSkipped` sentinel — `expect(out).toBeDefined()`
+   passes on the skip.
 7. **Tauri-accessible?** — add to `ALLOWED_METHODS` in `gateway_bridge.rs`
 8. **HITL-required?** — if it triggers a write/destructive action, add the tool to `HITL_REQUIRED` in `executor.ts`
 9. **Write the unit test** — `packages/gateway/test/unit/ipc/<namespace>-<method>.test.ts`

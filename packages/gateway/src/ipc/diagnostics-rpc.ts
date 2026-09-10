@@ -14,6 +14,7 @@ import { listWatchers } from "../automation/watcher-store.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
 import { asRecord } from "../connectors/unknown-record.ts";
 import { listMigrationBackups } from "../db/backups-list.ts";
+import { collectIndexHealth } from "../db/index-health.ts";
 import { collectIndexMetrics } from "../db/metrics.ts";
 import { runReadOnlySelect, SqlGuardError } from "../db/query-guard.ts";
 import { formatRepairReport, repairIndex } from "../db/repair.ts";
@@ -306,6 +307,29 @@ function rpcDbRestorePreview(params: unknown, ctx: DiagnosticsRpcContext): Diagn
 
 function rpcIndexMetrics(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
   return { kind: "hit", value: serializeMetrics(requireDb(ctx)) };
+}
+
+/**
+ * `index.health` — the quality report behind `nimbus index health`.
+ *
+ * Unlike `serializeMetrics` above, this returns `collectIndexHealth`'s object directly rather than
+ * through a hand-built allow-list. That is a deliberate difference, not an oversight: the metrics
+ * payload is a shared gauge surface where a hand-built list stops a new internal field leaking into
+ * `diag.snapshot` by accident. `IndexHealth` is a purpose-built report type with one consumer, so a
+ * second list would only be a place for the two to drift — the exact failure `prFileCoverage` hit
+ * on the other path.
+ */
+function rpcIndexHealth(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
+  const rec = asRecord(params);
+  const raw = rec?.["staleThresholdDays"];
+  if (raw !== undefined && (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0)) {
+    throw new DiagnosticsRpcError(
+      -32602,
+      "staleThresholdDays must be a non-negative finite number",
+    );
+  }
+  const opts = raw === undefined ? {} : { staleThresholdDays: raw };
+  return { kind: "hit", value: collectIndexHealth(requireDb(ctx), opts) };
 }
 
 function rpcDbGetMeta(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
@@ -670,6 +694,8 @@ export function dispatchDiagnosticsRpc(
       return rpcDbSetMeta(params, ctx);
     case "index.metrics":
       return rpcIndexMetrics(ctx);
+    case "index.health":
+      return rpcIndexHealth(params, ctx);
     case "index.queryItems":
       return rpcIndexQueryItems(params, ctx);
     case "index.querySql":

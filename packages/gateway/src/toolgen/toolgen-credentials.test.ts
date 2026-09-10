@@ -1,16 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import type { VaultReader, VaultWriter } from "../vault/nimbus-vault.ts";
+import type { VaultDeleter, VaultReader, VaultWriter } from "../vault/nimbus-vault.ts";
 import {
+  deleteToolCredential,
   readToolCredential,
   toolCredentialKey,
   writeToolCredential,
 } from "./toolgen-credentials.ts";
 
-function memoryVault(): VaultReader & VaultWriter {
+function memoryVault(): VaultReader & VaultWriter & VaultDeleter {
   const store = new Map<string, string>();
   return {
     get: async (k) => store.get(k) ?? null,
     set: async (k, v) => void store.set(k, v),
+    delete: async (k) => void store.delete(k),
   };
 }
 
@@ -143,5 +145,29 @@ describe("a credential that cannot be parsed reads as ABSENT, never half-applied
     ["basic with a non-string username", '{"type":"basic","username":1,"password":"p"}'],
   ])("%s reads as null", async (_label, raw) => {
     expect(await readRaw(raw)).toBeNull();
+  });
+});
+
+describe("deleteToolCredential", () => {
+  test("removes the per-host key and tolerates an absent one", async () => {
+    const vault = memoryVault();
+    await writeToolCredential(vault, "t1", "api.github.com", { type: "bearer", token: "x" });
+    await deleteToolCredential(vault, "t1", "api.github.com");
+    expect(await readToolCredential(vault, "t1", "api.github.com")).toBeNull();
+    // Idempotent -- called on a host that never had a binding, or one already deleted.
+    await deleteToolCredential(vault, "t1", "api.github.com");
+    expect(await readToolCredential(vault, "t1", "api.github.com")).toBeNull();
+  });
+
+  test("deleting one tool's credential does not touch another tool's under the same host", async () => {
+    const vault = memoryVault();
+    await writeToolCredential(vault, "t1", "api.github.com", { type: "bearer", token: "a" });
+    await writeToolCredential(vault, "t2", "api.github.com", { type: "bearer", token: "b" });
+    await deleteToolCredential(vault, "t1", "api.github.com");
+    expect(await readToolCredential(vault, "t1", "api.github.com")).toBeNull();
+    expect(await readToolCredential(vault, "t2", "api.github.com")).toEqual({
+      type: "bearer",
+      token: "b",
+    });
   });
 });

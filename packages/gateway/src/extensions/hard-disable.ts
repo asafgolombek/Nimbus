@@ -123,3 +123,29 @@ class SignatureDisabledRegistry {
 }
 
 export const signatureDisabledRegistry = new SignatureDisabledRegistry();
+
+/**
+ * Per-reason remediation for an extension the startup signature pass hard-disabled (I16).
+ *
+ * The remedies are genuinely different, which is why this is an exhaustive switch and not one
+ * generic "reinstall it" line: `publisher_key_*` means the KEY could not be resolved or no longer
+ * matches, and re-fetching it from the registry is the fix; `signature_*` means the bytes on disk
+ * no longer match what was signed, and no key will make that verify.
+ *
+ * The wording deliberately never says the user disabled it — that is the exact ambiguity this
+ * message exists to remove.
+ */
+export function signatureDisableMessage(
+  id: string,
+  version: string,
+  reason: SignatureDisableReason,
+): string {
+  const head = `Extension ${id} v${version} failed signature verification at startup (${reason}) and was disabled.`;
+  const remedy: Record<SignatureDisableReason, string> = {
+    publisher_key_missing: `No publisher key is cached for it. Re-fetch keys: nimbus extension sync — or reinstall with a key you already hold: nimbus extension install <path> --publisher-key <path>`,
+    publisher_key_mismatch: `The cached publisher key does not match the key this manifest was signed with — the publisher may have rotated keys. Re-fetch keys: nimbus extension sync`,
+    signature_failed: `The manifest does not match its signature: the files on disk have changed since it was signed. Reinstall from a source you trust: nimbus extension install <path>`,
+    signature_malformed: `The manifest's signature field is not a well-formed Ed25519 signature. Reinstall from a source you trust: nimbus extension install <path>`,
+  };
+  return `${head}\n${remedy[reason]}`;
+}

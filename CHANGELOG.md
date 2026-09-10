@@ -2,6 +2,27 @@
 
 All notable changes to the `nimbus` core (headless Gateway + CLI binary + first-party MCP connectors) are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [7.17.0](https://github.com/nimbus-agent/Nimbus/compare/v7.16.0...v7.17.0) (2026-09-10)
+
+
+### Features
+
+* **cli:** nimbus index health — index quality, not index size ([#1483](https://github.com/nimbus-agent/Nimbus/issues/1483)) ([93ac016](https://github.com/nimbus-agent/Nimbus/commit/93ac016d5a564f633732c4ba8f2eb6beb4bdb049))
+
+## [7.16.0](https://github.com/nimbus-agent/Nimbus/compare/v7.15.1...v7.16.0) (2026-09-10)
+
+
+### Features
+
+* **toolgen:** draft a tool body and its input schema, and bind credentials at create time ([#1481](https://github.com/nimbus-agent/Nimbus/issues/1481)) ([ecd1a04](https://github.com/nimbus-agent/Nimbus/commit/ecd1a04f8c8f47032992b2475cd67334f8afe0dd))
+
+## [7.15.1](https://github.com/nimbus-agent/Nimbus/compare/v7.15.0...v7.15.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* close three documented gaps in completed phases (I16 reasons, connector.startAuth, redaction fixtures) ([#1480](https://github.com/nimbus-agent/Nimbus/issues/1480)) ([da5d239](https://github.com/nimbus-agent/Nimbus/commit/da5d2399eae49412d82d4f2be94be1b2c50c7d25))
+
 ## [7.15.0](https://github.com/nimbus-agent/Nimbus/compare/v7.14.0...v7.15.0) (2026-09-09)
 
 
