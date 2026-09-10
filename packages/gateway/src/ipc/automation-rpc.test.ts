@@ -1,15 +1,18 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import pino from "pino";
 import {
   setupFreshExtensionDb,
   stageSignedExtensionOnDisk,
 } from "../../test/fixtures/extension.ts";
 import { insertExtensionRow } from "../automation/extension-store.ts";
 import { forwardDeps, recordInstall, reverseDeps } from "../extensions/dependency-store.ts";
+import { signatureDisabledRegistry } from "../extensions/hard-disable.ts";
 import { writePublisherKey } from "../extensions/publisher-keys.ts";
+import { verifyExtensionsBestEffort } from "../extensions/verify-extensions.ts";
 import { generateEd25519Keypair } from "../extensions/verify-signature.ts";
 import { upsertGraphEntity, upsertGraphRelation } from "../graph/relationship-graph.ts";
 import { LocalIndex } from "../index/local-index.ts";
@@ -607,6 +610,173 @@ describe("extension.list", () => {
     expect((out as { value: { extensions: Array<{ id: string }> } }).value.extensions).toHaveLength(
       1,
     );
+  });
+});
+
+describe("extension.list — signature-disabled reason (I16)", () => {
+  // The registry that records WHY an extension was hard-disabled at startup has existed since
+  // T2 PR 2 and, until 2026-09-10, had exactly one production reader — a COUNT, in diag.snapshot.
+  // A user running `nimbus extension list` saw an ordinary `enabled = 0` row and could not tell a
+  // failed Ed25519 verification from an extension they had disabled themselves. These tests are
+  // the gateway half of closing that: the per-extension reason has to leave the process.
+  afterEach(() => signatureDisabledRegistry.reset());
+
+  test("a signature-disabled row carries its reason and a signature_disabled flag", async () => {
+    const db = seededDb();
+    seedExtensionRow(db, "com.example.sig", "/p/sig");
+    signatureDisabledRegistry.mark("com.example.sig", "publisher_key_missing");
+    const out = await dispatchAutomationRpc({ method: "extension.list", params: {}, db });
+    expect(out.kind).toBe("hit");
+    const rows = (
+      out as {
+        value: {
+          extensions: Array<{
+            id: string;
+            signature_disabled?: boolean;
+            disabled_reason?: string;
+            needs_reinstall?: boolean;
+          }>;
+        };
+      }
+    ).value.extensions;
+    expect(rows[0]?.signature_disabled).toBe(true);
+    expect(rows[0]?.disabled_reason).toBe("publisher_key_missing");
+    // needs_reinstall is the PRE-T2 flag and drives `--filter needs-reinstall`. A signature
+    // failure must not set it: the two states have different remedies, and widening the filter
+    // silently would change what that flag has always meant.
+    expect(rows[0]?.needs_reinstall).toBeUndefined();
+  });
+
+  test("a row that is merely disabled carries no reason at all", async () => {
+    const db = seededDb();
+    seedExtensionRow(db, "com.example.off", "/p/off");
+    const out = await dispatchAutomationRpc({ method: "extension.list", params: {}, db });
+    const rows = (
+      out as {
+        value: { extensions: Array<{ signature_disabled?: boolean; disabled_reason?: string }> };
+      }
+    ).value.extensions;
+    expect(rows[0]?.signature_disabled).toBeUndefined();
+    expect(rows[0]?.disabled_reason).toBeUndefined();
+  });
+
+  test("filter=needs-reinstall does not pick up signature-disabled rows", async () => {
+    const db = seededDb();
+    seedExtensionRow(db, "com.example.sig", "/p/sig");
+    signatureDisabledRegistry.mark("com.example.sig", "signature_failed");
+    const out = await dispatchAutomationRpc({
+      method: "extension.list",
+      params: { filter: "needs-reinstall" },
+      db,
+    });
+    expect((out as { value: { extensions: unknown[] } }).value.extensions).toEqual([]);
+  });
+});
+
+describe("extension.list — the reason survives a REAL verification failure (I16)", () => {
+  // The three tests above mark the registry by hand, which proves the RPC reads it but not that
+  // the value it reads is the one the production pass writes. This one runs the real startup
+  // signature pass over a real signed extension with no cached publisher key, then asks
+  // `extension.list` — so the string in the CLI's output is the string `verify-extensions.ts`
+  // produced, not one this test invented.
+  afterEach(() => signatureDisabledRegistry.reset());
+
+  test("a genuinely signature-disabled extension reaches extension.list with its reason", async () => {
+    const { db, extensionsDir } = setupFreshExtensionDb();
+    try {
+      const vault = new MockVault();
+      const { privkey, pubkey } = generateEd25519Keypair();
+      await stageSignedExtensionOnDisk({
+        db,
+        extensionsDir,
+        publisherId: "test-pub",
+        pubkey,
+        privkey,
+      });
+      await verifyExtensionsBestEffort(db, pino({ level: "silent" }), undefined, { vault });
+
+      const out = await dispatchAutomationRpc({ method: "extension.list", params: {}, db });
+      const rows = (
+        out as {
+          value: {
+            extensions: Array<{
+              id: string;
+              enabled: number;
+              signature_disabled?: boolean;
+              disabled_reason?: string;
+            }>;
+          };
+        }
+      ).value.extensions;
+      const row = rows.find((r) => r.id === "ext-test-pub");
+      // Both halves matter: without `enabled === 0` the extension was never disabled, and without
+      // the reason the user is back to an unexplained `enabled = 0` row.
+      expect(row?.enabled).toBe(0);
+      expect(row?.signature_disabled).toBe(true);
+      expect(row?.disabled_reason).toBe("publisher_key_missing");
+    } finally {
+      rmSync(extensionsDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("extension.info — signature-disabled reason (I16)", () => {
+  afterEach(() => signatureDisabledRegistry.reset());
+
+  test("returns the reason plus a remediation message", async () => {
+    const db = seededDb();
+    seedExtensionRow(db, "com.example.sig", "/p/sig");
+    signatureDisabledRegistry.mark("com.example.sig", "signature_failed");
+    const out = await dispatchAutomationRpc({
+      method: "extension.info",
+      params: { id: "com.example.sig" },
+      db,
+    });
+    expect(out.kind).toBe("hit");
+    const v = (
+      out as {
+        value: {
+          extension: { signature_disabled?: boolean; disabled_reason?: string };
+          message?: string;
+        };
+      }
+    ).value;
+    expect(v.extension.signature_disabled).toBe(true);
+    expect(v.extension.disabled_reason).toBe("signature_failed");
+    expect(v.message).toContain("signature_failed");
+    expect(v.message).toContain("com.example.sig");
+  });
+
+  test("still carries prevVersion and cachedUpdate, which the normal path exposes", async () => {
+    // Caught in review on #1480: the signature branch was an EARLY RETURN placed above the
+    // prevVersion probe and the auto-update cache read, so adding a reason silently dropped two
+    // fields that `extension.info --json` had always carried for these rows. Surfacing a reason
+    // must WIDEN the response, never narrow it.
+    const db = seededDb();
+    seedExtensionRow(db, "com.example.sig", "/p/sig");
+    signatureDisabledRegistry.mark("com.example.sig", "publisher_key_mismatch");
+    const out = await dispatchAutomationRpc({
+      method: "extension.info",
+      params: { id: "com.example.sig" },
+      db,
+    });
+    const ext = (out as { value: { extension: Record<string, unknown> } }).value.extension;
+    // Presence, not truthiness: both are legitimately null here (no _prev/ dir, no auto-update
+    // cache wired), and `toBeNull()` would pass just as happily on a key that is missing entirely.
+    expect(Object.hasOwn(ext, "prevVersion")).toBe(true);
+    expect(Object.hasOwn(ext, "cachedUpdate")).toBe(true);
+  });
+
+  test("an unaffected extension gets no message", async () => {
+    const db = seededDb();
+    seedExtensionRow(db, "com.example.ok", "/p/ok");
+    const out = await dispatchAutomationRpc({
+      method: "extension.info",
+      params: { id: "com.example.ok" },
+      db,
+    });
+    const v = (out as { value: { message?: string } }).value;
+    expect(v.message).toBeUndefined();
   });
 });
 

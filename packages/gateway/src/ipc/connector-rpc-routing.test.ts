@@ -4,11 +4,7 @@ import type { ToolExecutor } from "../engine/executor.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { createMockVault } from "../vault/mock.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
-import {
-  _resetStartAuthWarnFlagForTest,
-  ConnectorRpcError,
-  dispatchConnectorRpc,
-} from "./connector-rpc.ts";
+import { ConnectorRpcError, dispatchConnectorRpc } from "./connector-rpc.ts";
 
 let db: Database;
 let localIndex: LocalIndex;
@@ -275,41 +271,28 @@ describe("dispatchConnectorRpc — simple routings", () => {
   });
 });
 
-describe("dispatchConnectorRpc — connector.startAuth alias + reset helper", () => {
-  test("connector.startAuth emits a one-time deprecation warning and routes to handleConnectorAuth", async () => {
-    _resetStartAuthWarnFlagForTest();
+describe("dispatchConnectorRpc — connector.startAuth alias removed", () => {
+  test("dispatching the removed alias writes nothing to stderr and returns a miss", async () => {
+    // The alias used to emit a one-time deprecation warning here. With the case gone there is no
+    // warning to emit and no module-level flag to reset — which is the assertion: a `miss` that
+    // still printed "deprecated" would mean the case had been half-removed.
     const originalWrite = process.stderr.write.bind(process.stderr);
-    const warned: string[] = [];
+    const written: string[] = [];
     process.stderr.write = ((chunk: unknown): boolean => {
-      warned.push(String(chunk));
+      written.push(String(chunk));
       return true;
     }) as typeof process.stderr.write;
     try {
-      await dispatchConnectorRpc({
+      const result = await dispatchConnectorRpc({
         ...baseOpts({}),
         method: "connector.startAuth",
         params: { serviceId: "github" },
-      }).catch(() => undefined);
-
-      warned.length = 0;
-      await dispatchConnectorRpc({
-        ...baseOpts({}),
-        method: "connector.startAuth",
-        params: { serviceId: "github" },
-      }).catch(() => undefined);
-      expect(warned.find((m) => m.includes("connector.startAuth is deprecated"))).toBeUndefined();
-
-      _resetStartAuthWarnFlagForTest();
-      warned.length = 0;
-      await dispatchConnectorRpc({
-        ...baseOpts({}),
-        method: "connector.startAuth",
-        params: { serviceId: "github" },
-      }).catch(() => undefined);
-      expect(warned.some((m) => m.includes("connector.startAuth is deprecated"))).toBe(true);
+      });
+      expect(result.kind).toBe("miss");
     } finally {
       process.stderr.write = originalWrite;
     }
+    expect(written.some((m) => m.includes("deprecated"))).toBe(false);
   });
 });
 

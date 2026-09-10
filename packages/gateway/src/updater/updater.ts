@@ -1,22 +1,11 @@
 import { sha256HexEqualConstantTime } from "../util/timing-safe-compare.ts";
 import { fetchUpdateManifest, isPermittedSchemeForUpdater } from "./manifest-fetcher.ts";
+import { redactUrlUserinfo } from "./redact-url-userinfo.ts";
 import { sha256Hex, verifyBinarySignature, verifyManifestEnvelope } from "./signature-verifier.ts";
 import type { PlatformTarget, UpdateManifest, UpdaterStatus } from "./types.ts";
 
-const URL_USERINFO_RE = /[a-zA-Z0-9+\-.]{1,32}:\/\/[^\s/@]{1,256}@[^\s/]{1,256}/g;
-
-export function redactUrlUserinfo(message: string): string {
-  return message.replaceAll(URL_USERINFO_RE, (urlMatch) => {
-    try {
-      const u = new URL(urlMatch);
-      u.username = "";
-      u.password = "";
-      return u.toString();
-    } catch {
-      return "[REDACTED-URL]";
-    }
-  });
-}
+// Re-exported because `platform/assemble.ts` and `updater.test.ts` both import it from here.
+export { redactUrlUserinfo };
 
 export const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024;
 

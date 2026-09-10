@@ -40,9 +40,9 @@ describe("Onboarding → Connect", () => {
     expect(useNimbusStore.getState().selected.has("GitHub")).toBe(false);
   });
 
-  it("Authenticate dispatches connector.startAuth for each selected", async () => {
+  it("Authenticate dispatches connector.auth for each selected", async () => {
     callMock.mockImplementation(async (method) => {
-      if (method === "connector.startAuth") return null;
+      if (method === "connector.auth") return null;
       if (method === "connector.listStatus")
         return [{ serviceId: "GitHub", healthState: "healthy" }];
       throw new Error(`unexpected ${method}`);
@@ -51,14 +51,14 @@ describe("Onboarding → Connect", () => {
     fireEvent.click(screen.getByText("GitHub"));
     fireEvent.click(screen.getByRole("button", { name: /authenticate/i }));
     await waitFor(() =>
-      expect(callMock).toHaveBeenCalledWith("connector.startAuth", { service: "GitHub" }),
+      expect(callMock).toHaveBeenCalledWith("connector.auth", { service: "GitHub" }),
     );
   });
 
   it("shows Authenticating… immediately after clicking Authenticate", async () => {
     let resolveAuth!: () => void;
     callMock.mockImplementation(async (method) => {
-      if (method === "connector.startAuth")
+      if (method === "connector.auth")
         return new Promise<null>((r) => {
           resolveAuth = () => r(null);
         });
@@ -72,9 +72,9 @@ describe("Onboarding → Connect", () => {
     resolveAuth();
   });
 
-  it("shows Failed — retry when connector.startAuth throws", async () => {
+  it("shows Failed — retry when connector.auth throws", async () => {
     callMock.mockImplementation(async (method) => {
-      if (method === "connector.startAuth") throw new Error("auth error");
+      if (method === "connector.auth") throw new Error("auth error");
       if (method === "connector.listStatus") return [];
       throw new Error(`unexpected ${method}`);
     });
@@ -87,7 +87,7 @@ describe("Onboarding → Connect", () => {
   it("navigates to /onboarding/syncing when a connector becomes connected", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     callMock.mockImplementation(async (method) => {
-      if (method === "connector.startAuth") return null;
+      if (method === "connector.auth") return null;
       if (method === "connector.listStatus")
         return [{ serviceId: "GitHub", healthState: "healthy" }];
       throw new Error(`unexpected ${method}`);
@@ -95,7 +95,7 @@ describe("Onboarding → Connect", () => {
     renderAt();
     fireEvent.click(screen.getByText("GitHub"));
     fireEvent.click(screen.getByRole("button", { name: /authenticate/i }));
-    // advanceTimersByTimeAsync flushes the pending startAuth microtasks first (so onAuth reaches
+    // advanceTimersByTimeAsync flushes the pending connector.auth microtasks first (so onAuth reaches
     // the setInterval poll registration) and then fires the poll — plain advanceTimersByTime would
     // run before the interval is even registered, and the navigation would never trigger.
     await act(async () => {
@@ -118,7 +118,7 @@ describe("Onboarding → Connect", () => {
     // on garbage. `asWireStatuses` drops the bad field, leaving the entry correctly unauthenticated.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     callMock.mockImplementation(async (method) => {
-      if (method === "connector.startAuth") return null;
+      if (method === "connector.auth") return null;
       if (method === "connector.listStatus") return [{ serviceId: "GitHub", healthState: 42 }];
       throw new Error(`unexpected ${method}`);
     });

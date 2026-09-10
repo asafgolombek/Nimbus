@@ -1,26 +1,12 @@
+import { redactUrlUserinfo } from "./redact-url-userinfo.ts";
 import type { PlatformTarget, UpdateManifest } from "./types.ts";
-
-const URL_USERINFO_RE = /[a-zA-Z0-9+\-.]{1,32}:\/\/[^\s/@]{1,256}@[^\s/]{1,256}/g;
-
-function redactUrlUserinfoInMessage(message: string): string {
-  return message.replaceAll(URL_USERINFO_RE, (urlMatch) => {
-    try {
-      const u = new URL(urlMatch);
-      u.username = "";
-      u.password = "";
-      return u.toString();
-    } catch {
-      return "[REDACTED-URL]";
-    }
-  });
-}
 
 export class ManifestFetchError extends Error {
   constructor(
     message: string,
     public override readonly cause?: unknown,
   ) {
-    super(redactUrlUserinfoInMessage(message));
+    super(redactUrlUserinfo(message));
     this.name = "ManifestFetchError";
   }
 }
