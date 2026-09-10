@@ -87,8 +87,9 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   did not exist at all. And the row listed `url`, `modified_at` and `raw_meta`: `raw_meta` is a
   column of the LEGACY `items` table and has never existed on the live `item` table (the equivalent
   is `metadata`; `raw_meta` survives only as a `legacy_raw_meta` key inside that JSON, written once
-  by the V3 backfill), while `item.modified_at` is `NOT NULL` and so can only ever be the sentinel
-  `0` that `item-store.ts` writes as `modifiedAt ?? createdAt ?? 0`. A query written from the spec
+  by the V3 backfill), while `item.modified_at` is `NOT NULL`, so a MISSING value can never appear as
+  `NULL` — `item-store.ts` writes `modifiedAt ?? createdAt ?? 0`, making the sentinel `0` the only
+  form "missing" can take (ordinary rows carry real timestamps). A query written from the spec
   would have thrown at runtime and passed every unit test, because the unit tests build a
   hand-written minimal table. That is why there is also an integration test against the real
   migrated schema, writing through the production `upsertIndexedItem` path.

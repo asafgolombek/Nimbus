@@ -135,8 +135,12 @@ function classifyStaleness(
   // it as fresh would inflate the single number the user acts on.
   if (!hasSyncRow) return { staleDays: null, stale: true, staleReason: "no_sync_record" };
   if (lastSyncMs === null) return { staleDays: null, stale: true, staleReason: "never_synced" };
-  const staleDays = Math.max(0, Math.round(((nowMs - lastSyncMs) / DAY_MS) * 10) / 10);
-  const stale = staleDays > thresholdDays;
+  // Compare the RAW age; round only what is displayed. Rounding first meant an age of 7.04 days
+  // became 7.0, and `7.0 > 7` is false — a connector genuinely past a 7-day threshold reported
+  // fresh. `>` not `>=` is deliberate: "stale after 7 days" must not fire at exactly 7.
+  const rawDays = Math.max(0, (nowMs - lastSyncMs) / DAY_MS);
+  const stale = rawDays > thresholdDays;
+  const staleDays = Math.round(rawDays * 10) / 10;
   return { staleDays, stale, staleReason: stale ? "threshold_exceeded" : null };
 }
 

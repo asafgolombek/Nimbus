@@ -279,3 +279,45 @@ describe("formatIndexHealth — empty connectors are hidden by default", () => {
     expect(out).toMatch(/91 connector\(s\)/);
   });
 });
+
+describe("formatIndexHealth — the omission disclosure cannot be lost", () => {
+  test("discloses omitted connectors even when EVERY connector is empty", () => {
+    // Caught in review: the disclosure lived inside `if (shown.length > 0)`, so an install where
+    // every registered connector holds zero items printed no connector section AND no disclosure —
+    // silently hiding all 97 rows. That is precisely the "hiding without saying so" failure the
+    // `--all` disclosure exists to prevent, and the original test missed it because every fixture
+    // had at least one non-empty connector.
+    const out = formatIndexHealth(
+      report({
+        totalItems: 0,
+        connectors: [
+          {
+            service: "empty0",
+            items: 0,
+            embeddedItems: 0,
+            embeddingCoveragePercent: 0,
+            lastSyncMs: null,
+            staleDays: null,
+            stale: true,
+            staleReason: "never_synced",
+          },
+          {
+            service: "empty1",
+            items: 0,
+            embeddedItems: 0,
+            embeddingCoveragePercent: 0,
+            lastSyncMs: null,
+            staleDays: null,
+            stale: true,
+            staleReason: "never_synced",
+          },
+        ],
+        confidence: null,
+        confidenceUnavailableReason: "empty_index",
+      }),
+      { nowMs: NOW, noColor: true },
+    );
+    expect(out).toMatch(/2 connector/);
+    expect(out).toMatch(/--all/);
+  });
+});

@@ -350,3 +350,35 @@ describe("collectIndexHealth — defaults and defensive paths", () => {
     expect(h.connectors[0]?.stale).toBe(false);
   });
 });
+
+describe("collectIndexHealth — staleness compares the UNROUNDED age", () => {
+  test("an age just above the threshold is stale, even when it rounds down onto it", () => {
+    // Caught in review: `staleDays` was rounded to one decimal BEFORE the comparison, so 7.04 days
+    // became 7.0 and `7.0 > 7` was false — a connector past the threshold reported fresh. The
+    // rounding is for display only; the verdict must use the raw age.
+    const ageMs = (7 + 0.04) * DAY_MS;
+    setSync(db, "github", NOW - ageMs);
+    addItem(db, { service: "github", embedded: true });
+    const h = collectIndexHealth(db, { nowMs: NOW, staleThresholdDays: 7 });
+    expect(h.connectors[0]?.stale).toBe(true);
+    expect(h.connectors[0]?.staleReason).toBe("threshold_exceeded");
+    // …and the DISPLAYED value is still the friendly rounded one.
+    expect(h.connectors[0]?.staleDays).toBe(7);
+  });
+
+  test("an age exactly at the threshold is NOT stale", () => {
+    // The boundary is `>`, not `>=` — "stale after 7 days" must not fire at exactly 7.
+    setSync(db, "github", NOW - 7 * DAY_MS);
+    addItem(db, { service: "github", embedded: true });
+    const h = collectIndexHealth(db, { nowMs: NOW, staleThresholdDays: 7 });
+    expect(h.connectors[0]?.stale).toBe(false);
+  });
+
+  test("an age just below the threshold is not stale", () => {
+    setSync(db, "github", NOW - 6.99 * DAY_MS);
+    addItem(db, { service: "github", embedded: true });
+    expect(collectIndexHealth(db, { nowMs: NOW, staleThresholdDays: 7 }).connectors[0]?.stale).toBe(
+      false,
+    );
+  });
+});

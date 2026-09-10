@@ -22,7 +22,10 @@ const EMPTY_REPORT = {
 
 let out: string[];
 const origLog = console.log;
-const origWrite = process.stdout.write.bind(process.stdout);
+// The ORIGINAL function, not `.bind(...)` of it. Restoring a bound wrapper leaves a
+// process-global mutation behind after this file runs, which matters in the whole-repo
+// single-process test run where every file shares one `process`.
+const origWrite = process.stdout.write;
 const origNoColor = process.env["NO_COLOR"];
 
 beforeEach(() => {

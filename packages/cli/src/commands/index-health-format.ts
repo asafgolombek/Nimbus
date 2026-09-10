@@ -163,12 +163,17 @@ export function formatIndexHealth(r: IndexHealthReport, opts: FormatOptions): st
           `${padStart(`${c.embeddingCoveragePercent}%`, 9)}  ${ageLabel(c, opts.nowMs)}${staleMark}`,
       );
     }
-    if (hidden > 0) {
-      lines.push(
-        `  (${num(hidden)} connector(s) with no indexed items omitted — pass --all to list them)`,
-      );
-    }
     lines.push("");
+  }
+
+  // OUTSIDE the `shown.length > 0` block on purpose. When every registered connector holds zero
+  // items there is no table to attach it to, and that is exactly when the disclosure matters most:
+  // without it the render would silently drop all of them and say nothing.
+  if (hidden > 0) {
+    lines.push(
+      `  (${num(hidden)} connector(s) with no indexed items omitted — pass --all to list them)`,
+      "",
+    );
   }
 
   lines.push("  Sparse metadata");
