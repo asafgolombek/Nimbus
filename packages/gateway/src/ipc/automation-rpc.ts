@@ -35,10 +35,13 @@ import {
   PRE_T2_DISABLE_REASON,
   preT2DisabledIds,
   preT2DisableMessage,
+  signatureDisabledRegistry,
+  signatureDisableMessage,
 } from "../extensions/hard-disable.ts";
 import { installExtensionFromLocalDirectory } from "../extensions/install-from-local.ts";
 import type { PublisherKeyFetcher } from "../extensions/registry-client.ts";
 import { syncPublisherKeys } from "../extensions/sync.ts";
+import type { SignatureDisableReason } from "../extensions/verify-signature.ts";
 import type { NimbusVault } from "../vault/index.ts";
 import { asRecord } from "./connector-rpc-shared.ts";
 
@@ -291,17 +294,36 @@ const AUTOMATION_HANDLERS: Readonly<Record<string, AutomationHandler>> = {
 };
 
 type ExtensionListItem = ExtensionRow & {
-  disabled_reason?: typeof PRE_T2_DISABLE_REASON;
+  disabled_reason?: typeof PRE_T2_DISABLE_REASON | SignatureDisableReason;
   needs_reinstall?: boolean;
+  signature_disabled?: boolean;
 };
 
+/**
+ * Attach the reason an extension is disabled, where the gateway knows one.
+ *
+ * Two independent registries, and they must stay independent on the wire. `needs_reinstall` is the
+ * PRE-T2 flag and drives `--filter needs-reinstall`; a failed Ed25519 check gets `signature_disabled`
+ * instead, because the remedies differ (I16) and quietly widening the filter would change what that
+ * flag has meant since T2 PR 1.
+ *
+ * They cannot both apply in practice — the pre-T2 pass runs first and leaves those rows `enabled = 0`,
+ * and the signature pass only iterates rows that are still `enabled = 1` — but pre-T2 is checked first
+ * regardless rather than relying on that ordering.
+ */
 function decorateExtensionList(rows: readonly ExtensionRow[]): ExtensionListItem[] {
   const preT2 = new Set(preT2DisabledIds());
-  return rows.map((r) =>
-    preT2.has(r.id)
-      ? { ...r, disabled_reason: PRE_T2_DISABLE_REASON, needs_reinstall: true }
-      : { ...r },
-  );
+  const signature = new Map(signatureDisabledRegistry.list().map((e) => [e.id, e.reason]));
+  return rows.map((r) => {
+    if (preT2.has(r.id)) {
+      return { ...r, disabled_reason: PRE_T2_DISABLE_REASON, needs_reinstall: true };
+    }
+    const reason = signature.get(r.id);
+    if (reason !== undefined) {
+      return { ...r, disabled_reason: reason, signature_disabled: true };
+    }
+    return { ...r };
+  });
 }
 
 function handleExtensionList(rec: Record<string, unknown> | undefined, ctx: AutomationCtx): Hit {
@@ -335,6 +357,26 @@ function handleExtensionInfo(rec: Record<string, unknown> | undefined, ctx: Auto
           reverseDeps: rev,
         },
         message: preT2DisableMessage(row.id, row.version),
+      },
+    };
+  }
+
+  // I16: the startup signature pass records WHY it hard-disabled a row. Until 2026-09-10 the only
+  // production reader was a count in `diag.snapshot`, so `extension info` showed a signature
+  // failure as a bare `enabled = 0` — indistinguishable from an extension the owner turned off.
+  const signatureReason = signatureDisabledRegistry.reasonFor(row.id);
+  if (signatureReason !== undefined) {
+    return {
+      kind: "hit",
+      value: {
+        extension: {
+          ...row,
+          disabled_reason: signatureReason,
+          signature_disabled: true,
+          forwardDeps: fwd,
+          reverseDeps: rev,
+        },
+        message: signatureDisableMessage(row.id, row.version, signatureReason),
       },
     };
   }

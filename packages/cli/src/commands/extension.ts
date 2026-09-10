@@ -43,6 +43,7 @@ type ExtensionListEntry = {
   version: string;
   enabled?: number;
   needs_reinstall?: boolean;
+  signature_disabled?: boolean;
   disabled_reason?: string;
   publisher?: { id: string; key?: string };
   forwardDeps?: Array<{ id: string; range: string }>;
@@ -54,7 +55,17 @@ export interface ExtensionListTableRow {
   version: string;
   enabled: number | boolean;
   publisher?: { id: string; key?: string };
+  /**
+   * The gateway hard-disabled this extension because its Ed25519 manifest signature did not
+   * verify at startup (I16). Deliberately NOT derived from `publisher === undefined`: that is
+   * the `(unverified)` badge, which means "declares no publisher" — the normal state of every
+   * unsigned extension, and a different fact entirely.
+   */
+  signatureDisabled?: boolean;
 }
+
+/** One definition, read by the renderer and by the colour rule below. */
+const SIGNATURE_DISABLED_STATUS = "disabled (signature)";
 
 export function formatExtensionListTable(
   rows: readonly ExtensionListTableRow[],
@@ -63,12 +74,13 @@ export function formatExtensionListTable(
   const headers = ["ID", "Version", "Publisher", "Status"];
   const data = rows.map((r) => {
     const isEnabled = typeof r.enabled === "number" ? r.enabled === 1 : r.enabled;
-    return [
-      r.id,
-      r.version,
-      r.publisher === undefined ? "(unverified)" : r.publisher.id,
-      isEnabled ? "enabled" : "disabled",
-    ];
+    let status: string;
+    if (isEnabled) {
+      status = "enabled";
+    } else {
+      status = r.signatureDisabled === true ? SIGNATURE_DISABLED_STATUS : "disabled";
+    }
+    return [r.id, r.version, r.publisher === undefined ? "(unverified)" : r.publisher.id, status];
   });
   const widths = headers.map((h, i) =>
     Math.max(h.length, ...data.map((row) => (row[i] ?? "").length)),
@@ -78,6 +90,9 @@ export function formatExtensionListTable(
     const padded = pad(s, w);
     if (!opts.isTty || opts.noColor) return padded;
     if (col === 2 && s === "(unverified)") return `\x1b[2;33m${padded}\x1b[0m`;
+    // Bold red, one step louder than `(unverified)`'s dim yellow: an unsigned extension is a
+    // normal state, a FAILED signature check is an integrity failure the user should look at.
+    if (col === 3 && s === SIGNATURE_DISABLED_STATUS) return `\x1b[1;31m${padded}\x1b[0m`;
     return padded;
   };
   const lines: string[] = [];
@@ -135,6 +150,7 @@ export async function runExtensionList(client: IPCClient, args: string[]): Promi
     const enabled = r.enabled ?? 1;
     const base: ExtensionListTableRow = { id: r.id, version: r.version, enabled };
     if (r.publisher !== undefined) base.publisher = r.publisher;
+    if (r.signature_disabled === true) base.signatureDisabled = true;
     return base;
   });
   const table = formatExtensionListTable(tableRows, { isTty, noColor });
@@ -142,6 +158,10 @@ export async function runExtensionList(client: IPCClient, args: string[]): Promi
   for (const r of rows) {
     if (r.needs_reinstall === true) {
       console.log(`  ${r.id}@${r.version} [needs-reinstall]`);
+    } else if (r.signature_disabled === true) {
+      // The machine-readable reason only; the remediation prose has one home (the gateway's
+      // `signatureDisableMessage`) and `nimbus extension info <id>` is where it is printed.
+      console.log(`  ${r.id}@${r.version} [signature: ${r.disabled_reason ?? "unknown"}]`);
     }
   }
 }
@@ -176,6 +196,20 @@ export function formatExtensionInfoHuman(info: {
     lines.push(`Publisher: ${info.publisher.id}`, `  key:     ${shortKey}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * `no` alone cannot tell an owner-disabled extension from one the startup Ed25519 check
+ * hard-disabled (I16), so the reason rides on the same line when the gateway supplies one.
+ */
+export function formatEnabledLine(e: {
+  enabled?: number;
+  signature_disabled?: boolean;
+  disabled_reason?: string;
+}): string {
+  if (e.enabled === 1) return "yes";
+  if (e.signature_disabled !== true) return "no";
+  return `no  (signature verification failed: ${e.disabled_reason ?? "unknown"})`;
 }
 
 function printExtensionInfoPublisher(e: ExtensionListEntry): void {
@@ -237,11 +271,14 @@ export async function runExtensionInfo(
   const e = out.extension;
   console.log(`Extension: ${e.id}`);
   console.log(`Version:   ${e.version}`);
-  console.log(`Enabled:   ${e.enabled === 1 ? "yes" : "no"}`);
+  console.log(`Enabled:   ${formatEnabledLine(e)}`);
   printExtensionInfoPublisher(e);
   console.log(formatNetworkIsolationLine(sandboxCap));
   console.log("  See: docs/sandbox.md#platform-asymmetry");
-  if (e.needs_reinstall === true && out.message !== undefined) {
+  // Any reason the gateway attached — pre-T2 or signature (I16) — is printed verbatim. The
+  // condition used to name `needs_reinstall` specifically, which is why a signature failure
+  // reached this far and then dropped its own explanation on the floor.
+  if (out.message !== undefined) {
     console.log("");
     console.log(out.message);
   }
