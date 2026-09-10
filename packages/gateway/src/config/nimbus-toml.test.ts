@@ -2026,6 +2026,7 @@ describe("[tool_generation]", () => {
   test("defaults are off and bounded", () => {
     expect(DEFAULT_NIMBUS_TOOL_GENERATION_TOML).toEqual({
       enabled: false,
+      drafting: "local",
       maxToolsPerSession: 3,
       maxRequestsPerTool: 50,
       requestTimeoutMs: 10_000,
@@ -2048,6 +2049,7 @@ describe("[tool_generation]", () => {
     );
     expect(cfg).toEqual({
       enabled: true,
+      drafting: "local",
       maxToolsPerSession: 7,
       maxRequestsPerTool: 9,
       requestTimeoutMs: 250,
@@ -2067,10 +2069,28 @@ describe("[tool_generation]", () => {
       ["[tool_generation]", "allow_agent_initiated = true"].join("\n"),
     );
     expect(Object.keys(cfg).sort()).toEqual([
+      "drafting",
       "enabled",
       "maxRequestsPerTool",
       "maxToolsPerSession",
       "requestTimeoutMs",
     ]);
+  });
+
+  test("[tool_generation] drafting defaults to local and accepts the three modes", () => {
+    expect(parseNimbusToolGenerationToml("").drafting).toBe("local");
+    expect(parseNimbusToolGenerationToml('[tool_generation]\ndrafting = "off"\n').drafting).toBe(
+      "off",
+    );
+    expect(
+      parseNimbusToolGenerationToml('[tool_generation]\ndrafting = "allow-remote"\n').drafting,
+    ).toBe("allow-remote");
+  });
+
+  test("[tool_generation] drafting keeps the default on an unrecognised value", () => {
+    // Mirrors the positive-number keys: a bad value leaves the safer default rather than widening.
+    expect(parseNimbusToolGenerationToml('[tool_generation]\ndrafting = "yolo"\n').drafting).toBe(
+      "local",
+    );
   });
 });

@@ -47,6 +47,7 @@ describe("emitToolScript", () => {
     toolName: "gitea_open_prs",
     description: "List open PRs",
     body: "return await nimbusFetch('https://api.gitea.example/prs');",
+    inputSchema: { type: "object", properties: {} },
   });
 
   test("the emitted skeleton names the brokered method", () => {
@@ -63,5 +64,23 @@ describe("emitToolScript", () => {
 
   test("the emitted script parses — a template-literal escaping bug is caught here, not at spawn", () => {
     expect(() => new Bun.Transpiler({ loader: "ts" }).transformSync(script)).not.toThrow();
+  });
+
+  test("emitToolScript embeds the APPROVED schema so describe() echoes the approval", () => {
+    const src = emitToolScript({
+      toolId: "t1",
+      toolName: "generated_t1",
+      description: "d",
+      body: "return 1;",
+      inputSchema: {
+        type: "object",
+        properties: { owner: { type: "string" } },
+        required: ["owner"],
+      },
+    });
+    // Embedded as a literal the same way toolName is, NOT computed at runtime: a describe() that
+    // disagrees with the registry's artifact then means the on-disk script was altered.
+    expect(src).toContain('"owner"');
+    expect(src).toContain('"required":["owner"]');
   });
 });

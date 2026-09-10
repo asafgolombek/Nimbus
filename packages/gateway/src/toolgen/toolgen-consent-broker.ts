@@ -1,4 +1,6 @@
 import { ConsentBroker } from "../util/consent-broker.ts";
+import type { DraftGrounding } from "./toolgen-grounding.ts";
+import type { ToolInputSchema } from "./toolgen-types.ts";
 
 export interface ToolgenApprovalInput {
   readonly toolId: string;
@@ -13,6 +15,10 @@ export interface ToolgenApprovalInput {
   readonly approvedHosts: readonly string[];
   /** Hosts for which a credential will be attached. "What will be sent, and where." */
   readonly credentialHosts: readonly string[];
+  /** The parameters the owner is being asked to approve -- the same object stored in the artifact. */
+  readonly inputSchema: ToolInputSchema;
+  /** How the draft was grounded -- disclosed so the owner can see whether it is a guess. */
+  readonly grounding: DraftGrounding;
   /**
    * Who asked. `"owner"` in PR 1. Present now so the agent-initiated path (PR 2) cannot ship a
    * prompt that looks identical to one the owner started.

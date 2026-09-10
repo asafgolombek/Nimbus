@@ -20,6 +20,7 @@ function env(toolId: string, sessionId = "s1"): ToolgenEnvelope {
         permissions: { network: [], filesystem: { read: [], write: [] } },
         updateChannel: "stable",
       },
+      inputSchema: { type: "object", properties: {} },
     },
   };
 }

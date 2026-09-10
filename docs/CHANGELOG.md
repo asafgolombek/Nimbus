@@ -8,6 +8,71 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-09-10 — Runtime tool generation, PR 2 of 3: drafting.** `nimbus tool create` now actually
+  drafts a tool body via a model instead of refusing — `ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED` is gone.
+  **No schema migration, no new invariant** — PR 2 builds entirely on I39's substrate (PR 1,
+  below).
+
+  **The model returns a body AND an input schema in one structured reply.** The schema is inside
+  the artifact the owner approves (never beside it), is covered by the artifact digest, is baked
+  into the emitted script, and drives the parameters the calling model sees — a later change to the
+  parameters invalidates the approval exactly as a change to `credentialHosts` already did. A
+  four-rung validation ladder runs before the owner is ever prompted — the reply parses as JSON,
+  the schema fits the restricted input-schema subset, the body parses as valid JavaScript, the body
+  contains no construct the sandbox would refuse — with exactly ONE bounded redraft on the first
+  failure, so a real defect does not silently exhaust a model's or an owner's patience.
+
+  **New config: `[tool_generation] drafting`, values `"off"` / `"local"` / `"allow-remote"`,
+  DEFAULT `"local"`.** Mirrors `[agents] synthesis` (I31) and `[fleet] allow_remote` (I38):
+  **configuring `[llm.remote.<vendor>]` for interactive use grants drafting nothing on its own** —
+  the owner must opt in per-capability. A remote draft (under `"allow-remote"`) sends the owner's
+  tool description and indexed endpoint paths drawn from their own private index, never a
+  credential value. `"allow-remote"` **defers** to the owner's `[llm] prefer_local` preference
+  rather than forcing a remote call — a local model already registered still drafts locally unless
+  the owner has separately turned preference itself toward remote.
+
+  **The drafting prompt is grounded on API endpoints already indexed from OpenAPI specs under
+  `[[filesystem.roots]]`** — a local ranked index read (hybrid BM25 + vector where semantic search
+  is available, lexical-only otherwise). The READ is local; the query EMBEDDING follows the
+  `[embedding]` configuration, so a remote embedder means the tool description reaches that vendor,
+  ledgered `model`-class. `drafting = "off"` (and "no eligible drafting route") now refuse BEFORE
+  the grounding search, so an owner who turned drafting off sends nothing anywhere. When nothing
+  matches, the model drafts from the description alone and the approval prompt discloses that
+  rather than implying the draft was grounded.
+
+  **`nimbus tool create --credential <host>=<token>` now actually transmits and binds a BEARER
+  credential per host,** written to a per-host Vault entry before the owner is prompted. `header`
+  and `basic` bindings exist in the broker and are applied correctly, but are reachable from no
+  user-facing path this release — no CLI flag constructs one. `nimbus tool credential set` remains
+  a permanent refusal stub: credentials bind only at create time, so adding one to a live tool
+  would change an artifact the owner already approved; the refusal names the fix (revoke, then
+  recreate with `--credential`).
+
+  **The approval prompt now shows the drafted parameters and the grounding provenance,** alongside
+  the tool's still-verbatim body and host/credential lists — never a digest, never a credential
+  value.
+
+  **`nimbus tool create` now works on all three platforms — the pre-consent confinement probe was
+  broken on every one of them, not only Windows.** The probe spawned an `@nimbus-dev/sdk/testing`
+  script as a bare file entry point, which cannot start under a restrictive manifest inside the
+  Windows AppContainer (`CouldntReadCurrentDirectory`), and it read a "known-protected system path"
+  (`/etc/passwd`) that `bwrap` `--ro-bind`s and the macOS profile grants — so a correctly confined
+  child read it happily and the probe reported "unconfined" on Linux and macOS. Every
+  `nimbus tool create` refused with `ERR_TOOLGEN_CONFINEMENT_FAILED` before the owner was prompted,
+  invisibly, because nothing ever ran the DEFAULT probe: the unit tests inject `spawnProbe` and the
+  integration suite injected its own inline copy. Both now drive the real one. The probe is a
+  nine-line, zero-import inline `-e` script that tries to read a SENTINEL the gate just wrote
+  outside every manifest grant and proved readable from the parent first — parent can, child
+  cannot, therefore confined — with ANY read failure counting, since Linux denies by masking
+  (`ENOENT`), macOS by `(deny default)` (`EPERM`) and Windows by a missing ACE. `assertToolConfinement`'s
+  own `canConfine`-then-probe order and its exit-code contract are unchanged. **Verified** on
+  Windows against a real `nimbus-sandbox-helper.exe` and on Linux against real `bwrap` 0.11.1
+  (where the two integration cases failed before the change); macOS is not verified on hardware,
+  and the sentinel shape is the one `sandbox-wrapper-spawn.test.ts` already uses there.
+
+  **Not shipped:** agent-initiated tool proposal (`allow_agent_initiated` + `allowed_hosts`),
+  persistence via `nimbus tool save`, and the `header`/`basic` credential bindings above. Design:
+  [`2026-09-09-s2-toolgen-drafting-design.md`](./superpowers/specs/2026-09-09-s2-toolgen-drafting-design.md).
 - **2026-09-10 — Three documented gaps in ✅-complete phases, closed. No new invariant, no schema
   migration, no new egress class.** Each of these was work a phase marked complete had explicitly
   NOT shipped, and each had a doc line saying so.

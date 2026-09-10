@@ -6,7 +6,7 @@ import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { ToolgenConsentBroker } from "../toolgen/toolgen-consent-broker.ts";
 import type { ToolgenGateDeps } from "../toolgen/toolgen-gate.ts";
 import { ToolgenRegistry } from "../toolgen/toolgen-registry.ts";
-import type { ToolgenEnvelope } from "../toolgen/toolgen-types.ts";
+import { type ToolgenEnvelope, ToolgenError } from "../toolgen/toolgen-types.ts";
 import { checkLanMethodAllowed, LanError } from "./lan-rpc.ts";
 import { dispatchToolgenRpc, type ToolgenRpcCtx } from "./toolgen-rpc.ts";
 
@@ -48,6 +48,7 @@ function makeEnvelope(toolId: string, sessionId: string): ToolgenEnvelope {
         permissions: { network: [], filesystem: { read: [], write: [] } },
         updateChannel: "stable",
       },
+      inputSchema: { type: "object", properties: {} },
     },
   };
 }
@@ -80,12 +81,22 @@ function makeCtx(over: Partial<ToolgenGateDeps> = {}): TestCtx {
       config: { ...DEFAULT_NIMBUS_TOOL_GENERATION_TOML, enabled: true },
       enforced: { capabilitiesDisabled: new Set<string>() },
       registry,
-      draftBody: async () => "return 1;",
+      draftTool: async () => ({
+        body: "return 1;",
+        inputSchema: { type: "object", properties: {} },
+        grounding: { kind: "description_only" },
+        attempts: 1,
+        locality: "local",
+      }),
       assertConfinement: async () => {},
       scriptDir: () => "/tmp/tg",
       writeScript: async () => "/tmp/tg/index.ts",
       spawn: async () => ({
-        describe: async () => ({ name: "t", description: "d" }),
+        describe: async () => ({
+          name: "t",
+          description: "d",
+          inputSchema: { type: "object", properties: {} },
+        }),
         call: async () => null,
         close: async () => {},
       }),
@@ -251,6 +262,109 @@ describe("toolgen RPC", () => {
   test("toolgen.revoke without toolId is an invalid-params error", async () => {
     await expect(dispatchToolgenRpc("toolgen.revoke", {}, makeCtx())).rejects.toThrow();
   });
+
+  // `createGeneratedTool` is a hard import in `toolgen-rpc.ts`, not an injectable dep on
+  // `ToolgenRpcCtx`/`ToolgenGateDeps` -- there is no `create` closure to intercept the way the
+  // brief's `fakeCtx({ create: ... })` sketch assumes. `bindCredentials` is the gate dependency
+  // that receives the parsed, per-host bearer bindings (step 7 of `createGeneratedTool`, BEFORE
+  // consent), so overriding it is what actually observes "parsed and forwarded as the third
+  // argument" without reaching into the gate's internals.
+  test("toolgen.create parses credentials and forwards them as bearer bindings before consent", async () => {
+    const bound: Array<[string, unknown]> = [];
+    const ctx = makeCtx({
+      bindCredentials: async (toolId, credentials) => {
+        bound.push([toolId, credentials]);
+        return [];
+      },
+    });
+    const run = dispatchToolgenRpc(
+      "toolgen.create",
+      {
+        sessionId: "s1",
+        description: "d",
+        hosts: ["api.github.com"],
+        credentials: [{ host: "api.github.com", token: "s3cret" }],
+      },
+      ctx,
+    );
+    // Let the gate reach `bindCredentials` (step 7, before consent) and the approval broadcast.
+    await Bun.sleep(1);
+    expect(bound.length).toBe(1);
+    expect(bound[0]?.[1]).toEqual([
+      { host: "api.github.com", binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    // Deny so the pending approval settles rather than leaking a dangling promise into the next test.
+    const requestId = ctx.broadcasts[0]?.["requestId"] as string;
+    await dispatchToolgenRpc("toolgen.approvalRespond", { requestId, approved: false }, ctx);
+    const out = await run;
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect((out.value as { status: string }).status).toBe("denied");
+  });
+
+  test("toolgen.create drops a malformed credential entry rather than throwing", async () => {
+    const bound: unknown[] = [];
+    const ctx = makeCtx({
+      bindCredentials: async (_toolId, credentials) => {
+        bound.push(credentials);
+        return [];
+      },
+    });
+    const run = dispatchToolgenRpc(
+      "toolgen.create",
+      {
+        sessionId: "s1",
+        description: "d",
+        hosts: ["api.github.com"],
+        credentials: [
+          { host: "api.github.com" }, // missing token
+          { host: "api.github.com", token: 42 }, // wrong type
+          { token: "s3cret" }, // missing host
+          "not-an-object",
+          null,
+          { host: "api.github.com", token: "s3cret" }, // the one valid entry
+        ],
+      },
+      ctx,
+    );
+    await Bun.sleep(1);
+    // Every malformed entry dropped, the one valid entry kept -- no throw reached this far.
+    expect(bound).toEqual([
+      [{ host: "api.github.com", binding: { type: "bearer", token: "s3cret" } }],
+    ]);
+    const requestId = ctx.broadcasts[0]?.["requestId"] as string;
+    await dispatchToolgenRpc("toolgen.approvalRespond", { requestId, approved: false }, ctx);
+    const out = await run;
+    if (out.kind !== "hit") throw new Error("unreachable");
+    expect((out.value as { status: string }).status).toBe("denied");
+  });
+
+  // Fix round 1 on Task 10: `toolgen.create`'s handler returns `createGeneratedTool(...)`'s
+  // outcome WHOLE (it is never reconstructed field by field here), so the newly-optional
+  // `locality` field should already survive. Proven by round-tripping the dispatched value through
+  // `JSON.parse(JSON.stringify(...))`, the same transform the real JSON-RPC transport applies.
+  test("toolgen.create's refused outcome carries `locality` through the RPC dispatch AND JSON serialization", async () => {
+    const ctx = makeCtx({
+      draftTool: async () => {
+        throw new ToolgenError(
+          "ERR_TOOLGEN_DRAFT_INVALID",
+          "the drafted tool failed validation twice",
+          "local",
+        );
+      },
+    });
+    const out = await dispatchToolgenRpc(
+      "toolgen.create",
+      { sessionId: "s1", description: "d", hosts: ["api.example.com"] },
+      ctx,
+    );
+    if (out.kind !== "hit") throw new Error("unreachable");
+    const serialized = JSON.parse(JSON.stringify(out.value));
+    expect(serialized).toEqual({
+      status: "refused",
+      code: "ERR_TOOLGEN_DRAFT_INVALID",
+      locality: "local",
+    });
+  });
 });
 
 describe("params that are not a keyed record at all", () => {
@@ -267,9 +381,15 @@ describe("params that are not a keyed record at all", () => {
     async (_label, params) => {
       let reached = false;
       const ctx = makeCtx({
-        draftBody: async () => {
+        draftTool: async () => {
           reached = true;
-          return "return 1;";
+          return {
+            body: "return 1;",
+            inputSchema: { type: "object", properties: {} },
+            grounding: { kind: "description_only" },
+            attempts: 1,
+            locality: "local",
+          };
         },
       });
       await expect(dispatchToolgenRpc("toolgen.create", params, ctx)).rejects.toMatchObject({

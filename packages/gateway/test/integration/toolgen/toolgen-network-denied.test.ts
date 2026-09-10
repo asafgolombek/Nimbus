@@ -127,6 +127,7 @@ describe("a generated tool's raw fetch() is blocked on this platform", () => {
         approvedHosts: [],
         credentialHosts: [],
         manifest,
+        inputSchema: { type: "object", properties: {} },
       },
     };
 

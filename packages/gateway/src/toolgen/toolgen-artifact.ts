@@ -8,6 +8,11 @@ import type { GeneratedToolArtifact } from "./toolgen-types.ts";
  * the bytes signed. Deterministic regardless of property insertion order, via the same
  * `canonicalize` extension signature verification already runs on.
  *
+ * `inputSchema` is included: the parameters are part of what the owner approves (see its docstring
+ * on `GeneratedToolArtifact`), so a schema-only change must change this digest exactly as a
+ * `credentialHosts` change does — omitting it here would let two artifacts differing only in their
+ * parameters hash identically, silently defeating that guarantee.
+ *
  * `canonicalize`'s recursion cap is 32 (real manifests nest ≤4 deep), so the manifest is embedded
  * as a nested value rather than pre-flattened — `canonicalize`'s parameter type is `unknown`, so no
  * cast is needed to pass it in, and no depth limit is at risk at this shape.
@@ -23,6 +28,7 @@ export function canonicalArtifactBytes(artifact: GeneratedToolArtifact): string 
     body: artifact.body,
     approvedHosts: [...artifact.approvedHosts],
     credentialHosts: [...artifact.credentialHosts],
+    inputSchema: artifact.inputSchema,
     manifest: artifact.manifest,
   });
 }

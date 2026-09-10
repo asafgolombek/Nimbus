@@ -1689,36 +1689,117 @@ Register, list and revoke owner-approved, session-ephemeral generated tools — 
 that runs sandboxed and can reach only the hosts and credentials the owner explicitly approved.
 Invariant **I39**.
 
-**Shipped as PR 1 of the runtime-tool-generation slice; drafting itself is not.** `nimbus tool
-create` exercises the whole gate — the `[tool_generation] enabled` kill-switch, org policy, the
-per-session tool budget, sandbox confinement — and only THEN refuses, at the exact point where a
-model would author the tool's body:
+**Drafting shipped as PR 2 of 3 of the runtime-tool-generation slice.** `nimbus tool create` now
+drafts a real tool body instead of refusing: it grounds a prompt on API endpoints already indexed
+from OpenAPI specifications under `[[filesystem.roots]]`, asks a model for the tool's JavaScript
+body AND its input schema in one structured reply, runs a four-rung validation ladder — the reply
+is JSON; the schema fits the restricted input-schema subset; the body parses as valid JavaScript;
+the body contains no construct the sandbox would refuse — with exactly ONE bounded redraft on
+failure, and only then prompts the owner to approve the verbatim body, the drafted parameters, and
+the grounding provenance. `ERR_TOOLGEN_DRAFT_NOT_IMPLEMENTED` is gone. **Not shipped:**
+agent-initiated tool proposal (`allow_agent_initiated` + `allowed_hosts`) and persistence via
+`nimbus tool save` (PR 3, which must resolve how I16's Ed25519 verification applies to a tool with
+no publisher). Design:
+[`docs/superpowers/specs/2026-09-09-s2-toolgen-drafting-design.md`](./superpowers/specs/2026-09-09-s2-toolgen-drafting-design.md).
 
-```text
-$ nimbus tool create --description "fetch the weather" --host api.example.com
-error: tool drafting is not implemented in this release.
-       The generation gate, sandbox and broker are in place; the step that
-       drafts the tool body is not. See docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md § 10.
-```
-
-The transcript above is verbatim CLI output, so the path in it is deliberately left unbackticked —
-it is what the command actually prints. The same reference, in auditable form, is
-[`docs/superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md`](./superpowers/specs/2026-09-09-s2-runtime-tool-generation-design.md)
-§ 10, so `audit:doc-refs` resolves it and the path cannot rot unnoticed.
-
-That is the honest, permanent-for-this-release shape of the command, not a bug to route around:
-designing the prompt that authors code which then runs with the owner's own credentials is its own
-reviewed piece of work, deferred on purpose rather than improvised late inside this slice.
-
-**Off by default.** Add to `nimbus.toml`:
+**`[tool_generation] drafting` controls which model may author a tool body — DEFAULT `"local"`:**
 
 ```toml
 [tool_generation]
 enabled                = true    # DEFAULT false
+drafting                = "local" # "off" | "local" | "allow-remote" — DEFAULT "local"
 max_tools_per_session   = 3
 max_requests_per_tool   = 50
 request_timeout_ms      = 10000
 ```
+
+- **`"off"`** — drafting always refuses (`ERR_TOOLGEN_NO_DRAFT_MODEL`); the rest of the substrate
+  (gate, sandbox, broker) is unaffected.
+- **`"local"`** (the default) — only a provider whose `isLocal` is `true` (I34, derived from its
+  resolved base URL, never a vendor id) may draft. **Configuring a `[llm.remote.<vendor>]` key for
+  `nimbus ask` grants drafting nothing on its own** — a frontier key already working for
+  interactive use does not widen what `nimbus tool create` may do; the owner must opt in
+  per-capability by setting `drafting` itself. Mirrors `[agents] synthesis` (I31) and `[fleet]
+  allow_remote` (I38): a grant WIDENS what may happen and never redirects a call that would
+  otherwise stay local.
+- **`"allow-remote"`** — permits a remote draft but does not force one: it asks the router for the
+  `"reasoning"` task with no `preferLocal` override, so it DEFERS to the owner's own `[llm]
+  prefer_local` preference exactly as any other unoverridden call would — a local model already
+  registered still drafts locally under `"allow-remote"` unless `prefer_local = false` (or no local
+  route exists at all).
+
+**What a remote draft actually sends, when `"allow-remote"` picks a remote provider:** the owner's
+tool description, the normalised host list, the names (never values) of hosts that will carry a
+credential, and the grounding block — the indexed endpoints' method, path, `operationId` and
+summary drawn from this machine's own private index. It never sends a credential value: the
+drafting function is never even handed one (spec § 9.1). The call rides the existing `model` I29
+egress class (`egressMethod: "toolgen.draft"`) like any other remote generate, so a non-zero
+`nimbus prove` window discloses it.
+
+**Grounding.** The prompt is grounded on `api_endpoint` items already indexed from OpenAPI
+specifications under `[[filesystem.roots]]`, via the local index's ranked search — hybrid
+(BM25 + vector) where semantic search is available, lexical-only otherwise. **The index read itself
+is local, but the query embedding is not automatically:** the description is embedded through
+whatever `[embedding]` is configured with, so on a remote-embedder install the grounding search
+sends the tool description to that embedding vendor. That request is ledgered `model`-class like
+any other remote embed, so a `nimbus prove` window discloses it. With a local embedder — the
+default — nothing leaves the machine. `drafting = "off"`, and a machine with no eligible drafting
+route, refuse BEFORE the grounding search runs, so neither reaches the embedder at all. When
+nothing matches, the model
+drafts from the description and standard REST conventions alone, and the approval prompt says so
+rather than leaving the owner to assume the draft was grounded:
+
+```text
+Register the generated tool "generated_<id>"?
+
+  description: fetch the weather
+
+async function __invoke(args) { ... }
+
+  parameters:       city: string (required), units: string?
+  grounding:        3 indexed endpoint(s) from open-meteo
+
+  hosts:            api.example.com
+  credential hosts: none
+
+  note: an approved host may receive anything this tool can compute. The host list bounds
+        WHERE it may send, never WHAT.
+```
+
+When nothing was indexed, the `grounding:` line instead reads `no indexed API specification
+matched — drafted from the description alone`.
+
+**The pre-consent confinement probe.** The gate proves the sandbox can confine a candidate tool
+(`toolgen-confinement.ts`'s `assertToolConfinement`) BEFORE the owner is ever prompted — even after
+a draft succeeds. It writes a sentinel file outside every path the tool's manifest grants, verifies
+it can read that file itself, then spawns a nine-line inline `-e` script under the tool's real
+policy and requires it to FAIL to read the same path. Parent can, child cannot: therefore the
+sandbox confined it. Any read failure counts, because the three platforms deny by three different
+mechanisms — `ENOENT` on Linux (bwrap's `--tmpfs /tmp` masks the file out of existence), `EPERM` on
+macOS under `(deny default)`, an ACL denial on Windows, where the AppContainer holds no ACE for that
+path.
+
+Both halves of that were different, and wrong, until 2026-09-10, and the command did not work on
+ANY platform:
+
+- It spawned a diagnostic script from `@nimbus-dev/sdk/testing` as a bare file entry point
+  (`bun <probe> --probe=fs-denied`), which cannot start under a restrictive manifest inside the
+  Windows AppContainer (`CouldntReadCurrentDirectory` — the measured dead end `toolgen-client.ts`
+  already works around for the tool's own post-approval launch, via an `-e` stub). Moving the probe
+  inline removes the file entry point AND the `node_modules/` path no manifest grants read to.
+- It read a "known-protected system path" (`/etc/passwd`, `C:\Windows\System32\config\SAM`), which
+  is not a measurement of THIS sandbox on POSIX: `bwrap` `--ro-bind`s `/etc` unconditionally and the
+  macOS profile grants `(subpath "/private/etc")`, so a perfectly confined child read
+  `/etc/passwd` happily and the probe reported "unconfined". Every `nimbus tool create` on Linux and
+  macOS refused with `ERR_TOOLGEN_CONFINEMENT_FAILED` before the owner was prompted.
+
+This was invisible because nothing ever ran the default probe — the unit tests inject `spawnProbe`,
+and the integration suite injected its own inline copy. Both now drive the real one. Verified: the
+toolgen integration suite passes on Windows against a real `nimbus-sandbox-helper.exe`, and on Linux
+against real `bwrap` 0.11.1, where the same two cases failed before the change. macOS is
+unverified on hardware here; the sentinel shape is the one
+`test/integration/platform/sandbox/sandbox-wrapper-spawn.test.ts`'s "refuses a path the policy does
+not grant" case already uses and passes with on that platform's CI leg.
 
 **What `max_tools_per_session` actually bounds from the CLI.** Every `nimbus tool` invocation
 shares one fixed session id (`cli`), so `nimbus tool list` run from a fresh process can find a tool
@@ -1747,26 +1828,35 @@ A tool id is a raw `randomUUID()` value (`ToolgenGateDeps.newId`) — there is n
 | `create --description <text> --host <h>...` | Register a tool. `--host` is repeatable and at least one is required. `--credential <host>=<token>` is repeatable and bearer-only from the CLI; naming a host not also passed to `--host` is refused before anything is sent to the gateway. |
 | `list [--json]` | Live tools from this CLI's own session — never a credential value, only the host names a credential is bound for. |
 | `revoke <tool-id>` | Ends the tool's child process AND deletes its approved script from disk — one call, both halves, so a revoked tool cannot be pointed at again. |
-| `credential set <tool-id> <host> (--bearer <token> \| --header <name> <value> \| --basic <user> <pass>)` | **Always refuses a live tool.** Credentials are bound only at CREATE time, before the toolId exists — adding one afterward would change the artifact the owner already approved. The refusal names the fix: revoke, then recreate with `--credential` included. |
+| `credential set <tool-id> <host> (--bearer <token> \| --header <name> <value> \| --basic <user> <pass>)` | **Always refuses a live tool — a permanent refusal stub, not a gap.** Credentials are bound only at CREATE time, before the toolId exists — adding one afterward would change the artifact the owner already approved (`credentialHosts` sits inside the hashed, owner-approved artifact for exactly this reason). The refusal names the fix: revoke, then recreate with `--credential` included. |
 
-**`--credential` is validated but not yet wired to anything, in this release.** `create`'s
-`--credential <host>=<token>` is parsed and checked client-side (host membership, non-empty value),
-but PR 1's `toolgen.create` gateway handler does not read a `credentials` field at all — the value
-is never transmitted, bound to a Vault entry, or shown back to you as bound. This changes nothing
-observable today, because `create` always refuses at the drafting step (above) before credentials
-would ever be consulted either way — but it means the flag does not yet do what its name implies,
-and that gap will persist once drafting ships until the wire contract is widened to match. See
-design spec § 10. `credential set`, by contrast, is not silently inert: it always visibly refuses
-(the row above), so its own output already discloses that nothing was bound.
+**`--credential <host>=<token>` is now transmitted and binds a BEARER credential per host, at
+create time.** `create`'s `--credential <host>=<token>` is parsed and checked client-side (host
+membership, non-empty value), sent to the gateway on `toolgen.create`'s `credentials` field, and
+bound into a per-host Vault entry (`toolgen.<toolId>.<hostSlug>`) before the owner is prompted — the
+approval prompt's `credential hosts:` line names every host that actually got a binding, so a
+dropped or malformed entry is visible there rather than silently absent. The broker attaches it as
+an `Authorization: Bearer <token>` header on every brokered request to that host, and a credential
+value never reaches the drafting prompt or the approval prompt (spec § 9.1) — only the host name
+does.
+
+**`header` and `basic` credential bindings exist in the broker but are reachable from no
+user-facing path in this release — a stated bound, not an oversight.** `ToolCredentialBinding`
+supports three schemes (`bearer`, `header`, `basic`) and the broker applies all three correctly,
+but `nimbus tool create --credential` only ever constructs a `bearer` binding — there is no CLI
+flag to request the other two at create time, and `nimbus tool credential set` (which parses
+`--header`/`--basic`) always refuses before it could write one. Closing this gap means widening
+`--credential`'s own syntax, not touching the broker.
 
 **Credentials are supplied at create time, never after.** The toolId a credential would be bound
 to does not exist until `create` runs, so `credential set` cannot be the way a tool first gets one —
 and once a tool is registered, `credentialHosts` is part of what the owner approved, so widening it
 silently is exactly what this gate exists to prevent.
 
-**The approval prompt shows the tool's VERBATIM body, its host list and its credential host list —
-never a digest and never a credential value.** The human approving it is the entire security
-boundary for this capability, the same posture `nimbus exec`'s prompt takes for a script body.
+**The approval prompt shows the tool's VERBATIM body, its drafted parameters, its grounding
+provenance, its host list and its credential host list — never a digest and never a credential
+value.** The human approving it is the entire security boundary for this capability, the same
+posture `nimbus exec`'s prompt takes for a script body.
 
 **Refuse in a non-TTY, always.** `nimbus tool create` needs an interactive terminal to show that
 prompt; run it from a script or a pipe and it refuses immediately, before opening a gateway
@@ -1788,7 +1878,12 @@ from the Tauri allowlist (I7).
 | --- | --- |
 | `0` | The tool was registered. |
 | `126` | The owner denied the approval prompt or let it time out. |
-| `127` | Refused before consent — disabled by config or org policy, a bad argument, non-TTY stdin, the session's tool budget spent, or (this release, always) drafting not implemented. |
+| `127` | Refused before consent — disabled by config or org policy, a bad argument, non-TTY stdin, the session's tool budget spent, drafting failed the validation ladder twice (`ERR_TOOLGEN_DRAFT_INVALID`) or found no eligible model (`ERR_TOOLGEN_NO_DRAFT_MODEL`), or sandbox confinement failed (`ERR_TOOLGEN_CONFINEMENT_FAILED`). |
+
+On `ERR_TOOLGEN_DRAFT_INVALID`, and only when the route that produced the failing draft was LOCAL,
+the CLI adds a hint: configure a larger local model (`[llm] min_reasoning_params`) or set
+`[tool_generation] drafting = "allow-remote"`. It is withheld when the failing route was remote —
+suggesting a bigger local model to someone already on a frontier model is noise, not help.
 
 **Org lockoff.** A signed `nimbus.policy.toml` can disable it fleet-wide:
 

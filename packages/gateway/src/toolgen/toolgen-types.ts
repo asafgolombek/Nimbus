@@ -1,5 +1,24 @@
 import type { ExtensionManifest } from "../extensions/manifest.ts";
 
+/** Scalar types supported in generated-tool parameters. */
+export type ToolInputScalar = "string" | "number" | "boolean";
+
+/** A single property in the generated tool's input schema. */
+export type ToolInputProperty =
+  | { readonly type: ToolInputScalar; readonly description?: string }
+  | {
+      readonly type: "array";
+      readonly items: { readonly type: ToolInputScalar };
+      readonly description?: string;
+    };
+
+/** The restricted JSON-Schema subset describing a generated tool's parameters. */
+export interface ToolInputSchema {
+  readonly type: "object";
+  readonly properties: Readonly<Record<string, ToolInputProperty>>;
+  readonly required?: readonly string[];
+}
+
 /**
  * The custom MCP method a generated tool uses to ask the gateway to make a request for it.
  *
@@ -15,6 +34,15 @@ export class ToolgenError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    /**
+     * Set only by `draftGeneratedTool` on `ERR_TOOLGEN_DRAFT_INVALID`, where a model DID answer
+     * and the CLI's local-model hint needs to know whether it was the local route. Optional and
+     * `undefined` on every other refusal -- most (disabled/policy/budget/bad host/confinement) are
+     * decided before a draft is even attempted and have no locality to report. A real field on the
+     * error, never smuggled into `message` and parsed back out -- a parsed message is not a
+     * contract.
+     */
+    readonly locality?: "local" | "remote",
   ) {
     super(message);
     this.name = "ToolgenError";
@@ -48,6 +76,15 @@ export interface GeneratedToolArtifact {
   readonly approvedHosts: readonly string[];
   readonly credentialHosts: readonly string[];
   readonly manifest: ExtensionManifest;
+  /**
+   * The parameters the owner approved.
+   *
+   * INSIDE the canonical artifact, not beside it: "this tool takes a repo name and a page number"
+   * is part of what is being consented to, it is covered by `artifactDigest`, and PR 3 signs it —
+   * so a later change to the parameters invalidates the approval, exactly as `credentialHosts`
+   * already does.
+   */
+  readonly inputSchema: ToolInputSchema;
 }
 
 /** A registered, live tool: the approved artifact plus its runtime bookkeeping. */
@@ -56,4 +93,38 @@ export interface ToolgenEnvelope {
   readonly sessionId: string;
   readonly scriptPath: string;
   readonly approvedAt: number;
+}
+
+export interface CreateGeneratedToolRequest {
+  readonly sessionId: string;
+  readonly description: string;
+  readonly hosts: readonly string[];
+}
+
+/**
+ * What the gate has already resolved by the time it drafts. Both lists are NORMALISED host names
+ * and `credentialHosts` is a subset of `hosts`.
+ */
+export interface DraftSubject {
+  readonly hosts: readonly string[];
+  /** Hosts that will carry a credential. NAMES ONLY — never a secret (spec § 9.1). */
+  readonly credentialHosts: readonly string[];
+}
+
+/**
+ * One host's credential, as it crosses `toolgen.create`.
+ *
+ * A SEPARATE parameter to `createGeneratedTool`, never a field of `CreateGeneratedToolRequest`:
+ * the gate hands the request straight to `draftTool`, so a `credentials` field on the request
+ * would place raw tokens on the input to a drafting prompt — and a secret in a remote model's
+ * context has left the machine (spec § 9.1). NEVER reaches a drafting prompt.
+ */
+export interface ToolCredentialParam {
+  readonly host: string;
+  readonly binding: ToolCredentialBinding;
+}
+
+export interface DraftGeneration {
+  readonly text: string;
+  readonly isLocal: boolean;
 }
