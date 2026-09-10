@@ -17,6 +17,7 @@ import {
   signatureDisabledRegistry,
   signatureDisableMessage,
 } from "./hard-disable.ts";
+import type { SignatureDisableReason } from "./verify-signature.ts";
 
 function memoryLogger(): { logger: Logger; warns: unknown[] } {
   const warns: unknown[] = [];
@@ -238,12 +239,16 @@ describe("signatureDisableMessage", () => {
   // re-fetching a key would not help. A single generic "reinstall it" line would be wrong for
   // half the set, which is why the switch is exhaustive over `SignatureDisableReason` rather
   // than defaulting.
-  const REASONS = [
-    "publisher_key_missing",
-    "publisher_key_mismatch",
-    "signature_failed",
-    "signature_malformed",
-  ] as const;
+  // A hand-written tuple would compile happily when a fifth reason is added, and that reason
+  // would then never reach the distinctness check below. `Record<SignatureDisableReason, true>`
+  // makes omitting one a compile error — the same shape the repo uses for `GapCategory`.
+  const REASON_SET: Record<SignatureDisableReason, true> = {
+    publisher_key_missing: true,
+    publisher_key_mismatch: true,
+    signature_failed: true,
+    signature_malformed: true,
+  };
+  const REASONS = Object.keys(REASON_SET) as SignatureDisableReason[];
 
   test("names the extension, the version and the machine-readable reason", () => {
     const msg = signatureDisableMessage("acme.foo", "3.1.4", "signature_failed");
@@ -255,6 +260,12 @@ describe("signatureDisableMessage", () => {
   test("says the extension was disabled, never that the user disabled it", () => {
     const msg = signatureDisableMessage("acme.foo", "3.1.4", "publisher_key_missing");
     expect(msg).toMatch(/signature verification/i);
+    // The positive assertion alone would pass on a message that ALSO blamed the owner, which is
+    // the one reading this whole feature exists to rule out. Both word orders, since "you
+    // disabled it" and "disabled by you" are the same mistake.
+    expect(msg).not.toMatch(
+      /\b(?:user|you|owner)\b[^.]*\bdisabled\b|\bdisabled\b[^.]*\b(?:user|you|owner)\b/i,
+    );
   });
 
   test("every reason yields a distinct, non-empty remediation", () => {

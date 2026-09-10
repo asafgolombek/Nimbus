@@ -615,6 +615,47 @@ describe("B11 — redactUrlUserinfo branches", () => {
     },
   ];
 
+  // Two leaks the `{1,256}` bounds caused, found in review on #1480 and fixed in the same commit.
+  // Both are the worst possible failure mode for a redaction helper: no match at all means the
+  // credential ships VERBATIM, and the fixtures above could not see it because every secret in
+  // them is short and every authority non-empty.
+  const LONG_SECRET = "S".repeat(300);
+
+  test("a userinfo longer than 256 characters is still redacted", () => {
+    // A 300-character bearer token or PAT in a URL is ordinary. Under the old bound the regex
+    // found no match and `Updater.lastError` carried the whole token.
+    const out = redactUrlUserinfo(
+      `fetch failed at https://user:${LONG_SECRET}@cdn.example.com/latest.json`,
+    );
+    expect(out).not.toContain(LONG_SECRET);
+    expect(out).toContain("cdn.example.com");
+  });
+
+  test("a long userinfo with no password is redacted too", () => {
+    const out = redactUrlUserinfo(`fetch failed at https://${LONG_SECRET}@cdn.example.com/x`);
+    expect(out).not.toContain(LONG_SECRET);
+  });
+
+  test("an empty authority after @ falls back to [REDACTED-URL]", () => {
+    // `https://user:secret@` matched nothing under the old bound (the host class required at
+    // least one character), so the secret survived. It now matches, `new URL` rejects the empty
+    // host, and the catch arm replaces the whole thing.
+    const out = redactUrlUserinfo("fetch failed at https://user:secret@");
+    expect(out).not.toContain("secret");
+    expect(out).toContain("[REDACTED-URL]");
+  });
+
+  test("stays linear on a large adversarial input (no catastrophic backtracking)", () => {
+    // Removing the bounds removes the length ceiling that was doing double duty as a backtracking
+    // ceiling. The classes are disjoint at the boundary (`[^\s/@]` excludes `@`), so the match is
+    // unambiguous and linear — asserted rather than assumed, per the repo's ReDoS convention.
+    const hostile = `https://${"a".repeat(200_000)}`;
+    const started = performance.now();
+    const out = redactUrlUserinfo(hostile);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(out).toBe(hostile);
+  });
+
   for (const fx of USERINFO_FIXTURES) {
     test(`fixture: ${fx.name}`, () => {
       const out = redactUrlUserinfo(fx.input);

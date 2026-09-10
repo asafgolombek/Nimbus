@@ -55,6 +55,17 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   because a scheme ending in a digit has no inner match to fall back on. Verified by narrowing the
   class and re-running before the fixtures were written.
 
+  **And the row's premise was half wrong, which the fixtures exposed.** "The regex broadening is
+  already done" was true of the SCHEME class only. The userinfo and authority classes were bounded
+  at `{1,256}`, and both bounds failed OPEN — the worst failure mode a redactor has, since no match
+  means the credential ships verbatim rather than partially. A userinfo longer than 256 characters
+  (an ordinary length for a bearer token or PAT) matched nothing; so did `https://user:secret@`
+  with an empty authority, because the host class demanded at least one character. Both are fixed,
+  both have fixtures, and a time-bounded test asserts the now-unbounded classes stay linear on a
+  200,000-character adversarial input rather than assuming it — the classes are disjoint at the
+  `@` boundary, so there is no backtracking ambiguity to exploit. Found in review on #1480, not by
+  the fixtures themselves: every secret in them was short and every authority non-empty.
+
 - **2026-09-09 — Runtime tool generation, PR 1 of 3: the substrate. Drafting is NOT implemented.**
   Closes the last unstarted S2 spine row's first slice. New invariant **I39** + static rule **D29**
   (three sub-rules), a tenth I29 egress coverage class `tool` at `per-call`, the default-off

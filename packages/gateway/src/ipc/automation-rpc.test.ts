@@ -747,6 +747,26 @@ describe("extension.info — signature-disabled reason (I16)", () => {
     expect(v.message).toContain("com.example.sig");
   });
 
+  test("still carries prevVersion and cachedUpdate, which the normal path exposes", async () => {
+    // Caught in review on #1480: the signature branch was an EARLY RETURN placed above the
+    // prevVersion probe and the auto-update cache read, so adding a reason silently dropped two
+    // fields that `extension.info --json` had always carried for these rows. Surfacing a reason
+    // must WIDEN the response, never narrow it.
+    const db = seededDb();
+    seedExtensionRow(db, "com.example.sig", "/p/sig");
+    signatureDisabledRegistry.mark("com.example.sig", "publisher_key_mismatch");
+    const out = await dispatchAutomationRpc({
+      method: "extension.info",
+      params: { id: "com.example.sig" },
+      db,
+    });
+    const ext = (out as { value: { extension: Record<string, unknown> } }).value.extension;
+    // Presence, not truthiness: both are legitimately null here (no _prev/ dir, no auto-update
+    // cache wired), and `toBeNull()` would pass just as happily on a key that is missing entirely.
+    expect(Object.hasOwn(ext, "prevVersion")).toBe(true);
+    expect(Object.hasOwn(ext, "cachedUpdate")).toBe(true);
+  });
+
   test("an unaffected extension gets no message", async () => {
     const db = seededDb();
     seedExtensionRow(db, "com.example.ok", "/p/ok");

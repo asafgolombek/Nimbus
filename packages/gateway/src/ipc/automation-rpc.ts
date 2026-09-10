@@ -371,6 +371,7 @@ function handleExtensionInfo(rec: Record<string, unknown> | undefined, ctx: Auto
       value: {
         extension: {
           ...row,
+          ...resolveExtensionInfoExtras(row, ctx),
           disabled_reason: signatureReason,
           signature_disabled: true,
           forwardDeps: fwd,
@@ -381,6 +382,33 @@ function handleExtensionInfo(rec: Record<string, unknown> | undefined, ctx: Auto
     };
   }
 
+  return {
+    kind: "hit",
+    value: {
+      extension: {
+        ...row,
+        ...resolveExtensionInfoExtras(row, ctx),
+        forwardDeps: fwd,
+        reverseDeps: rev,
+      },
+    },
+  };
+}
+
+/**
+ * The two fields `extension.info` resolves from outside the DB row: the newest directory under
+ * `_prev/`, and this run's cached auto-update check.
+ *
+ * Extracted so the signature-disabled branch above shares them. It was written as an early return
+ * placed ABOVE the inline probe, which meant attaching a reason silently dropped both fields from
+ * a response that had always carried them — surfacing a reason has to WIDEN the shape, never
+ * narrow it. (The pre-T2 branch omits them too, and is left alone: that is shipped behaviour for a
+ * different population of rows, not something to change while fixing this.)
+ */
+function resolveExtensionInfoExtras(
+  row: ExtensionRow,
+  ctx: AutomationCtx,
+): { prevVersion: string | null; cachedUpdate: unknown } {
   let prevVersion: string | null = null;
   try {
     const extRoot = dirname(row.install_path);
@@ -395,11 +423,7 @@ function handleExtensionInfo(rec: Record<string, unknown> | undefined, ctx: Auto
   } catch {
     // Best-effort — info still surfaces the row even if _prev/ probe failed.
   }
-  const cachedUpdate = ctx.autoUpdate?.cache.get(row.id) ?? null;
-  return {
-    kind: "hit",
-    value: { extension: { ...row, prevVersion, cachedUpdate, forwardDeps: fwd, reverseDeps: rev } },
-  };
+  return { prevVersion, cachedUpdate: ctx.autoUpdate?.cache.get(row.id) ?? null };
 }
 
 async function handleExtensionSync(
