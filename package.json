@@ -34,6 +34,7 @@
     "yaml": "2.9.0",
     "body-parser": "2.3.0",
     "nodemailer": "9.1.1",
+    "smol-toml": "1.8.0",
     "zod": "4.5.4"
   },
   "workspaces": [
