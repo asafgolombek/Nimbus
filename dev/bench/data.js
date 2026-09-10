@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789022678205,
+  "lastUpdate": 1789024815475,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "asafgolombek@gmail.com",
-            "name": "Asaf",
-            "username": "asafgolombek"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "31c05b25c17b858d14980455ad8800fbfb99e875",
-          "message": "feat(client): expose egress ledger reads on NimbusClient + MockClient (#751)\n\n## Why\n\nUnblocks the **nimbus-vscode** extension (a strict thin client — it may\nonly use `@nimbus-dev/client`, never Gateway source or raw JSON-RPC) to\nbuild an **Egress \"provable locality\"** UI surface. Today no published\nclient exposes any egress/share/workflow RPC, so the extension is\nblocked.\n\nInvestigation found all three candidate surfaces (Workflow, Share,\nEgress) already exist server-side with dispatch-wired IPC — this is a\n**client-layer exposure** task, not a server build. **Egress** was\nchosen first: its exposable set is 100% pure reads, all four methods are\nalready in the Tauri allowlist, the ledger is append-only/immutable\n(most stable contract), and it needs **zero Gateway change**.\n\n## What\n\nFour typed **read-only** methods on `NimbusClient`, wrapping the\nalready-wired `egress.*` RPCs:\n\n| Client method | RPC | Returns |\n|---|---|---|\n| `egressHead()` | `egress.head` | `EgressHead` |\n| `egressList(params?)` | `egress.list` | `EgressListResult` |\n| `egressVerify()` | `egress.verify` | `EgressVerifyResult` |\n| `egressProveWindow(params?)` | `egress.proveWindow` |\n`EgressProveWindowResult` |\n\n- Mirrored request/response types (`EgressRow`, `EgressHead`,\n`EgressListParams/Result`, `EgressVerifyResult`, `EgressCompleteness`,\n`EgressReceipt`, `EgressProveWindowParams/Result`), re-exported from\n`index.ts`.\n- `MockClient` parity stubs (optional `egressHead` / `egressRows` /\n`egressVerify` / `egressProveWindow` fixtures), signatures matching\n`NimbusClient` for true drop-in use.\n- Routing / mock / surface-parity tests. README egress snippet.\n\n`egress.prune` is **intentionally not exposed** — it is a mutation,\nowner-HITL-gated, and CLI-only (off the Tauri allowlist by design).\n\n## Versioning\n\nNo hand-edit to `version`/`CHANGELOG`: this `feat(client):` commit\ndrives release-please to bump `@nimbus-dev/client` **0.3.0 → 0.4.0** and\ncut the `client-v0.4.0` tag that fires the npm publish workflow. The\nvscode extension then depends on `@nimbus-dev/client@^0.4.0`.\n\n## Verification\n\n- `bun run typecheck` ✅ · `bun test` (112 pass) ✅ · `biome check` ✅ ·\n`bun run build` ✅\n- Coverage-floor (istanbul lcov, Linux-parity): `mock-client.ts`\n100%/100%, `nimbus-client.ts` 88% line / 100% branch — both above the 85\nline / 80 branch floors.\n- High-effort code review: one drop-in-parity finding (mock stubs\nmissing optional params) — fixed.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **New Features**\n- Added read-only egress ledger access, including APIs to fetch the\nledger head/count, list recent rows, verify chain integrity, and\ngenerate/return time-window proofs.\n- Exposed strongly typed egress ledger and proof/verification result\ntypes for client integrations.\n- Extended the mock client with corresponding egress methods and safe\ndefault responses.\n\n- **Documentation**\n- Added a “Egress ledger (provable locality)” quickstart section with\nexample calls for head/count, recent rows, offline verification, and\nproof generation.\n\n- **Tests**\n- Expanded test coverage to confirm typed surface exposure, correct\nrequest dispatching, parameter forwarding, and mock default/fixture\nbehavior.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T18:16:31Z",
-          "tree_id": "bef8b37cf72f58a67f5fa56bb229ef67c369d2f6",
-          "url": "https://github.com/nimbus-agent/Nimbus/commit/31c05b25c17b858d14980455ad8800fbfb99e875"
-        },
-        "date": 1784053819785,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "S11-a p95",
-            "value": 300.86539985000275,
-            "unit": "ms"
-          },
-          {
-            "name": "S11-b p95",
-            "value": 302.5354334000032,
-            "unit": "ms"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -16999,6 +16965,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 353.54145415001113,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93ac016d5a564f633732c4ba8f2eb6beb4bdb049",
+          "message": "feat(cli): nimbus index health — index quality, not index size (#1483)\n\nFirst of the v0.1.1 CLI batch. Reports index **quality**, as opposed to\n`diag.snapshot`'s size gauge: per-connector embedding coverage, stale\nconnectors, item types with sparse metadata, and a 0–100 confidence\nscore — so a user getting weak answers learns the index is why, before\nconcluding the product is.\n\nNew CLI-only `index.health` IPC method. **No schema migration, no\ninvariant, no egress class** — every figure is a `GROUP BY` over tables\nthat already exist.\n\n## The spec was wrong in two ways, and one of them would have thrown at\nruntime\n\nThe v0.1.1 trigger column said *\"engineering work only — index metrics\nalready collected\"*. Verified against the code before writing anything:\n\n| Spec claim | Reality |\n|---|---|\n| \"index metrics already collected\" | **Half true.** Staleness was\n(`lastSuccessfulSyncByConnector`). Per-connector coverage was **not** —\n`collectIndexMetrics` computes one global figure with no `GROUP BY\nservice`, right for a gauge and useless for triage. Sparse-metadata\nanalysis didn't exist at all. |\n| sparse fields are `url`, `modified_at`, `raw_meta` | **`raw_meta` has\nnever existed on the live table.** It's a column of the legacy `items`\ntable; the live table is `item` (V3) and its equivalent is `metadata`.\n`raw_meta` survives only as a `legacy_raw_meta` key inside that JSON,\nwritten once by the V3 backfill. |\n| \"missing `modified_at`\" | `item.modified_at` is **`NOT NULL`** — never\nmissing. `item-store.ts` writes `modifiedAt ?? createdAt ?? 0`, so the\ndetectable signal is the sentinel `0`. |\n\nA query written from that spec would have thrown against the real schema\n**and passed every unit test**, because the unit tests build a\nhand-written minimal table. Hence\n`test/integration/index/index-health-real-schema.test.ts`, which runs\nthe full migration chain and writes through the production\n`upsertIndexedItem` path.\n\n## Two defects only a live gateway could find\n\nRan the command against a real gateway on an isolated scratch data dir.\nBoth fixed in `30179a59`:\n\n1. **The feature was unreachable over a socket.**\n`ipc/server/dispatchers.ts` keeps its *own* minimum-necessary allow-list\nof which `index.*` methods reach the diagnostics handler —\n`db.*`/`diag.*` match by prefix, `index.*` is enumerated per method. A\n`case` inside `dispatchDiagnosticsRpc` doesn't enter it, and every unit\ntest calls that function directly, downstream of the gate. The first\nlive run printed `Method not found: index.health` with the whole suite\ngreen. Now pinned at the routing seam, asserting against the\n`diagnosticsRpcSkipped` **sentinel** — `expect(out).toBeDefined()`\npasses on the skip, i.e. a test that cannot fail.\n2. **The output was unusable.** The gateway registers a `sync_state` row\nfor *every* known connector at boot, so a real install rendered **97\nrows of which 90 were empty and never configured**. Zero-item connectors\nare now omitted behind a disclosed count and `--all`. `--json` still\ncarries all 97 — the filtering is render-only, so no machine consumer\nloses data.\n\nI've added this to the `nimbus-ipc` skill as step 6b; its checklist\npreviously said only \"register it in the handler map\", which is the\nincomplete instruction I followed.\n\n## Three honesty rules in the scoring, each tested\n\n- **An empty index reports `confidence: null`**, with\n`confidenceUnavailableReason: \"empty_index\"` — never `0`, which would\ntell a brand-new install its index scores zero out of a hundred.\n- **Freshness is weighted by items, not connector count**, so nine empty\nfresh connectors cannot mask one stale connector holding everything.\n- **Unknown sync state is stale, not fresh.** A service with items but\nno `sync_state` row is disclosed as `no_sync_record`, distinct from\n`never_synced` — different causes, different fixes.\n\nCoverage is weighted `0.6` against freshness `0.4` because they fail\ndifferently: an unembedded item cannot be retrieved at all; a stale one\nis retrievable and merely out of date.\n\n`nimbus doctor` warns below 60 (exactly 60 passes) via a **separate**\n`index.health` call rather than a `diag.snapshot` field — the desktop\npolls that snapshot, and several `GROUP BY` scans don't belong on a\npolled path. A gateway too old to serve the method leaves doctor silent\nrather than inventing a verdict.\n\n**Not renderer-exposed:** the desktop has no consumer and the Tauri\nallowlist is the audited surface, so an entry would cost a\ncount-assertion change for nothing.\n\n## Verification\n\n- Full `bun run preflight` — every static gate, `build`,\n`test:connector-boot`, whole `test:ci` suite green.\n- **Live gateway run** on an isolated scratch dir via `LOCALAPPDATA`\n(not `NIMBUS_CONFIG_DIR`, which moves only `configDir` and would have\nwritten the live index). Verified: 7 real connectors rendered,\n`--stale-days 30` correctly un-stales a 12-day-old connector, `--json`\ncomplete and valid, malformed `--stale-days` refused client-side before\nany IPC, `nimbus doctor` printing `[warn] Index confidence: 2/100`. The\nreal `nimbus.db` mtime is unchanged — it was never opened.\n- Two SQL correctness rules **red-proved by reverting the\nimplementation**, not by a green run: the `DISTINCT` subquery\n(multi-chunk items must count once — reverting gives 66.7% where 50% is\ncorrect) and the fail-closed `no_sync_record` rule.\n- `audit:coverage-floor` initially caught two of my own files (the\nrunner was at 0% — I'd tested the formatter and not the command). Wrote\ntests rather than excluding; both are now off the list. What remains is\nthe 7 pre-existing Windows-local violations, none in files this branch\ntouches.\n\nThe sparse-metadata section immediately found real problems on the live\nindex: `code_symbol` and `dependency` at 100% missing `url`.\n\n## Still open in the v0.1.1 batch\n\n`nimbus tail`, `explain last`, `changelog`, `standup`, `oncall` — one PR\neach. Given what the premise check turned up here, each is worth\nverifying against the code before building.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01RdPkde1eXT1gRZawg4eD1n\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **New Features**\n- Added the read-only `nimbus index health` command with human-readable\nor JSON reports.\n- Reports connector coverage, synchronization freshness, sparse\nmetadata, and confidence scores, with stale-threshold and\nempty-connector options.\n- `nimbus doctor` now warns about low index confidence while remaining\ncompatible with older gateways.\n- `nimbus tool create` can draft and validate JavaScript bodies and\ninput schemas, with approval, provenance, local/remote drafting\npolicies, and bearer credential binding.\n\n- **Documentation**\n- Updated CLI reference, changelog, roadmap, and project status\ndocumentation.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-10T10:07:56+03:00",
+          "tree_id": "49532589bc03d9bc2cc389850be034242013170c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/93ac016d5a564f633732c4ba8f2eb6beb4bdb049"
+        },
+        "date": 1789024812640,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 333.3460536499944,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 335.1610111499955,
             "unit": "ms"
           }
         ]
