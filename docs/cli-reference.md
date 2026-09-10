@@ -3275,6 +3275,40 @@ nimbus index reembed --model Xenova/all-MiniLM-L6-v2 --yes --json
 
 ---
 
+### `nimbus index health`
+
+Index **quality** report — why query results are weak, before you conclude the product is. Read-only: one `index.health` call, no HITL, no writes.
+
+```bash
+nimbus index health
+nimbus index health --stale-days 30
+nimbus index health --json
+```
+
+**Flags:**
+
+| Flag | Required | Description |
+|---|---|---|
+| `--stale-days N` | no | Age above which a connector counts as stale. Default **7**. A malformed or negative value is a hard error client-side, because `Number("")` is `0` and silently treating that as the threshold would mark the entire index stale. |
+| `--json` | no | The raw report, for machine consumption. |
+
+**What it reports:**
+
+- **Per-connector embedding coverage** — the share of that connector's items with at least one `embedding_chunk` row. An unembedded item is invisible to semantic search. This is genuinely per-connector; `diag.snapshot`'s `embeddingCoveragePercent` is a single global figure and cannot say *which* connector is uncovered.
+- **Stale connectors**, with the reason distinguished: `threshold_exceeded` (synced, but longer ago than the threshold), `never_synced` (a `sync_state` row exists with no timestamp), and `no_sync_record` (items are indexed for a service with no `sync_state` row at all). Different causes, different fixes.
+- **Item types with sparse metadata** — counts of items missing `url`, `modified_at` or `metadata`, per type.
+- **A 0–100 confidence score**, `0.6 × embedding coverage + 0.4 × freshness`. Coverage is weighted higher because the two fail differently: an unembedded item cannot be retrieved at all, while a stale one is retrievable and merely out of date. Freshness is weighted by **items**, not by connector count, so nine empty fresh connectors cannot mask one stale connector holding everything.
+
+**An empty index reports no score at all**, not zero — `confidence` is `null` with `confidenceUnavailableReason: "empty_index"`. Zero would read as a verdict on quality when the truth is that there is nothing yet to judge.
+
+**Unknown sync state is treated as stale, never as fresh.** A connector with no sync record could be freshly synced or years cold; assuming the former would inflate the one number a user acts on.
+
+**`nimbus doctor` integration:** doctor calls `index.health` separately (not via `diag.snapshot`, which the desktop polls — the report is several `GROUP BY` scans and does not belong on a polled path) and prints `[warn] Index confidence: N/100` below **60**. Exactly 60 passes. A gateway too old to serve the method leaves doctor silent rather than inventing a verdict.
+
+**Exit codes:** `0` always for a successful report — it is a read command. Gateway-down surfaces as the usual connection error.
+
+---
+
 ### `nimbus index rebody`
 
 Re-fetch indexed **depth** for rows that are missing some of it. The full-body store (schema **V48**) lifted the 512-character cap to 16 KiB for `PROSE_HEAVY_TYPES`, but only for connectors that were migrated to pass a declared-full `body:` — existing rows synced before that migration (or by a connector that has not been migrated) are left with `item.body_complete = 0`: text that is genuinely gone from the local index and can only be recovered by re-fetching from the source API. `rebody` works by **clearing a connector's sync watermark** (`scheduler_state.cursor`) and letting the existing sync run from scratch, so a real run is real outbound API traffic against a live connector, not a local recompute.

@@ -8,6 +8,41 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-09-10 - `nimbus index health`, the first of the v0.1.1 CLI batch.** Index QUALITY, as
+  opposed to `diag.snapshot`'s size gauge: per-connector embedding coverage, stale connectors, item
+  types with sparse metadata, and a 0-100 confidence score. New CLI-only IPC method `index.health`
+  (`db/index-health.ts` + a handler beside `index.metrics`); NOT renderer-exposed, since the desktop
+  has no consumer and the Tauri allowlist is the audited surface. No schema migration, no new
+  invariant, no egress class - every figure is a `GROUP BY` over tables that already exist.
+
+  **The v0.1.1 trigger column said "index metrics already collected". That was half true, and the
+  spec named a column that does not exist.** Staleness was collected (`lastSuccessfulSyncByConnector`).
+  Per-connector coverage was NOT - `collectIndexMetrics` computes ONE global figure with no
+  `GROUP BY service`, which is right for a gauge and useless for triage. Sparse-metadata analysis
+  did not exist at all. And the row listed `url`, `modified_at` and `raw_meta`: `raw_meta` is a
+  column of the LEGACY `items` table and has never existed on the live `item` table (the equivalent
+  is `metadata`; `raw_meta` survives only as a `legacy_raw_meta` key inside that JSON, written once
+  by the V3 backfill), while `item.modified_at` is `NOT NULL` and so can only ever be the sentinel
+  `0` that `item-store.ts` writes as `modifiedAt ?? createdAt ?? 0`. A query written from the spec
+  would have thrown at runtime and passed every unit test, because the unit tests build a
+  hand-written minimal table. That is why there is also an integration test against the real
+  migrated schema, writing through the production `upsertIndexedItem` path.
+
+  **Three honesty rules in the scoring, each with a test.** An EMPTY index reports `confidence:
+  null` with `confidenceUnavailableReason: "empty_index"` - never `0`, which would tell a
+  brand-new install its index scores zero out of a hundred. Freshness is weighted by ITEMS, not by
+  connector count, so nine empty fresh connectors cannot mask one stale connector holding
+  everything. And unknown sync state is treated as STALE, not fresh - a service with items but no
+  `sync_state` row is disclosed as `no_sync_record`, distinct from `never_synced`, because the two
+  have different fixes.
+
+  Coverage is weighted `0.6` against freshness `0.4` because they fail differently: an unembedded
+  item cannot be retrieved at all, while a stale one is retrievable and merely out of date.
+  `nimbus doctor` warns below 60 (exactly 60 passes) via a SEPARATE `index.health` call rather than
+  a `diag.snapshot` field - the desktop polls that snapshot, and several `GROUP BY` scans do not
+  belong on a polled path. A gateway too old to serve the method leaves doctor silent rather than
+  inventing a verdict, the same rule the embedding check follows.
+
 - **2026-09-10 — Three documented gaps in ✅-complete phases, closed. No new invariant, no schema
   migration, no new egress class.** Each of these was work a phase marked complete had explicitly
   NOT shipped, and each had a doc line saying so.

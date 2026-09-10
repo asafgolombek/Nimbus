@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { IPCClient } from "../ipc-client/index.ts";
 import { BATCH_RPC_TIMEOUT_MS } from "../lib/rpc-timeouts.ts";
 import { withGatewayIpc } from "../lib/with-gateway-ipc.ts";
+import { runIndexHealth } from "./index-health-cmd.ts";
 
 type ReembedSummary = {
   jobId: string;
@@ -573,6 +574,11 @@ Usage:
                        account for a full-scan connector, not just the pending count shown.
                        --since widens the cold-start window past the connector's built-in 30
                        days, for connectors that opt in; others keep their own initial depth.
+  nimbus index health [--stale-days N]   (default 7)
+                      [--json]
+                       Index quality report: per-connector embedding coverage, stale connectors,
+                       item types with sparse metadata, and an overall 0-100 confidence score.
+                       Read-only. An empty index reports no score rather than zero.
   nimbus index regraph [--json]
                        Re-run the graph populator over every indexed item (backfills resolves/mentions/correlates_with)
                        Note: 'graphed' counts items that actually wrote graph rows, not items dispatched.
@@ -604,6 +610,10 @@ export async function runIndexCmd(args: string[]): Promise<void> {
   }
   if (sub === "rebody") {
     await runRebody(tail);
+    return;
+  }
+  if (sub === "health") {
+    await withGatewayIpc((c) => runIndexHealth(c, tail));
     return;
   }
   if (sub === "regraph") {

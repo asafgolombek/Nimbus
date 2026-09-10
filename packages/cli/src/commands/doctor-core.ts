@@ -469,6 +469,44 @@ export function doctorPrintIndexFromSnapshot(snap: { index?: { totalItems?: unkn
   return 0;
 }
 
+/** Mirrors `LOW_CONFIDENCE_THRESHOLD` in `gateway/src/db/index-health.ts`. */
+export const DOCTOR_LOW_CONFIDENCE_THRESHOLD = 60;
+
+/**
+ * Report the index quality score, so a user getting weak answers learns the index is why.
+ *
+ * Three deliberate silences, each the same rule the embedding check follows one function down —
+ * a false verdict is worse than no line:
+ *
+ *  - **No field at all** → say nothing. A gateway predating `index.health` cannot be asked, and
+ *    inventing either a green or a red about it would be a claim we cannot support.
+ *  - **`confidence: null`** → say the index is empty, do NOT warn. `doctorPrintIndexFromSnapshot`
+ *    already warned about zero items; a second `[warn]` for one condition is noise, and rendering
+ *    the null as `0/100` would tell a fresh install its index scores zero out of a hundred.
+ *  - **Exactly at the threshold** → OK. The spec says "below 60", so 60 passes.
+ */
+export function doctorPrintIndexConfidence(health: {
+  confidence?: unknown;
+  confidenceUnavailableReason?: unknown;
+}): number {
+  const c = health.confidence;
+  if (c === null && health.confidenceUnavailableReason === "empty_index") {
+    console.log("[ok] Index confidence: n/a (index is empty — nothing to score yet).");
+    return 0;
+  }
+  if (typeof c !== "number" || !Number.isFinite(c)) return 0;
+  const score = Math.max(0, Math.min(100, Math.round(c)));
+  if (score < DOCTOR_LOW_CONFIDENCE_THRESHOLD) {
+    console.log(
+      `[warn] Index confidence: ${String(score)}/100 — weak query results are likely. ` +
+        `Run \`nimbus index health\` for the per-connector breakdown.`,
+    );
+    return 1;
+  }
+  console.log(`[ok] Index confidence: ${String(score)}/100.`);
+  return 0;
+}
+
 /**
  * Report the embedding runtime, so a dead semantic search cannot stay silent.
  *
@@ -585,6 +623,14 @@ async function doctorRunGatewayRpcs(client: IPCClient): Promise<number> {
     embedding?: unknown;
   }>("diag.snapshot", {});
   exit = Math.max(exit, doctorPrintIndexFromSnapshot(snap));
+  // A second call rather than a field on `diag.snapshot`: the health report is several GROUP BY
+  // scans over `item`, and `diag.snapshot` is polled by the desktop. Paying that cost on every
+  // poll to serve one line in `doctor` would be the wrong trade. Tolerant of a gateway that does
+  // not serve the method at all — an older binary answers -32601 and doctor stays quiet.
+  const health = await client
+    .call<{ confidence?: unknown; confidenceUnavailableReason?: unknown }>("index.health", {})
+    .catch(() => ({}) as { confidence?: unknown; confidenceUnavailableReason?: unknown });
+  exit = Math.max(exit, doctorPrintIndexConfidence(health));
   // Reported BEFORE connector health: a dead embedding runtime disables semantic search for the
   // whole gateway run, which outranks any one connector being unreachable.
   exit = Math.max(exit, doctorPrintEmbeddingFromSnapshot(snap));

@@ -15,6 +15,7 @@ import {
   doctorPrintConfigValidation,
   doctorPrintEmbeddingFromSnapshot,
   doctorPrintHealthFromSnapshot,
+  doctorPrintIndexConfidence,
   doctorPrintIndexFromSnapshot,
   doctorVoiceLines,
   healthStateMark,
@@ -873,5 +874,56 @@ describe("runDoctor — voice-line exit-code escalation (lines 184-186)", () => 
 
     // whisper_path is set (unquoted absolute path parsed correctly) so whisper ok.
     expect(out.stdout).toContain("[ok] Voice: whisper-cli is available.");
+  });
+});
+
+describe("doctorPrintIndexConfidence (v0.1.1 index health)", () => {
+  const log: string[] = [];
+  const orig = console.log;
+  beforeEach(() => {
+    log.length = 0;
+    console.log = (...a: unknown[]) => {
+      log.push(a.map(String).join(" "));
+    };
+  });
+  afterEach(() => {
+    console.log = orig;
+  });
+
+  const hasWarn = (): boolean => log.some((l) => l.includes("[warn]"));
+  const hasOk = (): boolean => log.some((l) => l.includes("[ok]"));
+
+  it("warns and scores 1 when confidence is below the threshold", () => {
+    const exit = doctorPrintIndexConfidence({ confidence: 41, confidenceUnavailableReason: null });
+    expect(exit).toBe(1);
+    expect(hasWarn()).toBe(true);
+    expect(log.some((l) => l.includes("41"))).toBe(true);
+  });
+
+  it("treats the threshold itself as OK, not a warning", () => {
+    // The spec says "below 60", so 60 must pass. An off-by-one here trains people to ignore the
+    // line on a perfectly healthy index.
+    const exit = doctorPrintIndexConfidence({ confidence: 60, confidenceUnavailableReason: null });
+    expect(exit).toBe(0);
+    expect(hasOk()).toBe(true);
+    expect(hasWarn()).toBe(false);
+  });
+
+  it("says empty rather than warning about a low score on an empty index", () => {
+    // The zero-items line above it already covers this condition; a second [warn] for the same
+    // fact is noise, and "0/100 confidence" would read as a verdict on a brand-new install.
+    const exit = doctorPrintIndexConfidence({
+      confidence: null,
+      confidenceUnavailableReason: "empty_index",
+    });
+    expect(exit).toBe(0);
+    expect(hasWarn()).toBe(false);
+  });
+
+  it("stays SILENT on a gateway too old to return the field", () => {
+    // Same rule the embedding check follows: a false green, or a false red, is worse than no line.
+    const exit = doctorPrintIndexConfidence({});
+    expect(exit).toBe(0);
+    expect(log).toHaveLength(0);
   });
 });
