@@ -60,12 +60,28 @@ const PROBE_TARGET_PREFIX = "nimbus-probe-target=";
  * no ACE for that path) — which is exactly why the probe must not enumerate error codes the way the
  * SDK one did.
  */
+/**
+ * FULLY STATIC on purpose — every line is a literal and nothing is interpolated in.
+ *
+ * An earlier revision built this with `${JSON.stringify(PROBE_TARGET_PREFIX)}` and
+ * `${PROBE_TARGET_PREFIX.length}`. Both were safe in fact — the value is a module constant and
+ * `JSON.stringify` is the correct escape for embedding a string in JS source — but CodeQL's
+ * `js/bad-code-sanitization` flagged the SHAPE, and it is right to: this is the one file whose job
+ * is proving a security property, and "we construct executable code by concatenation, but the
+ * inputs happen to be constants today" is a guarantee that survives only until someone makes one
+ * of them dynamic. A static string cannot regress that way.
+ *
+ * The cost is that the prefix now appears twice — here and in `PROBE_TARGET_PREFIX`. That
+ * duplication is PINNED by a test asserting this string contains that constant, so the two cannot
+ * drift silently; a comment asking the next reader to keep them in step would not.
+ */
 const INLINE_FS_DENIED_PROBE = [
-  `const arg = process.argv.find((a) => a.startsWith(${JSON.stringify(PROBE_TARGET_PREFIX)}));`,
+  'const PREFIX = "nimbus-probe-target=";',
+  "const arg = process.argv.find((a) => a.startsWith(PREFIX));",
   // Not exit 10: being handed no target at all proves nothing about confinement, and reporting
   // "denied" here would turn every future argv change into a silently passing probe.
   "if (arg === undefined) process.exit(2);",
-  `const target = arg.slice(${PROBE_TARGET_PREFIX.length});`,
+  "const target = arg.slice(PREFIX.length);",
   'if (target === "") process.exit(2);',
   "try {",
   '  const fs = await import("node:fs/promises");',
@@ -74,9 +90,17 @@ const INLINE_FS_DENIED_PROBE = [
   // confined.
   "  process.exit(2);",
   "} catch {",
-  `  process.exit(${PROBE_EXIT_FS_DENIED});`,
+  "  process.exit(10);",
   "}",
 ].join("\n");
+
+/**
+ * Exposed ONLY so a test can pin the three literals the probe now duplicates — the argv prefix, the
+ * denial exit code, and the fact that nothing is interpolated into it. Production never reads this.
+ */
+export const INLINE_FS_DENIED_PROBE_FOR_TEST = INLINE_FS_DENIED_PROBE;
+export const PROBE_TARGET_PREFIX_FOR_TEST = PROBE_TARGET_PREFIX;
+export const PROBE_EXIT_FS_DENIED_FOR_TEST = PROBE_EXIT_FS_DENIED;
 
 export interface ToolConfinementDeps {
   readonly runner: SandboxRunner;

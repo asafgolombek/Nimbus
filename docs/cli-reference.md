@@ -1878,7 +1878,7 @@ from the Tauri allowlist (I7).
 | --- | --- |
 | `0` | The tool was registered. |
 | `126` | The owner denied the approval prompt or let it time out. |
-| `127` | Refused before consent — disabled by config or org policy, a bad argument, non-TTY stdin, the session's tool budget spent, drafting failed the validation ladder twice (`ERR_TOOLGEN_DRAFT_INVALID`) or found no eligible model (`ERR_TOOLGEN_NO_DRAFT_MODEL`), or sandbox confinement failed (`ERR_TOOLGEN_CONFINEMENT_FAILED` — always, on Windows; see the platform bound above). |
+| `127` | Refused before consent — disabled by config or org policy, a bad argument, non-TTY stdin, the session's tool budget spent, drafting failed the validation ladder twice (`ERR_TOOLGEN_DRAFT_INVALID`) or found no eligible model (`ERR_TOOLGEN_NO_DRAFT_MODEL`), or sandbox confinement failed (`ERR_TOOLGEN_CONFINEMENT_FAILED`). |
 
 On `ERR_TOOLGEN_DRAFT_INVALID`, and only when the route that produced the failing draft was LOCAL,
 the CLI adds a hint: configure a larger local model (`[llm] min_reasoning_params`) or set

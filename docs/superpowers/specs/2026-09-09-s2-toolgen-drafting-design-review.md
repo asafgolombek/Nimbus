@@ -23,7 +23,7 @@ The design specification provides a precise, minimal, and well-confined design f
 - **Fail-Closed Validation Ladder (§ 4.2):** All validation rungs (JSON envelope parsing, schema subset validation, syntax compilation, and static scanning) execute **strictly before owner consent**, ensuring the owner is never asked to review malformed or broken code.
 - **Locality & Capability Alignment (§ 3.2, § 7):** Drafting maps to the existing `"reasoning"` task type, inheriting the `minReasoningParams` floor and existing `model`-class egress ledgering (`toolgen.draft`) without inventing redundant task types or bypassing air-gap controls.
 - **Tamper-Evident Artifact Integration (§ 5.2, § 5.3):** Placing `inputSchema` directly inside `GeneratedToolArtifact` ensures the parameter contract is hashed into `artifactDigest`, signed in PR 3, and echoed verbatim by `describe()` in the sandboxed process.
-- **Zero-Egress Spec Grounding (§ 6):** Grounding the model using the local `api_endpoint` SQLite index provides API awareness without incurring external network calls.
+- **Local Spec Grounding (§ 6):** Grounding the model on the `api_endpoint` items already in the local index provides API awareness without a documentation fetch. **Corrected 2026-09-10 during implementation** — this bullet originally read "Zero-Egress", which was wrong: retrieval is a local index READ, but the query EMBEDDING follows the `[embedding]` configuration, so a remotely-configured embedder means the tool description reaches that vendor, ledgered `model`-class. Drafting now resolves its route and refuses BEFORE grounding, so `drafting = "off"` embeds nothing.
 
 ---
 

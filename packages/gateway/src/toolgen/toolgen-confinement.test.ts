@@ -4,7 +4,13 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
-import { assertToolConfinement, defaultSpawnProbe } from "./toolgen-confinement.ts";
+import {
+  assertToolConfinement,
+  defaultSpawnProbe,
+  INLINE_FS_DENIED_PROBE_FOR_TEST,
+  PROBE_EXIT_FS_DENIED_FOR_TEST,
+  PROBE_TARGET_PREFIX_FOR_TEST,
+} from "./toolgen-confinement.ts";
 import { buildGeneratedManifest } from "./toolgen-stub.ts";
 import { ToolgenError } from "./toolgen-types.ts";
 
@@ -327,5 +333,25 @@ describe("the probe is BOUNDED and its pipes are drained", () => {
     );
     expect(exit).toBe(10);
     expect(r.killed()).toEqual([]);
+  });
+});
+
+describe("the inline probe is static, and its duplicated literals are pinned", () => {
+  // The probe was made fully static so CodeQL's `js/bad-code-sanitization` has nothing to flag and,
+  // more importantly, so no future edit can make an interpolated input dynamic in the one file
+  // whose job is proving a security property. The cost is duplication; these are the tests that
+  // stop it drifting.
+  test("carries the SAME argv prefix the spawn side sends", () => {
+    expect(INLINE_FS_DENIED_PROBE_FOR_TEST).toContain(`"${PROBE_TARGET_PREFIX_FOR_TEST}"`);
+  });
+
+  test("exits with the SAME denial code assertToolConfinement checks for", () => {
+    expect(INLINE_FS_DENIED_PROBE_FOR_TEST).toContain(
+      `process.exit(${PROBE_EXIT_FS_DENIED_FOR_TEST});`,
+    );
+  });
+
+  test("interpolates nothing — a template substitution would defeat the point", () => {
+    expect(INLINE_FS_DENIED_PROBE_FOR_TEST).not.toContain("${");
   });
 });

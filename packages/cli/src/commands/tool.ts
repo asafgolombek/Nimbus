@@ -450,7 +450,13 @@ function toToolInputProperty(v: unknown): ToolInputProperty | undefined {
 function toToolInputSchema(v: unknown): ToolInputSchema {
   const r = asRecord(v);
   if (r["type"] !== "object") return EMPTY_INPUT_SCHEMA;
-  const properties: Record<string, ToolInputProperty> = {};
+  // NULL-PROTOTYPE, mirroring the gateway validator: assigning a property literally named
+  // `__proto__` onto a plain object invokes the inherited setter instead of creating an own
+  // property, so `Object.entries` cannot see it afterwards. That matters here specifically because
+  // `formatParams` renders this map into the APPROVAL PROMPT — the owner would be shown fewer
+  // parameters than the tool actually takes, which is the one place in this feature where a
+  // silently incomplete disclosure is worst.
+  const properties: Record<string, ToolInputProperty> = Object.create(null);
   for (const [name, def] of Object.entries(asRecord(r["properties"]))) {
     const prop = toToolInputProperty(def);
     if (prop !== undefined) properties[name] = prop;

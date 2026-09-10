@@ -1,6 +1,12 @@
 # S2 — Runtime tool generation: the drafting step
 
-> **Status: DESIGN. Not implemented.**
+> **Status: IMPLEMENTED 2026-09-10 as PR 2 of 3.** Shipped substantially as designed. Three
+> corrections the implementation forced, recorded here rather than left for a reader to discover:
+> § 6's grounding is a LOCAL index READ but its query EMBEDDING follows `[embedding]`, so a remote
+> embedder means the description reaches that vendor — "zero egress" was wrong and drafting now
+> refuses before grounding when no route is eligible; § 4.2's rung 3 must use the `AsyncFunction`
+> constructor, since `new Function` rejects every body containing `await`; and the confinement
+> probe § 7 relies on was measuring nothing on any platform, which this slice fixed.
 >
 > Sub-slice of [`2026-09-09-s2-runtime-tool-generation-design.md`](./2026-09-09-s2-runtime-tool-generation-design.md)
 > ("the parent spec"), whose § 10 deferred this out of PR 1 with a reason rather than a PR
