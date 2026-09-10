@@ -1,14 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
-import {
-  assertToolConfinement,
-  defaultSpawnProbe,
-  resolveProbeScriptForTest,
-} from "./toolgen-confinement.ts";
+import { assertToolConfinement, defaultSpawnProbe } from "./toolgen-confinement.ts";
 import { buildGeneratedManifest } from "./toolgen-stub.ts";
 import { ToolgenError } from "./toolgen-types.ts";
 
@@ -39,11 +35,69 @@ describe("assertToolConfinement", () => {
     ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CONFINEMENT_FAILED" });
   });
 
-  test("the probe script resolves to a real file — a bad path reports as a sandbox failure", async () => {
-    const { existsSync } = await import("node:fs");
-    // Guards the trap the SDK documents on its own `probePath`: a missing probe is a PACKAGING
-    // problem, but surfaces as though confinement failed.
-    expect(existsSync(resolveProbeScriptForTest())).toBe(true);
+  test("the sentinel it hands the probe is a real, parent-readable file OUTSIDE the manifest's grants", async () => {
+    // The probe reads a path the parent just wrote and treats ANY failure as a denial, so the
+    // whole check is vacuous unless that file genuinely exists and is genuinely readable here.
+    // This is the positive control for the positive control: it asserts on what the probe RECEIVED.
+    const scriptDir = join(mkdtempSync(join(tmpdir(), "nimbus-toolgen-sentinel-")), "tg_s");
+    let target = "";
+    await assertToolConfinement({
+      runner,
+      manifest: buildGeneratedManifest("tg_s", { scriptDir }),
+      cwd: process.cwd(),
+      spawnProbe: async (_r, _p, _cwd, t) => {
+        target = t;
+        expect(readFileSync(t, "utf8")).not.toBe("");
+        return 10;
+      },
+    });
+    expect(target).not.toBe("");
+    expect(target.startsWith(scriptDir)).toBe(false);
+    expect(target.startsWith(process.cwd())).toBe(false);
+  });
+
+  test("a sentinel that cannot be created REFUSES fail-closed — it never probes and never prompts", async () => {
+    // Without this the gate would carry on to a probe with nothing to read, the probe would report
+    // "denied" for the wrong reason, and `assertToolConfinement` would return successfully having
+    // measured nothing at all. Forced by pointing the temp directory at a path that cannot be
+    // created under (`os.tmpdir()` reads these on every call, so the override is enough).
+    const keys = ["TMPDIR", "TEMP", "TMP"] as const;
+    const saved = keys.map((k) => [k, process.env[k]] as const);
+    let probed = false;
+    try {
+      for (const k of keys) process.env[k] = join(process.cwd(), "no-such-dir-nimbus", "nope");
+      await expect(
+        assertToolConfinement({
+          runner,
+          manifest: buildGeneratedManifest("tg_a"),
+          cwd: process.cwd(),
+          spawnProbe: async () => {
+            probed = true;
+            return 10;
+          },
+        }),
+      ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CONFINEMENT_FAILED" });
+    } finally {
+      for (const [k, v] of saved) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    expect(probed).toBe(false);
+  });
+
+  test("the sentinel is REMOVED once the probe has answered — no temp-dir litter per create", async () => {
+    let target = "";
+    await assertToolConfinement({
+      runner,
+      manifest: buildGeneratedManifest("tg_s"),
+      cwd: process.cwd(),
+      spawnProbe: async (_r, _p, _cwd, t) => {
+        target = t;
+        return 10;
+      },
+    });
+    expect(existsSync(target)).toBe(false);
   });
 
   test("refuses BEFORE probing when the runner cannot confine the policy", async () => {
@@ -118,7 +172,7 @@ describe("the DEFAULT probe spawn — the path production actually takes", () =>
     return { runner, spawns };
   }
 
-  test("spawns the resolved probe script with --probe=fs-denied and passes on exit 10", async () => {
+  test("spawns the INLINE probe via -e, carrying the sentinel as a bare argument, and passes on exit 10", async () => {
     const { runner, spawns } = runnerSpawning((c) => c.emit("close", 10));
     await expect(
       assertToolConfinement({
@@ -128,8 +182,16 @@ describe("the DEFAULT probe spawn — the path production actually takes", () =>
       }),
     ).resolves.toBeUndefined();
     expect(spawns).toHaveLength(1);
-    expect(spawns[0]?.args[0]).toBe(resolveProbeScriptForTest());
-    expect(spawns[0]?.args).toContain("--probe=fs-denied");
+    // `-e`, not a file path: the file-entry-point shape is what the Windows AppContainer refuses
+    // (`CouldntReadCurrentDirectory`), and a probe SCRIPT would additionally sit under
+    // `node_modules/`, which no generated-tool manifest grants read to.
+    expect(spawns[0]?.args[0]).toBe("-e");
+    expect(spawns[0]?.args[1]).toContain("node:fs/promises");
+    // BARE, not `--flag value`: bun's own `-e` argument parser eats a `--`-prefixed token before
+    // the script sees it, leaving only the value at an index indistinguishable from a positional.
+    const target = spawns[0]?.args[2] ?? "";
+    expect(target.startsWith("nimbus-probe-target=")).toBe(true);
+    expect(target.startsWith("--")).toBe(false);
   });
 
   test("a NULL exit code (killed by a signal) is normalised to -1 and REFUSED, not read as success", async () => {
@@ -143,6 +205,26 @@ describe("the DEFAULT probe spawn — the path production actually takes", () =>
         cwd: process.cwd(),
       }),
     ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CONFINEMENT_FAILED" });
+  });
+
+  test("the FIRST outcome wins — a second event after settling is ignored, not a double-resolve", async () => {
+    // The `if (settled) return;` guard. A child that closes and then errors (or emits close twice
+    // — both happen when a sandbox helper tears down noisily) must not turn one probe into two
+    // verdicts. Without the guard the later `reject` lands on an already-resolved promise, which
+    // Bun ignores silently today, so the failure mode is an unhandled rejection on some other
+    // runtime rather than a wrong answer here — worth pinning either way.
+    const { runner } = runnerSpawning((c) => {
+      c.emit("close", 10);
+      c.emit("close", 2);
+      c.emit("error", new Error("teardown noise"));
+    });
+    await expect(
+      assertToolConfinement({
+        runner,
+        manifest: buildGeneratedManifest("tg_a"),
+        cwd: process.cwd(),
+      }),
+    ).resolves.toBeUndefined();
   });
 
   test("a spawn 'error' event REJECTS rather than hanging the gate forever", async () => {
@@ -202,6 +284,7 @@ describe("the probe is BOUNDED and its pipes are drained", () => {
       r.runner,
       policyFromManifest(buildGeneratedManifest("tg_a")),
       process.cwd(),
+      "/nonexistent/sentinel",
       25,
     );
     expect(exit).not.toBe(10);
@@ -215,7 +298,8 @@ describe("the probe is BOUNDED and its pipes are drained", () => {
         runner: r.runner,
         manifest: buildGeneratedManifest("tg_a"),
         cwd: process.cwd(),
-        spawnProbe: (runner, policy, cwd) => defaultSpawnProbe(runner, policy, cwd, 25),
+        spawnProbe: (runner, policy, cwd, target) =>
+          defaultSpawnProbe(runner, policy, cwd, target, 25),
       }),
     ).rejects.toMatchObject({ code: "ERR_TOOLGEN_CONFINEMENT_FAILED" });
   });
@@ -226,6 +310,7 @@ describe("the probe is BOUNDED and its pipes are drained", () => {
       r.runner,
       policyFromManifest(buildGeneratedManifest("tg_a")),
       process.cwd(),
+      "/nonexistent/sentinel",
       50,
     );
     expect(r.resumed().sort()).toEqual(["stderr", "stdout"]);
@@ -237,6 +322,7 @@ describe("the probe is BOUNDED and its pipes are drained", () => {
       r.runner,
       policyFromManifest(buildGeneratedManifest("tg_a")),
       process.cwd(),
+      "/nonexistent/sentinel",
       5_000,
     );
     expect(exit).toBe(10);

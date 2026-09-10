@@ -1737,8 +1737,15 @@ egress class (`egressMethod: "toolgen.draft"`) like any other remote generate, s
 `nimbus prove` window discloses it.
 
 **Grounding.** The prompt is grounded on `api_endpoint` items already indexed from OpenAPI
-specifications under `[[filesystem.roots]]`, via the local index's hybrid (BM25 + vector) search —
-a local read, zero egress, whichever `drafting` mode is in effect. When nothing matches, the model
+specifications under `[[filesystem.roots]]`, via the local index's ranked search — hybrid
+(BM25 + vector) where semantic search is available, lexical-only otherwise. **The index read itself
+is local, but the query embedding is not automatically:** the description is embedded through
+whatever `[embedding]` is configured with, so on a remote-embedder install the grounding search
+sends the tool description to that embedding vendor. That request is ledgered `model`-class like
+any other remote embed, so a `nimbus prove` window discloses it. With a local embedder — the
+default — nothing leaves the machine. `drafting = "off"`, and a machine with no eligible drafting
+route, refuse BEFORE the grounding search runs, so neither reaches the embedder at all. When
+nothing matches, the model
 drafts from the description and standard REST conventions alone, and the approval prompt says so
 rather than leaving the owner to assume the draft was grounded:
 
@@ -1762,23 +1769,37 @@ async function __invoke(args) { ... }
 When nothing was indexed, the `grounding:` line instead reads `no indexed API specification
 matched — drafted from the description alone`.
 
-**PLATFORM BOUND — `nimbus tool create` is non-functional on Windows.** The gate proves the sandbox
-can confine a candidate tool (`toolgen-confinement.ts`'s `assertToolConfinement`) BEFORE the owner
-is ever prompted — even after a draft succeeds. That confinement probe spawns a diagnostic script
-from `@nimbus-dev/sdk/testing` as a bare file entry point (`bun <probe> --probe=fs-denied`), and a
-bare file entry point cannot start under a restrictive manifest inside the Windows AppContainer
-sandbox (`CouldntReadCurrentDirectory` — the same measured dead end `toolgen-client.ts` already
-works around for the tool's own post-approval launch, via an `-e` import stub, but the pre-approval
-probe does not use that stub). The probe therefore fails to produce its expected exit code on every
-Windows machine, `assertToolConfinement` throws `ERR_TOOLGEN_CONFINEMENT_FAILED`, and `nimbus tool
-create` refuses — `nimbus: refused (ERR_TOOLGEN_CONFINEMENT_FAILED)` — before the owner is shown
-anything, regardless of whether drafting itself would have succeeded. **This is not fixable from
-this repository:** the probe script lives in the separate
-[`nimbus-sdk`](https://github.com/nimbus-agent/nimbus-sdk) repository and needs a change plus a
-version bump there. It predates this drafting work — it shipped with PR 1's sandboxed substrate —
-but PR 1 always refused at the drafting step first, so the confinement gap was never user-visible
-until drafting made the command otherwise functional. Non-negotiable #5 is platform equality; this
-is the stated exception until the SDK fix lands, not a gap shipped silently.
+**The pre-consent confinement probe.** The gate proves the sandbox can confine a candidate tool
+(`toolgen-confinement.ts`'s `assertToolConfinement`) BEFORE the owner is ever prompted — even after
+a draft succeeds. It writes a sentinel file outside every path the tool's manifest grants, verifies
+it can read that file itself, then spawns a nine-line inline `-e` script under the tool's real
+policy and requires it to FAIL to read the same path. Parent can, child cannot: therefore the
+sandbox confined it. Any read failure counts, because the three platforms deny by three different
+mechanisms — `ENOENT` on Linux (bwrap's `--tmpfs /tmp` masks the file out of existence), `EPERM` on
+macOS under `(deny default)`, an ACL denial on Windows, where the AppContainer holds no ACE for that
+path.
+
+Both halves of that were different, and wrong, until 2026-09-10, and the command did not work on
+ANY platform:
+
+- It spawned a diagnostic script from `@nimbus-dev/sdk/testing` as a bare file entry point
+  (`bun <probe> --probe=fs-denied`), which cannot start under a restrictive manifest inside the
+  Windows AppContainer (`CouldntReadCurrentDirectory` — the measured dead end `toolgen-client.ts`
+  already works around for the tool's own post-approval launch, via an `-e` stub). Moving the probe
+  inline removes the file entry point AND the `node_modules/` path no manifest grants read to.
+- It read a "known-protected system path" (`/etc/passwd`, `C:\Windows\System32\config\SAM`), which
+  is not a measurement of THIS sandbox on POSIX: `bwrap` `--ro-bind`s `/etc` unconditionally and the
+  macOS profile grants `(subpath "/private/etc")`, so a perfectly confined child read
+  `/etc/passwd` happily and the probe reported "unconfined". Every `nimbus tool create` on Linux and
+  macOS refused with `ERR_TOOLGEN_CONFINEMENT_FAILED` before the owner was prompted.
+
+This was invisible because nothing ever ran the default probe — the unit tests inject `spawnProbe`,
+and the integration suite injected its own inline copy. Both now drive the real one. Verified: the
+toolgen integration suite passes on Windows against a real `nimbus-sandbox-helper.exe`, and on Linux
+against real `bwrap` 0.11.1, where the same two cases failed before the change. macOS is
+unverified on hardware here; the sentinel shape is the one
+`test/integration/platform/sandbox/sandbox-wrapper-spawn.test.ts`'s "refuses a path the policy does
+not grant" case already uses and passes with on that platform's CI leg.
 
 **What `max_tools_per_session` actually bounds from the CLI.** Every `nimbus tool` invocation
 shares one fixed session id (`cli`), so `nimbus tool list` run from a fresh process can find a tool

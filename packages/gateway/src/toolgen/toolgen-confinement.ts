@@ -1,44 +1,98 @@
-import { mkdir } from "node:fs/promises";
-import { dirname, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionManifest } from "../extensions/manifest.ts";
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
 import { policyFromManifest } from "../platform/sandbox/sandbox-policy.ts";
 import type { SandboxRunner } from "../platform/sandbox/sandbox-runner.ts";
 import { ToolgenError } from "./toolgen-types.ts";
 
-/** The SDK probe's exit code for "the protected read was denied", i.e. confinement worked. */
+/** The probe's exit code for "the read was denied", i.e. confinement worked. */
 const PROBE_EXIT_FS_DENIED = 10;
 
 /**
- * Locate the SDK's probe script ourselves.
+ * How the probe is told WHICH path to try, and why it is not a `--flag`.
  *
- * `probePath` IS exported from `sandbox-contract.ts` but is NOT re-exported by the package entry
- * `@nimbus-dev/sdk/testing`, whose surface is exactly `runSandboxContractTests`,
- * `expectNoRejectedDiagnostics` and `MockGateway` — so importing it fails typecheck. Resolving it
- * here also means the extension follows whichever copy is executing: `src/` carries only
- * `sandbox-probe.ts`, the published `dist/` only `sandbox-probe.js`, and a hardcoded extension is
- * wrong from one side or the other.
+ * Measured, not stylistic: `bun -e <code> --nimbus-probe-target <path>` hands the child a
+ * `process.argv` of `[bun, <path>]` — bun's own argument parser consumes the `--`-prefixed token
+ * before the script ever sees it, so a flag-shaped separator silently disappears and only its value
+ * survives, at an index that looks exactly like an ordinary positional. A single bare
+ * `nimbus-probe-target=<path>` argument has no leading dash, travels through untouched, and carries
+ * its own name, so the probe can tell "the target I was given" from "some other argument" and
+ * refuse rather than guess.
  */
-export function resolveProbeScriptForTest(): string {
-  return resolveProbeScript();
-}
+const PROBE_TARGET_PREFIX = "nimbus-probe-target=";
 
-function resolveProbeScript(): string {
-  const entry = fileURLToPath(import.meta.resolve("@nimbus-dev/sdk/testing"));
-  const file = entry.endsWith(".ts") ? "sandbox-probe.ts" : "sandbox-probe.js";
-  return resolvePath(dirname(entry), file);
-}
+/**
+ * The confinement probe, inline.
+ *
+ * It was an `@nimbus-dev/sdk/testing` SCRIPT until 2026-09-10, and that was a documented,
+ * cross-platform dead end for two independent reasons — neither of which was fixable by choosing a
+ * different question to ask:
+ *
+ *   1. It had to be spawned as a bare file argument (`bun <probe.js> --probe=fs-denied`), which is
+ *      the "file entry point" shape the Windows AppContainer refuses with
+ *      `CouldntReadCurrentDirectory` (`toolgen-client.ts`'s own docstring; measured against a real
+ *      `nimbus-sandbox-helper.exe`). Switching to the `-e` form gets past that, and then
+ *   2. the script itself lives under `node_modules/.bun/...`, a path no generated-tool manifest
+ *      ever grants read to — so the interpreter could start and still not open the program.
+ *
+ * A zero-import, zero-`node_modules` `-e` script has neither problem: it is the SAME invocation
+ * shape `buildToolSpawnSpec` uses for the generated tool itself, which
+ * `toolgen-network-denied.test.ts` proves works under the AppContainer.
+ *
+ * WHAT it reads changed at the same time, and for a reason measured on real Linux with real
+ * `bwrap` (0.11.1): the old probe read a "known-protected system path" (`/etc/passwd`, or
+ * `C:\Windows\System32\config\SAM`). That is not a measurement of THIS sandbox on POSIX.
+ * `buildBwrapArgv` `--ro-bind`s `/etc` unconditionally, and the macOS profile grants
+ * `(subpath "/private/etc")`, so on both platforms the confined child reads `/etc/passwd` happily
+ * and the probe reported exit 2 — "unconfined" — for a sandbox that was working perfectly. Every
+ * `nimbus tool create` on Linux and macOS therefore refused with `ERR_TOOLGEN_CONFINEMENT_FAILED`
+ * before the owner was ever prompted. It was invisible because nothing ever ran the default probe:
+ * `toolgen-confinement.test.ts` injects `spawnProbe`, and the e2e injected its own inline copy.
+ *
+ * The probe now reads a SENTINEL the caller just wrote outside every grant (see
+ * `assertToolConfinement`). That is a real measurement on all three platforms because the caller
+ * PROVES it can read that file itself first: parent can, child cannot, therefore the sandbox
+ * confined it. Any failure counts as denial — the mechanisms differ per platform and all three are
+ * correct answers (`ENOENT` on Linux, where `--tmpfs /tmp` masks the file out of existence;
+ * `EPERM` on macOS under `(deny default)`; an ACL denial on Windows, where the AppContainer holds
+ * no ACE for that path) — which is exactly why the probe must not enumerate error codes the way the
+ * SDK one did.
+ */
+const INLINE_FS_DENIED_PROBE = [
+  `const arg = process.argv.find((a) => a.startsWith(${JSON.stringify(PROBE_TARGET_PREFIX)}));`,
+  // Not exit 10: being handed no target at all proves nothing about confinement, and reporting
+  // "denied" here would turn every future argv change into a silently passing probe.
+  "if (arg === undefined) process.exit(2);",
+  `const target = arg.slice(${PROBE_TARGET_PREFIX.length});`,
+  'if (target === "") process.exit(2);',
+  "try {",
+  '  const fs = await import("node:fs/promises");',
+  '  await fs.readFile(target, "utf8");',
+  // The parent proved this file readable moments ago, so reading it here means the child was NOT
+  // confined.
+  "  process.exit(2);",
+  "} catch {",
+  `  process.exit(${PROBE_EXIT_FS_DENIED});`,
+  "}",
+].join("\n");
 
 export interface ToolConfinementDeps {
   readonly runner: SandboxRunner;
   readonly manifest: ExtensionManifest;
   readonly cwd: string;
-  /** Injected for tests. Production spawns the probe through the real runner. */
+  /**
+   * Injected for tests. Production spawns the probe through the real runner.
+   *
+   * `target` is the sentinel path `assertToolConfinement` created and verified readable — an
+   * injected probe is free to ignore it, but the real one must attempt exactly that path.
+   */
   readonly spawnProbe?: (
     runner: SandboxRunner,
     policy: ReturnType<typeof policyFromManifest>,
     cwd: string,
+    target: string,
   ) => Promise<number>;
 }
 
@@ -66,12 +120,13 @@ export function defaultSpawnProbe(
   runner: SandboxRunner,
   policy: ReturnType<typeof policyFromManifest>,
   cwd: string,
+  target: string,
   timeoutMs: number = PROBE_TIMEOUT_MS,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = runner.spawn(
       process.execPath,
-      [resolveProbeScript(), "--probe=fs-denied", "--arg="],
+      ["-e", INLINE_FS_DENIED_PROBE, `${PROBE_TARGET_PREFIX}${target}`],
       {
         policy,
         env: extensionProcessEnv({}),
@@ -106,6 +161,29 @@ export function defaultSpawnProbe(
     child.on("error", (err) => finish(() => reject(err)));
     child.on("close", (code) => finish(() => resolve(code ?? -1)));
   });
+}
+
+/**
+ * Write a file the confined child must NOT be able to read, and prove the PARENT can read it.
+ *
+ * The positive control is the whole point. The probe treats any read failure as a denial, because
+ * the three platforms deny by three different mechanisms and enumerating their error codes is what
+ * made the previous probe wrong. That interpretation is only sound if the file is known to exist
+ * and be readable at the moment of the spawn — otherwise "denied" and "I gave the probe a path to
+ * nothing" are the same observation, and the gate would pass vacuously forever.
+ *
+ * Placed in its OWN `mkdtemp` under the system temp directory, never under `cwd` and never under a
+ * manifest grant: `cwd` is `--bind`ed on Linux and the grants are ACE'd on Windows, so a sentinel
+ * in either would be legitimately readable and the probe would (correctly) report exit 2.
+ */
+async function createSentinel(): Promise<{ path: string; dir: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "nimbus-toolgen-probe-"));
+  const path = join(dir, "sentinel.txt");
+  await writeFile(path, "nimbus-confinement-sentinel", { mode: 0o600 });
+  // The control: if THIS throws, the sandbox is not what failed and the probe below would report a
+  // denial that means nothing.
+  await readFile(path, "utf8");
+  return { path, dir };
 }
 
 /**
@@ -149,7 +227,35 @@ export async function assertToolConfinement(deps: ToolConfinementDeps): Promise<
   ]) {
     await mkdir(dir, { recursive: true, mode: 0o700 });
   }
-  const exit = await (deps.spawnProbe ?? defaultSpawnProbe)(deps.runner, policy, deps.cwd);
+  let sentinel: { path: string; dir: string };
+  try {
+    sentinel = await createSentinel();
+  } catch (err) {
+    // Fail CLOSED, and say which half failed: nothing about the sandbox has been measured, so the
+    // one thing this must not do is let the gate continue to the owner's prompt.
+    //
+    // `String(err)` rather than an `instanceof Error` ternary: the non-Error arm of that ternary is
+    // unreachable from `node:fs/promises` and so could never be exercised, and an untestable branch
+    // in a pre-consent refusal path is worse than a message that reads `ToolgenError: …` on the one
+    // occasion it fires.
+    throw new ToolgenError(
+      "ERR_TOOLGEN_CONFINEMENT_FAILED",
+      `could not prepare the confinement probe's sentinel file: ${String(err)}`,
+    );
+  }
+  let exit: number;
+  try {
+    exit = await (deps.spawnProbe ?? defaultSpawnProbe)(
+      deps.runner,
+      policy,
+      deps.cwd,
+      sentinel.path,
+    );
+  } finally {
+    // Best effort: a leftover sentinel is temp-dir litter, never a correctness problem, and it must
+    // not mask the probe's own result (or its throw).
+    await rm(sentinel.dir, { recursive: true, force: true }).catch(() => {});
+  }
   if (exit !== PROBE_EXIT_FS_DENIED) {
     throw new ToolgenError(
       "ERR_TOOLGEN_CONFINEMENT_FAILED",

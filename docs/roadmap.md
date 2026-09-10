@@ -978,21 +978,33 @@ multimodal row; it is not a spine row and is not counted in either half.
   `"allow-remote"` DEFERS to the owner's own `[llm] prefer_local` preference rather than forcing a
   remote draft. A remote draft sends the description and indexed endpoint paths, never a credential
   value. The prompt is grounded on `api_endpoint` items already indexed from OpenAPI specs under
-  `[[filesystem.roots]]` — a local index read, zero egress — and the approval prompt discloses when
-  nothing matched. `nimbus tool create --credential <host>=<token>` now actually transmits and
+  `[[filesystem.roots]]` — a local index READ, though the query embedding follows `[embedding]` and
+  therefore reaches the embedding vendor (ledgered `model`-class) on a remote-embedder install;
+  `drafting = "off"` and a routeless machine refuse before that search runs — and the approval
+  prompt discloses when nothing matched. `nimbus tool create --credential <host>=<token>` now actually transmits and
   binds a BEARER credential per host at create time; `header`/`basic` bindings exist in the broker
   but are reachable from no user-facing path this release, and `nimbus tool credential set` remains
   a permanent refusal stub. No schema migration, no new invariant — PR 2 builds entirely on PR 1's
-  I39 substrate. **PLATFORM BOUND, stated rather than shipped silently: `nimbus tool create` is
-  non-functional on Windows** — the pre-consent confinement probe (`toolgen-confinement.ts`) spawns
-  an `@nimbus-dev/sdk/testing` script as a bare file entry point, which cannot start under a
-  restrictive manifest inside Windows AppContainer (the measured `CouldntReadCurrentDirectory` dead
-  end `toolgen-client.ts`'s own post-approval launcher already works around, via an `-e` import stub
-  the probe does not use), so the gate refuses (`ERR_TOOLGEN_CONFINEMENT_FAILED`) before the owner
-  is ever prompted, even after a successful draft. Pre-existing — it shipped with PR 1's substrate,
-  invisible only because PR 1 always refused at the drafting step first — but now user-visible, and
-  **not fixable from this repository**: the probe lives in the separate `nimbus-sdk` repo and needs
-  a change plus a version bump there. **Not shipped:** agent-initiated tool proposal
+  I39 substrate. **The pre-consent confinement probe was rewritten in the same PR, and platform
+  equality (non-negotiable #5) HOLDS.** The earlier probe made `nimbus tool create` refuse
+  (`ERR_TOOLGEN_CONFINEMENT_FAILED`) before the owner was ever prompted on ALL THREE platforms, not
+  only Windows: it spawned an `@nimbus-dev/sdk/testing` script as a bare file entry point, which
+  cannot start under a restrictive manifest inside Windows AppContainer (the measured
+  `CouldntReadCurrentDirectory` dead end), AND it read `/etc/passwd`, which `bwrap` `--ro-bind`s and
+  the macOS profile grants — so a correctly confined child read it and the probe reported
+  "unconfined" on Linux and macOS. Nothing ever ran the DEFAULT probe (the unit tests inject
+  `spawnProbe`, the integration suite injected its own copy), which is why it was invisible.
+  `toolgen-confinement.ts` now carries a nine-line, zero-import inline `-e` probe that tries to read
+  a SENTINEL the gate wrote outside every manifest grant and proved readable from the parent first —
+  parent can, child cannot, therefore confined — with ANY read failure counting, since the three
+  platforms deny by three mechanisms (`ENOENT` from bwrap's `--tmpfs /tmp` masking, `EPERM` under
+  macOS `(deny default)`, a missing ACE on Windows). `assertToolConfinement`'s `canConfine`-then-probe
+  order and its exit-code contract are unchanged, and both test layers now drive the real probe.
+  Verified on Windows against a real `nimbus-sandbox-helper.exe` and on Linux against real `bwrap`
+  0.11.1, where the two toolgen integration cases failed before the change and pass after it; macOS
+  is not verified on hardware and is the stated residual, though the sentinel shape is the one
+  `test/integration/platform/sandbox/sandbox-wrapper-spawn.test.ts` already uses and passes with
+  there. **Not shipped:** agent-initiated tool proposal
   (`allow_agent_initiated` + `allowed_hosts`) and persistence via `nimbus tool save` (PR 3, which
   must resolve how I16's Ed25519 verification applies to a tool with no publisher). PR 2 design:
   [`2026-09-09-s2-toolgen-drafting-design.md`](./superpowers/specs/2026-09-09-s2-toolgen-drafting-design.md).

@@ -32,9 +32,13 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   the owner has separately turned preference itself toward remote.
 
   **The drafting prompt is grounded on API endpoints already indexed from OpenAPI specs under
-  `[[filesystem.roots]]`** — a local hybrid (BM25 + vector) index read, zero egress regardless of
-  drafting mode. When nothing matches, the model drafts from the description alone and the
-  approval prompt discloses that rather than implying the draft was grounded.
+  `[[filesystem.roots]]`** — a local ranked index read (hybrid BM25 + vector where semantic search
+  is available, lexical-only otherwise). The READ is local; the query EMBEDDING follows the
+  `[embedding]` configuration, so a remote embedder means the tool description reaches that vendor,
+  ledgered `model`-class. `drafting = "off"` (and "no eligible drafting route") now refuse BEFORE
+  the grounding search, so an owner who turned drafting off sends nothing anywhere. When nothing
+  matches, the model drafts from the description alone and the approval prompt discloses that
+  rather than implying the draft was grounded.
 
   **`nimbus tool create --credential <host>=<token>` now actually transmits and binds a BEARER
   credential per host,** written to a per-host Vault entry before the owner is prompted. `header`
@@ -48,19 +52,23 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   the tool's still-verbatim body and host/credential lists — never a digest, never a credential
   value.
 
-  **PLATFORM BOUND, stated rather than shipped silently: `nimbus tool create` is non-functional on
-  Windows.** The pre-consent confinement probe (`toolgen-confinement.ts`) spawns a diagnostic
-  script from `@nimbus-dev/sdk/testing` as a bare file entry point, and a bare file entry point
-  cannot start under a restrictive manifest inside the Windows AppContainer sandbox — the same
-  `CouldntReadCurrentDirectory` dead end the tool's own post-approval launcher already works around
-  via an `-e` import stub, which the pre-approval probe does not use. The probe therefore never
-  produces its expected exit code on Windows, and the gate refuses (`ERR_TOOLGEN_CONFINEMENT_FAILED`)
-  before the owner is ever prompted, even when drafting itself would have succeeded. **Not fixable
-  from this repository:** the probe script lives in the separate `nimbus-sdk` repo and needs a
-  change plus a version bump there. It predates this PR — it shipped with PR 1's substrate below —
-  but PR 1 always refused at the drafting step first, so the confinement gap was invisible until
-  drafting made the command otherwise functional. See `docs/cli-reference.md`'s `nimbus tool`
-  section for the full statement.
+  **`nimbus tool create` now works on all three platforms — the pre-consent confinement probe was
+  broken on every one of them, not only Windows.** The probe spawned an `@nimbus-dev/sdk/testing`
+  script as a bare file entry point, which cannot start under a restrictive manifest inside the
+  Windows AppContainer (`CouldntReadCurrentDirectory`), and it read a "known-protected system path"
+  (`/etc/passwd`) that `bwrap` `--ro-bind`s and the macOS profile grants — so a correctly confined
+  child read it happily and the probe reported "unconfined" on Linux and macOS. Every
+  `nimbus tool create` refused with `ERR_TOOLGEN_CONFINEMENT_FAILED` before the owner was prompted,
+  invisibly, because nothing ever ran the DEFAULT probe: the unit tests inject `spawnProbe` and the
+  integration suite injected its own inline copy. Both now drive the real one. The probe is a
+  nine-line, zero-import inline `-e` script that tries to read a SENTINEL the gate just wrote
+  outside every manifest grant and proved readable from the parent first — parent can, child
+  cannot, therefore confined — with ANY read failure counting, since Linux denies by masking
+  (`ENOENT`), macOS by `(deny default)` (`EPERM`) and Windows by a missing ACE. `assertToolConfinement`'s
+  own `canConfine`-then-probe order and its exit-code contract are unchanged. **Verified** on
+  Windows against a real `nimbus-sandbox-helper.exe` and on Linux against real `bwrap` 0.11.1
+  (where the two integration cases failed before the change); macOS is not verified on hardware,
+  and the sentinel shape is the one `sandbox-wrapper-spawn.test.ts` already uses there.
 
   **Not shipped:** agent-initiated tool proposal (`allow_agent_initiated` + `allowed_hosts`),
   persistence via `nimbus tool save`, and the `header`/`basic` credential bindings above. Design:
