@@ -493,6 +493,119 @@ describe("createGeneratedTool drafting and credential binding (Task 9)", () => {
   });
 });
 
+// The credential host was FILTERED through `normalizeHost` but forwarded RAW, so one host became
+// two names: the Vault key was written under `https://api_pexample_pcom` while
+// `ToolgenBroker.handleFetch` reads under `url.hostname.toLowerCase()`. Three consequences, all
+// pinned here, and the third is the one that breaks a safety property this gate establishes.
+describe("a credential host is NORMALISED everywhere, not merely matched against a normalised host", () => {
+  const RAW = "https://API.example.com/v1";
+  const NORMALISED = "api.example.com";
+
+  test("bindCredentials RECEIVES the normalised host, not the string the owner typed", async () => {
+    // Captures the WHOLE credential, binding included — a `{ host: string }` capture would make the
+    // "the token travelled with it" assertion below untypeable, and a narrower capture is exactly
+    // how a dropped field goes unnoticed.
+    type Captured = { host: string; binding: { type: string; token: string } };
+    const bound: Array<ReadonlyArray<Captured>> = [];
+    const d = deps({
+      bindCredentials: async (_toolId: string, creds: Captured[]) => {
+        bound.push(creds);
+        return creds.map((c) => c.host);
+      },
+    });
+    // Assert on what the fake RECEIVED: the outcome is `registered` either way, which is exactly
+    // why the raw-host bug survived — the tool registered, then made unauthenticated requests.
+    const out = await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("registered");
+    expect(bound).toHaveLength(1);
+    expect(bound[0]?.map((c) => c.host)).toEqual([NORMALISED]);
+    // The binding travels intact — normalising the host must not drop the token.
+    expect(bound[0]?.[0]).toEqual({
+      host: NORMALISED,
+      binding: { type: "bearer", token: "s3cret" },
+    });
+  });
+
+  test("the approval prompt's credentialHosts AGREES with its approvedHosts", async () => {
+    let seen: { approvedHosts: readonly string[]; credentialHosts: readonly string[] } | undefined;
+    const d = deps({
+      bindCredentials: async (_toolId: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      requestApproval: async (input: {
+        approvedHosts: readonly string[];
+        credentialHosts: readonly string[];
+      }) => {
+        seen = input;
+        return true;
+      },
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    // An owner cannot meaningfully approve an envelope that contradicts itself: two spellings of
+    // one host read as a credential for a host the tool was not approved to reach.
+    expect(seen?.approvedHosts).toEqual([NORMALISED]);
+    expect(seen?.credentialHosts).toEqual([NORMALISED]);
+  });
+
+  test("a DENIAL revokes that same normalised name — the key that was actually written", async () => {
+    const revoked: Array<{ toolId: string; hosts: readonly string[] }> = [];
+    const d = deps({
+      requestApproval: async () => false,
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      revokeCredentials: async (id: string, hosts: readonly string[]) => {
+        revoked.push({ toolId: id, hosts });
+      },
+    });
+    const out = await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    expect(out.status).toBe("denied");
+    // Under the raw-host bug this named `https://API.example.com/v1`, a key nothing had written,
+    // so the real bearer token SURVIVED in the Vault under a toolId that will never register.
+    expect(revoked).toEqual([{ toolId: "tg_a", hosts: [NORMALISED] }]);
+  });
+
+  test("the denial audit row DISCLOSES the credential hosts a secret may have been written for", async () => {
+    const d = deps({
+      requestApproval: async () => false,
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: RAW, binding: { type: "bearer", token: "s3cret" } },
+    ]);
+    const row = auditRows(d.db)[0];
+    const payload = JSON.parse(row?.action_json ?? "{}") as Record<string, unknown>;
+    expect(payload["outcome"]).toBe("denied_by_owner");
+    // `bindCredentials` runs BEFORE consent, so a denial can follow a real Vault write. This is the
+    // row an auditor reads to ask whether one happened; without the field the answer was invisible.
+    expect(payload["credentialHosts"]).toEqual([NORMALISED]);
+    // And never the secret itself.
+    expect(row?.action_json).not.toContain("s3cret");
+  });
+
+  test("two credentials for the SAME host after normalisation are disclosed ONCE, not twice", async () => {
+    let seen: readonly string[] | undefined;
+    const d = deps({
+      bindCredentials: async (_id: string, creds: Array<{ host: string }>) =>
+        creds.map((c) => c.host),
+      requestApproval: async (input: { credentialHosts: readonly string[] }) => {
+        seen = input.credentialHosts;
+        return true;
+      },
+    });
+    await createGeneratedTool(req, d as never, [
+      { host: "api.example.com", binding: { type: "bearer", token: "a" } },
+      { host: "API.example.com:443", binding: { type: "bearer", token: "b" } },
+    ]);
+    expect(seen).toEqual([NORMALISED]);
+  });
+});
+
 // Fix round 1 on Task 10: the CLI's local-model hint reads `outcome.locality`, and this is the
 // producer -- the outer `catch` must carry a thrown `ToolgenError`'s locality onto the refused
 // outcome, since that is the only place `ToolgenOutcome`'s "refused" variant is constructed.

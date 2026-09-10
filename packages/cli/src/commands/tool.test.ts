@@ -59,6 +59,39 @@ describe("parseToolArgs", () => {
     ).toThrow(/not in --host/);
   });
 
+  test("a --credential whose host differs only in CASE is accepted — the gateway lowercases", () => {
+    // `normalizeHost` (gateway) lowercases, so these are ONE host there. Refusing them here was a
+    // pure over-refusal: the owner is told their two flags disagree when the gateway would treat
+    // them as identical. The raw spelling is preserved on the wire — the gateway normalises.
+    const parsed = parseToolArgs([
+      "create",
+      "--description",
+      "d",
+      "--host",
+      "a.example.com",
+      "--credential",
+      "A.Example.COM=tok",
+    ]);
+    expect(parsed).toMatchObject({ credentials: [{ host: "A.Example.COM", token: "tok" }] });
+  });
+
+  test("a --credential carrying a scheme is still refused here, and the message names both spellings", () => {
+    // Stated over-refusal: `packages/cli` may not import gateway source, so the CLI deliberately
+    // does NOT reimplement the rest of `normalizeHost` (scheme/port stripping) — one boundary, one
+    // copy. The gateway would accept this pair; the CLI asks the owner to spell them the same way.
+    expect(() =>
+      parseToolArgs([
+        "create",
+        "--description",
+        "d",
+        "--host",
+        "a.example.com",
+        "--credential",
+        "https://a.example.com/v1=tok",
+      ]),
+    ).toThrow(/https:\/\/a\.example\.com\/v1/);
+  });
+
   test("credential set requires a tool id, a host and exactly one scheme", () => {
     expect(() => parseToolArgs(["credential", "set", "tg_a", "a.example.com"])).toThrow(
       /--bearer|--header/,

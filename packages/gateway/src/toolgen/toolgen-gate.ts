@@ -280,12 +280,42 @@ export async function createGeneratedTool(
     }
     // Only hosts the owner also granted via --host. The CLI already enforces this, but the gate is
     // the boundary: the prompt and the artifact must never name a host the tool cannot reach.
-    const forApprovedHosts = credentials.filter((c) => hosts.includes(normalizeHost(c.host)));
+    //
+    // The `host` is REWRITTEN to its normalised form, not merely tested against one. Filtering on
+    // `normalizeHost(c.host)` while forwarding `c.host` untouched split one host into two names and
+    // broke three things at once, because `normalizeHost` accepts what a user actually types
+    // (`https://API.example.com/v1`, `api.example.com:443`) while the Vault key, the approval
+    // prompt and the broker each saw a different one of them:
+    //   * `bindCredentials` wrote `toolgen.<id>.https://api_pexample_pcom` while
+    //     `ToolgenBroker.handleFetch` reads under `url.hostname.toLowerCase()` — the lookup missed
+    //     and the tool made UNAUTHENTICATED requests at runtime, after the owner had approved it;
+    //   * `credentialHosts` in the artifact and the prompt disagreed with `approvedHosts`, so the
+    //     owner approved an envelope that contradicted itself;
+    //   * on a DENIAL the revoke targeted a key that was never written, leaving the bearer token in
+    //     the Vault under a toolId that will never register — the exact property this gate
+    //     otherwise guarantees (a credential bound before consent is revoked on every path that
+    //     does not end in registration).
+    // One normalised name, everywhere.
+    //
+    // DE-DUPLICATED by host at the same time, keeping the LAST entry for a repeated host. Two
+    // `--credential` entries can name one host after normalisation (`api.example.com=a` and
+    // `API.example.com:443=b`), and without this the tool would take two Vault writes for one key
+    // and name that host TWICE in the artifact and the approval prompt. LAST rather than first
+    // because that is what the Vault would end up holding anyway: `bindCredentials` is a sequential
+    // per-host write loop, so the later token overwrites the earlier one. De-duplicating here makes
+    // the disclosed list agree with the stored value instead of merely being shorter.
+    const byHost = new Map<string, ToolCredentialParam>();
+    for (const c of credentials) {
+      const host = normalizeHost(c.host);
+      if (!hosts.includes(host)) continue;
+      byHost.set(host, { host, binding: c.binding });
+    }
+    const forApprovedHosts = [...byHost.values()];
     // NAMES ONLY -- computed once and reused below both to tell the draft what will be sent, and
     // (after `bindCredentials` is about to be called) as the ATTEMPTED cleanup set. See
     // `attemptedCredentialHosts`'s declaration above for why cleanup needs this rather than
-    // `bindCredentials`'s return value.
-    const forApprovedHostNames = forApprovedHosts.map((c) => normalizeHost(c.host));
+    // `bindCredentials`'s return value. Already unique — `forApprovedHosts` is keyed by host above.
+    const forApprovedHostNames = forApprovedHosts.map((c) => c.host);
 
     // 5. Draft, then build the manifest -- network EMPTY by construction.
     const draft = await deps.draftTool(req, {
@@ -297,7 +327,11 @@ export async function createGeneratedTool(
     });
     const body = draft.body;
     // The script DIRECTORY is derived before the manifest so the manifest can grant read to it.
-    // Nothing is WRITTEN there until after approval (step 8) — a derived path touches no disk.
+    // Deriving the path touches no disk; the CONFINEMENT step at 6 then does — `mkdir`ing this
+    // directory EMPTY (and the runtime read paths), because the Windows AppContainer helper's ACL
+    // grant fails closed on a path that does not exist yet. What still holds, and is the property
+    // that matters, is that no CONTENT reaches disk before the owner approves: the tool BODY is
+    // written at step 9 and nowhere earlier. See `assertToolConfinement`'s docstring.
     //
     // The interpreter's OWN read paths must be granted too, not just the script directory: on
     // Windows the AppContainer helper writes one ACE per granted path, so an interpreter outside
@@ -361,6 +395,13 @@ export async function createGeneratedTool(
         toolId,
         body,
         hosts,
+        // Present on a DENIAL too, not only on `registered`. This is the row an auditor reads to
+        // answer "was a secret written for a tool that never registered?" — and since
+        // `bindCredentials` runs at step 7, BEFORE consent, the answer can be yes. The revoke above
+        // is what undoes it; this field is what makes the attempt visible if the revoke failed
+        // (it is swallowed by `safeRevokeCredentials` by design). Harmless to omit while binding
+        // was a no-op stub; not harmless now.
+        credentialHosts: attemptedCredentialHosts,
         draftAttempts: draft.attempts,
         draftGrounding: draft.grounding,
         draftLocality: draft.locality,

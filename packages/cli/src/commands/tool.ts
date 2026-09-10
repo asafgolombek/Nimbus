@@ -98,8 +98,18 @@ function parseCreateArgs(rest: readonly string[]): Extract<ParsedToolArgs, { sub
   // prompt's `credentialHosts` disclose a binding for a host the tool was never approved to reach --
   // refused here, before anything is sent to the gateway, rather than resolved by silently adding
   // the host to the grant.
+  //
+  // Compared case-INSENSITIVELY (and trimmed), because the gateway's `normalizeHost` lowercases:
+  // `--host api.example.com --credential API.example.com=…` names ONE host there and was refused
+  // here, a pure over-refusal. This deliberately does NOT reimplement the rest of `normalizeHost`
+  // (scheme stripping, port stripping) — the gateway is the boundary and the CLI must not carry a
+  // second, drifting copy of it, and `packages/cli` may not import gateway source at all. So
+  // `--credential https://api.example.com/v1=…` against `--host api.example.com` is still refused
+  // even though the gateway would accept it: an over-refusal in the safe direction, with a message
+  // that names both spellings.
+  const hostsLower = hosts.map((h) => h.trim().toLowerCase());
   for (const cred of credentials) {
-    if (!hosts.includes(cred.host)) {
+    if (!hostsLower.includes(cred.host.trim().toLowerCase())) {
       throw new Error(
         `nimbus tool create: --credential names host "${cred.host}", which is not in --host\n${USAGE}`,
       );
