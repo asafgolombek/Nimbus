@@ -46,6 +46,16 @@ export function verifyBodySyntax(body: string): void {
  * stated as the residual bound. An arms race in a non-boundary check buys nothing while every
  * added pattern raises false-positive risk.
  *
+ * The residual runs in the OTHER direction too, and is the one that costs an owner a draft: this
+ * is a TEXT scan, not a parse, so a match inside a STRING LITERAL or a COMMENT rejects a body that
+ * would have worked. `return "see process.env docs";` and `// callers used to require() this` are
+ * both refused. That is a false POSITIVE — the redraft prompt names the construct and a model
+ * usually rewords it — and it is accepted rather than fixed, because stripping strings and
+ * comments correctly means parsing (template literals, regex literals, nested quotes), and a
+ * half-correct stripper that blanks the wrong span would make the check MISS a real construct
+ * instead of over-refusing. Over-refusal costs one redraft; under-refusal ships a body the owner
+ * was told could work.
+ *
  * Matched on word boundaries, never by substring: `prefetch(` and `client.fetch(` both CONTAIN
  * `fetch(` and are legitimate. The lookbehind `(?<![\w$.])` excludes word characters, dots, and
  * dollar signs to avoid false positives on property access and variable names.

@@ -89,18 +89,41 @@ export function validateInputSchema(raw: unknown): ToolInputSchema {
   const props = asRecord(s["properties"]);
   if (props === null) fail("inputSchema.properties must be an object");
 
-  const properties: Record<string, ToolInputProperty> = {};
+  // `Object.create(null)`, never a `{}` literal. `properties[name] = …` with `name === "__proto__"`
+  // does NOT create a property on a plain object — it invokes `Object.prototype`'s `__proto__`
+  // SETTER, which reparents the map instead. `__proto__` is a valid JavaScript identifier, so
+  // `VALID_IDENTIFIER` lets it through, and `JSON.parse` hands it over as an ordinary own key, so a
+  // model (or anything feeding this) can reach it. The damage is not "pollution of a global" — it
+  // is that the property VANISHES from `Object.entries` while the `required` check below, using
+  // `in`, traverses the newly injected prototype and finds it anyway: `required` would validate
+  // against a property the returned schema does not declare, and the owner would approve a
+  // parameter list missing an argument the model intends to read.
+  //
+  // `Object.hasOwn` for the `required` check for the same reason — `in` walks the prototype chain,
+  // so it answers `true` for `"toString"` on a plain object even with no such property declared.
+  const properties: Record<string, ToolInputProperty> = Object.create(null) as Record<
+    string,
+    ToolInputProperty
+  >;
   for (const [name, def] of Object.entries(props)) {
     properties[name] = validateProperty(name, def);
   }
+  // Spread back onto an ordinary object for the RETURN value: spreading copies own enumerable keys
+  // with `CreateDataProperty`, which does not invoke the `__proto__` setter either, so a
+  // `__proto__` property survives as a plain own data property — while everything downstream
+  // (`Object.entries`, `JSON.stringify`, deep-equality in tests) sees a normal object rather than a
+  // prototype-less one.
+  const safeProperties = { ...properties };
 
   const rawRequired = s["required"];
-  if (rawRequired === undefined) return { type: "object", properties };
+  if (rawRequired === undefined) return { type: "object", properties: safeProperties };
   if (!Array.isArray(rawRequired) || !rawRequired.every((k) => typeof k === "string")) {
     fail("inputSchema.required must be an array of strings");
   }
   for (const key of rawRequired as string[]) {
-    if (!(key in properties)) fail(`inputSchema.required names undeclared property "${key}"`);
+    if (!Object.hasOwn(properties, key)) {
+      fail(`inputSchema.required names undeclared property "${key}"`);
+    }
   }
   // DEDUPLICATED, because this returns the CANONICAL form: the schema goes inside the artifact
   // that `artifactDigest` hashes and PR 3 signs, so two schemas that mean the same thing must not
@@ -112,8 +135,8 @@ export function validateInputSchema(raw: unknown): ToolInputSchema {
   // here. Left as two spellings, a re-validation of an already-approved artifact (Task 9) could
   // produce a digest that no longer matches the one the owner approved.
   return required.length === 0
-    ? { type: "object", properties }
-    : { type: "object", properties, required };
+    ? { type: "object", properties: safeProperties }
+    : { type: "object", properties: safeProperties, required };
 }
 
 function zodForProperty(prop: ToolInputProperty): z.ZodTypeAny {

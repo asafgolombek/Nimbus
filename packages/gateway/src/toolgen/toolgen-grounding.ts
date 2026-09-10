@@ -45,7 +45,19 @@ function toEndpoint(item: RankedIndexItem): GroundedEndpoint | null {
 /**
  * Retrieval for the drafting prompt.
  *
- * Uses the index's HYBRID search (BM25/FTS5 + vector, fused by RRF) filtered to `api_endpoint`.
+ * Uses the index's `searchRankedAsync` filtered to `api_endpoint`. That is HYBRID search
+ * (BM25/FTS5 + vector, fused by RRF) only WHEN semantic search is available — the query must embed,
+ * so a machine with no embedder, an empty vector table or a failing embed call falls back to the
+ * LEXICAL half alone, silently and by design. Both modes are legitimate retrieval and the § 6.2
+ * disclosure does not distinguish them; what a reader must not conclude from this sentence is that
+ * a vector lane always ran.
+ *
+ * Corollary worth stating where the call is: the index READ is local, but the query EMBEDDING
+ * follows the `[embedding]` configuration, so on a hybrid/remote-embedder install this function
+ * makes a real outbound request carrying `query` — the owner's tool description — ledgered
+ * `model`-class by `wrapLedgeredEmbedder` (I29). `draftGeneratedTool` therefore refuses a
+ * `drafting = "off"` (or routeless) request BEFORE it calls this.
+ *
  * Deliberately NOT a `LIKE '%' || description || '%'` query: that asks whether a natural-language
  * sentence occurs verbatim inside a URL path, which is never true, so grounding would report
  * `description_only` on every request while the disclosure stayed truthful and every test passed.

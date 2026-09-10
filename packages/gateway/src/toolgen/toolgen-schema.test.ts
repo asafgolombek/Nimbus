@@ -119,3 +119,53 @@ describe("zodSchemaFromInputSchema", () => {
     expect(zodSchemaFromInputSchema(none).safeParse({}).success).toBe(true);
   });
 });
+
+describe('validateInputSchema and the "__proto__" property name', () => {
+  // `__proto__` is a valid JavaScript identifier, so `VALID_IDENTIFIER` admits it, and `JSON.parse`
+  // hands it over as an ordinary own key — so a drafting model can reach this. On a plain `{}`
+  // accumulator, `properties["__proto__"] = …` invokes `Object.prototype`'s SETTER instead of
+  // creating a property: the property disappears from `Object.entries` while `"__proto__" in
+  // properties` still answers true through the newly injected prototype. `required` would then
+  // validate against a property the returned schema does not declare, and the owner would approve a
+  // parameter list that is missing an argument the body intends to read.
+  //
+  // Built by parsing a JSON STRING, never an object literal. `{ __proto__: … }` in a literal is
+  // special-cased by the language into a prototype assignment, so a literal-based fixture here
+  // would contain no `__proto__` property at all and the test would pass vacuously against any
+  // implementation. `JSON.parse` uses `CreateDataProperty` and produces a genuine own key — which
+  // is also exactly how this value reaches `validateInputSchema` in production, from a model's
+  // reply through `runLadder`'s `JSON.parse`.
+  const RAW_JSON =
+    '{"type":"object","properties":{"__proto__":{"type":"string"},"owner":{"type":"string"}},"required":["__proto__"]}';
+
+  test("the property SURVIVES as an own key rather than reparenting the map", () => {
+    const s = validateInputSchema(JSON.parse(RAW_JSON));
+    expect(Object.hasOwn(s.properties, "__proto__")).toBe(true);
+    expect(Object.keys(s.properties).sort()).toEqual(["__proto__", "owner"]);
+    expect(s.required).toEqual(["__proto__"]);
+    // The map is a normal object, not one whose prototype is a ToolInputProperty.
+    expect(Object.getPrototypeOf(s.properties)).toBe(Object.prototype);
+  });
+
+  test("it reaches the model-facing zod schema like any other property", () => {
+    const s = validateInputSchema(JSON.parse(RAW_JSON));
+    // Same trap on the INPUT side: `{ __proto__: "x" }` as a literal would set a prototype rather
+    // than supply an argument, so the parsed value is built from JSON here too.
+    const parsed = zodSchemaFromInputSchema(s).safeParse(
+      JSON.parse('{"__proto__":"x","owner":"n"}'),
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  test('`required` still REFUSES a name that is only on Object.prototype ("toString")', () => {
+    // The `in`-vs-`Object.hasOwn` half. With `in`, `required: ["toString"]` validated happily
+    // against every schema, because every plain object inherits it.
+    expect(() =>
+      validateInputSchema({
+        type: "object",
+        properties: { owner: { type: "string" } },
+        required: ["toString"],
+      }),
+    ).toThrow(/undeclared property "toString"/);
+  });
+});

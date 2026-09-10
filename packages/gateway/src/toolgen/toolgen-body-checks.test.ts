@@ -115,6 +115,12 @@ describe("scanBodyForForbiddenGlobals", () => {
     ["globalThis.Bun", "globalThis.Bun.file('/etc');"],
     ["window.Bun", "window.Bun.file('/etc');"],
     ["self.Bun", "self.Bun.file('/etc');"],
+    // The SIXTH global-object form. The table covered fetch/require/eval/process/Bun via
+    // globalThis/window/self and stopped there, so `FORBIDDEN`'s last entry — the `import` one —
+    // had no row at all and could have been deleted with every test still green.
+    ["globalThis.import", 'await globalThis.import("fs");'],
+    ["window.import", 'await window.import("fs");'],
+    ["self.import", 'await self.import("fs");'],
   ])("rejects %s", (_label, body) => {
     expect(() => scanBodyForForbiddenGlobals(body)).toThrow(ToolgenError);
   });

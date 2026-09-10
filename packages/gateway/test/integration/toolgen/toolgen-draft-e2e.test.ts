@@ -5,14 +5,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_NIMBUS_TOOL_GENERATION_TOML } from "../../../src/config/nimbus-toml.ts";
-import { extensionProcessEnv } from "../../../src/extensions/spawn-env.ts";
 import { CURRENT_SCHEMA_VERSION } from "../../../src/index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
-import type { SandboxPolicy } from "../../../src/platform/sandbox/sandbox-policy.ts";
-import {
-  createSandboxRunner,
-  type SandboxRunner,
-} from "../../../src/platform/sandbox/sandbox-runner.ts";
+import { createSandboxRunner } from "../../../src/platform/sandbox/sandbox-runner.ts";
 import { ToolgenBroker } from "../../../src/toolgen/toolgen-broker.ts";
 import {
   buildToolSpawnSpec,
@@ -64,23 +59,17 @@ import type {
  * a skip here would prove nothing about whether the wired drafting path actually produces a
  * callable tool, so a missing sandbox helper fails loudly instead.
  *
- * ONE real component IS substituted, and it is worth stating exactly why: `assertToolConfinement`'s
- * own default probe (`toolgen-confinement.ts`'s `defaultSpawnProbe`) spawns the `@nimbus-dev/sdk`
- * probe SCRIPT as a bare file argument (`bun <probe.js> --probe=fs-denied`). On Windows that is the
- * exact "file entry point" shape `toolgen-client.ts`'s own docstring documents as a measured dead
- * end under the AppContainer (`CouldntReadCurrentDirectory`) — confirmed against this worktree's
- * real, built `nimbus-sandbox-helper.exe`, not assumed. Switching the invocation to the `-e` import
- * form `buildToolSpawnSpec` uses gets past THAT, but the probe script then lives under
- * `node_modules/.bun/...`, a path no generated-tool manifest ever grants read to — a second,
- * separate reason the SDK's own probe program cannot run under a tool's restrictive manifest.
- * `ToolConfinementDeps.spawnProbe` exists PRECISELY as an injection seam for a case like this (see
- * its own docstring: "Injected for tests. Production spawns the probe through the real runner.") —
- * `toolgen-confinement.test.ts` already relies on it to test `assertToolConfinement`'s OWN logic
- * (the `canConfine` gate plus exit-code interpretation) independent of what program actually runs.
- * `inlineFsDeniedProbe` below asks the exact same question `defaultSpawnProbe` does — can a policy
- * this restrictive still read a protected system path? — through a zero-import,
- * zero-`node_modules` `-e` script, which is what keeps it inside the SAME sandbox invocation shape
- * `spawnGeneratedTool` already proves works on Windows (`toolgen-network-denied.test.ts`).
+ * NOTHING is substituted in the confinement step any more, and that is a CHANGE: this file used to
+ * inject its own `inlineFsDeniedProbe` through `ToolConfinementDeps.spawnProbe`, because
+ * `assertToolConfinement`'s default probe spawned the `@nimbus-dev/sdk` probe SCRIPT as a bare file
+ * argument (`bun <probe.js> --probe=fs-denied`) — on Windows the exact "file entry point" shape
+ * `toolgen-client.ts` documents as a measured dead end under the AppContainer
+ * (`CouldntReadCurrentDirectory`), and, once switched to `-e`, a program living under
+ * `node_modules/.bun/...`, a path no generated-tool manifest grants read to. That inline probe has
+ * been MOVED INTO `toolgen-confinement.ts` (see its `INLINE_FS_DENIED_PROBE` docstring, which also
+ * records why the target it reads is a caller-written sentinel rather than `/etc/passwd`), so the
+ * default probe is now the one this suite drives. The test injection is gone with it: what runs
+ * here is what production runs.
  *
  * This run ALSO surfaced, and this task fixes, a THIRD, genuinely production-blocking defect one
  * level up: `assertToolConfinement` runs BEFORE `writeScript` creates the tool's own script
@@ -106,6 +95,10 @@ const STUB_PAYLOAD = { ok: true, value: 42 };
 
 let server: ReturnType<typeof Bun.serve>;
 let hits = 0;
+// The URL the broker was TOLD to dial (before `doFetch` redirects it at the stub server). This is
+// what makes an argument observable end to end: the stub answers every path identically, so
+// without recording it, a body that ignored `args` entirely would look exactly the same.
+let dialed = "";
 
 beforeAll(() => {
   server = Bun.serve({
@@ -158,45 +151,6 @@ async function spawnConfined(
 }
 
 /**
- * A zero-import, zero-`node_modules` stand-in for `toolgen-confinement.ts`'s `defaultSpawnProbe` —
- * see the module docstring above for exactly why the real one cannot be used unmodified on
- * Windows. Asks the identical question — can a policy this restrictive still read a path only an
- * administrator should reach? — and reports the identical exit-code contract
- * (`PROBE_EXIT_FS_DENIED = 10` on EACCES/EPERM, anything else otherwise), so
- * `assertToolConfinement`'s own interpretation of the result is completely unmodified and real.
- */
-const INLINE_FS_DENIED_PROBE = [
-  'const path = process.platform === "win32" ? "C:/Windows/System32/config/SAM" : "/etc/passwd";',
-  "try {",
-  '  const fs = await import("node:fs/promises");',
-  "  await fs.readFile(path, 'utf8');",
-  "  process.exit(2);",
-  "} catch (e) {",
-  '  process.exit(e && (e.code === "EPERM" || e.code === "EACCES") ? 10 : 2);',
-  "}",
-].join("\n");
-
-function inlineFsDeniedProbe(
-  runner: SandboxRunner,
-  policy: SandboxPolicy,
-  cwd: string,
-): Promise<number> {
-  return new Promise((resolvePromise) => {
-    const child = runner.spawn(process.execPath, ["-e", INLINE_FS_DENIED_PROBE], {
-      policy,
-      env: extensionProcessEnv({}),
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    // Drained, never parsed — the probe's verdict is its EXIT CODE, matching
-    // `defaultSpawnProbe`'s own contract.
-    child.stdout?.resume();
-    child.stderr?.resume();
-    child.on("close", (code) => resolvePromise(code ?? -1));
-  });
-}
-
-/**
  * A broker wired the same way `platform/assemble.ts` wires the real one, except for the two
  * network-hop seams `toolgen-broker.test.ts` itself uses: `resolveHost` answers a public-looking
  * address for the one approved host (so the broker's own loopback/RFC1918 address check — which
@@ -214,7 +168,10 @@ function buildBroker(db: Database, registry: ToolgenRegistry): ToolgenBroker {
     resolveHost: async (host) => (host === STUB_HOST ? ["93.184.216.34"] : []),
     readCredential: async () => null,
     approvedHostsFor: (toolId) => registry.get(toolId)?.artifact.approvedHosts ?? [],
-    doFetch: async (_url, init) => fetch(`http://127.0.0.1:${server.port}/`, init),
+    doFetch: async (url, init) => {
+      dialed = url;
+      return fetch(`http://127.0.0.1:${server.port}/`, init);
+    },
   });
 }
 
@@ -249,13 +206,9 @@ async function buildHarness(dirTag: string): Promise<Harness> {
       enforced: { capabilitiesDisabled: new Set<string>() },
       registry,
       draftTool: opts.draftTool,
+      // The REAL default probe — no `spawnProbe` injection. What runs here is what production runs.
       assertConfinement: (manifest) =>
-        assertToolConfinement({
-          runner: sandboxRunner,
-          manifest,
-          cwd: configDir,
-          spawnProbe: inlineFsDeniedProbe,
-        }),
+        assertToolConfinement({ runner: sandboxRunner, manifest, cwd: configDir }),
       scriptDir: (toolId) => toolScriptDir(configDir, toolId),
       writeScript: (toolId, source) => writeToolScript(configDir, toolId, source),
       spawn: async (envelope) => {
@@ -301,17 +254,30 @@ describe("toolgen drafting end to end", () => {
     // supposed to produce — a JSON envelope naming a body that calls `nimbusFetch`, never the
     // sandbox-refused raw `fetch()` — so it must pass every ladder rung (JSON envelope, restricted
     // schema, body syntax, forbidden-globals scan) exactly like a genuine model answer would.
+    //
+    // The schema declares ONE REQUIRED property and the body actually READS it, so the argument
+    // travels the whole way: test -> `handle.call({ resource })` -> the sandboxed child's
+    // `__invoke(args)` -> the URL it builds -> `nimbusFetch` -> the broker -> the stub server.
+    // Case 1 used an EMPTY schema on both sides, which made the `describe()` echo assertion
+    // (`toEqual({ type: "object", properties: {} })`) almost vacuous — it compared one empty object
+    // against another and would have passed even if the schema had never been baked into the
+    // emitted script at all.
     const fakeGenerate = async (_prompt: string): Promise<DraftGeneration | null> => ({
       text: JSON.stringify({
-        inputSchema: { type: "object", properties: {} },
+        inputSchema: {
+          type: "object",
+          properties: { resource: { type: "string", description: "the path segment to fetch" } },
+          required: ["resource"],
+        },
         body:
-          'const res = await nimbusFetch("https://api.example.com/data", { method: "GET" }); ' +
+          'const res = await nimbusFetch("https://api.example.com/" + args.resource, { method: "GET" }); ' +
           "return JSON.parse(res.body);",
       }),
       isLocal: true,
     });
     const draftTool: ToolgenGateDeps["draftTool"] = createDraftToolClosure({
       generate: fakeGenerate,
+      hasDraftRoute: async () => true,
       findEndpoints: async () => [],
     });
 
@@ -334,22 +300,35 @@ describe("toolgen drafting end to end", () => {
       expect(outcome.status).toBe("registered");
       if (outcome.status !== "registered") throw new Error("unreachable");
 
+      const approvedSchema = {
+        type: "object",
+        properties: { resource: { type: "string", description: "the path segment to fetch" } },
+        required: ["resource"],
+      };
       const envelope = h.registry.get(outcome.toolId);
-      expect(envelope?.artifact.inputSchema).toEqual({ type: "object", properties: {} });
+      expect(envelope?.artifact.inputSchema).toEqual(approvedSchema);
       expect(envelope?.artifact.approvedHosts).toEqual([STUB_HOST]);
 
       // `describe()` crosses the SAME wire protocol a `toolgen.list`/agent-facing caller would —
       // it reports the APPROVED schema, not a caller-supplied one, because the child echoes back
-      // exactly what `emitToolScript` baked into it from the artifact the owner approved.
+      // exactly what `emitToolScript` baked into it from the artifact the owner approved. With a
+      // non-empty schema this compares real structure — property name, type, description and
+      // `required` — rather than one empty object against another.
       expect(handle).toBeDefined();
       const described = await handle?.describe();
-      expect(described?.inputSchema).toEqual({ type: "object", properties: {} });
+      expect(described?.inputSchema).toEqual(approvedSchema);
 
       // The call travels: test → sandboxed child (`__invoke`) → `nimbusFetch` → stdio →
       // `wireToolProtocol` → `ToolgenBroker.handleFetch` → the stub server → back the same way.
-      const result = await handle?.call({});
+      dialed = "";
+      const result = await handle?.call({ resource: "data" });
       expect(result).toEqual(STUB_PAYLOAD);
       expect(hits).toBe(1);
+      // The ARGUMENT actually travelled: the URL the broker was asked to dial was built inside the
+      // sandboxed child from `args.resource`. The stub server answers every path identically, so
+      // this — not the response body — is what distinguishes "the argument arrived" from "the body
+      // ignored it".
+      expect(dialed).toBe(`https://${STUB_HOST}/data`);
 
       // Exactly ONE `tool`-class row — the one call this test made, nothing more, nothing less.
       expect(toolEgressRows(h.db)).toEqual([
