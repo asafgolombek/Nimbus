@@ -914,9 +914,9 @@ describe("I16 — Verified-publisher invariant", () => {
     const { encodeBase64, generateEd25519Keypair, signManifest } = await import(
       "./extensions/verify-signature.ts"
     );
-    const { verifyExtensionsBestEffort } = await import("./extensions/verify-extensions.ts");
-    const { MockVault } = await import("./vault/mock.ts");
-    const { setupFreshExtensionDb } = await import("../test/fixtures/extension.ts");
+    const { cleanupExtensionTestDirs, setupFreshExtensionDb } = await import(
+      "../test/fixtures/extension.ts"
+    );
 
     signatureDisabledRegistry.reset();
     const { db, extensionsDir } = setupFreshExtensionDb();
@@ -954,7 +954,7 @@ describe("I16 — Verified-publisher invariant", () => {
       expect(row?.enabled).toBe(0);
       expect(signatureDisabledRegistry.reasonFor(id)).toBe("publisher_key_missing");
     } finally {
-      rmSync(extensionsDir, { recursive: true, force: true });
+      cleanupExtensionTestDirs();
     }
   });
 
@@ -971,9 +971,9 @@ describe("I16 — Verified-publisher invariant", () => {
     const { encodeBase64, generateEd25519Keypair, signManifest } = await import(
       "./extensions/verify-signature.ts"
     );
-    const { verifyExtensionsBestEffort } = await import("./extensions/verify-extensions.ts");
-    const { MockVault } = await import("./vault/mock.ts");
-    const { setupFreshExtensionDb } = await import("../test/fixtures/extension.ts");
+    const { cleanupExtensionTestDirs, setupFreshExtensionDb } = await import(
+      "../test/fixtures/extension.ts"
+    );
 
     signatureDisabledRegistry.reset();
     const { db, extensionsDir } = setupFreshExtensionDb();
@@ -1016,7 +1016,7 @@ describe("I16 — Verified-publisher invariant", () => {
       expect(row?.enabled).toBe(0);
       expect(signatureDisabledRegistry.reasonFor(id)).toBe("signature_failed");
     } finally {
-      rmSync(extensionsDir, { recursive: true, force: true });
+      cleanupExtensionTestDirs();
     }
   });
 });
